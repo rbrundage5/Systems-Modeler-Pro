@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use systems_modeler_core::{Element, ElementId, Project, ProjectId, Relationship};
 use thiserror::Error;
@@ -92,8 +92,14 @@ impl ProjectDatabase {
              ON CONFLICT(id) DO UPDATE SET name=excluded.name,root_id=excluded.root_id,updated_at=CURRENT_TIMESTAMP",
             params![project.id.to_string(), project.name, project.root_id.to_string()],
         )?;
-        tx.execute("DELETE FROM relationships WHERE project_id=?1", params![project.id.to_string()])?;
-        tx.execute("DELETE FROM elements WHERE project_id=?1", params![project.id.to_string()])?;
+        tx.execute(
+            "DELETE FROM relationships WHERE project_id=?1",
+            params![project.id.to_string()],
+        )?;
+        tx.execute(
+            "DELETE FROM elements WHERE project_id=?1",
+            params![project.id.to_string()],
+        )?;
 
         {
             let mut statement = tx.prepare(
@@ -133,16 +139,21 @@ impl ProjectDatabase {
     }
 
     pub fn load_project(&self, id: ProjectId) -> Result<Project, PersistenceError> {
-        let project_row = self.connection.query_row(
-            "SELECT name,root_id FROM projects WHERE id=?1",
-            params![id.to_string()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).optional()?;
+        let project_row = self
+            .connection
+            .query_row(
+                "SELECT name,root_id FROM projects WHERE id=?1",
+                params![id.to_string()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
         let (name, root_id) = project_row.ok_or(PersistenceError::ProjectNotFound(id))?;
         let root_id = ElementId(parse_uuid(&root_id)?);
 
         let mut elements = std::collections::HashMap::new();
-        let mut statement = self.connection.prepare("SELECT payload FROM elements WHERE project_id=?1")?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT payload FROM elements WHERE project_id=?1")?;
         let rows = statement.query_map(params![id.to_string()], |row| row.get::<_, String>(0))?;
         for row in rows {
             let element: Element = serde_json::from_str(&row?)?;
@@ -150,14 +161,22 @@ impl ProjectDatabase {
         }
 
         let mut relationships = std::collections::HashMap::new();
-        let mut statement = self.connection.prepare("SELECT payload FROM relationships WHERE project_id=?1")?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT payload FROM relationships WHERE project_id=?1")?;
         let rows = statement.query_map(params![id.to_string()], |row| row.get::<_, String>(0))?;
         for row in rows {
             let relationship: Relationship = serde_json::from_str(&row?)?;
             relationships.insert(relationship.id, relationship);
         }
 
-        Ok(Project { id, name, root_id, elements, relationships })
+        Ok(Project {
+            id,
+            name,
+            root_id,
+            elements,
+            relationships,
+        })
     }
 }
 
@@ -173,10 +192,23 @@ mod tests {
     #[test]
     fn project_round_trips_through_sqlite() {
         let mut project = Project::new("Vehicle");
-        let package = project.create_element(ElementKind::Package, "Structure", project.root_id).unwrap();
-        let vehicle = project.create_element(ElementKind::Block, "Vehicle", package).unwrap();
-        let powertrain = project.create_element(ElementKind::Block, "Powertrain", package).unwrap();
-        project.create_relationship(RelationshipKind::Composition, vehicle, powertrain, Some(package)).unwrap();
+        let package = project
+            .create_element(ElementKind::Package, "Structure", project.root_id)
+            .unwrap();
+        let vehicle = project
+            .create_element(ElementKind::Block, "Vehicle", package)
+            .unwrap();
+        let powertrain = project
+            .create_element(ElementKind::Block, "Powertrain", package)
+            .unwrap();
+        project
+            .create_relationship(
+                RelationshipKind::Composition,
+                vehicle,
+                powertrain,
+                Some(package),
+            )
+            .unwrap();
 
         let mut db = ProjectDatabase::open_in_memory().unwrap();
         db.save_project(&project).unwrap();
