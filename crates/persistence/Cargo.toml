@@ -1,0 +1,16 @@
+[package]
+name = "systems-modeler-persistence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+systems-modeler-core = { path = "../model-core" }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
