@@ -1,0 +1,29 @@
+name: native-foundation-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Core tests
+        run: cargo test -p systems-modeler-core -p systems-modeler-persistence
+      - name: Core lint
+        run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
+
+  desktop-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check desktop shell
+        run: cargo check -p systems-modeler-desktop
