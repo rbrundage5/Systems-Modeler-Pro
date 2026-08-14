@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Systems Modeler Pro</title>
+  <style>
+    :root { font-family: Inter, Segoe UI, system-ui, sans-serif; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #16191f; color: #e8ebf0; }
+    header { height: 48px; display: flex; align-items: center; gap: 18px; padding: 0 16px; border-bottom: 1px solid #303640; background: #20242b; }
+    header strong { letter-spacing: .02em; }
+    nav { color: #b7bec9; font-size: 13px; }
+    main { display: grid; grid-template-columns: 280px 1fr 320px; height: calc(100vh - 48px); }
+    aside, section { border-right: 1px solid #303640; }
+    .panel-title { padding: 10px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: #9ea7b4; border-bottom: 1px solid #303640; }
+    .repository { padding: 12px; color: #bcc4cf; font-size: 13px; }
+    .canvas { position: relative; background-image: linear-gradient(#222730 1px, transparent 1px), linear-gradient(90deg, #222730 1px, transparent 1px); background-size: 24px 24px; }
+    .empty-state { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #8f99a7; }
+    .empty-state h1 { margin: 0 0 8px; color: #dfe4eb; font-size: 22px; }
+    .properties { border-right: 0; }
+    .status { margin-top: 10px; font-size: 12px; color: #8fd3a6; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Systems Modeler Pro</strong>
+    <nav>File &nbsp; Edit &nbsp; View &nbsp; Model &nbsp; Diagram &nbsp; Tools &nbsp; Help</nav>
+  </header>
+  <main>
+    <aside>
+      <div class="panel-title">Model Repository</div>
+      <div class="repository">No project open.</div>
+    </aside>
+    <section class="canvas">
+      <div class="empty-state">
+        <h1>Native modeling workspace</h1>
+        <div>Rust semantic engine · SQLite project store · Tauri desktop shell</div>
+        <div class="status">Foundation ready for SysML feature migration</div>
+      </div>
+    </section>
+    <aside class="properties">
+      <div class="panel-title">Properties</div>
+      <div class="repository">Select a model element to inspect semantic properties.</div>
+    </aside>
+  </main>
+</body>
+</html>
