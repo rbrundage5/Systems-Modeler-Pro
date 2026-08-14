@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
-use systems_modeler_core::{Element, ElementId, Project, ProjectId, Relationship, RelationshipId};
+use systems_modeler_core::{Element, ElementId, Project, ProjectId, Relationship};
 use thiserror::Error;
 use uuid::Uuid;
 
