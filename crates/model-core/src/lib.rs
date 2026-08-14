@@ -9,11 +9,19 @@ macro_rules! id_type {
         #[serde(transparent)]
         pub struct $name(pub Uuid);
         impl $name {
-            pub fn new() -> Self { Self(Uuid::new_v4()) }
+            pub fn new() -> Self {
+                Self(Uuid::new_v4())
+            }
         }
-        impl Default for $name { fn default() -> Self { Self::new() } }
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
         impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.fmt(f) }
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(f)
+            }
         }
     };
 }
@@ -95,15 +103,25 @@ impl Project {
         };
         let mut elements = HashMap::new();
         elements.insert(root_id, root);
-        Self { id: ProjectId::new(), name, root_id, elements, relationships: HashMap::new() }
+        Self {
+            id: ProjectId::new(),
+            name,
+            root_id,
+            elements,
+            relationships: HashMap::new(),
+        }
     }
 
     pub fn element(&self, id: ElementId) -> Result<&Element, ModelError> {
-        self.elements.get(&id).ok_or(ModelError::ElementNotFound(id))
+        self.elements
+            .get(&id)
+            .ok_or(ModelError::ElementNotFound(id))
     }
 
     pub fn children(&self, owner_id: ElementId) -> impl Iterator<Item = &Element> {
-        self.elements.values().filter(move |element| element.owner_id == Some(owner_id))
+        self.elements
+            .values()
+            .filter(move |element| element.owner_id == Some(owner_id))
     }
 
     pub fn create_element(
@@ -129,8 +147,15 @@ impl Project {
         Ok(id)
     }
 
-    pub fn rename_element(&mut self, id: ElementId, name: impl Into<String>) -> Result<(), ModelError> {
-        let element = self.elements.get_mut(&id).ok_or(ModelError::ElementNotFound(id))?;
+    pub fn rename_element(
+        &mut self,
+        id: ElementId,
+        name: impl Into<String>,
+    ) -> Result<(), ModelError> {
+        let element = self
+            .elements
+            .get_mut(&id)
+            .ok_or(ModelError::ElementNotFound(id))?;
         element.name = name.into();
         Ok(())
     }
@@ -142,20 +167,29 @@ impl Project {
         target_id: ElementId,
         owner_id: Option<ElementId>,
     ) -> Result<RelationshipId, ModelError> {
-        if !self.elements.contains_key(&source_id) { return Err(ModelError::EndpointNotFound(source_id)); }
-        if !self.elements.contains_key(&target_id) { return Err(ModelError::EndpointNotFound(target_id)); }
-        if let Some(owner_id) = owner_id { self.element(owner_id)?; }
+        if !self.elements.contains_key(&source_id) {
+            return Err(ModelError::EndpointNotFound(source_id));
+        }
+        if !self.elements.contains_key(&target_id) {
+            return Err(ModelError::EndpointNotFound(target_id));
+        }
+        if let Some(owner_id) = owner_id {
+            self.element(owner_id)?;
+        }
         let id = RelationshipId::new();
-        self.relationships.insert(id, Relationship {
+        self.relationships.insert(
             id,
-            external_id: format!("REL-{id}"),
-            kind,
-            name: String::new(),
-            owner_id,
-            source_id,
-            target_id,
-            documentation: String::new(),
-        });
+            Relationship {
+                id,
+                external_id: format!("REL-{id}"),
+                kind,
+                name: String::new(),
+                owner_id,
+                source_id,
+                target_id,
+                documentation: String::new(),
+            },
+        );
         Ok(id)
     }
 }
@@ -167,10 +201,18 @@ mod tests {
     #[test]
     fn builds_owned_structure_and_relationship() {
         let mut project = Project::new("Vehicle");
-        let package = project.create_element(ElementKind::Package, "Structure", project.root_id).unwrap();
-        let a = project.create_element(ElementKind::Block, "Vehicle", package).unwrap();
-        let b = project.create_element(ElementKind::Block, "Powertrain", package).unwrap();
-        let relationship = project.create_relationship(RelationshipKind::Composition, a, b, Some(package)).unwrap();
+        let package = project
+            .create_element(ElementKind::Package, "Structure", project.root_id)
+            .unwrap();
+        let a = project
+            .create_element(ElementKind::Block, "Vehicle", package)
+            .unwrap();
+        let b = project
+            .create_element(ElementKind::Block, "Powertrain", package)
+            .unwrap();
+        let relationship = project
+            .create_relationship(RelationshipKind::Composition, a, b, Some(package))
+            .unwrap();
         assert_eq!(project.children(package).count(), 2);
         assert_eq!(project.relationships[&relationship].source_id, a);
     }
