@@ -16,7 +16,10 @@ fn bdd_semantics_round_trip_through_sqlite() {
     let mass_type = project
         .create_element(ElementKind::ValueType, "Mass", structure)
         .unwrap();
-    project.element_mut(mass_type).unwrap().quantity_kind_external_id = Some("Mass".into());
+    project
+        .element_mut(mass_type)
+        .unwrap()
+        .quantity_kind_external_id = Some("Mass".into());
     project.element_mut(mass_type).unwrap().unit_external_id = Some("kg".into());
 
     let part = project
@@ -66,8 +69,14 @@ fn bdd_semantics_round_trip_through_sqlite() {
     let restored = db.load_project(project.id).unwrap();
 
     assert_eq!(restored.element(part).unwrap().type_id, Some(battery));
-    assert_eq!(restored.element(part).unwrap().aggregation, AggregationKind::Composite);
-    assert_eq!(restored.element(value).unwrap().default_value.as_deref(), Some("2.5"));
+    assert_eq!(
+        restored.element(part).unwrap().aggregation,
+        AggregationKind::Composite
+    );
+    assert_eq!(
+        restored.element(value).unwrap().default_value.as_deref(),
+        Some("2.5")
+    );
     assert_eq!(restored.relationships.len(), 1);
     let relation = restored.relationships.values().next().unwrap();
     assert_eq!(relation.association_ends.len(), 2);

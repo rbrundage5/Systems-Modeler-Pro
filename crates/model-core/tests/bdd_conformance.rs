@@ -1,5 +1,5 @@
 use systems_modeler_core::{
-    notation, AggregationKind, ElementKind, ModelError, Multiplicity, Project, RelationshipKind,
+    AggregationKind, ElementKind, ModelError, Multiplicity, Project, RelationshipKind, notation,
 };
 
 #[test]
@@ -41,7 +41,10 @@ fn bdd_supports_structural_definition_and_cross_diagram_identity() {
         .unwrap();
     project.element_mut(mass_value).unwrap().default_value = Some("2.5".into());
 
-    assert_eq!(project.element(battery_part).unwrap().aggregation, AggregationKind::Composite);
+    assert_eq!(
+        project.element(battery_part).unwrap().aggregation,
+        AggregationKind::Composite
+    );
     assert_eq!(project.element(mass_value).unwrap().type_id, Some(mass));
     assert_eq!(project.element(drone).unwrap().id, drone);
     assert!(project.validate().is_ok());
@@ -139,5 +142,8 @@ fn bdd_relationship_notation_matches_sysml_uml_conventions() {
 
     let notation = notation::relationship_notation(project.relationship(generalization).unwrap());
     assert_eq!(notation.line, notation::LineStyle::Solid);
-    assert_eq!(notation.target_decoration, notation::EndDecoration::HollowTriangle);
+    assert_eq!(
+        notation.target_decoration,
+        notation::EndDecoration::HollowTriangle
+    );
 }

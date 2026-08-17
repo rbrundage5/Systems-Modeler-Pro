@@ -267,7 +267,10 @@ pub enum ModelError {
     #[error("invalid multiplicity: lower {lower} exceeds upper {upper}")]
     InvalidMultiplicity { lower: u32, upper: u32 },
     #[error("element kind {kind:?} cannot be owned by {owner:?}")]
-    InvalidOwnerKind { kind: ElementKind, owner: ElementKind },
+    InvalidOwnerKind {
+        kind: ElementKind,
+        owner: ElementKind,
+    },
     #[error("element kind {kind:?} cannot be typed by {type_kind:?}")]
     InvalidTypeKind {
         kind: ElementKind,
@@ -332,7 +335,8 @@ impl Project {
     }
 
     pub fn owned_features(&self, classifier_id: ElementId) -> impl Iterator<Item = &Element> {
-        self.children(classifier_id).filter(|element| element.is_feature())
+        self.children(classifier_id)
+            .filter(|element| element.is_feature())
     }
 
     pub fn create_element(
@@ -391,7 +395,11 @@ impl Project {
         Ok(())
     }
 
-    pub fn move_element(&mut self, id: ElementId, new_owner_id: ElementId) -> Result<(), ModelError> {
+    pub fn move_element(
+        &mut self,
+        id: ElementId,
+        new_owner_id: ElementId,
+    ) -> Result<(), ModelError> {
         let kind = self.element(id)?.kind.clone();
         let owner_kind = self.element(new_owner_id)?.kind.clone();
         validate_owner_kind(&kind, &owner_kind)?;
@@ -512,12 +520,13 @@ impl Project {
             return Err(ModelError::AssociationRequiresTwoEnds);
         }
         for end in &ends {
-            let classifier = self
-                .elements
-                .get(&end.classifier_id)
-                .ok_or(ModelError::AssociationEndClassifierNotFound(end.classifier_id))?;
+            let classifier = self.elements.get(&end.classifier_id).ok_or(
+                ModelError::AssociationEndClassifierNotFound(end.classifier_id),
+            )?;
             if !classifier.is_classifier() {
-                return Err(ModelError::AssociationEndClassifierNotFound(end.classifier_id));
+                return Err(ModelError::AssociationEndClassifierNotFound(
+                    end.classifier_id,
+                ));
             }
         }
         let source_id = ends[0].classifier_id;
@@ -561,7 +570,10 @@ impl Project {
                     .association_ends
                     .iter()
                     .any(|end| end.classifier_id == id)
-        }) || self.elements.values().any(|element| element.type_id == Some(id));
+        }) || self
+            .elements
+            .values()
+            .any(|element| element.type_id == Some(id));
         if referenced {
             return Err(ModelError::ElementStillReferenced(id));
         }
@@ -624,7 +636,10 @@ impl Project {
         Ok(())
     }
 
-    pub fn inherited_features(&self, classifier_id: ElementId) -> Result<Vec<&Element>, ModelError> {
+    pub fn inherited_features(
+        &self,
+        classifier_id: ElementId,
+    ) -> Result<Vec<&Element>, ModelError> {
         let classifier = self.element(classifier_id)?;
         if !classifier.is_classifier() {
             return Err(ModelError::GeneralizationRequiresClassifiers);
@@ -691,7 +706,9 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         | ElementKind::ValueType
         | ElementKind::DataType
         | ElementKind::Enumeration
-        | ElementKind::ConstraintBlock => matches!(owner, ElementKind::Model | ElementKind::Package),
+        | ElementKind::ConstraintBlock => {
+            matches!(owner, ElementKind::Model | ElementKind::Package)
+        }
         ElementKind::EnumerationLiteral => matches!(owner, ElementKind::Enumeration),
         ElementKind::PartProperty
         | ElementKind::ReferenceProperty
@@ -721,7 +738,9 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
 
 fn validate_type_kind(kind: &ElementKind, type_kind: &ElementKind) -> Result<(), ModelError> {
     let valid = match kind {
-        ElementKind::PartProperty => matches!(type_kind, ElementKind::Block | ElementKind::InterfaceBlock),
+        ElementKind::PartProperty => {
+            matches!(type_kind, ElementKind::Block | ElementKind::InterfaceBlock)
+        }
         ElementKind::ReferenceProperty => matches!(
             type_kind,
             ElementKind::Block
@@ -964,7 +983,10 @@ mod tests {
             )
             .unwrap();
         project.element_mut(mass).unwrap().default_value = Some("1500".into());
-        assert_eq!(project.element(mass).unwrap().default_value.as_deref(), Some("1500"));
+        assert_eq!(
+            project.element(mass).unwrap().default_value.as_deref(),
+            Some("1500")
+        );
     }
 
     #[test]
@@ -993,7 +1015,10 @@ mod tests {
             .unwrap();
         let association = project.relationship(association).unwrap();
         assert_eq!(association.association_ends.len(), 2);
-        assert_eq!(association.association_ends[1].multiplicity.notation(), "1..*");
+        assert_eq!(
+            association.association_ends[1].multiplicity.notation(),
+            "1..*"
+        );
         assert!(association.association_ends[1].navigable);
         assert_eq!(
             notation::relationship_notation(association).source_decoration,
@@ -1008,10 +1033,20 @@ mod tests {
             .create_element(ElementKind::Block, "Engine", package)
             .unwrap();
         project
-            .create_relationship(RelationshipKind::Generalization, powertrain, vehicle, Some(package))
+            .create_relationship(
+                RelationshipKind::Generalization,
+                powertrain,
+                vehicle,
+                Some(package),
+            )
             .unwrap();
         project
-            .create_relationship(RelationshipKind::Generalization, engine, powertrain, Some(package))
+            .create_relationship(
+                RelationshipKind::Generalization,
+                engine,
+                powertrain,
+                Some(package),
+            )
             .unwrap();
         let cycle = project.create_relationship(
             RelationshipKind::Generalization,
@@ -1038,7 +1073,12 @@ mod tests {
             )
             .unwrap();
         project
-            .create_relationship(RelationshipKind::Generalization, powertrain, vehicle, Some(package))
+            .create_relationship(
+                RelationshipKind::Generalization,
+                powertrain,
+                vehicle,
+                Some(package),
+            )
             .unwrap();
         let inherited = project.inherited_features(powertrain).unwrap();
         assert_eq!(inherited.len(), 1);
@@ -1060,7 +1100,10 @@ mod tests {
                 Multiplicity::new(0, Some(1)).unwrap(),
             )
             .unwrap();
-        assert_eq!(notation::stereotype_label(&ElementKind::Block), Some("block"));
+        assert_eq!(
+            notation::stereotype_label(&ElementKind::Block),
+            Some("block")
+        );
         assert_eq!(
             notation::feature_label(project.element(mass).unwrap(), Some("Mass")),
             "mass : Mass [0..1]"
@@ -1072,6 +1115,9 @@ mod tests {
         let (mut project, _package, vehicle, powertrain) = structural_project();
         let duplicate = project.element(vehicle).unwrap().external_id.clone();
         project.element_mut(powertrain).unwrap().external_id = duplicate.clone();
-        assert_eq!(project.validate(), Err(ModelError::DuplicateExternalId(duplicate)));
+        assert_eq!(
+            project.validate(),
+            Err(ModelError::DuplicateExternalId(duplicate))
+        );
     }
 }
