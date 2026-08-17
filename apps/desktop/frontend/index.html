@@ -7,40 +7,71 @@
   <link rel="stylesheet" href="pr3.css" />
 </head>
 <body>
-  <header>
-    <div class="brand">Systems Modeler Pro</div>
-    <div class="toolbar">
-      <button id="new-project">New Project</button>
-      <button id="open-project">Open</button>
-      <button id="save-project">Save</button>
-      <button id="save-project-as">Save As</button>
-      <button id="new-package">New Package</button>
-      <button id="new-block">New Block</button>
-      <button id="new-bdd">New BDD</button>
-      <button id="place-block">Place Selected Block</button>
-      <select id="relationship-kind" aria-label="BDD relationship type">
-        <option>Association</option>
-        <option>Aggregation</option>
-        <option>Composition</option>
-        <option>Generalization</option>
-        <option>Dependency</option>
-        <option>Realization</option>
-      </select>
-      <button id="start-relationship">Connect Selected Block</button>
+  <header class="app-header">
+    <div class="title-row">
+      <div class="brand">Systems Modeler Pro</div>
+      <div class="workspace-tabs" aria-label="Workspace sections">
+        <span class="workspace-tab active">Home</span>
+        <span class="workspace-tab">Diagram</span>
+        <span class="workspace-tab">Arrange</span>
+        <span class="workspace-tab">View</span>
+      </div>
+    </div>
+    <div class="ribbon">
+      <section class="ribbon-group">
+        <div class="ribbon-actions">
+          <button id="new-project">New Project</button>
+          <button id="open-project">Open</button>
+          <button id="save-project">Save</button>
+          <button id="save-project-as">Save As</button>
+        </div>
+        <div class="ribbon-label">Project</div>
+      </section>
+      <section class="ribbon-group">
+        <div class="ribbon-actions">
+          <button id="new-package">Package</button>
+          <button id="new-bdd">BDD</button>
+        </div>
+        <div class="ribbon-label">Model</div>
+      </section>
+      <section class="ribbon-group ribbon-context">
+        <div class="context-title">Active Diagram</div>
+        <div id="active-diagram-summary" class="context-value">No diagram selected</div>
+        <div class="ribbon-label">Context</div>
+      </section>
     </div>
   </header>
+
   <div class="workspace">
-    <aside class="left">
+    <aside class="left repository-panel">
       <div class="panel-title">Model Repository</div>
+      <div class="panel-search"><input id="repository-search" placeholder="Search repository" /></div>
       <div id="repository" class="repository"></div>
     </aside>
-    <main id="canvas" class="canvas"></main>
+
+    <aside class="palette-panel">
+      <div class="panel-title palette-title-row">
+        <span id="palette-title">Elements</span>
+        <button id="collapse-palette" class="icon-button" title="Collapse palette">«</button>
+      </div>
+      <div id="palette" class="palette"></div>
+    </aside>
+
+    <section class="diagram-workspace">
+      <div id="diagram-tabs" class="diagram-tabs"></div>
+      <main id="canvas" class="canvas"></main>
+    </section>
+
     <aside class="properties-panel">
       <div class="panel-title">Properties</div>
       <div id="properties" class="properties"></div>
     </aside>
   </div>
-  <div class="statusbar" id="status">Starting Rust workspace…</div>
+
+  <div class="statusbar">
+    <span id="status">Starting Rust workspace…</span>
+    <span id="model-counts" class="status-counts"></span>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>
