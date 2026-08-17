@@ -3106,10 +3106,12 @@ name = "systems-modeler-desktop"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "systems-modeler-core",
  "systems-modeler-persistence",
  "tauri",
  "tauri-build",
+ "uuid",
 ]
 
 [[package]]
