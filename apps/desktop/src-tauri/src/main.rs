@@ -22,6 +22,16 @@ struct EngineStatus {
     cloud_required: bool,
 }
 
+#[derive(Serialize)]
+struct DiagramPaletteItem {
+    id: &'static str,
+    label: &'static str,
+    category: &'static str,
+    semantic_kind: Option<&'static str>,
+    relationship_kind: Option<&'static str>,
+    draggable: bool,
+}
+
 #[tauri::command]
 fn engine_status() -> EngineStatus {
     EngineStatus {
@@ -32,11 +42,78 @@ fn engine_status() -> EngineStatus {
     }
 }
 
+#[tauri::command]
+fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, String> {
+    if diagram_type != "BDD" {
+        return Err(format!("unsupported diagram palette: {diagram_type}"));
+    }
+
+    Ok(vec![
+        DiagramPaletteItem {
+            id: "block",
+            label: "Block",
+            category: "element",
+            semantic_kind: Some("Block"),
+            relationship_kind: None,
+            draggable: true,
+        },
+        DiagramPaletteItem {
+            id: "association",
+            label: "Association",
+            category: "relationship",
+            semantic_kind: None,
+            relationship_kind: Some("Association"),
+            draggable: false,
+        },
+        DiagramPaletteItem {
+            id: "aggregation",
+            label: "Aggregation",
+            category: "relationship",
+            semantic_kind: None,
+            relationship_kind: Some("Aggregation"),
+            draggable: false,
+        },
+        DiagramPaletteItem {
+            id: "composition",
+            label: "Composition",
+            category: "relationship",
+            semantic_kind: None,
+            relationship_kind: Some("Composition"),
+            draggable: false,
+        },
+        DiagramPaletteItem {
+            id: "generalization",
+            label: "Generalization",
+            category: "relationship",
+            semantic_kind: None,
+            relationship_kind: Some("Generalization"),
+            draggable: false,
+        },
+        DiagramPaletteItem {
+            id: "dependency",
+            label: "Dependency",
+            category: "relationship",
+            semantic_kind: None,
+            relationship_kind: Some("Dependency"),
+            draggable: false,
+        },
+        DiagramPaletteItem {
+            id: "realization",
+            label: "Realization",
+            category: "relationship",
+            semantic_kind: None,
+            relationship_kind: Some("Realization"),
+            draggable: false,
+        },
+    ])
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(WorkspaceState::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
+            diagram_palette,
             workspace_snapshot,
             new_project,
             save_project_file,
