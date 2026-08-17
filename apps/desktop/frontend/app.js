@@ -129,6 +129,20 @@ function marker(defs, id, path, options = {}) {
   defs.appendChild(node);
 }
 
+function applyAssociationEndDecoration(polyline, relationship) {
+  const decoratedEnd = (relationship.association_ends || []).find(
+    (end) => end.aggregation === 'shared' || end.aggregation === 'composite',
+  );
+  if (!decoratedEnd) return;
+
+  const markerId = decoratedEnd.aggregation === 'composite' ? 'composite-diamond' : 'shared-diamond';
+  if (decoratedEnd.classifier_id === relationship.source_id) {
+    polyline.setAttribute('marker-start', `url(#${markerId})`);
+  } else if (decoratedEnd.classifier_id === relationship.target_id) {
+    polyline.setAttribute('marker-end', `url(#${markerId})`);
+  }
+}
+
 function createRelationshipLayer(frame, diagram, project) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('relationship-layer');
@@ -139,8 +153,8 @@ function createRelationshipLayer(frame, diagram, project) {
   const defs = document.createElementNS(SVG_NS, 'defs');
   marker(defs, 'open-triangle', 'M 1 1 L 11 6 L 1 11 Z', { fill: '#f8f8f6', refX: '11' });
   marker(defs, 'open-arrow', 'M 1 1 L 11 6 L 1 11', { fill: 'none', refX: '11' });
-  marker(defs, 'shared-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#f8f8f6', refX: '1' });
-  marker(defs, 'composite-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#111', refX: '1' });
+  marker(defs, 'shared-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#f8f8f6', refX: '11' });
+  marker(defs, 'composite-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#111', refX: '11' });
   svg.appendChild(defs);
 
   const relationships = new Map((project.relationships || []).map((relationship) => [relationship.id, relationship]));
@@ -151,8 +165,7 @@ function createRelationshipLayer(frame, diagram, project) {
     polyline.setAttribute('points', edge.points.map((point) => `${point.x},${point.y}`).join(' '));
     polyline.setAttribute('fill', 'none');
     polyline.classList.add('bdd-relationship', `relationship-${relationship.kind.toLowerCase()}`);
-    if (relationship.kind === 'Aggregation') polyline.setAttribute('marker-start', 'url(#shared-diamond)');
-    if (relationship.kind === 'Composition') polyline.setAttribute('marker-start', 'url(#composite-diamond)');
+    applyAssociationEndDecoration(polyline, relationship);
     if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
     if (relationship.kind === 'Dependency') polyline.setAttribute('marker-end', 'url(#open-arrow)');
     const title = document.createElementNS(SVG_NS, 'title');
