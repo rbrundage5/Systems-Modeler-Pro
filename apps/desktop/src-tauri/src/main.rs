@@ -1,6 +1,12 @@
 mod workspace {
     include!("workspace.rs");
+    mod bdd_elements;
     mod relationship_editing;
+    pub use bdd_elements::{
+        create_bdd_element, create_bdd_feature, create_bdd_relationship_complete,
+        open_project_file_complete, place_bdd_element, save_current_project_complete,
+        save_project_file_complete, update_bdd_element_details, workspace_snapshot_complete,
+    };
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -8,10 +14,13 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, create_bdd, create_bdd_relationship, create_block, create_package,
-    delete_bdd_relationship, new_project, open_project_file, place_element_on_bdd,
-    reconnect_bdd_relationship, rename_element, save_current_project, save_project_file,
-    update_association_end, workspace_snapshot,
+    WorkspaceState, create_bdd, create_bdd_element, create_bdd_feature,
+    create_bdd_relationship, create_bdd_relationship_complete, create_block, create_package,
+    delete_bdd_relationship, new_project, open_project_file, open_project_file_complete,
+    place_bdd_element, place_element_on_bdd, reconnect_bdd_relationship, rename_element,
+    save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, update_association_end, update_bdd_element_details,
+    workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -42,6 +51,39 @@ fn engine_status() -> EngineStatus {
     }
 }
 
+fn element_item(id: &'static str, label: &'static str, semantic_kind: &'static str) -> DiagramPaletteItem {
+    DiagramPaletteItem {
+        id,
+        label,
+        category: "element",
+        semantic_kind: Some(semantic_kind),
+        relationship_kind: None,
+        draggable: true,
+    }
+}
+
+fn feature_item(id: &'static str, label: &'static str, semantic_kind: &'static str) -> DiagramPaletteItem {
+    DiagramPaletteItem {
+        id,
+        label,
+        category: "feature",
+        semantic_kind: Some(semantic_kind),
+        relationship_kind: None,
+        draggable: false,
+    }
+}
+
+fn relationship_item(id: &'static str, label: &'static str, kind: &'static str) -> DiagramPaletteItem {
+    DiagramPaletteItem {
+        id,
+        label,
+        category: "relationship",
+        semantic_kind: None,
+        relationship_kind: Some(kind),
+        draggable: false,
+    }
+}
+
 #[tauri::command]
 fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, String> {
     if diagram_type != "BDD" {
@@ -49,62 +91,28 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
     }
 
     Ok(vec![
-        DiagramPaletteItem {
-            id: "block",
-            label: "Block",
-            category: "element",
-            semantic_kind: Some("Block"),
-            relationship_kind: None,
-            draggable: true,
-        },
-        DiagramPaletteItem {
-            id: "association",
-            label: "Association",
-            category: "relationship",
-            semantic_kind: None,
-            relationship_kind: Some("Association"),
-            draggable: false,
-        },
-        DiagramPaletteItem {
-            id: "aggregation",
-            label: "Aggregation",
-            category: "relationship",
-            semantic_kind: None,
-            relationship_kind: Some("Aggregation"),
-            draggable: false,
-        },
-        DiagramPaletteItem {
-            id: "composition",
-            label: "Composition",
-            category: "relationship",
-            semantic_kind: None,
-            relationship_kind: Some("Composition"),
-            draggable: false,
-        },
-        DiagramPaletteItem {
-            id: "generalization",
-            label: "Generalization",
-            category: "relationship",
-            semantic_kind: None,
-            relationship_kind: Some("Generalization"),
-            draggable: false,
-        },
-        DiagramPaletteItem {
-            id: "dependency",
-            label: "Dependency",
-            category: "relationship",
-            semantic_kind: None,
-            relationship_kind: Some("Dependency"),
-            draggable: false,
-        },
-        DiagramPaletteItem {
-            id: "realization",
-            label: "Realization",
-            category: "relationship",
-            semantic_kind: None,
-            relationship_kind: Some("Realization"),
-            draggable: false,
-        },
+        element_item("block", "Block", "Block"),
+        element_item("interface-block", "Interface Block", "InterfaceBlock"),
+        element_item("value-type", "Value Type", "ValueType"),
+        element_item("data-type", "Data Type", "DataType"),
+        element_item("enumeration", "Enumeration", "Enumeration"),
+        element_item("constraint-block", "Constraint Block", "ConstraintBlock"),
+        feature_item("part-property", "Part Property", "PartProperty"),
+        feature_item("reference-property", "Reference Property", "ReferenceProperty"),
+        feature_item("value-property", "Value Property", "ValueProperty"),
+        feature_item("constraint-property", "Constraint Property", "ConstraintProperty"),
+        feature_item("proxy-port", "Proxy Port", "ProxyPort"),
+        feature_item("full-port", "Full Port", "FullPort"),
+        feature_item("operation", "Operation", "Operation"),
+        feature_item("reception", "Reception", "Reception"),
+        feature_item("parameter", "Parameter", "Parameter"),
+        feature_item("enumeration-literal", "Enumeration Literal", "EnumerationLiteral"),
+        relationship_item("association", "Association", "Association"),
+        relationship_item("aggregation", "Aggregation", "Aggregation"),
+        relationship_item("composition", "Composition", "Composition"),
+        relationship_item("generalization", "Generalization", "Generalization"),
+        relationship_item("dependency", "Dependency", "Dependency"),
+        relationship_item("realization", "Realization", "Realization"),
     ])
 }
 
@@ -115,16 +123,25 @@ fn main() {
             engine_status,
             diagram_palette,
             workspace_snapshot,
+            workspace_snapshot_complete,
             new_project,
             save_project_file,
+            save_project_file_complete,
             save_current_project,
+            save_current_project_complete,
             open_project_file,
+            open_project_file_complete,
             create_package,
             create_block,
+            create_bdd_element,
+            create_bdd_feature,
+            update_bdd_element_details,
             rename_element,
             create_bdd,
             place_element_on_bdd,
+            place_bdd_element,
             create_bdd_relationship,
+            create_bdd_relationship_complete,
             update_association_end,
             reconnect_bdd_relationship,
             delete_bdd_relationship
