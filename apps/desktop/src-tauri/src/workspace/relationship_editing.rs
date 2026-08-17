@@ -1,6 +1,6 @@
 use super::{
-    parse_diagram_id, parse_element_id, parse_relationship_id, relationship_display_kind,
-    route_relationship, WorkspaceState,
+    WorkspaceState, parse_diagram_id, parse_element_id, parse_relationship_id,
+    relationship_display_kind, route_relationship,
 };
 use systems_modeler_core::{
     AggregationKind, ElementId, ElementKind, Multiplicity, RelationshipKind,
@@ -101,7 +101,9 @@ pub fn update_association_end(
         .map_err(|error| error.to_string())?
         .clone();
     if original.kind != RelationshipKind::Association || original.association_ends.len() != 2 {
-        return Err("association-end editing requires a binary Association-family relationship".into());
+        return Err(
+            "association-end editing requires a binary Association-family relationship".into(),
+        );
     }
 
     let end_index = original
@@ -156,7 +158,9 @@ pub fn reconnect_bdd_relationship(
 
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
-    let replacement = project.element(element_id).map_err(|error| error.to_string())?;
+    let replacement = project
+        .element(element_id)
+        .map_err(|error| error.to_string())?;
     if replacement.kind != ElementKind::Block {
         return Err("BDD relationship endpoints must be Blocks".into());
     }
@@ -176,7 +180,13 @@ pub fn reconnect_bdd_relationship(
         return Err("a BDD relationship cannot connect a Block to itself".into());
     }
     let display_kind = relationship_display_kind(&original);
-    if duplicate_after_reconnect(project, relationship_id, display_kind, new_source, new_target) {
+    if duplicate_after_reconnect(
+        project,
+        relationship_id,
+        display_kind,
+        new_source,
+        new_target,
+    ) {
         return Err(format!("an equivalent {display_kind} already exists"));
     }
     if original.kind == RelationshipKind::Generalization
@@ -192,7 +202,9 @@ pub fn reconnect_bdd_relationship(
             .ok_or("relationship not found")?;
         relationship.source_id = new_source;
         relationship.target_id = new_target;
-        if relationship.kind == RelationshipKind::Association && relationship.association_ends.len() == 2 {
+        if relationship.kind == RelationshipKind::Association
+            && relationship.association_ends.len() == 2
+        {
             relationship.association_ends[0].classifier_id = new_source;
             relationship.association_ends[1].classifier_id = new_target;
         }
