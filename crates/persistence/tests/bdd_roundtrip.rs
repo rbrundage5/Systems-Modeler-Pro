@@ -13,14 +13,26 @@ fn bdd_semantics_round_trip_through_sqlite() {
     let battery = project
         .create_element(ElementKind::Block, "Battery", structure)
         .unwrap();
+    let quantity_kind = project
+        .create_element(ElementKind::QuantityKind, "Mass", structure)
+        .unwrap();
+    let unit = project
+        .create_element(ElementKind::Unit, "kilogram", structure)
+        .unwrap();
     let mass_type = project
         .create_element(ElementKind::ValueType, "Mass", structure)
         .unwrap();
+    let quantity_kind_external_id = project
+        .element(quantity_kind)
+        .unwrap()
+        .external_id
+        .clone();
+    let unit_external_id = project.element(unit).unwrap().external_id.clone();
     project
         .element_mut(mass_type)
         .unwrap()
-        .quantity_kind_external_id = Some("Mass".into());
-    project.element_mut(mass_type).unwrap().unit_external_id = Some("kg".into());
+        .quantity_kind_external_id = Some(quantity_kind_external_id.clone());
+    project.element_mut(mass_type).unwrap().unit_external_id = Some(unit_external_id.clone());
 
     let part = project
         .create_typed_feature(
@@ -64,6 +76,8 @@ fn bdd_semantics_round_trip_through_sqlite() {
         )
         .unwrap();
 
+    assert!(project.validate().is_ok());
+
     let mut db = ProjectDatabase::open_in_memory().unwrap();
     db.save_project(&project).unwrap();
     let restored = db.load_project(project.id).unwrap();
@@ -76,6 +90,18 @@ fn bdd_semantics_round_trip_through_sqlite() {
     assert_eq!(
         restored.element(value).unwrap().default_value.as_deref(),
         Some("2.5")
+    );
+    assert_eq!(
+        restored
+            .element(mass_type)
+            .unwrap()
+            .quantity_kind_external_id
+            .as_deref(),
+        Some(quantity_kind_external_id.as_str())
+    );
+    assert_eq!(
+        restored.element(mass_type).unwrap().unit_external_id.as_deref(),
+        Some(unit_external_id.as_str())
     );
     assert_eq!(restored.relationships.len(), 1);
     let relation = restored.relationships.values().next().unwrap();
