@@ -106,11 +106,22 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
 
     Ok(vec![
         element_item("block", "Block", "Block"),
+        element_item("association-block", "Association Block", "AssociationBlock"),
         element_item("interface-block", "Interface Block", "InterfaceBlock"),
+        element_item("constraint-block", "Constraint Block", "ConstraintBlock"),
         element_item("value-type", "Value Type", "ValueType"),
         element_item("data-type", "Data Type", "DataType"),
+        element_item("primitive-type", "Primitive Type", "PrimitiveType"),
         element_item("enumeration", "Enumeration", "Enumeration"),
-        element_item("constraint-block", "Constraint Block", "ConstraintBlock"),
+        element_item("signal", "Signal", "Signal"),
+        element_item("unit", "Unit", "Unit"),
+        element_item("quantity-kind", "Quantity Kind", "QuantityKind"),
+        element_item(
+            "instance-specification",
+            "Instance Specification",
+            "InstanceSpecification",
+        ),
+        element_item("comment", "Comment", "Comment"),
         feature_item("part-property", "Part Property", "PartProperty"),
         feature_item(
             "reference-property",
@@ -118,6 +129,7 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             "ReferenceProperty",
         ),
         feature_item("value-property", "Value Property", "ValueProperty"),
+        feature_item("flow-property", "Flow Property", "FlowProperty"),
         feature_item(
             "constraint-property",
             "Constraint Property",
@@ -133,6 +145,7 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             "Enumeration Literal",
             "EnumerationLiteral",
         ),
+        feature_item("slot", "Slot", "Slot"),
         relationship_item("association", "Association", "Association"),
         relationship_item("aggregation", "Aggregation", "Aggregation"),
         relationship_item("composition", "Composition", "Composition"),
