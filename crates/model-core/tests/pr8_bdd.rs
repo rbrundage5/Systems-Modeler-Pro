@@ -1,6 +1,4 @@
-use systems_modeler_core::{
-    AggregationKind, ElementKind, Multiplicity, Project, RelationshipKind,
-};
+use systems_modeler_core::{AggregationKind, ElementKind, Multiplicity, Project, RelationshipKind};
 
 fn bdd_project() -> (Project, systems_modeler_core::ElementId) {
     let mut project = Project::new("PR8 BDD");
@@ -103,7 +101,12 @@ fn preserves_unbounded_multiplicity_semantics() {
         )
         .unwrap();
     assert_eq!(
-        project.element(reference).unwrap().multiplicity.unwrap().notation(),
+        project
+            .element(reference)
+            .unwrap()
+            .multiplicity
+            .unwrap()
+            .notation(),
         "1..*"
     );
 }
@@ -126,8 +129,14 @@ fn supports_generalization_between_non_block_bdd_classifiers() {
             Some(package),
         )
         .unwrap();
-    assert_eq!(project.relationship(relationship).unwrap().source_id, specific);
-    assert_eq!(project.relationship(relationship).unwrap().target_id, general);
+    assert_eq!(
+        project.relationship(relationship).unwrap().source_id,
+        specific
+    );
+    assert_eq!(
+        project.relationship(relationship).unwrap().target_id,
+        general
+    );
     project.validate().unwrap();
 }
 
