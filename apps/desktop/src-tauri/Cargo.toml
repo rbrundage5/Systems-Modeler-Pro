@@ -11,5 +11,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde.workspace = true
+uuid.workspace = true
 systems-modeler-core = { path = "../../../crates/model-core" }
 systems-modeler-persistence = { path = "../../../crates/persistence" }
