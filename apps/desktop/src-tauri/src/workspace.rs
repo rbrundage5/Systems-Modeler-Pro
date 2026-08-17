@@ -121,7 +121,10 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
         let owner_id = parse_element_id(&diagram.owner_id)?;
         let owner = project.element(owner_id).map_err(|error| error.to_string())?;
         if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
-            return Err(format!("BDD owner is not a Model or Package: {}", diagram.owner_id));
+            return Err(format!(
+                "BDD owner is not a Model or Package: {}",
+                diagram.owner_id
+            ));
         }
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() {
@@ -135,7 +138,10 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                 .element(element_id)
                 .map_err(|error| error.to_string())?;
             if element.kind != ElementKind::Block {
-                return Err(format!("BDD node does not reference a Block: {}", node.element_id));
+                return Err(format!(
+                    "BDD node does not reference a Block: {}",
+                    node.element_id
+                ));
             }
         }
     }
@@ -183,14 +189,9 @@ pub fn save_project_file(
     let project = project.as_ref().ok_or("no project open")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
 
-    project.validate().map_err(|errors| {
-        let message = errors
-            .into_iter()
-            .map(|error| error.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
-        format!("project validation failed: {message}")
-    })?;
+    project
+        .validate()
+        .map_err(|error| format!("project validation failed: {error}"))?;
     validate_loaded_diagrams(project, &diagrams)?;
 
     let mut database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
@@ -235,14 +236,9 @@ pub fn open_project_file(
     let project = database
         .load_first_project()
         .map_err(|error| error.to_string())?;
-    project.validate().map_err(|errors| {
-        let message = errors
-            .into_iter()
-            .map(|error| error.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
-        format!("saved project validation failed: {message}")
-    })?;
+    project
+        .validate()
+        .map_err(|error| format!("saved project validation failed: {error}"))?;
     let diagrams = match database
         .load_metadata(project.id, BDD_METADATA_KEY)
         .map_err(|error| error.to_string())?
