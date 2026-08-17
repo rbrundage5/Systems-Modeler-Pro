@@ -1,6 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use systems_modeler_core::{DiagramId, ElementId, ElementKind, Project};
+use systems_modeler_persistence::ProjectDatabase;
+
+const BDD_METADATA_KEY: &str = "bdd-diagrams";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ElementSnapshot {
@@ -19,7 +24,7 @@ pub struct ProjectSnapshot {
     pub elements: Vec<ElementSnapshot>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagramNode {
     pub id: String,
     pub element_id: String,
@@ -29,7 +34,7 @@ pub struct DiagramNode {
     pub height: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BddDiagram {
     pub id: String,
     pub name: String,
@@ -41,11 +46,13 @@ pub struct BddDiagram {
 pub struct WorkspaceSnapshot {
     pub project: Option<ProjectSnapshot>,
     pub diagrams: Vec<BddDiagram>,
+    pub current_file: Option<String>,
 }
 
 pub struct WorkspaceState {
     project: Mutex<Option<Project>>,
     diagrams: Mutex<Vec<BddDiagram>>,
+    current_file: Mutex<Option<String>>,
 }
 
 impl Default for WorkspaceState {
@@ -53,6 +60,7 @@ impl Default for WorkspaceState {
         Self {
             project: Mutex::new(None),
             diagrams: Mutex::new(Vec::new()),
+            current_file: Mutex::new(None),
         }
     }
 }
@@ -67,6 +75,18 @@ fn parse_diagram_id(value: &str) -> Result<DiagramId, String> {
     uuid::Uuid::parse_str(value)
         .map(DiagramId)
         .map_err(|_| format!("invalid diagram id: {value}"))
+}
+
+fn normalize_project_path(value: &str) -> Result<PathBuf, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("project path is required".into());
+    }
+    let mut path = PathBuf::from(trimmed);
+    if path.extension().is_none() {
+        path.set_extension("smproj");
+    }
+    Ok(path)
 }
 
 fn snapshot_project(project: &Project) -> ProjectSnapshot {
@@ -90,15 +110,52 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
     }
 }
 
+fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Result<(), String> {
+    let mut diagram_ids = HashSet::new();
+    let mut node_ids = HashSet::new();
+    for diagram in diagrams {
+        parse_diagram_id(&diagram.id)?;
+        if !diagram_ids.insert(&diagram.id) {
+            return Err(format!("duplicate diagram id: {}", diagram.id));
+        }
+        let owner_id = parse_element_id(&diagram.owner_id)?;
+        let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+        if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
+            return Err(format!("BDD owner is not a Model or Package: {}", diagram.owner_id));
+        }
+        for node in &diagram.nodes {
+            if uuid::Uuid::parse_str(&node.id).is_err() {
+                return Err(format!("invalid diagram node id: {}", node.id));
+            }
+            if !node_ids.insert(&node.id) {
+                return Err(format!("duplicate diagram node id: {}", node.id));
+            }
+            let element_id = parse_element_id(&node.element_id)?;
+            let element = project
+                .element(element_id)
+                .map_err(|error| error.to_string())?;
+            if element.kind != ElementKind::Block {
+                return Err(format!("BDD node does not reference a Block: {}", node.element_id));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn workspace_snapshot(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<WorkspaceSnapshot, String> {
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let current_file = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?;
     Ok(WorkspaceSnapshot {
         project: project.as_ref().map(snapshot_project),
         diagrams: diagrams.clone(),
+        current_file: current_file.clone(),
     })
 }
 
@@ -106,9 +163,104 @@ pub fn workspace_snapshot(
 pub fn new_project(name: String, state: tauri::State<'_, WorkspaceState>) -> Result<(), String> {
     let mut project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut current_file = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?;
     *project = Some(Project::new(name));
     diagrams.clear();
+    *current_file = None;
     Ok(())
+}
+
+#[tauri::command]
+pub fn save_project_file(
+    path: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let path = normalize_project_path(&path)?;
+    let project = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project.as_ref().ok_or("no project open")?;
+    let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+
+    project.validate().map_err(|errors| {
+        let message = errors
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!("project validation failed: {message}")
+    })?;
+    validate_loaded_diagrams(project, &diagrams)?;
+
+    let mut database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
+    database
+        .save_project(project)
+        .map_err(|error| error.to_string())?;
+    let diagram_payload = serde_json::to_string(&*diagrams).map_err(|error| error.to_string())?;
+    database
+        .save_metadata(project.id, BDD_METADATA_KEY, &diagram_payload)
+        .map_err(|error| error.to_string())?;
+
+    let saved_path = path.to_string_lossy().into_owned();
+    *state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
+    Ok(saved_path)
+}
+
+#[tauri::command]
+pub fn save_current_project(state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+    let path = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?
+        .clone()
+        .ok_or("project has not been saved yet; use Save As")?;
+    save_project_file(path, state)
+}
+
+#[tauri::command]
+pub fn open_project_file(
+    path: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let path = normalize_project_path(&path)?;
+    if !path.exists() {
+        return Err(format!("project file does not exist: {}", path.display()));
+    }
+
+    let database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
+    let project = database
+        .load_first_project()
+        .map_err(|error| error.to_string())?;
+    project.validate().map_err(|errors| {
+        let message = errors
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!("saved project validation failed: {message}")
+    })?;
+    let diagrams = match database
+        .load_metadata(project.id, BDD_METADATA_KEY)
+        .map_err(|error| error.to_string())?
+    {
+        Some(payload) => serde_json::from_str::<Vec<BddDiagram>>(&payload)
+            .map_err(|error| format!("invalid saved BDD presentation data: {error}"))?,
+        None => Vec::new(),
+    };
+    validate_loaded_diagrams(&project, &diagrams)?;
+
+    let opened_path = path.to_string_lossy().into_owned();
+    *state.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
+    *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")? = Some(opened_path.clone());
+    Ok(opened_path)
 }
 
 #[tauri::command]
