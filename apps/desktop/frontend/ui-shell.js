@@ -1,0 +1,90 @@
+(() => {
+  const ribbon = document.querySelector('.ribbon');
+  const tabs = [...document.querySelectorAll('.workspace-tab')];
+  if (!ribbon || !tabs.length) return;
+
+  const panels = {
+    File: `
+      <section class="ribbon-group"><div class="ribbon-actions ribbon-large-actions">
+        <button class="ribbon-command" data-forward="new-project"><span class="command-icon">＋</span><span>New<br>Project</span></button>
+        <button class="ribbon-command" data-forward="open-project"><span class="command-icon">▱</span><span>Open</span></button>
+        <button class="ribbon-command" data-forward="save-project"><span class="command-icon">▣</span><span>Save</span></button>
+        <button class="ribbon-command" data-forward="save-project-as"><span class="command-icon">▣</span><span>Save As</span></button>
+      </div><div class="ribbon-label">Project</div></section>`,
+    Home: `
+      <section class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-command" data-forward="new-package"><span class="command-icon">□</span><span>Package</span></button>
+        <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>BDD</span></button>
+      </div><div class="ribbon-label">Create</div></section>
+      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary-shell" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow the active diagram</div><div class="ribbon-label">Context</div></section>`,
+    Diagram: `
+      <section class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>New BDD</span></button>
+      </div><div class="ribbon-label">Diagram</div></section>
+      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary-shell" class="context-value">No diagram selected</div><div class="context-subtitle">Diagram-specific tools appear here as they are implemented</div><div class="ribbon-label">Context</div></section>`,
+    Arrange: `<section class="ribbon-group ribbon-context"><div class="context-title">Arrange</div><div class="context-value">No redundant commands</div><div class="context-subtitle">Routing, alignment, and layout controls will appear here only when implemented.</div><div class="ribbon-label">Layout</div></section>`,
+    View: `
+      <section class="ribbon-group"><div class="ribbon-actions compact-actions">
+        <button class="ribbon-command panel-toggle" data-panel="repository-panel"><span class="command-icon">▥</span><span>Repository</span></button>
+        <button class="ribbon-command panel-toggle" data-panel="palette-panel"><span class="command-icon">▦</span><span>Elements</span></button>
+        <button class="ribbon-command panel-toggle" data-panel="properties-panel"><span class="command-icon">▤</span><span>Properties</span></button>
+      </div><div class="ribbon-label">Panels</div></section>`,
+    Help: `<section class="ribbon-group ribbon-context"><div class="context-title">Systems Modeler Pro</div><div class="context-value">Native Rust migration</div><div class="context-subtitle">SysML engineering modeler desktop workspace</div><div class="ribbon-label">About</div></section>`,
+  };
+
+  const original = new Map();
+  for (const id of ['new-project', 'open-project', 'save-project', 'save-project-as', 'new-package', 'new-bdd']) {
+    const node = document.getElementById(id);
+    if (node) original.set(id, node);
+  }
+
+  function syncContext() {
+    const source = document.getElementById('active-diagram-summary');
+    const target = document.getElementById('active-diagram-summary-shell');
+    if (target) target.textContent = source?.textContent || 'No diagram selected';
+  }
+
+  function syncPanelToggles() {
+    document.querySelectorAll('.panel-toggle').forEach((button) => {
+      const panel = document.querySelector(`.${button.dataset.panel}`);
+      button.classList.toggle('active', !!panel && !panel.classList.contains('shell-hidden'));
+    });
+  }
+
+  function bindRibbon() {
+    ribbon.querySelectorAll('[data-forward]').forEach((button) => {
+      button.addEventListener('click', () => original.get(button.dataset.forward)?.click());
+    });
+    ribbon.querySelectorAll('.panel-toggle').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelector(`.${button.dataset.panel}`)?.classList.toggle('shell-hidden');
+        document.querySelector('.workspace')?.classList.toggle(`hide-${button.dataset.panel}`);
+        syncPanelToggles();
+      });
+    });
+    syncContext();
+    syncPanelToggles();
+  }
+
+  function activate(name) {
+    tabs.forEach((tab) => tab.classList.toggle('active', tab.textContent.trim() === name));
+    ribbon.innerHTML = panels[name] || panels.Home;
+    bindRibbon();
+  }
+
+  tabs.forEach((tab) => {
+    tab.setAttribute('role', 'button');
+    tab.tabIndex = 0;
+    const activateTab = () => activate(tab.textContent.trim());
+    tab.addEventListener('click', activateTab);
+    tab.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateTab(); }
+    });
+  });
+
+  const observer = new MutationObserver(syncContext);
+  const context = document.getElementById('active-diagram-summary');
+  if (context) observer.observe(context, { childList: true, characterData: true, subtree: true });
+
+  activate('Home');
+})();
