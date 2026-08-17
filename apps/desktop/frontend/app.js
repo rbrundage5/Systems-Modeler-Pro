@@ -28,9 +28,16 @@ function render() {
 
 function renderStatus(message) {
   const status = $('status');
-  if (message) status.textContent = message;
-  else if (!state.snapshot?.project) status.textContent = 'No project open';
-  else status.textContent = `${state.snapshot.project.name} · Rust semantic model`;
+  if (message) {
+    status.textContent = message;
+    return;
+  }
+  if (!state.snapshot?.project) {
+    status.textContent = 'No project open';
+    return;
+  }
+  const file = state.snapshot.current_file ? ` · ${state.snapshot.current_file}` : ' · unsaved';
+  status.textContent = `${state.snapshot.project.name} · Rust semantic model${file}`;
 }
 
 function renderRepository() {
@@ -102,7 +109,7 @@ function renderCanvas() {
   canvas.innerHTML = '';
   const project = state.snapshot?.project;
   if (!project) {
-    canvas.innerHTML = '<div class="empty-state"><h1>Systems Modeler Pro</h1><div>Create a project to begin the Rust-backed BDD workflow.</div></div>';
+    canvas.innerHTML = '<div class="empty-state"><h1>Systems Modeler Pro</h1><div>Create or open a project to begin.</div></div>';
     return;
   }
   const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId);
@@ -146,7 +153,7 @@ function renderProperties() {
   const panel = $('properties');
   const project = state.snapshot?.project;
   if (!project) {
-    panel.innerHTML = '<div class="muted">Create a project to inspect properties.</div>';
+    panel.innerHTML = '<div class="muted">Create or open a project to inspect properties.</div>';
     return;
   }
   const element = project.elements.find((item) => item.id === state.selectedElementId);
@@ -163,18 +170,59 @@ function renderProperties() {
   $('rename-element').onclick = async () => {
     const name = $('property-name').value.trim();
     if (!name) return;
-    await requireInvoke()('rename_element', { elementId: element.id, name });
+    await runCommand('Renaming element…', () => requireInvoke()('rename_element', { elementId: element.id, name }));
     await refresh();
   };
+}
+
+async function runCommand(progressMessage, action) {
+  try {
+    renderStatus(progressMessage);
+    return await action();
+  } catch (error) {
+    const message = error?.message || String(error);
+    renderStatus(message);
+    alert(message);
+    throw error;
+  }
 }
 
 async function createProject() {
   const name = prompt('Project name', 'Vehicle Model');
   if (!name) return;
-  await requireInvoke()('new_project', { name });
+  await runCommand('Creating project…', () => requireInvoke()('new_project', { name }));
   state.selectedElementId = null;
   state.selectedPackageId = null;
   state.selectedDiagramId = null;
+  await refresh();
+}
+
+async function openProject() {
+  const suggested = state.snapshot?.current_file || 'Vehicle Model.smproj';
+  const path = prompt('Project file path (.smproj)', suggested);
+  if (!path) return;
+  await runCommand('Opening project…', () => requireInvoke()('open_project_file', { path }));
+  state.selectedElementId = null;
+  state.selectedPackageId = null;
+  state.selectedDiagramId = null;
+  await refresh();
+  if (state.snapshot.diagrams.length) state.selectedDiagramId = state.snapshot.diagrams[0].id;
+  render();
+}
+
+async function saveProjectAs() {
+  if (!state.snapshot?.project) return alert('Create or open a project first.');
+  const suggested = state.snapshot.current_file || `${state.snapshot.project.name}.smproj`;
+  const path = prompt('Save project as (.smproj)', suggested);
+  if (!path) return;
+  await runCommand('Saving project…', () => requireInvoke()('save_project_file', { path }));
+  await refresh();
+}
+
+async function saveProject() {
+  if (!state.snapshot?.project) return alert('Create or open a project first.');
+  if (!state.snapshot.current_file) return saveProjectAs();
+  await runCommand('Saving project…', () => requireInvoke()('save_current_project'));
   await refresh();
 }
 
@@ -183,7 +231,7 @@ async function createPackage() {
   const name = prompt('Package name', 'Structure');
   if (!name) return;
   const ownerId = state.selectedPackageId || state.snapshot.project.root_id;
-  const id = await requireInvoke()('create_package', { ownerId, name });
+  const id = await runCommand('Creating package…', () => requireInvoke()('create_package', { ownerId, name }));
   state.selectedPackageId = id;
   state.selectedElementId = null;
   await refresh();
@@ -195,7 +243,7 @@ async function createBlock() {
   if (!ownerId) return alert('Select a package in the Model Repository first.');
   const name = prompt('Block name', 'New Block');
   if (!name) return;
-  const id = await requireInvoke()('create_block', { ownerId, name });
+  const id = await runCommand('Creating Block…', () => requireInvoke()('create_block', { ownerId, name }));
   state.selectedElementId = id;
   await refresh();
 }
@@ -205,7 +253,7 @@ async function createBdd() {
   const ownerId = state.selectedPackageId || state.snapshot.project.root_id;
   const name = prompt('BDD name', 'System Structure');
   if (!name) return;
-  state.selectedDiagramId = await requireInvoke()('create_bdd', { ownerId, name });
+  state.selectedDiagramId = await runCommand('Creating BDD…', () => requireInvoke()('create_bdd', { ownerId, name }));
   await refresh();
 }
 
@@ -215,12 +263,12 @@ async function placeSelectedBlock() {
   const element = state.snapshot.project.elements.find((item) => item.id === state.selectedElementId);
   if (!element || element.kind !== 'Block') return alert('Only Blocks can be placed in this first BDD slice.');
   const existing = state.snapshot.diagrams.find((d) => d.id === state.selectedDiagramId)?.nodes.length || 0;
-  await requireInvoke()('place_element_on_bdd', {
+  await runCommand('Placing Block…', () => requireInvoke()('place_element_on_bdd', {
     diagramId: state.selectedDiagramId,
     elementId: state.selectedElementId,
     x: 70 + (existing % 3) * 230,
     y: 90 + Math.floor(existing / 3) * 180,
-  });
+  }));
   await refresh();
 }
 
@@ -230,6 +278,9 @@ function escapeHtml(value) {
 function escapeAttr(value) { return escapeHtml(value); }
 
 $('new-project').onclick = createProject;
+$('open-project').onclick = openProject;
+$('save-project').onclick = saveProject;
+$('save-project-as').onclick = saveProjectAs;
 $('new-package').onclick = createPackage;
 $('new-block').onclick = createBlock;
 $('new-bdd').onclick = createBdd;
