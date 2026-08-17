@@ -2,8 +2,8 @@ mod workspace;
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, create_bdd, create_block, create_package, new_project,
-    place_element_on_bdd, rename_element, workspace_snapshot,
+    WorkspaceState, create_bdd, create_block, create_package, new_project, place_element_on_bdd,
+    rename_element, workspace_snapshot,
 };
 
 #[derive(Serialize)]
