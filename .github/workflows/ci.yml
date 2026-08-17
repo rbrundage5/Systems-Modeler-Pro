@@ -27,3 +27,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Check desktop shell
         run: cargo check -p systems-modeler-desktop
+      - name: Verify Cargo.lock remains clean
+        shell: pwsh
+        run: git diff --exit-code -- Cargo.lock
