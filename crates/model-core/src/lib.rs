@@ -95,10 +95,10 @@ impl Multiplicity {
     };
 
     pub fn new(lower: u32, upper: Option<u32>) -> Result<Self, ModelError> {
-        if let Some(upper) = upper {
-            if lower > upper {
-                return Err(ModelError::InvalidMultiplicity { lower, upper });
-            }
+        if let Some(upper) = upper
+            && lower > upper
+        {
+            return Err(ModelError::InvalidMultiplicity { lower, upper });
         }
         Ok(Self { lower, upper })
     }
