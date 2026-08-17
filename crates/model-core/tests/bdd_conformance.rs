@@ -14,12 +14,20 @@ fn bdd_supports_structural_definition_and_cross_diagram_identity() {
     let battery = project
         .create_element(ElementKind::Block, "Battery", structure)
         .unwrap();
+    let quantity_kind = project
+        .create_element(ElementKind::QuantityKind, "Mass", structure)
+        .unwrap();
+    let unit = project
+        .create_element(ElementKind::Unit, "kg", structure)
+        .unwrap();
     let mass = project
-        .create_element(ElementKind::ValueType, "Mass", structure)
+        .create_element(ElementKind::ValueType, "MassValue", structure)
         .unwrap();
 
-    project.element_mut(mass).unwrap().quantity_kind_external_id = Some("Mass".into());
-    project.element_mut(mass).unwrap().unit_external_id = Some("kg".into());
+    let quantity_kind_external_id = project.element(quantity_kind).unwrap().external_id.clone();
+    let unit_external_id = project.element(unit).unwrap().external_id.clone();
+    project.element_mut(mass).unwrap().quantity_kind_external_id = Some(quantity_kind_external_id);
+    project.element_mut(mass).unwrap().unit_external_id = Some(unit_external_id);
 
     let battery_part = project
         .create_typed_feature(
