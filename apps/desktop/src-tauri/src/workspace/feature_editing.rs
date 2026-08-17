@@ -21,6 +21,15 @@ fn parse_parameter_direction(
     }
 }
 
+fn parse_flow_direction(value: &str) -> Result<systems_modeler_core::FlowDirection, String> {
+    match value {
+        "in" => Ok(systems_modeler_core::FlowDirection::In),
+        "out" => Ok(systems_modeler_core::FlowDirection::Out),
+        "inout" => Ok(systems_modeler_core::FlowDirection::InOut),
+        _ => Err(format!("invalid flow direction: {value}")),
+    }
+}
+
 #[tauri::command]
 pub fn update_bdd_feature_semantics(
     element_id: String,
@@ -31,6 +40,7 @@ pub fn update_bdd_feature_semantics(
     is_read_only: Option<bool>,
     is_conjugated: Option<bool>,
     parameter_direction: Option<String>,
+    flow_direction: Option<String>,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
@@ -48,6 +58,7 @@ pub fn update_bdd_feature_semantics(
             ElementKind::PartProperty
                 | ElementKind::ReferenceProperty
                 | ElementKind::ValueProperty
+                | ElementKind::FlowProperty
                 | ElementKind::ConstraintProperty
                 | ElementKind::ProxyPort
                 | ElementKind::FullPort
@@ -100,6 +111,12 @@ pub fn update_bdd_feature_semantics(
                 return Err(format!("{kind:?} does not support parameter direction"));
             }
             element.parameter_direction = Some(parse_parameter_direction(&value)?);
+        }
+        if let Some(value) = flow_direction {
+            if kind != ElementKind::FlowProperty {
+                return Err(format!("{kind:?} does not support flow direction"));
+            }
+            element.flow_direction = Some(parse_flow_direction(&value)?);
         }
     }
 
