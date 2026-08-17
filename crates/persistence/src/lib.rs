@@ -14,6 +14,8 @@ pub enum PersistenceError {
     InvalidUuid(String),
     #[error("project not found: {0}")]
     ProjectNotFound(ProjectId),
+    #[error("project database contains no project")]
+    NoProject,
 }
 
 pub struct ProjectDatabase {
@@ -79,7 +81,15 @@ impl ProjectDatabase {
             CREATE INDEX IF NOT EXISTS idx_relationships_project_target ON relationships(project_id, target_id);
             CREATE INDEX IF NOT EXISTS idx_relationships_project_owner ON relationships(project_id, owner_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_relationships_project_external ON relationships(project_id, external_id);
+            CREATE TABLE IF NOT EXISTS project_metadata (
+                project_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY(project_id, key),
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
             INSERT OR IGNORE INTO schema_migrations(version) VALUES(1);
+            INSERT OR IGNORE INTO schema_migrations(version) VALUES(2);
             ",
         )?;
         Ok(())
@@ -136,6 +146,48 @@ impl ProjectDatabase {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn save_metadata(
+        &mut self,
+        project_id: ProjectId,
+        key: &str,
+        payload: &str,
+    ) -> Result<(), PersistenceError> {
+        self.connection.execute(
+            "INSERT INTO project_metadata(project_id,key,payload) VALUES(?1,?2,?3)
+             ON CONFLICT(project_id,key) DO UPDATE SET payload=excluded.payload",
+            params![project_id.to_string(), key, payload],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_metadata(
+        &self,
+        project_id: ProjectId,
+        key: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        self.connection
+            .query_row(
+                "SELECT payload FROM project_metadata WHERE project_id=?1 AND key=?2",
+                params![project_id.to_string(), key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(PersistenceError::from)
+    }
+
+    pub fn load_first_project(&self) -> Result<Project, PersistenceError> {
+        let id = self
+            .connection
+            .query_row(
+                "SELECT id FROM projects ORDER BY updated_at DESC, id LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or(PersistenceError::NoProject)?;
+        self.load_project(ProjectId(parse_uuid(&id)?))
     }
 
     pub fn load_project(&self, id: ProjectId) -> Result<Project, PersistenceError> {
@@ -218,5 +270,21 @@ mod tests {
         assert_eq!(restored.elements.len(), project.elements.len());
         assert_eq!(restored.relationships.len(), project.relationships.len());
         assert_eq!(restored.children(package).count(), 2);
+    }
+
+    #[test]
+    fn project_metadata_round_trips_with_first_project_lookup() {
+        let project = Project::new("Vehicle");
+        let mut db = ProjectDatabase::open_in_memory().unwrap();
+        db.save_project(&project).unwrap();
+        db.save_metadata(project.id, "bdd-diagrams", "[{}]")
+            .unwrap();
+
+        let restored = db.load_first_project().unwrap();
+        assert_eq!(restored.id, project.id);
+        assert_eq!(
+            db.load_metadata(project.id, "bdd-diagrams").unwrap(),
+            Some("[{}]".to_owned())
+        );
     }
 }
