@@ -119,7 +119,9 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
             return Err(format!("duplicate diagram id: {}", diagram.id));
         }
         let owner_id = parse_element_id(&diagram.owner_id)?;
-        let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+        let owner = project
+            .element(owner_id)
+            .map_err(|error| error.to_string())?;
         if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
             return Err(format!(
                 "BDD owner is not a Model or Package: {}",
