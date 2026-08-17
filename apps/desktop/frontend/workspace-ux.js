@@ -3,6 +3,7 @@
   let active = null;
   let ghost = null;
   let targetFrame = null;
+  const BDD_CLASSIFIERS = new Set(['Block', 'InterfaceBlock', 'ValueType', 'DataType', 'Enumeration', 'ConstraintBlock']);
 
   function makeInternalDrags() {
     document.querySelectorAll('[draggable="true"]').forEach((node) => {
@@ -23,12 +24,10 @@
       return { type: 'palette', item, label: item.label };
     }
     if (source.classList.contains('tree-row')) {
-      // Reuse the row's established selection behavior so the exact semantic
-      // element ID is used even when names are duplicated in different owners.
       source.click();
       const elementId = state.selectedElementId;
       const element = state.snapshot?.project?.elements?.find((value) => value.id === elementId);
-      if (!element || element.kind !== 'Block') return null;
+      if (!element || !BDD_CLASSIFIERS.has(element.kind)) return null;
       return { type: 'repository', elementId, label: element.name };
     }
     return null;
