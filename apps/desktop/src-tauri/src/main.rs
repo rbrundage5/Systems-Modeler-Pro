@@ -2,9 +2,9 @@ mod workspace;
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, create_bdd, create_block, create_package, new_project, open_project_file,
-    place_element_on_bdd, rename_element, save_current_project, save_project_file,
-    workspace_snapshot,
+    WorkspaceState, create_bdd, create_bdd_relationship, create_block, create_package, new_project,
+    open_project_file, place_element_on_bdd, rename_element, save_current_project,
+    save_project_file, workspace_snapshot,
 };
 
 #[derive(Serialize)]
@@ -39,7 +39,8 @@ fn main() {
             create_block,
             rename_element,
             create_bdd,
-            place_element_on_bdd
+            place_element_on_bdd,
+            create_bdd_relationship
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Systems Modeler Pro");
