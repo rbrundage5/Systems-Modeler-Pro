@@ -4,7 +4,11 @@
 *.db
 *.sqlite
 *.sqlite3
+*.smproj
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# Tauri-generated capability/schema output. Recreated by local builds.
+/apps/desktop/src-tauri/gen/

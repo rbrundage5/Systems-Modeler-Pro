@@ -2,8 +2,9 @@ mod workspace;
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, create_bdd, create_block, create_package, new_project, place_element_on_bdd,
-    rename_element, workspace_snapshot,
+    WorkspaceState, create_bdd, create_block, create_package, new_project, open_project_file,
+    place_element_on_bdd, rename_element, save_current_project, save_project_file,
+    workspace_snapshot,
 };
 
 #[derive(Serialize)]
@@ -31,6 +32,9 @@ fn main() {
             engine_status,
             workspace_snapshot,
             new_project,
+            save_project_file,
+            save_current_project,
+            open_project_file,
             create_package,
             create_block,
             rename_element,
