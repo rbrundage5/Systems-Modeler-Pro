@@ -91,7 +91,9 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
 }
 
 #[tauri::command]
-pub fn workspace_snapshot(state: tauri::State<'_, WorkspaceState>) -> Result<WorkspaceSnapshot, String> {
+pub fn workspace_snapshot(
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<WorkspaceSnapshot, String> {
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     Ok(WorkspaceSnapshot {
@@ -110,16 +112,29 @@ pub fn new_project(name: String, state: tauri::State<'_, WorkspaceState>) -> Res
 }
 
 #[tauri::command]
-pub fn create_package(owner_id: String, name: String, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+pub fn create_package(
+    owner_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
     create_element(ElementKind::Package, owner_id, name, state)
 }
 
 #[tauri::command]
-pub fn create_block(owner_id: String, name: String, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+pub fn create_block(
+    owner_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
     create_element(ElementKind::Block, owner_id, name, state)
 }
 
-fn create_element(kind: ElementKind, owner_id: String, name: String, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+fn create_element(
+    kind: ElementKind,
+    owner_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
     let owner_id = parse_element_id(&owner_id)?;
     let mut project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project.as_mut().ok_or("no project open")?;
@@ -130,7 +145,11 @@ fn create_element(kind: ElementKind, owner_id: String, name: String, state: taur
 }
 
 #[tauri::command]
-pub fn rename_element(element_id: String, name: String, state: tauri::State<'_, WorkspaceState>) -> Result<(), String> {
+pub fn rename_element(
+    element_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
     let mut project = state.project.lock().map_err(|_| "project lock poisoned")?;
     project
@@ -141,23 +160,33 @@ pub fn rename_element(element_id: String, name: String, state: tauri::State<'_, 
 }
 
 #[tauri::command]
-pub fn create_bdd(owner_id: String, name: String, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
+pub fn create_bdd(
+    owner_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
     let owner_id = parse_element_id(&owner_id)?;
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project.as_ref().ok_or("no project open")?;
-    let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+    let owner = project
+        .element(owner_id)
+        .map_err(|error| error.to_string())?;
     if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
         return Err("BDD owner must be a Model or Package in this workflow".into());
     }
     drop(project);
 
     let id = DiagramId::new();
-    state.diagrams.lock().map_err(|_| "diagram lock poisoned")?.push(BddDiagram {
-        id: id.to_string(),
-        name,
-        owner_id: owner_id.to_string(),
-        nodes: Vec::new(),
-    });
+    state
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .push(BddDiagram {
+            id: id.to_string(),
+            name,
+            owner_id: owner_id.to_string(),
+            nodes: Vec::new(),
+        });
     Ok(id.to_string())
 }
 
@@ -187,7 +216,11 @@ pub fn place_element_on_bdd(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id.to_string())
         .ok_or("diagram not found")?;
-    if diagram.nodes.iter().any(|node| node.element_id == element_id.to_string()) {
+    if diagram
+        .nodes
+        .iter()
+        .any(|node| node.element_id == element_id.to_string())
+    {
         return Err("this Block is already presented on the BDD".into());
     }
     let node_id = uuid::Uuid::new_v4().to_string();
