@@ -8,3 +8,6 @@
 Thumbs.db
 .vscode/
 .idea/
+
+# Tauri-generated capability/schema output. Recreated by local builds.
+/apps/desktop/src-tauri/gen/
