@@ -1,75 +1,121 @@
 (() => {
-  let modelerDragActive = false;
+  let candidate = null;
+  let active = null;
+  let ghost = null;
+  let targetFrame = null;
 
-  function isModelerDragSource(target) {
-    return target instanceof Element && (
-      target.matches('.palette-item[draggable="true"]') ||
-      target.matches('.tree-row[draggable="true"]') ||
-      target.closest('.palette-item[draggable="true"], .tree-row[draggable="true"]')
-    );
+  function makeInternalDrags() {
+    document.querySelectorAll('[draggable="true"]').forEach((node) => {
+      node.dataset.smpInternalDrag = 'true';
+      node.draggable = false;
+    });
   }
 
-  function diagramFrameFromEvent(event) {
-    const target = event.target;
-    return target instanceof Element ? target.closest('.diagram-frame') : null;
+  const observer = new MutationObserver(makeInternalDrags);
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['draggable'] });
+  makeInternalDrags();
+
+  function payloadFor(source) {
+    if (source.classList.contains('palette-item')) {
+      const label = source.querySelector('span:last-child')?.textContent?.trim();
+      const item = state.paletteItems.find((value) => value.label === label);
+      if (!item || item.category !== 'element') return null;
+      return { type: 'palette', item, label: item.label };
+    }
+    if (source.classList.contains('tree-row')) {
+      // Reuse the row's established selection behavior so the exact semantic
+      // element ID is used even when names are duplicated in different owners.
+      source.click();
+      const elementId = state.selectedElementId;
+      const element = state.snapshot?.project?.elements?.find((value) => value.id === elementId);
+      if (!element || element.kind !== 'Block') return null;
+      return { type: 'repository', elementId, label: element.name };
+    }
+    return null;
   }
 
-  document.addEventListener('dragstart', (event) => {
-    if (!isModelerDragSource(event.target)) return;
-    modelerDragActive = true;
-    try {
-      // WebView2 reliably recognizes text/plain even when custom MIME types are
-      // omitted from dataTransfer.types. The authoritative payload remains the
-      // custom type written by app.js; this fallback only makes the OS accept
-      // the drag as an application drag.
-      if (event.dataTransfer && !event.dataTransfer.getData('text/plain')) {
-        event.dataTransfer.setData('text/plain', 'systems-modeler-pro');
+  function createGhost(label) {
+    const node = document.createElement('div');
+    node.className = 'modeler-drag-ghost';
+    node.textContent = label;
+    document.body.appendChild(node);
+    return node;
+  }
+
+  function moveGhost(event) {
+    if (!ghost) return;
+    ghost.style.transform = `translate(${event.clientX + 14}px, ${event.clientY + 14}px)`;
+  }
+
+  function frameAt(x, y) {
+    const hit = document.elementFromPoint(x, y);
+    return hit instanceof Element ? hit.closest('.diagram-frame') : null;
+  }
+
+  function setTarget(frame) {
+    if (targetFrame === frame) return;
+    targetFrame?.classList.remove('palette-target');
+    targetFrame = frame;
+    targetFrame?.classList.add('palette-target');
+  }
+
+  function cleanup() {
+    candidate = null;
+    active = null;
+    ghost?.remove();
+    ghost = null;
+    setTarget(null);
+    document.body.classList.remove('modeler-dragging');
+  }
+
+  document.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const source = event.target instanceof Element ? event.target.closest('[data-smp-internal-drag="true"]') : null;
+    if (!source) return;
+    candidate = { source, x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  }, true);
+
+  document.addEventListener('pointermove', (event) => {
+    if (!candidate && !active) return;
+    if (!active) {
+      const distance = Math.hypot(event.clientX - candidate.x, event.clientY - candidate.y);
+      if (distance < 5) return;
+      const payload = payloadFor(candidate.source);
+      if (!payload) {
+        cleanup();
+        return;
       }
-    } catch (_) {
-      // The existing custom payload is sufficient if the fallback is blocked.
+      active = payload;
+      candidate = null;
+      ghost = createGhost(payload.label);
+      document.body.classList.add('modeler-dragging');
+    }
+    event.preventDefault();
+    moveGhost(event);
+    setTarget(frameAt(event.clientX, event.clientY));
+  }, true);
+
+  document.addEventListener('pointerup', async (event) => {
+    if (!active) {
+      candidate = null;
+      return;
+    }
+    event.preventDefault();
+    const payload = active;
+    const frame = frameAt(event.clientX, event.clientY);
+    try {
+      if (frame) {
+        const point = diagramCoordinates(frame, event);
+        if (payload.type === 'palette') await createPaletteElementAt(payload.item, point.x, point.y);
+        else await placeExistingElementAt(payload.elementId, point.x, point.y);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      cleanup();
     }
   }, true);
 
-  document.addEventListener('dragover', (event) => {
-    if (!modelerDragActive) return;
-    const frame = diagramFrameFromEvent(event);
-    if (!frame) return;
-    // Required by HTML5 DnD and, specifically, WebView2 to switch from the
-    // prohibited cursor to an allowed copy/drop cursor.
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-    frame.classList.add('palette-target');
-  }, true);
-
-  document.addEventListener('dragenter', (event) => {
-    if (!modelerDragActive) return;
-    const frame = diagramFrameFromEvent(event);
-    if (!frame) return;
-    event.preventDefault();
-    frame.classList.add('palette-target');
-  }, true);
-
-  document.addEventListener('dragleave', (event) => {
-    const frame = diagramFrameFromEvent(event);
-    if (!frame) return;
-    const next = event.relatedTarget;
-    if (!(next instanceof Node) || !frame.contains(next)) frame.classList.remove('palette-target');
-  }, true);
-
-  document.addEventListener('drop', (event) => {
-    if (!modelerDragActive) return;
-    const frame = diagramFrameFromEvent(event);
-    if (!frame) return;
-    // app.js owns the semantic drop operation. This capture handler only makes
-    // the frame a valid Windows/WebView2 drop target.
-    event.preventDefault();
-    frame.classList.remove('palette-target');
-    modelerDragActive = false;
-  }, true);
-
-  document.addEventListener('dragend', () => {
-    modelerDragActive = false;
-    document.querySelectorAll('.diagram-frame.palette-target')
-      .forEach((frame) => frame.classList.remove('palette-target'));
-  }, true);
+  document.addEventListener('pointercancel', cleanup, true);
+  window.addEventListener('blur', cleanup);
 })();
