@@ -100,7 +100,10 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
             is_conjugated: element.is_conjugated,
             quantity_kind_external_id: element.quantity_kind_external_id.clone(),
             unit_external_id: element.unit_external_id.clone(),
-            parameter_direction: element.parameter_direction.map(direction_name).map(str::to_string),
+            parameter_direction: element
+                .parameter_direction
+                .map(direction_name)
+                .map(str::to_string),
             literal_value: element.literal_value.clone(),
         })
         .collect();
@@ -150,9 +153,14 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
             return Err(format!("duplicate diagram id: {}", diagram.id));
         }
         let owner_id = parse_element_id(&diagram.owner_id)?;
-        let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+        let owner = project
+            .element(owner_id)
+            .map_err(|error| error.to_string())?;
         if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
-            return Err(format!("BDD owner is not a Model or Package: {}", diagram.owner_id));
+            return Err(format!(
+                "BDD owner is not a Model or Package: {}",
+                diagram.owner_id
+            ));
         }
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() {
@@ -162,9 +170,14 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 return Err(format!("duplicate diagram node id: {}", node.id));
             }
             let element_id = parse_element_id(&node.element_id)?;
-            let element = project.element(element_id).map_err(|error| error.to_string())?;
+            let element = project
+                .element(element_id)
+                .map_err(|error| error.to_string())?;
             if !bdd_presentable(&element.kind) {
-                return Err(format!("element kind {:?} is not valid as a BDD node", element.kind));
+                return Err(format!(
+                    "element kind {:?} is not valid as a BDD node",
+                    element.kind
+                ));
             }
         }
         for edge in &diagram.edges {
@@ -175,15 +188,26 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 return Err(format!("duplicate diagram edge id: {}", edge.id));
             }
             let relationship_id = parse_relationship_id(&edge.relationship_id)?;
-            let relationship = project.relationship(relationship_id).map_err(|error| error.to_string())?;
-            let source = diagram.nodes.iter().find(|node| node.id == edge.source_node_id)
+            let relationship = project
+                .relationship(relationship_id)
+                .map_err(|error| error.to_string())?;
+            let source = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.source_node_id)
                 .ok_or_else(|| format!("edge source node not found: {}", edge.source_node_id))?;
-            let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id)
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.target_node_id)
                 .ok_or_else(|| format!("edge target node not found: {}", edge.target_node_id))?;
             if source.element_id != relationship.source_id.to_string()
                 || target.element_id != relationship.target_id.to_string()
             {
-                return Err(format!("diagram edge endpoints do not match semantic relationship: {}", edge.relationship_id));
+                return Err(format!(
+                    "diagram edge endpoints do not match semantic relationship: {}",
+                    edge.relationship_id
+                ));
             }
             if edge.points.len() < 2 {
                 return Err(format!("diagram edge has no usable route: {}", edge.id));
@@ -199,7 +223,10 @@ pub fn workspace_snapshot_complete(
 ) -> Result<CompleteWorkspaceSnapshot, String> {
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let current_file = state.current_file.lock().map_err(|_| "project path lock poisoned")?;
+    let current_file = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?;
     Ok(CompleteWorkspaceSnapshot {
         project: project.as_ref().map(snapshot_complete),
         diagrams: diagrams.clone(),
@@ -216,7 +243,9 @@ pub fn create_bdd_element(
 ) -> Result<String, String> {
     let kind = parse_kind(&kind)?;
     if !bdd_presentable(&kind) {
-        return Err(format!("{kind:?} is an owned feature, not a top-level BDD classifier"));
+        return Err(format!(
+            "{kind:?} is an owned feature, not a top-level BDD classifier"
+        ));
     }
     create_element(kind, owner_id, name, state)
 }
@@ -255,9 +284,12 @@ pub fn create_bdd_feature(
         | ElementKind::ProxyPort
         | ElementKind::FullPort
         | ElementKind::Parameter => {
-            let type_id = type_id.ok_or_else(|| format!("{kind:?} requires a compatible stable type ID"))?;
+            let type_id =
+                type_id.ok_or_else(|| format!("{kind:?} requires a compatible stable type ID"))?;
             let type_id = parse_element_id(&type_id)?;
-            let multiplicity = parse_multiplicity(lower.unwrap_or(1), upper.or(Some(1)))?;
+            // `None` is the semantic representation of an unbounded upper value (`*`).
+            // The frontend always supplies an explicit finite upper value otherwise.
+            let multiplicity = parse_multiplicity(lower.unwrap_or(1), upper)?;
             project
                 .create_typed_feature(kind, name, owner_id, type_id, multiplicity)
                 .map_err(|error| error.to_string())?
@@ -266,9 +298,14 @@ pub fn create_bdd_feature(
     };
 
     if let Some(default_value) = default_value {
-        project.element_mut(id).map_err(|error| error.to_string())?.default_value = Some(default_value);
+        project
+            .element_mut(id)
+            .map_err(|error| error.to_string())?
+            .default_value = Some(default_value);
     }
-    project.validate_element(id).map_err(|error| error.to_string())?;
+    project
+        .validate_element(id)
+        .map_err(|error| error.to_string())?;
     Ok(id.to_string())
 }
 
@@ -284,12 +321,24 @@ pub fn update_bdd_element_details(
     let element_id = parse_element_id(&element_id)?;
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
-    let element = project.element_mut(element_id).map_err(|error| error.to_string())?;
-    if let Some(value) = documentation { element.documentation = value; }
-    if let Some(value) = default_value { element.default_value = if value.is_empty() { None } else { Some(value) }; }
-    if let Some(value) = quantity_kind_external_id { element.quantity_kind_external_id = if value.is_empty() { None } else { Some(value) }; }
-    if let Some(value) = unit_external_id { element.unit_external_id = if value.is_empty() { None } else { Some(value) }; }
-    project.validate_element(element_id).map_err(|error| error.to_string())
+    let element = project
+        .element_mut(element_id)
+        .map_err(|error| error.to_string())?;
+    if let Some(value) = documentation {
+        element.documentation = value;
+    }
+    if let Some(value) = default_value {
+        element.default_value = if value.is_empty() { None } else { Some(value) };
+    }
+    if let Some(value) = quantity_kind_external_id {
+        element.quantity_kind_external_id = if value.is_empty() { None } else { Some(value) };
+    }
+    if let Some(value) = unit_external_id {
+        element.unit_external_id = if value.is_empty() { None } else { Some(value) };
+    }
+    project
+        .validate_element(element_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -304,7 +353,10 @@ pub fn place_bdd_element(
     let element_id = parse_element_id(&element_id)?;
     let (width, height) = {
         let project = state.project.lock().map_err(|_| "project lock poisoned")?;
-        let element = project.as_ref().ok_or("no project open")?.element(element_id)
+        let element = project
+            .as_ref()
+            .ok_or("no project open")?
+            .element(element_id)
             .map_err(|error| error.to_string())?;
         if !bdd_presentable(&element.kind) {
             return Err(format!("{:?} is not valid as a BDD node", element.kind));
@@ -318,9 +370,15 @@ pub fn place_bdd_element(
     };
 
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id.to_string())
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id.to_string())
         .ok_or("diagram not found")?;
-    if diagram.nodes.iter().any(|node| node.element_id == element_id.to_string()) {
+    if diagram
+        .nodes
+        .iter()
+        .any(|node| node.element_id == element_id.to_string())
+    {
         return Err("this semantic element is already presented on the BDD".into());
     }
     let node_id = uuid::Uuid::new_v4().to_string();
@@ -352,8 +410,12 @@ pub fn create_bdd_relationship_complete(
 
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
-    let source = project.element(source_id).map_err(|error| error.to_string())?;
-    let target = project.element(target_id).map_err(|error| error.to_string())?;
+    let source = project
+        .element(source_id)
+        .map_err(|error| error.to_string())?;
+    let target = project
+        .element(target_id)
+        .map_err(|error| error.to_string())?;
     if !source.is_classifier() || !target.is_classifier() {
         return Err(format!("{kind} requires classifier endpoints on a BDD"));
     }
@@ -362,10 +424,21 @@ pub fn create_bdd_relationship_complete(
     }
 
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id).ok_or("diagram not found")?;
-    let source_node = diagram.nodes.iter().find(|node| node.element_id == source_element_id).cloned()
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("diagram not found")?;
+    let source_node = diagram
+        .nodes
+        .iter()
+        .find(|node| node.element_id == source_element_id)
+        .cloned()
         .ok_or("source classifier must be presented on the selected BDD")?;
-    let target_node = diagram.nodes.iter().find(|node| node.element_id == target_element_id).cloned()
+    let target_node = diagram
+        .nodes
+        .iter()
+        .find(|node| node.element_id == target_element_id)
+        .cloned()
         .ok_or("target classifier must be presented on the selected BDD")?;
     let owner_id = Some(parse_element_id(&diagram.owner_id)?);
 
@@ -376,19 +449,46 @@ pub fn create_bdd_relationship_complete(
                 "Composition" => AggregationKind::Composite,
                 _ => AggregationKind::None,
             };
-            project.create_association(
-                owner_id,
-                vec![
-                    Project::association_end(source_id, "", Multiplicity::ONE, true, aggregation),
-                    Project::association_end(target_id, "", Multiplicity::ONE, true, AggregationKind::None),
-                ],
-            ).map_err(|error| error.to_string())?
+            project
+                .create_association(
+                    owner_id,
+                    vec![
+                        Project::association_end(
+                            source_id,
+                            "",
+                            Multiplicity::ONE,
+                            true,
+                            aggregation,
+                        ),
+                        Project::association_end(
+                            target_id,
+                            "",
+                            Multiplicity::ONE,
+                            true,
+                            AggregationKind::None,
+                        ),
+                    ],
+                )
+                .map_err(|error| error.to_string())?
         }
-        "Generalization" => project.create_relationship(RelationshipKind::Generalization, source_id, target_id, owner_id)
+        "Generalization" => project
+            .create_relationship(
+                RelationshipKind::Generalization,
+                source_id,
+                target_id,
+                owner_id,
+            )
             .map_err(|error| error.to_string())?,
-        "Dependency" => project.create_relationship(RelationshipKind::Dependency, source_id, target_id, owner_id)
+        "Dependency" => project
+            .create_relationship(RelationshipKind::Dependency, source_id, target_id, owner_id)
             .map_err(|error| error.to_string())?,
-        "Realization" => project.create_relationship(RelationshipKind::Realization, source_id, target_id, owner_id)
+        "Realization" => project
+            .create_relationship(
+                RelationshipKind::Realization,
+                source_id,
+                target_id,
+                owner_id,
+            )
             .map_err(|error| error.to_string())?,
         _ => unreachable!(),
     };
@@ -413,14 +513,23 @@ pub fn save_project_file_complete(
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project.as_ref().ok_or("no project open")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    project.validate().map_err(|error| format!("project validation failed: {error}"))?;
+    project
+        .validate()
+        .map_err(|error| format!("project validation failed: {error}"))?;
     validate_complete_diagrams(project, &diagrams)?;
     let mut database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
-    database.save_project(project).map_err(|error| error.to_string())?;
+    database
+        .save_project(project)
+        .map_err(|error| error.to_string())?;
     let diagram_payload = serde_json::to_string(&*diagrams).map_err(|error| error.to_string())?;
-    database.save_metadata(project.id, BDD_METADATA_KEY, &diagram_payload).map_err(|error| error.to_string())?;
+    database
+        .save_metadata(project.id, BDD_METADATA_KEY, &diagram_payload)
+        .map_err(|error| error.to_string())?;
     let saved_path = path.to_string_lossy().into_owned();
-    *state.current_file.lock().map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
+    *state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
     Ok(saved_path)
 }
 
@@ -428,7 +537,11 @@ pub fn save_project_file_complete(
 pub fn save_current_project_complete(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
-    let path = state.current_file.lock().map_err(|_| "project path lock poisoned")?.clone()
+    let path = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?
+        .clone()
         .ok_or("project has not been saved yet; use Save As")?;
     save_project_file_complete(path, state)
 }
@@ -439,11 +552,20 @@ pub fn open_project_file_complete(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
     let path = normalize_project_path(&path)?;
-    if !path.exists() { return Err(format!("project file does not exist: {}", path.display())); }
+    if !path.exists() {
+        return Err(format!("project file does not exist: {}", path.display()));
+    }
     let database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
-    let project = database.load_first_project().map_err(|error| error.to_string())?;
-    project.validate().map_err(|error| format!("saved project validation failed: {error}"))?;
-    let diagrams = match database.load_metadata(project.id, BDD_METADATA_KEY).map_err(|error| error.to_string())? {
+    let project = database
+        .load_first_project()
+        .map_err(|error| error.to_string())?;
+    project
+        .validate()
+        .map_err(|error| format!("saved project validation failed: {error}"))?;
+    let diagrams = match database
+        .load_metadata(project.id, BDD_METADATA_KEY)
+        .map_err(|error| error.to_string())?
+    {
         Some(payload) => serde_json::from_str::<Vec<BddDiagram>>(&payload)
             .map_err(|error| format!("invalid saved BDD presentation data: {error}"))?,
         None => Vec::new(),
@@ -452,6 +574,9 @@ pub fn open_project_file_complete(
     let opened_path = path.to_string_lossy().into_owned();
     *state.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
     *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
-    *state.current_file.lock().map_err(|_| "project path lock poisoned")? = Some(opened_path.clone());
+    *state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")? = Some(opened_path.clone());
     Ok(opened_path)
 }
