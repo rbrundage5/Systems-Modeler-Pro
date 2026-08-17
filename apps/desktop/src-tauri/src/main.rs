@@ -1,10 +1,17 @@
-mod workspace;
+mod workspace {
+    include!("workspace.rs");
+    mod relationship_editing;
+    pub use relationship_editing::{
+        delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
+    };
+}
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, create_bdd, create_bdd_relationship, create_block, create_package, new_project,
-    open_project_file, place_element_on_bdd, rename_element, save_current_project,
-    save_project_file, workspace_snapshot,
+    WorkspaceState, create_bdd, create_bdd_relationship, create_block, create_package,
+    delete_bdd_relationship, new_project, open_project_file, place_element_on_bdd,
+    reconnect_bdd_relationship, rename_element, save_current_project, save_project_file,
+    update_association_end, workspace_snapshot,
 };
 
 #[derive(Serialize)]
@@ -40,7 +47,10 @@ fn main() {
             rename_element,
             create_bdd,
             place_element_on_bdd,
-            create_bdd_relationship
+            create_bdd_relationship,
+            update_association_end,
+            reconnect_bdd_relationship,
+            delete_bdd_relationship
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Systems Modeler Pro");
