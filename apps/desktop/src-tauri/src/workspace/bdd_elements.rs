@@ -19,6 +19,7 @@ pub struct CompleteElementSnapshot {
     pub unit_external_id: Option<String>,
     pub parameter_direction: Option<String>,
     pub literal_value: Option<String>,
+    pub flow_direction: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -41,32 +42,48 @@ fn bdd_presentable(kind: &ElementKind) -> bool {
     matches!(
         kind,
         ElementKind::Block
+            | ElementKind::AssociationBlock
             | ElementKind::InterfaceBlock
+            | ElementKind::ConstraintBlock
             | ElementKind::ValueType
             | ElementKind::DataType
+            | ElementKind::PrimitiveType
             | ElementKind::Enumeration
-            | ElementKind::ConstraintBlock
+            | ElementKind::Signal
+            | ElementKind::Unit
+            | ElementKind::QuantityKind
+            | ElementKind::InstanceSpecification
+            | ElementKind::Comment
     )
 }
 
 fn parse_kind(value: &str) -> Result<ElementKind, String> {
     match value {
         "Block" => Ok(ElementKind::Block),
+        "AssociationBlock" => Ok(ElementKind::AssociationBlock),
         "InterfaceBlock" => Ok(ElementKind::InterfaceBlock),
+        "ConstraintBlock" => Ok(ElementKind::ConstraintBlock),
         "ValueType" => Ok(ElementKind::ValueType),
         "DataType" => Ok(ElementKind::DataType),
+        "PrimitiveType" => Ok(ElementKind::PrimitiveType),
         "Enumeration" => Ok(ElementKind::Enumeration),
-        "ConstraintBlock" => Ok(ElementKind::ConstraintBlock),
         "EnumerationLiteral" => Ok(ElementKind::EnumerationLiteral),
+        "Signal" => Ok(ElementKind::Signal),
+        "Unit" => Ok(ElementKind::Unit),
+        "QuantityKind" => Ok(ElementKind::QuantityKind),
+        "InstanceSpecification" => Ok(ElementKind::InstanceSpecification),
+        "Slot" => Ok(ElementKind::Slot),
         "PartProperty" => Ok(ElementKind::PartProperty),
         "ReferenceProperty" => Ok(ElementKind::ReferenceProperty),
         "ValueProperty" => Ok(ElementKind::ValueProperty),
+        "FlowProperty" => Ok(ElementKind::FlowProperty),
         "ConstraintProperty" => Ok(ElementKind::ConstraintProperty),
         "ProxyPort" => Ok(ElementKind::ProxyPort),
         "FullPort" => Ok(ElementKind::FullPort),
         "Operation" => Ok(ElementKind::Operation),
         "Parameter" => Ok(ElementKind::Parameter),
         "Reception" => Ok(ElementKind::Reception),
+        "Comment" => Ok(ElementKind::Comment),
         _ => Err(format!("unsupported BDD semantic kind: {value}")),
     }
 }
@@ -77,6 +94,14 @@ fn direction_name(value: systems_modeler_core::ParameterDirection) -> &'static s
         systems_modeler_core::ParameterDirection::Out => "out",
         systems_modeler_core::ParameterDirection::InOut => "inout",
         systems_modeler_core::ParameterDirection::Return => "return",
+    }
+}
+
+fn flow_direction_name(value: systems_modeler_core::FlowDirection) -> &'static str {
+    match value {
+        systems_modeler_core::FlowDirection::In => "in",
+        systems_modeler_core::FlowDirection::Out => "out",
+        systems_modeler_core::FlowDirection::InOut => "inout",
     }
 }
 
@@ -105,6 +130,10 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
                 .map(direction_name)
                 .map(str::to_string),
             literal_value: element.literal_value.clone(),
+            flow_direction: element
+                .flow_direction
+                .map(flow_direction_name)
+                .map(str::to_string),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));
@@ -244,7 +273,7 @@ pub fn create_bdd_element(
     let kind = parse_kind(&kind)?;
     if !bdd_presentable(&kind) {
         return Err(format!(
-            "{kind:?} is an owned feature, not a top-level BDD classifier"
+            "{kind:?} is an owned feature, not a top-level BDD element"
         ));
     }
     create_element(kind, owner_id, name, state)
@@ -271,8 +300,8 @@ pub fn create_bdd_feature(
     let project = project_guard.as_mut().ok_or("no project open")?;
 
     let id = match kind {
-        ElementKind::EnumerationLiteral => project
-            .create_element(ElementKind::EnumerationLiteral, name, owner_id)
+        ElementKind::EnumerationLiteral | ElementKind::Slot => project
+            .create_element(kind, name, owner_id)
             .map_err(|error| error.to_string())?,
         ElementKind::Operation | ElementKind::Reception => project
             .create_element(kind, name, owner_id)
@@ -280,6 +309,7 @@ pub fn create_bdd_feature(
         ElementKind::PartProperty
         | ElementKind::ReferenceProperty
         | ElementKind::ValueProperty
+        | ElementKind::FlowProperty
         | ElementKind::ConstraintProperty
         | ElementKind::ProxyPort
         | ElementKind::FullPort
@@ -287,8 +317,6 @@ pub fn create_bdd_feature(
             let type_id =
                 type_id.ok_or_else(|| format!("{kind:?} requires a compatible stable type ID"))?;
             let type_id = parse_element_id(&type_id)?;
-            // `None` is the semantic representation of an unbounded upper value (`*`).
-            // The frontend always supplies an explicit finite upper value otherwise.
             let multiplicity = parse_multiplicity(lower.unwrap_or(1), upper)?;
             project
                 .create_typed_feature(kind, name, owner_id, type_id, multiplicity)
@@ -363,8 +391,13 @@ pub fn place_bdd_element(
         }
         match element.kind {
             ElementKind::Enumeration => (190.0, 125.0),
-            ElementKind::ConstraintBlock => (200.0, 120.0),
-            ElementKind::ValueType | ElementKind::DataType => (185.0, 100.0),
+            ElementKind::ConstraintBlock | ElementKind::AssociationBlock => (205.0, 120.0),
+            ElementKind::ValueType
+            | ElementKind::DataType
+            | ElementKind::PrimitiveType
+            | ElementKind::Unit
+            | ElementKind::QuantityKind => (185.0, 100.0),
+            ElementKind::Comment => (210.0, 90.0),
             _ => (190.0, 115.0),
         }
     };
