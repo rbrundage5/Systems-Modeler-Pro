@@ -1,10 +1,12 @@
 const invoke = window.__TAURI__?.core?.invoke;
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const state = {
   snapshot: null,
   selectedElementId: null,
   selectedPackageId: null,
   selectedDiagramId: null,
+  pendingRelationship: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +32,10 @@ function renderStatus(message) {
   const status = $('status');
   if (message) {
     status.textContent = message;
+    return;
+  }
+  if (state.pendingRelationship) {
+    status.textContent = `${state.pendingRelationship.kind}: source selected. Click the target Block on the BDD.`;
     return;
   }
   if (!state.snapshot?.project) {
@@ -97,11 +103,64 @@ function renderRepository() {
       row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">BDD</span>`;
       row.onclick = () => {
         state.selectedDiagramId = diagram.id;
+        state.pendingRelationship = null;
         render();
       };
       host.appendChild(row);
     }
   }
+}
+
+function marker(defs, id, path, options = {}) {
+  const node = document.createElementNS(SVG_NS, 'marker');
+  node.setAttribute('id', id);
+  node.setAttribute('markerWidth', options.width || '12');
+  node.setAttribute('markerHeight', options.height || '12');
+  node.setAttribute('refX', options.refX || '10');
+  node.setAttribute('refY', options.refY || '6');
+  node.setAttribute('orient', 'auto-start-reverse');
+  node.setAttribute('markerUnits', 'strokeWidth');
+  const shape = document.createElementNS(SVG_NS, 'path');
+  shape.setAttribute('d', path);
+  shape.setAttribute('fill', options.fill || '#f8f8f6');
+  shape.setAttribute('stroke', '#111');
+  shape.setAttribute('stroke-width', '1');
+  node.appendChild(shape);
+  defs.appendChild(node);
+}
+
+function createRelationshipLayer(frame, diagram, project) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.classList.add('relationship-layer');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.setAttribute('aria-label', 'BDD relationships');
+
+  const defs = document.createElementNS(SVG_NS, 'defs');
+  marker(defs, 'open-triangle', 'M 1 1 L 11 6 L 1 11 Z', { fill: '#f8f8f6', refX: '11' });
+  marker(defs, 'open-arrow', 'M 1 1 L 11 6 L 1 11', { fill: 'none', refX: '11' });
+  marker(defs, 'shared-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#f8f8f6', refX: '1' });
+  marker(defs, 'composite-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#111', refX: '1' });
+  svg.appendChild(defs);
+
+  const relationships = new Map((project.relationships || []).map((relationship) => [relationship.id, relationship]));
+  for (const edge of diagram.edges || []) {
+    const relationship = relationships.get(edge.relationship_id);
+    if (!relationship || !edge.points?.length) continue;
+    const polyline = document.createElementNS(SVG_NS, 'polyline');
+    polyline.setAttribute('points', edge.points.map((point) => `${point.x},${point.y}`).join(' '));
+    polyline.setAttribute('fill', 'none');
+    polyline.classList.add('bdd-relationship', `relationship-${relationship.kind.toLowerCase()}`);
+    if (relationship.kind === 'Aggregation') polyline.setAttribute('marker-start', 'url(#shared-diamond)');
+    if (relationship.kind === 'Composition') polyline.setAttribute('marker-start', 'url(#composite-diamond)');
+    if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
+    if (relationship.kind === 'Dependency') polyline.setAttribute('marker-end', 'url(#open-arrow)');
+    const title = document.createElementNS(SVG_NS, 'title');
+    title.textContent = relationship.kind;
+    polyline.appendChild(title);
+    svg.appendChild(polyline);
+  }
+  frame.appendChild(svg);
 }
 
 function renderCanvas() {
@@ -123,6 +182,7 @@ function renderCanvas() {
   frame.innerHTML = `<div class="diagram-header">bdd [package] ${escapeHtml(diagram.name)}</div>`;
   canvas.appendChild(frame);
 
+  createRelationshipLayer(frame, diagram, project);
   const elementsById = new Map(project.elements.map((e) => [e.id, e]));
   for (const node of diagram.nodes) {
     const element = elementsById.get(node.element_id);
@@ -130,13 +190,27 @@ function renderCanvas() {
     const box = document.createElement('button');
     box.className = 'bdd-block';
     if (state.selectedElementId === element.id) box.classList.add('selected');
+    if (state.pendingRelationship?.sourceElementId === element.id) box.classList.add('relationship-source');
     box.style.left = `${node.x}px`;
     box.style.top = `${node.y}px`;
     box.style.width = `${node.width}px`;
     box.style.height = `${node.height}px`;
     box.innerHTML = `<div class="stereotype">«block»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment">values</div>`;
-    box.onclick = (event) => {
+    box.onclick = async (event) => {
       event.stopPropagation();
+      if (state.pendingRelationship && state.pendingRelationship.sourceElementId !== element.id) {
+        const pending = state.pendingRelationship;
+        state.pendingRelationship = null;
+        await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship', {
+          diagramId: state.selectedDiagramId,
+          kind: pending.kind,
+          sourceElementId: pending.sourceElementId,
+          targetElementId: element.id,
+        }));
+        state.selectedElementId = element.id;
+        await refresh();
+        return;
+      }
       state.selectedElementId = element.id;
       render();
     };
@@ -145,6 +219,7 @@ function renderCanvas() {
 
   frame.onclick = () => {
     state.selectedElementId = null;
+    state.pendingRelationship = null;
     render();
   };
 }
@@ -181,6 +256,7 @@ async function runCommand(progressMessage, action) {
     return await action();
   } catch (error) {
     const message = error?.message || String(error);
+    state.pendingRelationship = null;
     renderStatus(message);
     alert(message);
     throw error;
@@ -194,6 +270,7 @@ async function createProject() {
   state.selectedElementId = null;
   state.selectedPackageId = null;
   state.selectedDiagramId = null;
+  state.pendingRelationship = null;
   await refresh();
 }
 
@@ -205,6 +282,7 @@ async function openProject() {
   state.selectedElementId = null;
   state.selectedPackageId = null;
   state.selectedDiagramId = null;
+  state.pendingRelationship = null;
   await refresh();
   if (state.snapshot.diagrams.length) state.selectedDiagramId = state.snapshot.diagrams[0].id;
   render();
@@ -254,6 +332,7 @@ async function createBdd() {
   const name = prompt('BDD name', 'System Structure');
   if (!name) return;
   state.selectedDiagramId = await runCommand('Creating BDD…', () => requireInvoke()('create_bdd', { ownerId, name }));
+  state.pendingRelationship = null;
   await refresh();
 }
 
@@ -261,7 +340,7 @@ async function placeSelectedBlock() {
   if (!state.selectedDiagramId) return alert('Create or select a BDD first.');
   if (!state.selectedElementId) return alert('Select a Block in the repository first.');
   const element = state.snapshot.project.elements.find((item) => item.id === state.selectedElementId);
-  if (!element || element.kind !== 'Block') return alert('Only Blocks can be placed in this first BDD slice.');
+  if (!element || element.kind !== 'Block') return alert('Only Blocks can be placed on this BDD.');
   const existing = state.snapshot.diagrams.find((d) => d.id === state.selectedDiagramId)?.nodes.length || 0;
   await runCommand('Placing Block…', () => requireInvoke()('place_element_on_bdd', {
     diagramId: state.selectedDiagramId,
@@ -270,6 +349,20 @@ async function placeSelectedBlock() {
     y: 90 + Math.floor(existing / 3) * 180,
   }));
   await refresh();
+}
+
+function startRelationship() {
+  if (!state.selectedDiagramId) return alert('Create or select a BDD first.');
+  if (!state.selectedElementId) return alert('Select the source Block first.');
+  const element = state.snapshot?.project?.elements.find((item) => item.id === state.selectedElementId);
+  if (!element || element.kind !== 'Block') return alert('BDD relationships in PR #5 require Block endpoints.');
+  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId);
+  if (!diagram?.nodes.some((node) => node.element_id === element.id)) return alert('Place the source Block on the selected BDD first.');
+  state.pendingRelationship = {
+    kind: $('relationship-kind').value,
+    sourceElementId: element.id,
+  };
+  render();
 }
 
 function escapeHtml(value) {
@@ -285,5 +378,6 @@ $('new-package').onclick = createPackage;
 $('new-block').onclick = createBlock;
 $('new-bdd').onclick = createBdd;
 $('place-block').onclick = placeSelectedBlock;
+$('start-relationship').onclick = startRelationship;
 
 refresh().catch((error) => renderStatus(error.message));
