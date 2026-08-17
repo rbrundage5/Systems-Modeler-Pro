@@ -9,7 +9,9 @@ fn parse_aggregation(value: &str) -> Result<AggregationKind, String> {
     }
 }
 
-fn parse_parameter_direction(value: &str) -> Result<systems_modeler_core::ParameterDirection, String> {
+fn parse_parameter_direction(
+    value: &str,
+) -> Result<systems_modeler_core::ParameterDirection, String> {
     match value {
         "in" => Ok(systems_modeler_core::ParameterDirection::In),
         "out" => Ok(systems_modeler_core::ParameterDirection::Out),
@@ -66,7 +68,10 @@ pub fn update_bdd_feature_semantics(
     }
 
     if let Some(aggregation) = aggregation {
-        if !matches!(kind, ElementKind::PartProperty | ElementKind::ReferenceProperty) {
+        if !matches!(
+            kind,
+            ElementKind::PartProperty | ElementKind::ReferenceProperty
+        ) {
             return Err(format!("{kind:?} does not support aggregation"));
         }
         project
