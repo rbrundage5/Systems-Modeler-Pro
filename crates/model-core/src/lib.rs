@@ -331,7 +331,9 @@ impl Project {
     }
 
     pub fn element(&self, id: ElementId) -> Result<&Element, ModelError> {
-        self.elements.get(&id).ok_or(ModelError::ElementNotFound(id))
+        self.elements
+            .get(&id)
+            .ok_or(ModelError::ElementNotFound(id))
     }
 
     pub fn element_mut(&mut self, id: ElementId) -> Result<&mut Element, ModelError> {
@@ -769,10 +771,9 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         ElementKind::Comment => namespace_owned || classifier_owner,
         ElementKind::EnumerationLiteral => matches!(owner, ElementKind::Enumeration),
         ElementKind::Slot => matches!(owner, ElementKind::InstanceSpecification),
-        ElementKind::PartProperty | ElementKind::ReferenceProperty => matches!(
-            owner,
-            ElementKind::Block | ElementKind::AssociationBlock
-        ),
+        ElementKind::PartProperty | ElementKind::ReferenceProperty => {
+            matches!(owner, ElementKind::Block | ElementKind::AssociationBlock)
+        }
         ElementKind::ValueProperty => matches!(
             owner,
             ElementKind::Block
