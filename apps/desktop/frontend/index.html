@@ -14,75 +14,26 @@
       <div class="app-mark">S3</div>
       <div class="brand">Systems Modeler Pro</div>
       <nav class="workspace-tabs" aria-label="Workspace sections">
-        <span class="workspace-tab">File</span>
-        <span class="workspace-tab active">Home</span>
-        <span class="workspace-tab">Diagram</span>
-        <span class="workspace-tab">Arrange</span>
-        <span class="workspace-tab">View</span>
-        <span class="workspace-tab">Help</span>
+        <span class="workspace-tab">File</span><span class="workspace-tab active">Home</span><span class="workspace-tab">Diagram</span><span class="workspace-tab">Arrange</span><span class="workspace-tab">View</span><span class="workspace-tab">Help</span>
       </nav>
     </div>
     <div class="ribbon">
-      <section class="ribbon-group">
-        <div class="ribbon-actions ribbon-large-actions">
-          <button id="new-project" class="ribbon-command"><span class="command-icon">＋</span><span>New<br>Project</span></button>
-          <button id="open-project" class="ribbon-command"><span class="command-icon">▱</span><span>Open</span></button>
-          <button id="save-project" class="ribbon-command"><span class="command-icon">▣</span><span>Save</span></button>
-          <button id="save-project-as" class="ribbon-command"><span class="command-icon">▣</span><span>Save As</span></button>
-        </div>
-        <div class="ribbon-label">Project</div>
-      </section>
-      <section class="ribbon-group">
-        <div class="ribbon-actions">
-          <button id="new-package" class="ribbon-command"><span class="command-icon">□</span><span>Package</span></button>
-          <button id="new-bdd" class="ribbon-command"><span class="command-icon">▤</span><span>BDD</span></button>
-        </div>
-        <div class="ribbon-label">Model</div>
-      </section>
-      <section class="ribbon-group ribbon-context">
-        <div class="context-title">Active Diagram</div>
-        <div id="active-diagram-summary" class="context-value">No diagram selected</div>
-        <div class="context-subtitle">Palette and properties follow this diagram</div>
-        <div class="ribbon-label">Context</div>
-      </section>
+      <section class="ribbon-group"><div class="ribbon-actions"><button id="new-package" class="ribbon-command"><span class="command-icon">□</span><span>Package</span></button><button id="new-bdd" class="ribbon-command"><span class="command-icon">▤</span><span>BDD</span></button></div><div class="ribbon-label">Create</div></section>
+      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow this diagram</div><div class="ribbon-label">Context</div></section>
+    </div>
+    <div class="shell-command-host" aria-hidden="true">
+      <button id="new-project"></button><button id="open-project"></button><button id="save-project"></button><button id="save-project-as"></button>
     </div>
   </header>
 
   <div class="workspace">
-    <aside class="left repository-panel">
-      <div class="panel-title"><span>Model Repository</span></div>
-      <div class="panel-search"><input id="repository-search" placeholder="Search repository" /></div>
-      <div id="repository" class="repository panel-scroll" tabindex="0"></div>
-    </aside>
-
-    <aside class="palette-panel">
-      <div class="panel-title palette-title-row">
-        <span id="palette-title">Elements</span>
-        <button id="collapse-palette" class="icon-button" title="Collapse palette">«</button>
-      </div>
-      <div id="palette" class="palette panel-scroll" tabindex="0"></div>
-    </aside>
-
-    <section class="diagram-workspace">
-      <div id="diagram-tabs" class="diagram-tabs"></div>
-      <main id="canvas" class="canvas"></main>
-    </section>
-
-    <aside class="properties-panel">
-      <div class="panel-title properties-title"><span>Properties</span></div>
-      <div id="properties" class="properties panel-scroll" tabindex="0"></div>
-    </aside>
+    <aside class="left repository-panel"><div class="panel-title"><span>Model Repository</span></div><div class="panel-search"><input id="repository-search" placeholder="Search repository" /></div><div id="repository" class="repository panel-scroll" tabindex="0"></div></aside>
+    <aside class="palette-panel"><div class="panel-title palette-title-row"><span id="palette-title">Elements</span><button id="collapse-palette" class="icon-button" title="Collapse palette">«</button></div><div id="palette" class="palette panel-scroll" tabindex="0"></div></aside>
+    <section class="diagram-workspace"><div id="diagram-tabs" class="diagram-tabs"></div><main id="canvas" class="canvas"></main></section>
+    <aside class="properties-panel"><div class="panel-title properties-title"><span>Properties</span></div><div id="properties" class="properties panel-scroll" tabindex="0"></div></aside>
   </div>
 
-  <div class="statusbar">
-    <span id="status">Starting Rust workspace…</span>
-    <span id="model-counts" class="status-counts"></span>
-  </div>
-  <script src="app.js"></script>
-  <script src="workspace-ux.js"></script>
-  <script src="bdd-completion-ui.js"></script>
-  <script src="bdd-extended-ui.js"></script>
-  <script src="palette-icons.js"></script>
-  <script src="bdd-feature-editing.js"></script>
+  <div class="statusbar"><span id="status">Starting Rust workspace…</span><span id="model-counts" class="status-counts"></span></div>
+  <script src="app.js"></script><script src="workspace-ux.js"></script><script src="bdd-completion-ui.js"></script><script src="bdd-extended-ui.js"></script><script src="palette-icons.js"></script><script src="bdd-feature-editing.js"></script><script src="ui-shell.js"></script>
 </body>
 </html>
