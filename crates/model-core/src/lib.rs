@@ -612,11 +612,11 @@ impl Project {
             let type_id = element.type_id.ok_or(ModelError::TypeRequired(id))?;
             let type_kind = &self.element(type_id)?.kind;
             validate_type_kind(&element.kind, type_kind)?;
-        } else if element.kind == ElementKind::InstanceSpecification {
-            if let Some(type_id) = element.type_id {
-                let type_kind = &self.element(type_id)?.kind;
-                validate_type_kind(&element.kind, type_kind)?;
-            }
+        } else if element.kind == ElementKind::InstanceSpecification
+            && let Some(type_id) = element.type_id
+        {
+            let type_kind = &self.element(type_id)?.kind;
+            validate_type_kind(&element.kind, type_kind)?;
         }
         if element.kind == ElementKind::PartProperty
             && element.aggregation != AggregationKind::Composite
@@ -629,22 +629,22 @@ impl Project {
             return Err(ModelError::ReferenceCannotBeComposite(id));
         }
         if element.kind == ElementKind::ValueType {
-            if let Some(quantity_kind) = &element.quantity_kind_external_id {
-                if !self.elements.values().any(|candidate| {
+            if let Some(quantity_kind) = &element.quantity_kind_external_id
+                && !self.elements.values().any(|candidate| {
                     candidate.external_id == *quantity_kind
                         && candidate.kind == ElementKind::QuantityKind
-                }) {
-                    return Err(ModelError::InvalidQuantityKindReference(
-                        quantity_kind.clone(),
-                    ));
-                }
+                })
+            {
+                return Err(ModelError::InvalidQuantityKindReference(
+                    quantity_kind.clone(),
+                ));
             }
-            if let Some(unit) = &element.unit_external_id {
-                if !self.elements.values().any(|candidate| {
+            if let Some(unit) = &element.unit_external_id
+                && !self.elements.values().any(|candidate| {
                     candidate.external_id == *unit && candidate.kind == ElementKind::Unit
-                }) {
-                    return Err(ModelError::InvalidUnitReference(unit.clone()));
-                }
+                })
+            {
+                return Err(ModelError::InvalidUnitReference(unit.clone()));
             }
         }
         Ok(())
