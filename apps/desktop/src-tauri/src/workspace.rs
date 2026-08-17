@@ -544,7 +544,12 @@ fn supported_relationship_kind(value: &str) -> Result<&'static str, String> {
     }
 }
 
-fn semantic_duplicate(project: &Project, kind: &str, source_id: ElementId, target_id: ElementId) -> bool {
+fn semantic_duplicate(
+    project: &Project,
+    kind: &str,
+    source_id: ElementId,
+    target_id: ElementId,
+) -> bool {
     project.relationships.values().any(|relationship| {
         relationship.source_id == source_id
             && relationship.target_id == target_id
@@ -569,8 +574,12 @@ pub fn create_bdd_relationship(
 
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
-    let source = project.element(source_id).map_err(|error| error.to_string())?;
-    let target = project.element(target_id).map_err(|error| error.to_string())?;
+    let source = project
+        .element(source_id)
+        .map_err(|error| error.to_string())?;
+    let target = project
+        .element(target_id)
+        .map_err(|error| error.to_string())?;
     if source.kind != ElementKind::Block || target.kind != ElementKind::Block {
         return Err(format!("{kind} requires Block endpoints on a BDD"));
     }
@@ -670,12 +679,7 @@ pub fn create_bdd_relationship(
             )
             .map_err(|error| error.to_string())?,
         "Dependency" => project
-            .create_relationship(
-                RelationshipKind::Dependency,
-                source_id,
-                target_id,
-                owner_id,
-            )
+            .create_relationship(RelationshipKind::Dependency, source_id, target_id, owner_id)
             .map_err(|error| error.to_string())?,
         "Realization" => project
             .create_relationship(
@@ -767,7 +771,10 @@ fn route_relationship(
         let mid_x = (start.x + end.x) / 2.0;
         candidates.push(vec![
             start,
-            DiagramPoint { x: mid_x, y: start.y },
+            DiagramPoint {
+                x: mid_x,
+                y: start.y,
+            },
             DiagramPoint { x: mid_x, y: end.y },
             end,
         ]);
@@ -776,11 +783,10 @@ fn route_relationship(
             .map(|node| node.x)
             .fold(source.x.min(target.x), f64::min)
             - ROUTE_CLEARANCE;
-        let right = nodes
-            .iter()
-            .map(|node| node.x + node.width)
-            .fold((source.x + source.width).max(target.x + target.width), f64::max)
-            + ROUTE_CLEARANCE;
+        let right = nodes.iter().map(|node| node.x + node.width).fold(
+            (source.x + source.width).max(target.x + target.width),
+            f64::max,
+        ) + ROUTE_CLEARANCE;
         for x in [left, right] {
             candidates.push(vec![
                 start,
@@ -793,7 +799,10 @@ fn route_relationship(
         let mid_y = (start.y + end.y) / 2.0;
         candidates.push(vec![
             start,
-            DiagramPoint { x: start.x, y: mid_y },
+            DiagramPoint {
+                x: start.x,
+                y: mid_y,
+            },
             DiagramPoint { x: end.x, y: mid_y },
             end,
         ]);
@@ -802,11 +811,10 @@ fn route_relationship(
             .map(|node| node.y)
             .fold(source.y.min(target.y), f64::min)
             - ROUTE_CLEARANCE;
-        let bottom = nodes
-            .iter()
-            .map(|node| node.y + node.height)
-            .fold((source.y + source.height).max(target.y + target.height), f64::max)
-            + ROUTE_CLEARANCE;
+        let bottom = nodes.iter().map(|node| node.y + node.height).fold(
+            (source.y + source.height).max(target.y + target.height),
+            f64::max,
+        ) + ROUTE_CLEARANCE;
         for y in [top, bottom] {
             candidates.push(vec![
                 start,
