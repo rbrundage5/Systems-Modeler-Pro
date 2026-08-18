@@ -1,10 +1,10 @@
-use super::super::behavior_workspace::BehaviorDiagramKind;
 use super::super::WorkspaceState;
+use super::super::behavior_workspace::BehaviorDiagramKind;
+use std::collections::HashSet;
 use systems_modeler_core::behavior::{
     FragmentId, InteractionId, InvariantId, LifelineId, MessageId, Region, StateMachineId,
     TransitionId, VertexId, VertexKind,
 };
-use std::collections::HashSet;
 
 fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
     uuid::Uuid::parse_str(value).map_err(|_| format!("invalid behavior id: {value}"))
@@ -33,7 +33,10 @@ fn diagram_semantics(
     Ok((diagram.kind, diagram.semantic_id.clone()))
 }
 
-fn collect_vertex_subtree(vertex: &systems_modeler_core::behavior::Vertex, ids: &mut HashSet<VertexId>) {
+fn collect_vertex_subtree(
+    vertex: &systems_modeler_core::behavior::Vertex,
+    ids: &mut HashSet<VertexId>,
+) {
     ids.insert(vertex.id);
     if let VertexKind::State(state) = &vertex.kind {
         for region in &state.regions {
@@ -44,9 +47,16 @@ fn collect_vertex_subtree(vertex: &systems_modeler_core::behavior::Vertex, ids: 
     }
 }
 
-fn remove_vertex_from_regions(regions: &mut [Region], wanted: VertexId) -> Option<HashSet<VertexId>> {
+fn remove_vertex_from_regions(
+    regions: &mut [Region],
+    wanted: VertexId,
+) -> Option<HashSet<VertexId>> {
     for region in regions {
-        if let Some(index) = region.vertices.iter().position(|vertex| vertex.id == wanted) {
+        if let Some(index) = region
+            .vertices
+            .iter()
+            .position(|vertex| vertex.id == wanted)
+        {
             let vertex = region.vertices.remove(index);
             let mut removed = HashSet::new();
             collect_vertex_subtree(&vertex, &mut removed);
@@ -75,7 +85,9 @@ fn remove_vertex_from_regions(regions: &mut [Region], wanted: VertexId) -> Optio
 fn remove_transition(regions: &mut [Region], wanted: TransitionId) -> bool {
     for region in regions {
         let before = region.transitions.len();
-        region.transitions.retain(|transition| transition.id != wanted);
+        region
+            .transitions
+            .retain(|transition| transition.id != wanted);
         if region.transitions.len() != before {
             return true;
         }
@@ -144,7 +156,9 @@ fn delete_state_item(
                 Err("Transition not found".into())
             }
         }
-        _ => Err(format!("unsupported State Machine deletion type: {item_type}")),
+        _ => Err(format!(
+            "unsupported State Machine deletion type: {item_type}"
+        )),
     }
 }
 
@@ -176,7 +190,9 @@ fn delete_sequence_item(
         "Execution" => {
             let wanted = parse_uuid(item_id).map(systems_modeler_core::behavior::ExecutionId)?;
             let before = interaction.executions.len();
-            interaction.executions.retain(|execution| execution.id != wanted);
+            interaction
+                .executions
+                .retain(|execution| execution.id != wanted);
             if interaction.executions.len() == before {
                 return Err("Execution Specification not found".into());
             }
@@ -184,7 +200,9 @@ fn delete_sequence_item(
         "Fragment" => {
             let wanted = parse_uuid(item_id).map(FragmentId)?;
             let before = interaction.fragments.len();
-            interaction.fragments.retain(|fragment| fragment.id != wanted);
+            interaction
+                .fragments
+                .retain(|fragment| fragment.id != wanted);
             if interaction.fragments.len() == before {
                 return Err("Combined Fragment not found".into());
             }
@@ -192,7 +210,9 @@ fn delete_sequence_item(
         "Invariant" => {
             let wanted = parse_uuid(item_id).map(InvariantId)?;
             let before = interaction.state_invariants.len();
-            interaction.state_invariants.retain(|invariant| invariant.id != wanted);
+            interaction
+                .state_invariants
+                .retain(|invariant| invariant.id != wanted);
             if interaction.state_invariants.len() == before {
                 return Err("State Invariant not found".into());
             }
@@ -200,7 +220,10 @@ fn delete_sequence_item(
         "Lifeline" => {
             let wanted = parse_uuid(item_id).map(LifelineId)?;
             let has_message = interaction.messages.iter().any(|message| {
-                message.send_event.as_ref().is_some_and(|event| event.lifeline_id == wanted)
+                message
+                    .send_event
+                    .as_ref()
+                    .is_some_and(|event| event.lifeline_id == wanted)
                     || message
                         .receive_event
                         .as_ref()
@@ -222,7 +245,9 @@ fn delete_sequence_item(
                 return Err("Lifeline is still referenced by Messages, Executions, Combined Fragments, or State Invariants. Delete those dependent interaction elements first.".into());
             }
             let before = interaction.lifelines.len();
-            interaction.lifelines.retain(|lifeline| lifeline.id != wanted);
+            interaction
+                .lifelines
+                .retain(|lifeline| lifeline.id != wanted);
             if interaction.lifelines.len() == before {
                 return Err("Lifeline not found".into());
             }
@@ -235,7 +260,9 @@ fn delete_sequence_item(
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("behavior diagram not found")?;
-            diagram.lifelines.retain(|presentation| presentation.lifeline_id != item_id);
+            diagram
+                .lifelines
+                .retain(|presentation| presentation.lifeline_id != item_id);
             return Ok(());
         }
         _ => return Err(format!("unsupported Sequence deletion type: {item_type}")),
