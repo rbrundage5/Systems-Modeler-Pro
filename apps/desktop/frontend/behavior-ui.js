@@ -269,6 +269,23 @@
     return true;
   };
 
+  // The renderer stays presentation-only. Lifeline pointer intent is forwarded
+  // here so message creation has one UI path and one Rust semantic command.
+  document.addEventListener('click', (event) => {
+    const node = event.target.closest?.('.sequence-lifeline');
+    const diagram = activeBehaviorDiagram();
+    if (!node || !diagram || diagram.kind !== 'Sequence') return;
+    if (!state.behaviorPending || state.behaviorPending.kind === 'SingleEndedMessage') return;
+    const interaction = state.behaviorSnapshot?.repository?.interactions?.[String(diagram.semantic_id)];
+    const lifeline = interaction?.lifelines?.find(
+      (candidate) => String(candidate.id) === String(node.dataset.lifelineId),
+    );
+    if (!lifeline) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void window.smpBehaviorLifelineClick(diagram, lifeline);
+  }, true);
+
   loadBehaviorSnapshot().then(() => render()).catch((error) => {
     const status = $('status');
     if (status) status.textContent = `Behavior workspace unavailable: ${error?.message || String(error)}`;
