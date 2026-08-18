@@ -17,8 +17,8 @@
     if (!name) return;
 
     const command = kind === 'StateMachine'
-      ? 'create_state_machine_diagram'
-      : 'create_sequence_diagram';
+      ? 'create_state_machine_diagram_staged'
+      : 'create_sequence_diagram_staged';
 
     try {
       const diagramId = await runCommand(
@@ -26,9 +26,6 @@
         () => requireInvoke()(command, { contextId: context.id, name }),
       );
 
-      // Do not depend on the chained global refresh wrappers to discover a newly
-      // created behavior diagram. Read the authoritative Rust behavior workspace
-      // immediately and select the exact ID returned by the creation command.
       state.behaviorSnapshot = await requireInvoke()('behavior_snapshot');
       if (!state.behaviorSnapshot?.diagrams?.some((diagram) => diagram.id === diagramId)) {
         throw new Error(`${label} was created by Rust but was not returned by the behavior workspace snapshot.`);
