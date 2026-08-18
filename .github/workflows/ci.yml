@@ -38,6 +38,7 @@ jobs:
             apps/desktop/frontend/behavior-message-notation.js \
             apps/desktop/frontend/behavior-submachine.js \
             apps/desktop/frontend/behavior-region-placement.js \
+            apps/desktop/frontend/behavior-sequence-input.js \
             apps/desktop/frontend/behavior-command-authority.js \
             apps/desktop/frontend/behavior-authoritative-renderer.js; do
             node --check "$file"
