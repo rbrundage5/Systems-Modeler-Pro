@@ -125,9 +125,16 @@ require(
     'href="behavior-submachine.css"',
     'src="behavior-nested-transition-notation.js"',
     'src="behavior-region-placement.js"',
+    'src="behavior-command-authority.js"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
+    "add_state_transition_complete",
+)
+require(
+    "apps/desktop/frontend/behavior-command-authority.js",
+    "create_state_machine_diagram_staged",
+    "create_sequence_diagram_staged",
     "add_state_transition_complete",
 )
 require(
