@@ -37,6 +37,7 @@ require(
     "behavior_lifeline_candidates",
     "add_sequence_lifeline",
     "move_sequence_lifeline",
+    "resize_sequence_lifeline_timeline",
     "add_sequence_message",
     "update_sequence_message_complete",
     "add_execution_specification",
@@ -138,6 +139,10 @@ require(
     "state-invariant-box",
     "move_state_vertex",
     "move_sequence_lifeline",
+    "resize_sequence_lifeline_timeline",
+    "lifeline-resize-handle",
+    "timeline_start_y",
+    "timeline_end_y",
     "Reply",
     "stroke-dasharray",
 )
@@ -201,6 +206,14 @@ require(
     "UnknownSubmachine",
     "SelfSubmachine",
     "SubmachineCycle",
+)
+
+require(
+    "apps/desktop/src-tauri/src/workspace/behavior_workspace.rs",
+    "default_lifeline_timeline_start_y",
+    "default_lifeline_timeline_end_y",
+    "resize_sequence_lifeline_timeline",
+    "legacy_lifeline_presentation_receives_timeline_defaults",
 )
 
 print("PR12 consolidated Rust-authoritative behavior integration is complete")

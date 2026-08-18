@@ -28,7 +28,7 @@ mod workspace {
         add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
         add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, create_sequence_diagram,
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
-        update_state_behaviors,
+        resize_sequence_lifeline_timeline, update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
     pub use ibd::{
@@ -55,12 +55,12 @@ use workspace::{
     ibd_item_flow_notation, move_sequence_lifeline, move_state_vertex, new_project,
     open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
     populate_ibd_from_context, reconnect_bdd_relationship, reconnect_sequence_message,
-    rename_element, route_ibd, save_current_project, save_current_project_complete,
-    save_project_file, save_project_file_complete, update_association_end,
-    update_bdd_element_details, update_bdd_feature_semantics, update_combined_fragment_operand,
-    update_execution_specification, update_sequence_message, update_sequence_message_complete,
-    update_state_behaviors, update_state_invariant, update_state_transition, workspace_snapshot,
-    workspace_snapshot_complete,
+    rename_element, resize_sequence_lifeline_timeline, route_ibd, save_current_project,
+    save_current_project_complete, save_project_file, save_project_file_complete,
+    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
+    update_combined_fragment_operand, update_execution_specification, update_sequence_message,
+    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
+    update_state_transition, workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -299,6 +299,7 @@ fn main() {
             behavior_lifeline_candidates,
             add_sequence_lifeline,
             move_sequence_lifeline,
+            resize_sequence_lifeline_timeline,
             add_sequence_message,
             update_sequence_message,
             update_sequence_message_complete,

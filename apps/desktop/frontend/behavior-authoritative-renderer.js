@@ -216,7 +216,12 @@
   }
 
   function lifelinePresentation(diagram, id, index) {
-    return diagram.lifelines?.find((item) => String(item.lifeline_id) === String(id)) || { x: 150 + index * 210, fallback: true };
+    return diagram.lifelines?.find((item) => String(item.lifeline_id) === String(id)) || {
+      x: 150 + index * 210,
+      timeline_start_y: 102,
+      timeline_end_y: 840,
+      fallback: true,
+    };
   }
 
   function messageOrder(message, index) {
@@ -247,8 +252,17 @@
       const node = document.createElement('button');
       node.className = 'sequence-lifeline';
       node.dataset.lifelineId = String(lifeline.id);
+      const timelineStart = Number.isFinite(presentation.timeline_start_y) ? presentation.timeline_start_y : 102;
+      const timelineEnd = Number.isFinite(presentation.timeline_end_y) ? presentation.timeline_end_y : 840;
       node.style.left = `${presentation.x - 65}px`;
-      node.innerHTML = `<div class="lifeline-head">${escapeHtml(lifeline.name || 'Lifeline')}</div><div class="lifeline-line"></div>`;
+      node.style.height = `${Math.max(120, timelineEnd - 60)}px`;
+      node.innerHTML = `<div class="lifeline-head">${escapeHtml(lifeline.name || 'Lifeline')}</div><div class="lifeline-line"></div><span class="lifeline-resize-handle" title="Resize Lifeline timeline" aria-label="Resize Lifeline timeline"></span>`;
+      const timeline = node.querySelector('.lifeline-line');
+      timeline.style.top = `${Math.max(42, timelineStart - 60)}px`;
+      timeline.style.bottom = 'auto';
+      timeline.style.height = `${Math.max(80, timelineEnd - timelineStart)}px`;
+      const timelineResize = node.querySelector('.lifeline-resize-handle');
+      timelineResize.style.top = `${Math.max(50, timelineEnd - 66)}px`;
       if (presentation.fallback) node.classList.add('presentation-fallback');
       if (
         state.selectedBehaviorItem?.type === 'Lifeline'
@@ -261,7 +275,34 @@
         render();
       };
       if (!presentation.fallback) {
+        timelineResize.onpointerdown = (event) => {
+          if (state.behaviorPending || state.behaviorTool) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const startY = event.clientY;
+          const originalEnd = timelineEnd;
+          let nextEnd = originalEnd;
+          timelineResize.setPointerCapture?.(event.pointerId);
+          timelineResize.onpointermove = (move) => {
+            nextEnd = Math.max(timelineStart + 80, originalEnd + move.clientY - startY);
+            timeline.style.height = `${nextEnd - timelineStart}px`;
+            node.style.height = `${Math.max(120, nextEnd - 60)}px`;
+            timelineResize.style.top = `${Math.max(50, nextEnd - 66)}px`;
+          };
+          timelineResize.onpointerup = async () => {
+            timelineResize.onpointermove = null;
+            timelineResize.onpointerup = null;
+            await runCommand('Resizing Lifeline timeline…', () => requireInvoke()('resize_sequence_lifeline_timeline', {
+              diagramId: diagram.id,
+              lifelineIdValue: String(lifeline.id),
+              timelineStartY: timelineStart,
+              timelineEndY: nextEnd,
+            }));
+            await refresh();
+          };
+        };
         node.onpointerdown = (event) => {
+          if (event.target.closest?.('.lifeline-resize-handle')) return;
           if (state.behaviorPending || state.behaviorTool) return;
           const start = event.clientX;
           const original = presentation.x;

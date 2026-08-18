@@ -28,10 +28,22 @@ pub struct StateNodePresentation {
     pub height: f64,
 }
 
+fn default_lifeline_timeline_start_y() -> f64 {
+    102.0
+}
+
+fn default_lifeline_timeline_end_y() -> f64 {
+    840.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LifelinePresentation {
     pub lifeline_id: String,
     pub x: f64,
+    #[serde(default = "default_lifeline_timeline_start_y")]
+    pub timeline_start_y: f64,
+    #[serde(default = "default_lifeline_timeline_end_y")]
+    pub timeline_end_y: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -714,6 +726,8 @@ pub fn add_sequence_lifeline(
     diagram.lifelines.push(LifelinePresentation {
         lifeline_id: id.to_string(),
         x,
+        timeline_start_y: default_lifeline_timeline_start_y(),
+        timeline_end_y: default_lifeline_timeline_end_y(),
     });
     Ok(id.to_string())
 }
@@ -739,6 +753,44 @@ pub fn move_sequence_lifeline(
         .find(|item| item.lifeline_id == lifeline_id_value)
         .ok_or("Lifeline presentation not found")?;
     presentation.x = x;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resize_sequence_lifeline_timeline(
+    diagram_id: String,
+    lifeline_id_value: String,
+    timeline_start_y: f64,
+    timeline_end_y: f64,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    if !timeline_start_y.is_finite() || !timeline_end_y.is_finite() {
+        return Err("Lifeline timeline coordinates must be finite".into());
+    }
+    if timeline_start_y < 90.0 {
+        return Err("Lifeline timeline must start below its header".into());
+    }
+    if timeline_end_y - timeline_start_y < 80.0 {
+        return Err("Lifeline timeline must be at least 80 diagram units long".into());
+    }
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    if diagram.kind != BehaviorDiagramKind::Sequence {
+        return Err("active behavior diagram is not a Sequence Diagram".into());
+    }
+    let presentation = diagram
+        .lifelines
+        .iter_mut()
+        .find(|item| item.lifeline_id == lifeline_id_value)
+        .ok_or("Lifeline presentation not found")?;
+    presentation.timeline_start_y = timeline_start_y;
+    presentation.timeline_end_y = timeline_end_y;
     Ok(())
 }
 
@@ -1059,4 +1111,27 @@ pub fn load_behavior_metadata(
     };
     validate_behavior_workspace(project, &repository, &diagrams)?;
     Ok((repository, diagrams))
+}
+
+#[cfg(test)]
+mod lifeline_presentation_tests {
+    use super::{
+        LifelinePresentation, default_lifeline_timeline_end_y, default_lifeline_timeline_start_y,
+    };
+
+    #[test]
+    fn legacy_lifeline_presentation_receives_timeline_defaults() {
+        let presentation: LifelinePresentation =
+            serde_json::from_str(r#"{"lifeline_id":"legacy","x":240.0}"#)
+                .expect("legacy Lifeline presentation should deserialize");
+        assert_eq!(
+            presentation.timeline_start_y,
+            default_lifeline_timeline_start_y()
+        );
+        assert_eq!(
+            presentation.timeline_end_y,
+            default_lifeline_timeline_end_y()
+        );
+        assert!(presentation.timeline_end_y - presentation.timeline_start_y >= 80.0);
+    }
 }
