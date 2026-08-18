@@ -3,6 +3,7 @@ mod workspace {
     mod bdd_elements;
     mod feature_editing;
     mod ibd;
+    mod item_flow_notation;
     mod relationship_editing;
     mod routing;
     pub use bdd_elements::{
@@ -15,6 +16,7 @@ mod workspace {
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
+    pub use item_flow_notation::ibd_item_flow_notation;
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -25,12 +27,12 @@ use workspace::{
     WorkspaceState, add_item_flow_to_connector, add_nested_port_to_ibd, create_bdd,
     create_bdd_element, create_bdd_feature, create_bdd_relationship,
     create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
-    create_package, delete_bdd_relationship, new_project, open_project_file,
-    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
-    reconnect_bdd_relationship, rename_element, route_ibd, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
-    workspace_snapshot, workspace_snapshot_complete,
+    create_package, delete_bdd_relationship, ibd_item_flow_notation, new_project,
+    open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
+    populate_ibd_from_context, reconnect_bdd_relationship, rename_element, route_ibd,
+    save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, update_association_end, update_bdd_element_details,
+    update_bdd_feature_semantics, workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -203,6 +205,7 @@ fn main() {
             add_nested_port_to_ibd,
             create_ibd_connector,
             add_item_flow_to_connector,
+            ibd_item_flow_notation,
             route_ibd,
             place_element_on_bdd,
             place_bdd_element,
