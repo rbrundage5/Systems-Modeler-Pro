@@ -15,18 +15,26 @@ jobs:
           components: rustfmt, clippy
       - name: Format
         run: cargo fmt --all --check
-      - name: Core tests
-        run: cargo test -p systems-modeler-core -p systems-modeler-persistence
-      - name: Core lint
-        run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
+      - name: Core and persistence tests
+        run: cargo test --workspace --exclude systems-modeler-desktop
+      - name: Core and persistence lint
+        run: cargo clippy --workspace --exclude systems-modeler-desktop --all-targets -- -D warnings
+      - name: Behavior desktop integration contract
+        run: python scripts/validate_behavior_integration.py
 
   desktop-check:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Check desktop shell
         run: cargo check -p systems-modeler-desktop
+      - name: Desktop lint
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Behavior desktop integration contract
+        run: python scripts/validate_behavior_integration.py
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
