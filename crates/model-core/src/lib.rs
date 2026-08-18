@@ -321,24 +321,36 @@ pub enum ModelError {
     InvalidUnitReference(String),
     #[error("IBD context must be a Block or AssociationBlock: {0}")]
     InvalidIbdContext(ElementId),
-    #[error("invalid nested connector property path at {0}; select a property/port that is actually reachable from this IBD context")]
+    #[error(
+        "invalid nested connector property path at {0}; select a property/port that is actually reachable from this IBD context"
+    )]
     InvalidConnectorPath(ElementId),
-    #[error("connector endpoint must be a PartProperty, ReferenceProperty, ProxyPort, or FullPort: {0}; select an internal structural property or a valid port")]
+    #[error(
+        "connector endpoint must be a PartProperty, ReferenceProperty, ProxyPort, or FullPort: {0}; select an internal structural property or a valid port"
+    )]
     ConnectorEndpointMustBePortOrProperty(ElementId),
     #[error("connector cannot connect an endpoint to itself; select a different second endpoint")]
     ConnectorSelfConnection,
-    #[error("assembly connector requires two internal endpoints; select an internal Part/Reference Property or one of its nested ports for endpoint 1, then a second internal property/port. Do not use an outer Block boundary port")]
+    #[error(
+        "assembly connector requires two internal endpoints; select an internal Part/Reference Property or one of its nested ports for endpoint 1, then a second internal property/port. Do not use an outer Block boundary port"
+    )]
     AssemblyRequiresInternalEnds,
-    #[error("delegation connector requires exactly one outer Block boundary port and one internal Part/Reference Property or nested port; select one endpoint of each kind")]
+    #[error(
+        "delegation connector requires exactly one outer Block boundary port and one internal Part/Reference Property or nested port; select one endpoint of each kind"
+    )]
     DelegationRequiresBoundaryAndInternal,
-    #[error("connector endpoint types are incompatible: {source_id} vs {target_id}; choose endpoints with compatible semantic types")]
+    #[error(
+        "connector endpoint types are incompatible: {source_id} vs {target_id}; choose endpoints with compatible semantic types"
+    )]
     IncompatibleConnectorTypes {
         source_id: ElementId,
         target_id: ElementId,
     },
     #[error("FullPort cannot be conjugated: {0}")]
     FullPortCannotBeConjugated(ElementId),
-    #[error("item flow requires at least one conveyed classifier; select an existing Connector, then choose the classifier conveyed by that Connector")]
+    #[error(
+        "item flow requires at least one conveyed classifier; select an existing Connector, then choose the classifier conveyed by that Connector"
+    )]
     ItemFlowRequiresConveyedItem,
     #[error("invalid conveyed item: {0}; ItemFlow conveyed items must be semantic classifiers")]
     InvalidConveyedItem(ElementId),
