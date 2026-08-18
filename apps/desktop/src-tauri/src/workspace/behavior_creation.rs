@@ -1,5 +1,5 @@
 use super::behavior_workspace::{BehaviorDiagram, BehaviorDiagramKind};
-use super::{parse_element_id, WorkspaceState};
+use super::{WorkspaceState, parse_element_id};
 use systems_modeler_core::{ElementId, ElementKind, Project};
 
 fn behavior_context_snapshot(
