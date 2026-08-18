@@ -112,7 +112,7 @@ require(
     "State Invariant",
 )
 
-# Completion bridges must be present and actually loaded by the desktop shell.
+# Completion bridges and the final authoritative renderer must be loaded by the shell.
 require(
     "apps/desktop/frontend/index.html",
     'src="behavior-safe-transition.js"',
@@ -127,6 +127,7 @@ require(
     'src="behavior-region-placement.js"',
     'src="behavior-command-authority.js"',
     'src="behavior-runtime-hardening.js"',
+    'src="behavior-authoritative-renderer.js"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
@@ -145,6 +146,22 @@ require(
     "enforceSingleMode",
     "ensureStatePresentations",
     "smpActivateDiagramMode",
+)
+require(
+    "apps/desktop/frontend/behavior-authoritative-renderer.js",
+    "renderAuthoritativeBehaviorCanvas",
+    "renderStateMachine",
+    "renderSequence",
+    "statePresentationMap",
+    "fallbackStatePresentation",
+    "state-vertex",
+    "sequence-lifeline",
+    "sequence-message",
+    "execution-spec",
+    "combined-fragment",
+    "state-invariant-box",
+    "move_state_vertex",
+    "move_sequence_lifeline",
 )
 require(
     "apps/desktop/frontend/behavior-atomic-message.js",
