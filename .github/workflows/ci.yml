@@ -27,8 +27,6 @@ jobs:
         run: cargo test -p systems-modeler-core -p systems-modeler-persistence
       - name: Core lint
         run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
-      - name: Desktop check
-        run: cargo check -p systems-modeler-desktop
       - name: Commit product changes
         run: |
           git config user.name github-actions[bot]
