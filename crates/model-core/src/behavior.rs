@@ -9,13 +9,19 @@ macro_rules! behavior_id_type {
         #[serde(transparent)]
         pub struct $name(pub Uuid);
         impl $name {
-            pub fn new() -> Self { Self(Uuid::new_v4()) }
+            pub fn new() -> Self {
+                Self(Uuid::new_v4())
+            }
         }
         impl Default for $name {
-            fn default() -> Self { Self::new() }
+            fn default() -> Self {
+                Self::new()
+            }
         }
         impl std::fmt::Display for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.fmt(f) }
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(f)
+            }
         }
     };
 }
@@ -117,10 +123,19 @@ pub struct Trigger {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
-    Signal { signal_id: ElementId },
-    Call { operation_id: ElementId },
-    Time { expression: String, is_relative: bool },
-    Change { expression: String },
+    Signal {
+        signal_id: ElementId,
+    },
+    Call {
+        operation_id: ElementId,
+    },
+    Time {
+        expression: String,
+        is_relative: bool,
+    },
+    Change {
+        expression: String,
+    },
     AnyReceive,
 }
 
@@ -288,50 +303,86 @@ pub enum BehaviorError {
 }
 
 impl BehaviorRepository {
-    pub fn create_state_machine(&mut self, project: &Project, context_id: ElementId, name: impl Into<String>) -> Result<StateMachineId, BehaviorError> {
+    pub fn create_state_machine(
+        &mut self,
+        project: &Project,
+        context_id: ElementId,
+        name: impl Into<String>,
+    ) -> Result<StateMachineId, BehaviorError> {
         ensure_behavior_context(project, context_id)?;
         let id = StateMachineId::new();
-        self.state_machines.insert(id, StateMachine {
+        self.state_machines.insert(
             id,
-            external_id: format!("SM-{id}"),
-            name: name.into(),
-            context_id,
-            regions: vec![Region { id: RegionId::new(), name: "Region1".into(), vertices: Vec::new(), transitions: Vec::new() }],
-        });
+            StateMachine {
+                id,
+                external_id: format!("SM-{id}"),
+                name: name.into(),
+                context_id,
+                regions: vec![Region {
+                    id: RegionId::new(),
+                    name: "Region1".into(),
+                    vertices: Vec::new(),
+                    transitions: Vec::new(),
+                }],
+            },
+        );
         Ok(id)
     }
 
-    pub fn create_interaction(&mut self, project: &Project, context_id: ElementId, name: impl Into<String>) -> Result<InteractionId, BehaviorError> {
+    pub fn create_interaction(
+        &mut self,
+        project: &Project,
+        context_id: ElementId,
+        name: impl Into<String>,
+    ) -> Result<InteractionId, BehaviorError> {
         ensure_behavior_context(project, context_id)?;
         let id = InteractionId::new();
-        self.interactions.insert(id, Interaction {
+        self.interactions.insert(
             id,
-            external_id: format!("INT-{id}"),
-            name: name.into(),
-            context_id,
-            lifelines: Vec::new(), messages: Vec::new(), executions: Vec::new(), fragments: Vec::new(), state_invariants: Vec::new(),
-        });
+            Interaction {
+                id,
+                external_id: format!("INT-{id}"),
+                name: name.into(),
+                context_id,
+                lifelines: Vec::new(),
+                messages: Vec::new(),
+                executions: Vec::new(),
+                fragments: Vec::new(),
+                state_invariants: Vec::new(),
+            },
+        );
         Ok(id)
     }
 
     pub fn validate(&self, project: &Project) -> Result<(), BehaviorError> {
-        for machine in self.state_machines.values() { validate_state_machine(project, machine)?; }
-        for interaction in self.interactions.values() { validate_interaction(project, interaction)?; }
+        for machine in self.state_machines.values() {
+            validate_state_machine(project, machine)?;
+        }
+        for interaction in self.interactions.values() {
+            validate_interaction(project, interaction)?;
+        }
         Ok(())
     }
 }
 
 fn ensure_behavior_context(project: &Project, context_id: ElementId) -> Result<(), BehaviorError> {
     let context = project.element(context_id)?;
-    if !context.is_classifier() { return Err(BehaviorError::InvalidContext(context_id)); }
+    if !context.is_classifier() {
+        return Err(BehaviorError::InvalidContext(context_id));
+    }
     Ok(())
 }
 
-pub fn validate_state_machine(project: &Project, machine: &StateMachine) -> Result<(), BehaviorError> {
+pub fn validate_state_machine(
+    project: &Project,
+    machine: &StateMachine,
+) -> Result<(), BehaviorError> {
     ensure_behavior_context(project, machine.context_id)?;
     let mut vertices = HashMap::new();
     collect_vertices(&machine.regions, &mut vertices);
-    for region in &machine.regions { validate_region(project, region, &vertices)?; }
+    for region in &machine.regions {
+        validate_region(project, region, &vertices)?;
+    }
     Ok(())
 }
 
@@ -339,34 +390,80 @@ fn collect_vertices<'a>(regions: &'a [Region], out: &mut HashMap<VertexId, &'a V
     for region in regions {
         for vertex in &region.vertices {
             out.insert(vertex.id, vertex);
-            if let VertexKind::State(state) = &vertex.kind { collect_vertices(&state.regions, out); }
+            if let VertexKind::State(state) = &vertex.kind {
+                collect_vertices(&state.regions, out);
+            }
         }
     }
 }
 
-fn validate_region(project: &Project, region: &Region, vertices: &HashMap<VertexId, &Vertex>) -> Result<(), BehaviorError> {
-    let initials: Vec<_> = region.vertices.iter().filter(|v| matches!(v.kind, VertexKind::Pseudostate(PseudostateKind::Initial))).collect();
-    if initials.len() > 1 { return Err(BehaviorError::MultipleInitialVertices); }
+fn validate_region(
+    project: &Project,
+    region: &Region,
+    vertices: &HashMap<VertexId, &Vertex>,
+) -> Result<(), BehaviorError> {
+    let initials: Vec<_> = region
+        .vertices
+        .iter()
+        .filter(|v| matches!(v.kind, VertexKind::Pseudostate(PseudostateKind::Initial)))
+        .collect();
+    if initials.len() > 1 {
+        return Err(BehaviorError::MultipleInitialVertices);
+    }
     for transition in &region.transitions {
-        let source = vertices.get(&transition.source_id).ok_or(BehaviorError::UnknownTransitionVertex)?;
-        vertices.get(&transition.target_id).ok_or(BehaviorError::UnknownTransitionVertex)?;
+        let source = vertices
+            .get(&transition.source_id)
+            .ok_or(BehaviorError::UnknownTransitionVertex)?;
+        vertices
+            .get(&transition.target_id)
+            .ok_or(BehaviorError::UnknownTransitionVertex)?;
         validate_trigger(project, transition.trigger.as_ref())?;
-        if matches!(source.kind, VertexKind::Pseudostate(PseudostateKind::Initial)) && (transition.trigger.is_some() || transition.guard.as_ref().is_some_and(|g| !g.trim().is_empty())) {
+        if matches!(
+            source.kind,
+            VertexKind::Pseudostate(PseudostateKind::Initial)
+        ) && (transition.trigger.is_some()
+            || transition
+                .guard
+                .as_ref()
+                .is_some_and(|g| !g.trim().is_empty()))
+        {
             return Err(BehaviorError::InitialTransitionHasTriggerOrGuard);
         }
     }
     for vertex in &region.vertices {
-        let incoming = region.transitions.iter().filter(|t| t.target_id == vertex.id).count();
-        let outgoing = region.transitions.iter().filter(|t| t.source_id == vertex.id).count();
+        let incoming = region
+            .transitions
+            .iter()
+            .filter(|t| t.target_id == vertex.id)
+            .count();
+        let outgoing = region
+            .transitions
+            .iter()
+            .filter(|t| t.source_id == vertex.id)
+            .count();
         match &vertex.kind {
             VertexKind::Pseudostate(PseudostateKind::Initial) => {
-                if incoming != 0 { return Err(BehaviorError::InitialHasIncoming); }
-                if outgoing != 1 { return Err(BehaviorError::InitialRequiresOneOutgoing); }
+                if incoming != 0 {
+                    return Err(BehaviorError::InitialHasIncoming);
+                }
+                if outgoing != 1 {
+                    return Err(BehaviorError::InitialRequiresOneOutgoing);
+                }
             }
-            VertexKind::Pseudostate(PseudostateKind::Fork) if incoming != 1 || outgoing < 2 => return Err(BehaviorError::InvalidFork),
-            VertexKind::Pseudostate(PseudostateKind::Join) if incoming < 2 || outgoing != 1 => return Err(BehaviorError::InvalidJoin),
-            VertexKind::FinalState if outgoing != 0 => return Err(BehaviorError::FinalStateHasOutgoing),
-            VertexKind::State(state) => for child in &state.regions { validate_region(project, child, vertices)?; },
+            VertexKind::Pseudostate(PseudostateKind::Fork) if incoming != 1 || outgoing < 2 => {
+                return Err(BehaviorError::InvalidFork);
+            }
+            VertexKind::Pseudostate(PseudostateKind::Join) if incoming < 2 || outgoing != 1 => {
+                return Err(BehaviorError::InvalidJoin);
+            }
+            VertexKind::FinalState if outgoing != 0 => {
+                return Err(BehaviorError::FinalStateHasOutgoing);
+            }
+            VertexKind::State(state) => {
+                for child in &state.regions {
+                    validate_region(project, child, vertices)?;
+                }
+            }
             _ => {}
         }
     }
@@ -374,58 +471,115 @@ fn validate_region(project: &Project, region: &Region, vertices: &HashMap<Vertex
 }
 
 fn validate_trigger(project: &Project, trigger: Option<&Trigger>) -> Result<(), BehaviorError> {
-    let Some(trigger) = trigger else { return Ok(()); };
+    let Some(trigger) = trigger else {
+        return Ok(());
+    };
     match trigger.event {
         Event::Signal { signal_id } => {
-            if project.element(signal_id)?.kind != ElementKind::Signal { return Err(BehaviorError::InvalidSignal(signal_id)); }
+            if project.element(signal_id)?.kind != ElementKind::Signal {
+                return Err(BehaviorError::InvalidSignal(signal_id));
+            }
         }
         Event::Call { operation_id } => {
-            if project.element(operation_id)?.kind != ElementKind::Operation { return Err(BehaviorError::InvalidOperation(operation_id)); }
+            if project.element(operation_id)?.kind != ElementKind::Operation {
+                return Err(BehaviorError::InvalidOperation(operation_id));
+            }
         }
-        Event::Time { ref expression, .. } | Event::Change { ref expression } if expression.trim().is_empty() => return Err(BehaviorError::EmptyStateInvariant),
+        Event::Time { ref expression, .. } | Event::Change { ref expression }
+            if expression.trim().is_empty() =>
+        {
+            return Err(BehaviorError::EmptyStateInvariant);
+        }
         _ => {}
     }
     Ok(())
 }
 
-pub fn validate_interaction(project: &Project, interaction: &Interaction) -> Result<(), BehaviorError> {
+pub fn validate_interaction(
+    project: &Project,
+    interaction: &Interaction,
+) -> Result<(), BehaviorError> {
     ensure_behavior_context(project, interaction.context_id)?;
     let lifelines: HashSet<_> = interaction.lifelines.iter().map(|l| l.id).collect();
     for lifeline in &interaction.lifelines {
-        if lifeline.represented_path.is_empty() || project.resolve_structural_path(interaction.context_id, &lifeline.represented_path).is_err() {
+        if lifeline.represented_path.is_empty()
+            || project
+                .resolve_structural_path(interaction.context_id, &lifeline.represented_path)
+                .is_err()
+        {
             return Err(BehaviorError::InvalidLifelinePath);
         }
     }
-    for message in &interaction.messages { validate_message(project, message, &lifelines)?; }
+    for message in &interaction.messages {
+        validate_message(project, message, &lifelines)?;
+    }
     for execution in &interaction.executions {
         if !lifelines.contains(&execution.lifeline_id)
             || execution.start.lifeline_id != execution.lifeline_id
             || execution.finish.lifeline_id != execution.lifeline_id
-            || execution.start.order >= execution.finish.order { return Err(BehaviorError::InvalidExecution); }
+            || execution.start.order >= execution.finish.order
+        {
+            return Err(BehaviorError::InvalidExecution);
+        }
     }
     for fragment in &interaction.fragments {
-        if fragment.covered_lifelines.iter().any(|id| !lifelines.contains(id)) { return Err(BehaviorError::FragmentUnknownLifeline); }
-        if fragment.operator == InteractionOperator::Alt && fragment.operands.len() < 2 { return Err(BehaviorError::AltRequiresTwoOperands); }
-        if fragment.operands.iter().any(|op| op.start_order >= op.end_order) { return Err(BehaviorError::InvalidOperandRange); }
+        if fragment
+            .covered_lifelines
+            .iter()
+            .any(|id| !lifelines.contains(id))
+        {
+            return Err(BehaviorError::FragmentUnknownLifeline);
+        }
+        if fragment.operator == InteractionOperator::Alt && fragment.operands.len() < 2 {
+            return Err(BehaviorError::AltRequiresTwoOperands);
+        }
+        if fragment
+            .operands
+            .iter()
+            .any(|op| op.start_order >= op.end_order)
+        {
+            return Err(BehaviorError::InvalidOperandRange);
+        }
     }
     for invariant in &interaction.state_invariants {
-        if !lifelines.contains(&invariant.lifeline_id) { return Err(BehaviorError::InvariantUnknownLifeline); }
-        if invariant.constraint.trim().is_empty() { return Err(BehaviorError::EmptyStateInvariant); }
+        if !lifelines.contains(&invariant.lifeline_id) {
+            return Err(BehaviorError::InvariantUnknownLifeline);
+        }
+        if invariant.constraint.trim().is_empty() {
+            return Err(BehaviorError::EmptyStateInvariant);
+        }
     }
     Ok(())
 }
 
-fn validate_occurrence(occurrence: &Occurrence, lifelines: &HashSet<LifelineId>) -> Result<(), BehaviorError> {
-    if !lifelines.contains(&occurrence.lifeline_id) { return Err(BehaviorError::UnknownLifeline); }
+fn validate_occurrence(
+    occurrence: &Occurrence,
+    lifelines: &HashSet<LifelineId>,
+) -> Result<(), BehaviorError> {
+    if !lifelines.contains(&occurrence.lifeline_id) {
+        return Err(BehaviorError::UnknownLifeline);
+    }
     Ok(())
 }
 
-fn validate_message(project: &Project, message: &Message, lifelines: &HashSet<LifelineId>) -> Result<(), BehaviorError> {
-    if let Some(send) = &message.send_event { validate_occurrence(send, lifelines)?; }
-    if let Some(receive) = &message.receive_event { validate_occurrence(receive, lifelines)?; }
+fn validate_message(
+    project: &Project,
+    message: &Message,
+    lifelines: &HashSet<LifelineId>,
+) -> Result<(), BehaviorError> {
+    if let Some(send) = &message.send_event {
+        validate_occurrence(send, lifelines)?;
+    }
+    if let Some(receive) = &message.receive_event {
+        validate_occurrence(receive, lifelines)?;
+    }
     match message.sort {
-        MessageSort::Found if message.send_event.is_some() || message.receive_event.is_none() => return Err(BehaviorError::InvalidFoundMessage),
-        MessageSort::Lost if message.send_event.is_none() || message.receive_event.is_some() => return Err(BehaviorError::InvalidLostMessage),
+        MessageSort::Found if message.send_event.is_some() || message.receive_event.is_none() => {
+            return Err(BehaviorError::InvalidFoundMessage);
+        }
+        MessageSort::Lost if message.send_event.is_none() || message.receive_event.is_some() => {
+            return Err(BehaviorError::InvalidLostMessage);
+        }
         MessageSort::Found | MessageSort::Lost => {}
         _ if message.send_event.is_none() => return Err(BehaviorError::MessageRequiresSend),
         _ if message.receive_event.is_none() => return Err(BehaviorError::MessageRequiresReceive),
@@ -433,11 +587,13 @@ fn validate_message(project: &Project, message: &Message, lifelines: &HashSet<Li
     }
     match message.sort {
         MessageSort::SynchCall | MessageSort::AsynchCall => match message.signature {
-            Some(MessageSignature::Operation(id)) if project.element(id)?.kind == ElementKind::Operation => {}
+            Some(MessageSignature::Operation(id))
+                if project.element(id)?.kind == ElementKind::Operation => {}
             _ => return Err(BehaviorError::CallMessageRequiresOperation),
         },
         MessageSort::AsynchSignal => match message.signature {
-            Some(MessageSignature::Signal(id)) if project.element(id)?.kind == ElementKind::Signal => {}
+            Some(MessageSignature::Signal(id))
+                if project.element(id)?.kind == ElementKind::Signal => {}
             _ => return Err(BehaviorError::SignalMessageRequiresSignal),
         },
         _ => {}
@@ -463,32 +619,95 @@ mod tests {
     #[test]
     fn initial_transition_rejects_trigger_and_guard() {
         let mut project = Project::new("P");
-        let block = project.create_element(ElementKind::Block, "System", project.root_id).unwrap();
-        let signal = project.create_element(ElementKind::Signal, "Start", project.root_id).unwrap();
+        let block = project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        let signal = project
+            .create_element(ElementKind::Signal, "Start", project.root_id)
+            .unwrap();
         let mut repo = BehaviorRepository::default();
-        let id = repo.create_state_machine(&project, block, "Lifecycle").unwrap();
+        let id = repo
+            .create_state_machine(&project, block, "Lifecycle")
+            .unwrap();
         let machine = repo.state_machines.get_mut(&id).unwrap();
         let region = &mut machine.regions[0];
-        let initial = Vertex { id: VertexId::new(), name: String::new(), kind: VertexKind::Pseudostate(PseudostateKind::Initial) };
-        let state = Vertex { id: VertexId::new(), name: "Ready".into(), kind: VertexKind::State(State::default()) };
-        region.transitions.push(Transition { id: TransitionId::new(), source_id: initial.id, target_id: state.id, kind: TransitionKind::External, trigger: Some(Trigger { event: Event::Signal { signal_id: signal } }), guard: None, effect: None });
+        let initial = Vertex {
+            id: VertexId::new(),
+            name: String::new(),
+            kind: VertexKind::Pseudostate(PseudostateKind::Initial),
+        };
+        let state = Vertex {
+            id: VertexId::new(),
+            name: "Ready".into(),
+            kind: VertexKind::State(State::default()),
+        };
+        region.transitions.push(Transition {
+            id: TransitionId::new(),
+            source_id: initial.id,
+            target_id: state.id,
+            kind: TransitionKind::External,
+            trigger: Some(Trigger {
+                event: Event::Signal { signal_id: signal },
+            }),
+            guard: None,
+            effect: None,
+        });
         region.vertices.extend([initial, state]);
-        assert_eq!(repo.validate(&project), Err(BehaviorError::InitialTransitionHasTriggerOrGuard));
+        assert_eq!(
+            repo.validate(&project),
+            Err(BehaviorError::InitialTransitionHasTriggerOrGuard)
+        );
     }
 
     #[test]
     fn sequence_lifeline_uses_context_property_path_and_call_signature() {
         let mut project = Project::new("P");
-        let system = project.create_element(ElementKind::Block, "System", project.root_id).unwrap();
-        let component_type = project.create_element(ElementKind::Block, "Component", project.root_id).unwrap();
-        let part = project.create_typed_feature(ElementKind::PartProperty, "component", system, component_type, Multiplicity::ONE).unwrap();
-        let operation = project.create_element(ElementKind::Operation, "run", component_type).unwrap();
+        let system = project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        let component_type = project
+            .create_element(ElementKind::Block, "Component", project.root_id)
+            .unwrap();
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "component",
+                system,
+                component_type,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let operation = project
+            .create_element(ElementKind::Operation, "run", component_type)
+            .unwrap();
         let mut repo = BehaviorRepository::default();
-        let interaction_id = repo.create_interaction(&project, system, "Nominal").unwrap();
+        let interaction_id = repo
+            .create_interaction(&project, system, "Nominal")
+            .unwrap();
         let interaction = repo.interactions.get_mut(&interaction_id).unwrap();
-        let a = Lifeline { id: LifelineId::new(), name: "component".into(), represented_path: vec![part] };
+        let a = Lifeline {
+            id: LifelineId::new(),
+            name: "component".into(),
+            represented_path: vec![part],
+        };
         interaction.lifelines.push(a.clone());
-        interaction.messages.push(Message { id: MessageId::new(), name: "run".into(), sort: MessageSort::SynchCall, send_event: Some(Occurrence { id: OccurrenceId::new(), lifeline_id: a.id, order: 10 }), receive_event: Some(Occurrence { id: OccurrenceId::new(), lifeline_id: a.id, order: 20 }), signature: Some(MessageSignature::Operation(operation)), arguments: vec![] });
+        interaction.messages.push(Message {
+            id: MessageId::new(),
+            name: "run".into(),
+            sort: MessageSort::SynchCall,
+            send_event: Some(Occurrence {
+                id: OccurrenceId::new(),
+                lifeline_id: a.id,
+                order: 10,
+            }),
+            receive_event: Some(Occurrence {
+                id: OccurrenceId::new(),
+                lifeline_id: a.id,
+                order: 20,
+            }),
+            signature: Some(MessageSignature::Operation(operation)),
+            arguments: vec![],
+        });
         repo.validate(&project).unwrap();
     }
 }

@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod behavior;
 pub mod ibd;
+pub use behavior::*;
 pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
 
 macro_rules! id_type {

@@ -1,6 +1,7 @@
 mod workspace {
     include!("workspace.rs");
     mod bdd_elements;
+    mod behavior_workspace;
     mod feature_editing;
     mod ibd;
     mod item_flow_notation;
@@ -10,6 +11,13 @@ mod workspace {
         create_bdd_element, create_bdd_feature, create_bdd_relationship_complete,
         open_project_file_complete, place_bdd_element, save_current_project_complete,
         save_project_file_complete, update_bdd_element_details, workspace_snapshot_complete,
+    };
+    pub use behavior_workspace::{
+        add_combined_fragment, add_execution_specification, add_sequence_lifeline,
+        add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
+        add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, create_sequence_diagram,
+        create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
+        update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
     pub use ibd::{
@@ -24,15 +32,19 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, add_item_flow_to_connector, add_nested_port_to_ibd, create_bdd,
-    create_bdd_element, create_bdd_feature, create_bdd_relationship,
+    WorkspaceState, add_combined_fragment, add_execution_specification, add_item_flow_to_connector,
+    add_nested_port_to_ibd, add_sequence_lifeline, add_sequence_message, add_state_invariant,
+    add_state_region, add_state_transition, add_state_vertex, behavior_lifeline_candidates,
+    behavior_snapshot, create_bdd, create_bdd_element, create_bdd_feature, create_bdd_relationship,
     create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
-    create_package, delete_bdd_relationship, ibd_item_flow_notation, new_project,
+    create_package, create_sequence_diagram, create_state_machine_diagram, delete_bdd_relationship,
+    ibd_item_flow_notation, move_sequence_lifeline, move_state_vertex, new_project,
     open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
     populate_ibd_from_context, reconnect_bdd_relationship, rename_element, route_ibd,
     save_current_project, save_current_project_complete, save_project_file,
     save_project_file_complete, update_association_end, update_bdd_element_details,
-    update_bdd_feature_semantics, workspace_snapshot, workspace_snapshot_complete,
+    update_bdd_feature_semantics, update_state_behaviors, workspace_snapshot,
+    workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -207,6 +219,21 @@ fn main() {
             add_item_flow_to_connector,
             ibd_item_flow_notation,
             route_ibd,
+            behavior_snapshot,
+            create_state_machine_diagram,
+            create_sequence_diagram,
+            add_state_vertex,
+            add_state_region,
+            update_state_behaviors,
+            add_state_transition,
+            move_state_vertex,
+            behavior_lifeline_candidates,
+            add_sequence_lifeline,
+            move_sequence_lifeline,
+            add_sequence_message,
+            add_execution_specification,
+            add_combined_fragment,
+            add_state_invariant,
             place_element_on_bdd,
             place_bdd_element,
             create_bdd_relationship,
