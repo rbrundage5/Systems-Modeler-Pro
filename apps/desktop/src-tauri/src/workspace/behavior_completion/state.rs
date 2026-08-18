@@ -1,5 +1,8 @@
 use super::super::behavior_workspace::{BehaviorDiagramKind, StateNodePresentation};
 use super::super::{WorkspaceState, parse_element_id};
+use super::validation::{
+    validate_repository_state_machines_editing, validate_state_machine_editing,
+};
 use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
     Event, Region, RegionId, State, StateMachineId, TransitionId, TransitionKind, Trigger, Vertex,
@@ -271,7 +274,7 @@ pub fn add_submachine_state(
                 ..State::default()
             }),
         });
-        if let Err(error) = repository.validate(&project) {
+        if let Err(error) = validate_repository_state_machines_editing(&project, &repository) {
             let machine = repository
                 .state_machines
                 .get_mut(&machine_id)
@@ -336,7 +339,7 @@ pub fn update_state_transition(
     transition.trigger = trigger;
     transition.guard = guard;
     transition.effect = effect;
-    if let Err(error) = systems_modeler_core::behavior::validate_state_machine(&project, machine) {
+    if let Err(error) = validate_state_machine_editing(&project, machine) {
         *find_transition_mut(&mut machine.regions, wanted).ok_or("Transition not found")? =
             original;
         return Err(error.to_string());

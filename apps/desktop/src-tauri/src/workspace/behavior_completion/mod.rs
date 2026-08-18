@@ -3,6 +3,7 @@ mod message;
 mod sequence;
 mod state;
 mod transition;
+mod validation;
 
 pub use delete::delete_behavior_item;
 pub use message::update_sequence_message_complete;

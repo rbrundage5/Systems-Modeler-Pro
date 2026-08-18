@@ -1,5 +1,6 @@
 use super::super::behavior_workspace::BehaviorDiagramKind;
 use super::super::{WorkspaceState, parse_element_id};
+use super::validation::validate_state_machine_editing;
 use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
     Event, Region, RegionId, StateMachineId, Transition, TransitionId, TransitionKind, Trigger,
@@ -173,7 +174,7 @@ pub fn add_state_transition_complete(
         .ok_or("Transition owning Region not found")?
         .transitions
         .push(transition);
-    if let Err(error) = systems_modeler_core::behavior::validate_state_machine(&project, machine) {
+    if let Err(error) = validate_state_machine_editing(&project, machine) {
         if let Some(region) = region_mut(&mut machine.regions, source_region) {
             region.transitions.retain(|item| item.id != id);
         }

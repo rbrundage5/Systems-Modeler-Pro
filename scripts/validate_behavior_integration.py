@@ -216,4 +216,11 @@ require(
     "legacy_lifeline_presentation_receives_timeline_defaults",
 )
 
+require(
+    "apps/desktop/src-tauri/src/workspace/behavior_completion/validation.rs",
+    "incomplete_fork_does_not_block_initial_to_state_edit",
+    "validate_repository_state_machines_editing",
+    "Initial pseudostate may have only one outgoing Transition",
+)
+
 print("PR12 consolidated Rust-authoritative behavior integration is complete")

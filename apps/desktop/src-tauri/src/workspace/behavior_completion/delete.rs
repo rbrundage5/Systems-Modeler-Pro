@@ -1,5 +1,6 @@
 use super::super::WorkspaceState;
 use super::super::behavior_workspace::BehaviorDiagramKind;
+use super::validation::validate_state_machine_editing;
 use std::collections::HashSet;
 use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
@@ -136,9 +137,7 @@ fn delete_state_item(
                 let original = machine.clone();
                 let removed = remove_vertex_from_regions(&mut machine.regions, wanted)
                     .ok_or("State not found")?;
-                if let Err(error) =
-                    systems_modeler_core::behavior::validate_state_machine(&project, machine)
-                {
+                if let Err(error) = validate_state_machine_editing(&project, machine) {
                     *machine = original;
                     return Err(format!(
                         "Deletion rejected because it would leave the State Machine invalid: {error}"
@@ -176,9 +175,7 @@ fn delete_state_item(
             if !remove_transition(&mut machine.regions, wanted) {
                 return Err("Transition not found".into());
             }
-            if let Err(error) =
-                systems_modeler_core::behavior::validate_state_machine(&project, machine)
-            {
+            if let Err(error) = validate_state_machine_editing(&project, machine) {
                 *machine = original;
                 return Err(format!(
                     "Deletion rejected because it would leave the State Machine invalid: {error}"
