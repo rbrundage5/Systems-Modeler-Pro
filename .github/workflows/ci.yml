@@ -5,75 +5,8 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-
 jobs:
-  repair-pr11:
-    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'agent/pr11-complete-ibd-rust' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Repair thiserror field naming
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          lib = Path('crates/model-core/src/lib.rs')
-          text = lib.read_text()
-          old = '''    #[error("connector endpoint types are incompatible: {source} vs {target}")]
-    IncompatibleConnectorTypes {
-        source: ElementId,
-        target: ElementId,
-    },'''
-          new = '''    #[error("connector endpoint types are incompatible: {source_id} vs {target_id}")]
-    IncompatibleConnectorTypes {
-        source_id: ElementId,
-        target_id: ElementId,
-    },'''
-          if old in text:
-              lib.write_text(text.replace(old, new, 1))
-          elif new not in text:
-              raise SystemExit('unexpected IncompatibleConnectorTypes definition')
-
-          ibd = Path('crates/model-core/src/ibd.rs')
-          text = ibd.read_text()
-          old = '''            return Err(ModelError::IncompatibleConnectorTypes {
-                source: source_type,
-                target: target_type,
-            });'''
-          new = '''            return Err(ModelError::IncompatibleConnectorTypes {
-                source_id: source_type,
-                target_id: target_type,
-            });'''
-          if old in text:
-              ibd.write_text(text.replace(old, new, 1))
-          elif new not in text:
-              raise SystemExit('unexpected IncompatibleConnectorTypes construction')
-          PY
-      - name: Apply rustfmt
-        run: cargo fmt --all
-      - name: Commit source repair
-        run: |
-          if git diff --quiet; then
-            echo "Source already repaired."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/model-core/src/lib.rs crates/model-core/src/ibd.rs
-          git commit -m "Fix thiserror connector type field names"
-          git push origin HEAD:${{ github.head_ref }}
-
   core:
-    needs: repair-pr11
-    if: ${{ always() && (needs.repair-pr11.result == 'success' || needs.repair-pr11.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,8 +21,6 @@ jobs:
         run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
 
   desktop-check:
-    needs: repair-pr11
-    if: ${{ always() && (needs.repair-pr11.result == 'success' || needs.repair-pr11.result == 'skipped') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
