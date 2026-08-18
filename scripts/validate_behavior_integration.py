@@ -111,6 +111,8 @@ require(
     'src="behavior-completion-ui.js"',
     'src="behavior-atomic-message.js"',
     'src="behavior-delete-ui.js"',
+    'src="behavior-message-notation.js"',
+    'href="behavior-message-notation.css"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
@@ -132,6 +134,14 @@ require(
     "add_combined_fragment_operand",
     "update_combined_fragment_operand",
     "update_state_invariant",
+)
+require(
+    "apps/desktop/frontend/behavior-message-notation.js",
+    "created-lifeline",
+    "sequence-destruction-marker",
+    "message.sort === 'Create'",
+    "message.sort === 'Delete'",
+    "message.sort === 'Reply'",
 )
 
 print("PR12 behavior desktop integration markers are complete")
