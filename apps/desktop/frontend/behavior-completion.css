@@ -12,13 +12,14 @@
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   border-top: 1px solid #666;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .state-region-cell {
   position: relative;
   min-width: 0;
   border-left: 1px dashed #777;
+  cursor: default;
 }
 
 .state-region-cell:first-child {
@@ -31,6 +32,18 @@
   font-size: 10px;
   color: #555;
   text-align: left;
+  pointer-events: none;
+}
+
+/* UML pseudostates are symbols, not text labels. Their visual glyphs are
+   provided by behavior.css pseudo-elements; suppress legacy fallback text. */
+.authoritative-behavior-frame .state-junction,
+.authoritative-behavior-frame .state-shallowhistory,
+.authoritative-behavior-frame .state-deephistory,
+.authoritative-behavior-frame .state-entrypoint,
+.authoritative-behavior-frame .state-exitpoint,
+.authoritative-behavior-frame .state-terminate {
+  font-size: 0;
 }
 
 .sequence-message.selected,
