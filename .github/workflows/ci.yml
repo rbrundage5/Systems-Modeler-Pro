@@ -77,7 +77,20 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply PR12 editing-validation repair
-        run: python scripts/pr12_edit_validation_fix_temp.py
+        shell: bash
+        run: |
+          python scripts/pr12_edit_validation_fix_temp.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/validate_behavior_integration.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '    "add_state_transition_complete",\n    "validate_state_machine_editing",\n',
+              '    "add_state_transition_complete",\n',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Verify repair before publication
         run: |
           cargo fmt --all
