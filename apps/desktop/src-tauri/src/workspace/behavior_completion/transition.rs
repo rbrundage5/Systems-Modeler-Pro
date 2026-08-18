@@ -193,15 +193,13 @@ mod tests {
                 id: VertexId::new(),
                 name: "Composite".into(),
                 kind: VertexKind::State(State {
-                    entry: None,
-                    do_activity: None,
-                    exit: None,
                     regions: vec![Region {
                         id: child_id,
                         name: "child".into(),
                         vertices: vec![child_vertex],
                         transitions: Vec::new(),
                     }],
+                    ..State::default()
                 }),
             }],
             transitions: Vec::new(),
