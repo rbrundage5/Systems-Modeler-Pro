@@ -2,8 +2,8 @@ use super::super::behavior_workspace::{BehaviorDiagramKind, StateNodePresentatio
 use super::super::{WorkspaceState, parse_element_id};
 use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
-    Event, Region, RegionId, State, TransitionId, TransitionKind, Trigger, Vertex, VertexId,
-    VertexKind,
+    Event, Region, RegionId, State, StateMachineId, TransitionId, TransitionKind, Trigger, Vertex,
+    VertexId, VertexKind,
 };
 
 fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
@@ -12,6 +12,10 @@ fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
 
 fn region_id(value: &str) -> Result<RegionId, String> {
     parse_uuid(value).map(RegionId)
+}
+
+fn state_machine_id(value: &str) -> Result<StateMachineId, String> {
+    parse_uuid(value).map(StateMachineId)
 }
 
 fn transition_id(value: &str) -> Result<TransitionId, String> {
@@ -136,8 +140,7 @@ pub fn add_composite_state(
         return Err("Composite State requires a name".into());
     }
     let semantic_id = behavior_semantic_id(&state, &diagram_id)?;
-    let machine_id =
-        parse_uuid(&semantic_id).map(systems_modeler_core::behavior::StateMachineId)?;
+    let machine_id = state_machine_id(&semantic_id)?;
     let id = VertexId::new();
     {
         let mut repository = state
@@ -176,10 +179,8 @@ pub fn add_composite_state(
             id,
             name,
             kind: VertexKind::State(State {
-                entry: None,
-                do_activity: None,
-                exit: None,
                 regions,
+                ..State::default()
             }),
         });
     }
@@ -203,6 +204,94 @@ pub fn add_composite_state(
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
+pub fn add_submachine_state(
+    diagram_id: String,
+    region_id_value: Option<String>,
+    name: String,
+    submachine_id_value: String,
+    x: f64,
+    y: f64,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    if name.trim().is_empty() {
+        return Err("Submachine State requires a name".into());
+    }
+    let project = project_snapshot(&state)?;
+    let semantic_id = behavior_semantic_id(&state, &diagram_id)?;
+    let machine_id = state_machine_id(&semantic_id)?;
+    let submachine_id = state_machine_id(&submachine_id_value)?;
+    if machine_id == submachine_id {
+        return Err("A State Machine cannot reference itself as a Submachine State".into());
+    }
+    let id = VertexId::new();
+    let target_region;
+    {
+        let mut repository = state
+            .behavior
+            .lock()
+            .map_err(|_| "behavior lock poisoned")?;
+        if !repository.state_machines.contains_key(&submachine_id) {
+            return Err("Submachine State must reference an existing State Machine".into());
+        }
+        target_region = {
+            let machine = repository
+                .state_machines
+                .get(&machine_id)
+                .ok_or("State Machine not found")?;
+            match region_id_value.as_deref() {
+                Some(value) => region_id(value)?,
+                None => machine
+                    .regions
+                    .first()
+                    .map(|region| region.id)
+                    .ok_or("State Machine has no root Region")?,
+            }
+        };
+        let machine = repository
+            .state_machines
+            .get_mut(&machine_id)
+            .ok_or("State Machine not found")?;
+        let region =
+            find_region_mut(&mut machine.regions, target_region).ok_or("Region not found")?;
+        region.vertices.push(Vertex {
+            id,
+            name,
+            kind: VertexKind::State(State {
+                submachine: Some(submachine_id),
+                ..State::default()
+            }),
+        });
+        if let Err(error) = repository.validate(&project) {
+            let machine = repository
+                .state_machines
+                .get_mut(&machine_id)
+                .ok_or("State Machine not found")?;
+            let region =
+                find_region_mut(&mut machine.regions, target_region).ok_or("Region not found")?;
+            region.vertices.retain(|vertex| vertex.id != id);
+            return Err(error.to_string());
+        }
+    }
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    diagram.state_nodes.push(StateNodePresentation {
+        vertex_id: id.to_string(),
+        x,
+        y,
+        width: 190.0,
+        height: 90.0,
+    });
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_state_transition(
     diagram_id: String,
     transition_id_value: String,
@@ -216,8 +305,7 @@ pub fn update_state_transition(
 ) -> Result<(), String> {
     let project = project_snapshot(&state)?;
     let semantic_id = behavior_semantic_id(&state, &diagram_id)?;
-    let machine_id =
-        parse_uuid(&semantic_id).map(systems_modeler_core::behavior::StateMachineId)?;
+    let machine_id = state_machine_id(&semantic_id)?;
     let wanted = transition_id(&transition_id_value)?;
     let parsed_kind = parse_transition_kind(&kind)?;
     let trigger = trigger_from_input(event_kind, event_reference_id, event_expression)?;
