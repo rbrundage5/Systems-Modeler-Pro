@@ -323,7 +323,9 @@ pub enum ModelError {
     InvalidIbdContext(ElementId),
     #[error("invalid nested connector property path at: {0}")]
     InvalidConnectorPath(ElementId),
-    #[error("connector endpoint must be a PartProperty, ReferenceProperty, ProxyPort, or FullPort: {0}")]
+    #[error(
+        "connector endpoint must be a PartProperty, ReferenceProperty, ProxyPort, or FullPort: {0}"
+    )]
     ConnectorEndpointMustBePortOrProperty(ElementId),
     #[error("connector cannot connect an endpoint to itself")]
     ConnectorSelfConnection,
@@ -332,7 +334,10 @@ pub enum ModelError {
     #[error("delegation connector requires exactly one boundary end and one internal end")]
     DelegationRequiresBoundaryAndInternal,
     #[error("connector endpoint types are incompatible: {source} vs {target}")]
-    IncompatibleConnectorTypes { source: ElementId, target: ElementId },
+    IncompatibleConnectorTypes {
+        source: ElementId,
+        target: ElementId,
+    },
     #[error("FullPort cannot be conjugated: {0}")]
     FullPortCannotBeConjugated(ElementId),
     #[error("item flow requires at least one conveyed classifier")]

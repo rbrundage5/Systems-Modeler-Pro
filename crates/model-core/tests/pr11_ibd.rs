@@ -1,5 +1,6 @@
 use systems_modeler_core::{
-    Connector, ConnectorEnd, ConnectorKind, ElementKind, ItemFlow, ModelError, Multiplicity, Project,
+    Connector, ConnectorEnd, ConnectorKind, ElementKind, ItemFlow, ModelError, Multiplicity,
+    Project,
 };
 
 struct Fixture {

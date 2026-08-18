@@ -82,18 +82,25 @@ impl Project {
         path: &[ElementId],
     ) -> Result<ElementId, ModelError> {
         let context = self.element(context_id)?;
-        if !matches!(context.kind, ElementKind::Block | ElementKind::AssociationBlock) {
+        if !matches!(
+            context.kind,
+            ElementKind::Block | ElementKind::AssociationBlock
+        ) {
             return Err(ModelError::InvalidIbdContext(context_id));
         }
         let mut classifier_id = context_id;
         for property_id in path {
             let property = self.element(*property_id)?;
-            if !matches!(property.kind, ElementKind::PartProperty | ElementKind::ReferenceProperty)
-                || property.owner_id != Some(classifier_id)
+            if !matches!(
+                property.kind,
+                ElementKind::PartProperty | ElementKind::ReferenceProperty
+            ) || property.owner_id != Some(classifier_id)
             {
                 return Err(ModelError::InvalidConnectorPath(*property_id));
             }
-            let type_id = property.type_id.ok_or(ModelError::TypeRequired(*property_id))?;
+            let type_id = property
+                .type_id
+                .ok_or(ModelError::TypeRequired(*property_id))?;
             let type_element = self.element(type_id)?;
             if !matches!(
                 type_element.kind,
@@ -128,8 +135,13 @@ impl Project {
             }
         } else {
             let role = self.element(end.role_id)?;
-            if !matches!(role.kind, ElementKind::PartProperty | ElementKind::ReferenceProperty) {
-                return Err(ModelError::ConnectorEndpointMustBePortOrProperty(end.role_id));
+            if !matches!(
+                role.kind,
+                ElementKind::PartProperty | ElementKind::ReferenceProperty
+            ) {
+                return Err(ModelError::ConnectorEndpointMustBePortOrProperty(
+                    end.role_id,
+                ));
             }
             if end.property_path.last().copied() != Some(end.role_id) {
                 return Err(ModelError::InvalidConnectorPath(end.role_id));
@@ -205,14 +217,8 @@ impl Project {
                 return Err(ModelError::InvalidConveyedItem(*item_id));
             }
         }
-        self.validate_connector_end(
-            self.connector_context(flow.connector_id)?,
-            &flow.source,
-        )?;
-        self.validate_connector_end(
-            self.connector_context(flow.connector_id)?,
-            &flow.target,
-        )?;
+        self.validate_connector_end(self.connector_context(flow.connector_id)?, &flow.source)?;
+        self.validate_connector_end(self.connector_context(flow.connector_id)?, &flow.target)?;
         Ok(())
     }
 

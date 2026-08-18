@@ -26,11 +26,11 @@ use workspace::{
     create_bdd_element, create_bdd_feature, create_bdd_relationship,
     create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
     create_package, delete_bdd_relationship, new_project, open_project_file,
-    open_project_file_complete, place_bdd_element, place_element_on_bdd,
-    populate_ibd_from_context, reconnect_bdd_relationship, rename_element, route_ibd,
-    save_current_project, save_current_project_complete, save_project_file,
-    save_project_file_complete, update_association_end, update_bdd_element_details,
-    update_bdd_feature_semantics, workspace_snapshot, workspace_snapshot_complete,
+    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
+    reconnect_bdd_relationship, rename_element, route_ibd, save_current_project,
+    save_current_project_complete, save_project_file, save_project_file_complete,
+    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
+    workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -61,16 +61,49 @@ fn engine_status() -> EngineStatus {
     }
 }
 
-fn element_item(id: &'static str, label: &'static str, semantic_kind: &'static str) -> DiagramPaletteItem {
-    DiagramPaletteItem { id, label, category: "element", semantic_kind: Some(semantic_kind), relationship_kind: None, draggable: true }
+fn element_item(
+    id: &'static str,
+    label: &'static str,
+    semantic_kind: &'static str,
+) -> DiagramPaletteItem {
+    DiagramPaletteItem {
+        id,
+        label,
+        category: "element",
+        semantic_kind: Some(semantic_kind),
+        relationship_kind: None,
+        draggable: true,
+    }
 }
 
-fn feature_item(id: &'static str, label: &'static str, semantic_kind: &'static str) -> DiagramPaletteItem {
-    DiagramPaletteItem { id, label, category: "feature", semantic_kind: Some(semantic_kind), relationship_kind: None, draggable: false }
+fn feature_item(
+    id: &'static str,
+    label: &'static str,
+    semantic_kind: &'static str,
+) -> DiagramPaletteItem {
+    DiagramPaletteItem {
+        id,
+        label,
+        category: "feature",
+        semantic_kind: Some(semantic_kind),
+        relationship_kind: None,
+        draggable: false,
+    }
 }
 
-fn relationship_item(id: &'static str, label: &'static str, kind: &'static str) -> DiagramPaletteItem {
-    DiagramPaletteItem { id, label, category: "relationship", semantic_kind: None, relationship_kind: Some(kind), draggable: false }
+fn relationship_item(
+    id: &'static str,
+    label: &'static str,
+    kind: &'static str,
+) -> DiagramPaletteItem {
+    DiagramPaletteItem {
+        id,
+        label,
+        category: "relationship",
+        semantic_kind: None,
+        relationship_kind: Some(kind),
+        draggable: false,
+    }
 }
 
 #[tauri::command]
@@ -88,19 +121,35 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("signal", "Signal", "Signal"),
             element_item("unit", "Unit", "Unit"),
             element_item("quantity-kind", "Quantity Kind", "QuantityKind"),
-            element_item("instance-specification", "Instance Specification", "InstanceSpecification"),
+            element_item(
+                "instance-specification",
+                "Instance Specification",
+                "InstanceSpecification",
+            ),
             element_item("comment", "Comment", "Comment"),
             feature_item("part-property", "Part Property", "PartProperty"),
-            feature_item("reference-property", "Reference Property", "ReferenceProperty"),
+            feature_item(
+                "reference-property",
+                "Reference Property",
+                "ReferenceProperty",
+            ),
             feature_item("value-property", "Value Property", "ValueProperty"),
             feature_item("flow-property", "Flow Property", "FlowProperty"),
-            feature_item("constraint-property", "Constraint Property", "ConstraintProperty"),
+            feature_item(
+                "constraint-property",
+                "Constraint Property",
+                "ConstraintProperty",
+            ),
             feature_item("proxy-port", "Proxy Port", "ProxyPort"),
             feature_item("full-port", "Full Port", "FullPort"),
             feature_item("operation", "Operation", "Operation"),
             feature_item("reception", "Reception", "Reception"),
             feature_item("parameter", "Parameter", "Parameter"),
-            feature_item("enumeration-literal", "Enumeration Literal", "EnumerationLiteral"),
+            feature_item(
+                "enumeration-literal",
+                "Enumeration Literal",
+                "EnumerationLiteral",
+            ),
             feature_item("slot", "Slot", "Slot"),
             relationship_item("association", "Association", "Association"),
             relationship_item("aggregation", "Aggregation", "Aggregation"),
@@ -111,7 +160,11 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
         ]),
         "IBD" => Ok(vec![
             feature_item("part-property", "Part Property", "PartProperty"),
-            feature_item("reference-property", "Reference Property", "ReferenceProperty"),
+            feature_item(
+                "reference-property",
+                "Reference Property",
+                "ReferenceProperty",
+            ),
             feature_item("proxy-port", "Proxy Port", "ProxyPort"),
             feature_item("full-port", "Full Port", "FullPort"),
             relationship_item("assembly-connector", "Assembly Connector", "Assembly"),

@@ -47,7 +47,10 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
         let mid_x = (start.x + end.x) / 2.0 + lane_offset;
         candidates.push(compact(vec![
             start,
-            DiagramPoint { x: mid_x, y: start.y },
+            DiagramPoint {
+                x: mid_x,
+                y: start.y,
+            },
             DiagramPoint { x: mid_x, y: end.y },
             end,
         ]));
@@ -78,7 +81,10 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
         let mid_y = (start.y + end.y) / 2.0 + lane_offset;
         candidates.push(compact(vec![
             start,
-            DiagramPoint { x: start.x, y: mid_y },
+            DiagramPoint {
+                x: start.x,
+                y: mid_y,
+            },
             DiagramPoint { x: end.x, y: mid_y },
             end,
         ]));
@@ -116,12 +122,13 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
             // silently falling back to a diagonal through model elements.
             let padding = 10.0 * (ROUTE_CLEARANCE + LANE_SPACING) + lane_offset;
             if horizontal {
-                let x = request
-                    .source
-                    .x
-                    .min(request.target.x)
-                    .min(request.obstacles.iter().map(|o| o.x).fold(f64::INFINITY, f64::min))
-                    - padding;
+                let x = request.source.x.min(request.target.x).min(
+                    request
+                        .obstacles
+                        .iter()
+                        .map(|o| o.x)
+                        .fold(f64::INFINITY, f64::min),
+                ) - padding;
                 compact(vec![
                     start,
                     DiagramPoint { x, y: start.y },
@@ -129,12 +136,13 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                     end,
                 ])
             } else {
-                let y = request
-                    .source
-                    .y
-                    .min(request.target.y)
-                    .min(request.obstacles.iter().map(|o| o.y).fold(f64::INFINITY, f64::min))
-                    - padding;
+                let y = request.source.y.min(request.target.y).min(
+                    request
+                        .obstacles
+                        .iter()
+                        .map(|o| o.y)
+                        .fold(f64::INFINITY, f64::min),
+                ) - padding;
                 compact(vec![
                     start,
                     DiagramPoint { x: start.x, y },
@@ -145,18 +153,30 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
         })
 }
 
-fn attached_endpoints(source: RouteRect, target: RouteRect, horizontal: bool) -> (DiagramPoint, DiagramPoint) {
+fn attached_endpoints(
+    source: RouteRect,
+    target: RouteRect,
+    horizontal: bool,
+) -> (DiagramPoint, DiagramPoint) {
     let source_center = source.center();
     let target_center = target.center();
     if horizontal {
         let rightward = target_center.x >= source_center.x;
         (
             DiagramPoint {
-                x: if rightward { source.x + source.width } else { source.x },
+                x: if rightward {
+                    source.x + source.width
+                } else {
+                    source.x
+                },
                 y: source_center.y,
             },
             DiagramPoint {
-                x: if rightward { target.x } else { target.x + target.width },
+                x: if rightward {
+                    target.x
+                } else {
+                    target.x + target.width
+                },
                 y: target_center.y,
             },
         )
@@ -165,11 +185,19 @@ fn attached_endpoints(source: RouteRect, target: RouteRect, horizontal: bool) ->
         (
             DiagramPoint {
                 x: source_center.x,
-                y: if downward { source.y + source.height } else { source.y },
+                y: if downward {
+                    source.y + source.height
+                } else {
+                    source.y
+                },
             },
             DiagramPoint {
                 x: target_center.x,
-                y: if downward { target.y } else { target.y + target.height },
+                y: if downward {
+                    target.y
+                } else {
+                    target.y + target.height
+                },
             },
         )
     }
@@ -220,27 +248,59 @@ mod tests {
 
     #[test]
     fn route_avoids_blocking_rectangle_and_is_orthogonal() {
-        let obstacle = RouteRect { x: 190.0, y: 80.0, width: 100.0, height: 100.0 };
+        let obstacle = RouteRect {
+            x: 190.0,
+            y: 80.0,
+            width: 100.0,
+            height: 100.0,
+        };
         let points = orthogonal_route(RouteRequest {
-            source: RouteRect { x: 20.0, y: 100.0, width: 100.0, height: 60.0 },
-            target: RouteRect { x: 360.0, y: 100.0, width: 100.0, height: 60.0 },
+            source: RouteRect {
+                x: 20.0,
+                y: 100.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            target: RouteRect {
+                x: 360.0,
+                y: 100.0,
+                width: 100.0,
+                height: 60.0,
+            },
             obstacles: &[obstacle],
             lane_index: 0,
         });
         assert!(route_is_clear(&points, &[obstacle]));
-        assert!(points.windows(2).all(|p| p[0].x == p[1].x || p[0].y == p[1].y));
+        assert!(
+            points
+                .windows(2)
+                .all(|p| p[0].x == p[1].x || p[0].y == p[1].y)
+        );
     }
 
     #[test]
     fn parallel_lanes_are_deterministically_separated() {
         let base = RouteRequest {
-            source: RouteRect { x: 20.0, y: 20.0, width: 100.0, height: 60.0 },
-            target: RouteRect { x: 360.0, y: 20.0, width: 100.0, height: 60.0 },
+            source: RouteRect {
+                x: 20.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            target: RouteRect {
+                x: 360.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
             obstacles: &[],
             lane_index: 0,
         };
         let first = orthogonal_route(base);
-        let second = orthogonal_route(RouteRequest { lane_index: 1, ..base });
+        let second = orthogonal_route(RouteRequest {
+            lane_index: 1,
+            ..base
+        });
         assert_ne!(first, second);
     }
 }
