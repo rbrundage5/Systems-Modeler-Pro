@@ -442,11 +442,15 @@ fn validate_message(project: &Project, message: &Message, lifelines: &HashSet<Li
         },
         _ => {}
     }
-    if let Some(MessageSignature::Operation(id)) = message.signature {
-        if project.element(id)?.kind != ElementKind::Operation { return Err(BehaviorError::InvalidOperation(id)); }
+    if let Some(MessageSignature::Operation(id)) = message.signature
+        && project.element(id)?.kind != ElementKind::Operation
+    {
+        return Err(BehaviorError::InvalidOperation(id));
     }
-    if let Some(MessageSignature::Signal(id)) = message.signature {
-        if project.element(id)?.kind != ElementKind::Signal { return Err(BehaviorError::InvalidSignal(id)); }
+    if let Some(MessageSignature::Signal(id)) = message.signature
+        && project.element(id)?.kind != ElementKind::Signal
+    {
+        return Err(BehaviorError::InvalidSignal(id));
     }
     Ok(())
 }
