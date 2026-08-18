@@ -1,0 +1,40 @@
+name: pr12-bootstrap
+on:
+  push:
+    branches: [agent/pr12-state-sequence-rust]
+    paths: [.github/workflows/pr12-bootstrap.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr12-state-sequence-rust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Wire behavior module and clean PR11 helper
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('crates/model-core/src/lib.rs')
+          s=p.read_text()
+          old='''pub mod ibd;\npub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};'''
+          new='''pub mod behavior;\npub mod ibd;\npub use behavior::*;\npub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};'''
+          if old not in s:
+              raise SystemExit('model-core module anchor missing')
+          p.write_text(s.replace(old,new,1))
+          legacy=Path('.github/workflows/pr11-dedupe-itemflows.yml')
+          if legacy.exists(): legacy.unlink()
+      - name: Qualify Rust core
+        run: |
+          cargo fmt --all
+          cargo test -p systems-modeler-core
+          cargo clippy -p systems-modeler-core -- -D warnings
+      - name: Commit bootstrap
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/model-core/src/lib.rs crates/model-core/src/behavior.rs docs/PR12_BEHAVIOR_STANDARDS.md .github/workflows/pr11-dedupe-itemflows.yml || true
+          git commit -m "Wire Rust behavior semantics for state and sequence"
+          git push
