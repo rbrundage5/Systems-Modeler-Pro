@@ -176,7 +176,8 @@ fn delete_state_item(
             if !remove_transition(&mut machine.regions, wanted) {
                 return Err("Transition not found".into());
             }
-            if let Err(error) = systems_modeler_core::behavior::validate_state_machine(&project, machine)
+            if let Err(error) =
+                systems_modeler_core::behavior::validate_state_machine(&project, machine)
             {
                 *machine = original;
                 return Err(format!(
