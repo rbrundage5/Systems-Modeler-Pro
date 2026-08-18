@@ -62,3 +62,33 @@ jobs:
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
+
+  finalize-pr12-edit-validation:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/pr12-state-sequence-rust'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr12-state-sequence-rust
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply PR12 editing-validation repair
+        run: python scripts/pr12_edit_validation_fix_temp.py
+      - name: Verify repair before publication
+        run: |
+          cargo fmt --all
+          cargo test -p systems-modeler-desktop validation::tests -- --nocapture
+          cargo test --workspace --exclude systems-modeler-desktop
+          python scripts/validate_behavior_integration.py
+      - name: Publish verified source repair
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/desktop/src-tauri/src/workspace/behavior_completion/mod.rs apps/desktop/src-tauri/src/workspace/behavior_completion/validation.rs apps/desktop/src-tauri/src/workspace/behavior_completion/transition.rs apps/desktop/src-tauri/src/workspace/behavior_completion/delete.rs apps/desktop/src-tauri/src/workspace/behavior_completion/state.rs scripts/validate_behavior_integration.py
+          git commit -m "fix(pr12): separate editing and final state validation"
+          git push origin HEAD:agent/pr12-state-sequence-rust
