@@ -16,9 +16,9 @@ mod workspace {
     };
     pub use behavior_completion::{
         add_combined_fragment_operand, add_composite_state, add_state_transition_complete,
-        delete_behavior_item, reconnect_sequence_message, update_combined_fragment_operand,
-        update_execution_specification, update_sequence_message, update_sequence_message_complete,
-        update_state_invariant, update_state_transition,
+        add_submachine_state, delete_behavior_item, reconnect_sequence_message,
+        update_combined_fragment_operand, update_execution_specification, update_sequence_message,
+        update_sequence_message_complete, update_state_invariant, update_state_transition,
     };
     pub use behavior_creation::{
         create_sequence_diagram_staged, create_state_machine_diagram_staged,
@@ -46,7 +46,7 @@ use workspace::{
     WorkspaceState, add_combined_fragment, add_combined_fragment_operand, add_composite_state,
     add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
     add_sequence_lifeline, add_sequence_message, add_state_invariant, add_state_region,
-    add_state_transition, add_state_transition_complete, add_state_vertex,
+    add_state_transition, add_state_transition_complete, add_state_vertex, add_submachine_state,
     behavior_lifeline_candidates, behavior_snapshot, create_bdd, create_bdd_element,
     create_bdd_feature, create_bdd_relationship, create_bdd_relationship_complete, create_block,
     create_ibd, create_ibd_connector, create_package, create_sequence_diagram,
@@ -205,6 +205,7 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("State", "State", "State"),
             element_item("CompositeState", "Composite State", "CompositeState"),
             element_item("OrthogonalState", "Orthogonal State", "OrthogonalState"),
+            element_item("SubmachineState", "Submachine State", "SubmachineState"),
             element_item("Initial", "Initial", "InitialPseudostate"),
             element_item("FinalState", "Final State", "FinalState"),
             element_item("Choice", "Choice", "Choice"),
@@ -288,6 +289,7 @@ fn main() {
             create_sequence_diagram_staged,
             add_state_vertex,
             add_composite_state,
+            add_submachine_state,
             add_state_region,
             update_state_behaviors,
             add_state_transition,
