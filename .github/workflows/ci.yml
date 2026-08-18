@@ -225,21 +225,20 @@ jobs:
               };
             }''')
           replace_once(renderer,
-          '''      node.dataset.lifelineId = String(lifeline.id);
-                  node.style.left = `${presentation.x - 65}px`;
-                  node.innerHTML = `<div class="lifeline-head">${escapeHtml(lifeline.name || 'Lifeline')}</div><div class="lifeline-line"></div>`;''',
-          '''      node.dataset.lifelineId = String(lifeline.id);
-                  const timelineStart = Number.isFinite(presentation.timeline_start_y) ? presentation.timeline_start_y : 102;
-                  const timelineEnd = Number.isFinite(presentation.timeline_end_y) ? presentation.timeline_end_y : 840;
-                  node.style.left = `${presentation.x - 65}px`;
-                  node.style.height = `${Math.max(120, timelineEnd - 60)}px`;
-                  node.innerHTML = `<div class="lifeline-head">${escapeHtml(lifeline.name || 'Lifeline')}</div><div class="lifeline-line"></div><span class="lifeline-resize-handle" title="Resize Lifeline timeline" aria-label="Resize Lifeline timeline"></span>`;
-                  const timeline = node.querySelector('.lifeline-line');
-                  timeline.style.top = `${Math.max(42, timelineStart - 60)}px`;
-                  timeline.style.bottom = 'auto';
-                  timeline.style.height = `${Math.max(80, timelineEnd - timelineStart)}px`;
-                  const timelineResize = node.querySelector('.lifeline-resize-handle');
-                  timelineResize.style.top = `${Math.max(50, timelineEnd - 66)}px`;''')
+          '''      node.style.left = `${presentation.x - 65}px`;''',
+          '''      const timelineStart = Number.isFinite(presentation.timeline_start_y) ? presentation.timeline_start_y : 102;
+              const timelineEnd = Number.isFinite(presentation.timeline_end_y) ? presentation.timeline_end_y : 840;
+              node.style.left = `${presentation.x - 65}px`;
+              node.style.height = `${Math.max(120, timelineEnd - 60)}px`;''')
+          replace_once(renderer,
+          '''      node.innerHTML = `<div class="lifeline-head">${escapeHtml(lifeline.name || 'Lifeline')}</div><div class="lifeline-line"></div>`;''',
+          '''      node.innerHTML = `<div class="lifeline-head">${escapeHtml(lifeline.name || 'Lifeline')}</div><div class="lifeline-line"></div><span class="lifeline-resize-handle" title="Resize Lifeline timeline" aria-label="Resize Lifeline timeline"></span>`;
+              const timeline = node.querySelector('.lifeline-line');
+              timeline.style.top = `${Math.max(42, timelineStart - 60)}px`;
+              timeline.style.bottom = 'auto';
+              timeline.style.height = `${Math.max(80, timelineEnd - timelineStart)}px`;
+              const timelineResize = node.querySelector('.lifeline-resize-handle');
+              timelineResize.style.top = `${Math.max(50, timelineEnd - 66)}px`;''')
           replace_once(renderer,
           '''      if (!presentation.fallback) {
                   node.onpointerdown = (event) => {
