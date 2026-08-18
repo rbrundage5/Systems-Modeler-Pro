@@ -19,8 +19,9 @@ mod workspace {
     pub use behavior_workspace::{
         add_combined_fragment, add_execution_specification, add_sequence_lifeline,
         add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
-        add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, move_sequence_lifeline,
-        move_state_vertex, update_state_behaviors,
+        add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, create_sequence_diagram,
+        create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
+        update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
     pub use ibd::{
@@ -40,11 +41,12 @@ use workspace::{
     add_state_region, add_state_transition, add_state_vertex, behavior_lifeline_candidates,
     behavior_snapshot, create_bdd, create_bdd_element, create_bdd_feature, create_bdd_relationship,
     create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
-    create_package, create_sequence_diagram_staged, create_state_machine_diagram_staged,
-    delete_bdd_relationship, ibd_item_flow_notation, move_sequence_lifeline, move_state_vertex,
-    new_project, open_project_file, open_project_file_complete, place_bdd_element,
-    place_element_on_bdd, populate_ibd_from_context, reconnect_bdd_relationship, rename_element,
-    route_ibd, save_current_project, save_current_project_complete, save_project_file,
+    create_package, create_sequence_diagram, create_sequence_diagram_staged,
+    create_state_machine_diagram, create_state_machine_diagram_staged, delete_bdd_relationship,
+    ibd_item_flow_notation, move_sequence_lifeline, move_state_vertex, new_project,
+    open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
+    populate_ibd_from_context, reconnect_bdd_relationship, rename_element, route_ibd,
+    save_current_project, save_current_project_complete, save_project_file,
     save_project_file_complete, update_association_end, update_bdd_element_details,
     update_bdd_feature_semantics, update_state_behaviors, workspace_snapshot,
     workspace_snapshot_complete,
@@ -223,6 +225,8 @@ fn main() {
             ibd_item_flow_notation,
             route_ibd,
             behavior_snapshot,
+            create_state_machine_diagram,
+            create_sequence_diagram,
             create_state_machine_diagram_staged,
             create_sequence_diagram_staged,
             add_state_vertex,
