@@ -61,9 +61,7 @@ fn parse_message_sort(value: &str) -> Result<MessageSort, String> {
 
 fn occurrence(previous: Option<&Occurrence>, lifeline_id: LifelineId, order: u32) -> Occurrence {
     Occurrence {
-        id: previous
-            .map(|item| item.id)
-            .unwrap_or_else(OccurrenceId::new),
+        id: previous.map(|item| item.id).unwrap_or_default(),
         lifeline_id,
         order,
     }
