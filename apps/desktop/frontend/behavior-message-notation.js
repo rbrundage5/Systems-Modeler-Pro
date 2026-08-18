@@ -1,13 +1,14 @@
 (() => {
   function activeSequenceDiagram() {
     return state.behaviorSnapshot?.diagrams?.find(
-      (diagram) => diagram.id === state.selectedBehaviorDiagramId && diagram.kind === 'Sequence',
+      (diagram) => String(diagram.id) === String(state.selectedBehaviorDiagramId)
+        && diagram.kind === 'Sequence',
     ) || null;
   }
 
   function interaction(diagram) {
     return diagram
-      ? state.behaviorSnapshot?.repository?.interactions?.[diagram.semantic_id] || null
+      ? state.behaviorSnapshot?.repository?.interactions?.[String(diagram.semantic_id)] || null
       : null;
   }
 
@@ -23,8 +24,8 @@
     (interactionValue?.lifelines || []).forEach((lifeline, index) => {
       const node = nodes[index];
       if (!node) return;
-      node.dataset.lifelineId = lifeline.id;
-      byId.set(lifeline.id, node);
+      node.dataset.lifelineId = String(lifeline.id);
+      byId.set(String(lifeline.id), node);
     });
     return byId;
   }
@@ -48,7 +49,9 @@
 
   function addDestructionMarker(frame, diagram, message, y) {
     const targetId = message.receive_event?.lifeline_id;
-    const presentation = diagram.lifelines?.find((item) => item.lifeline_id === targetId);
+    const presentation = diagram.lifelines?.find(
+      (item) => String(item.lifeline_id) === String(targetId),
+    );
     if (!presentation) return;
     const marker = document.createElement('button');
     marker.type = 'button';
@@ -65,20 +68,6 @@
     frame.appendChild(marker);
   }
 
-  function decorateMessageLines(interactionValue) {
-    const lines = [...document.querySelectorAll('.sequence-message-layer line.sequence-message')];
-    (interactionValue?.messages || []).forEach((message, index) => {
-      const line = lines[index];
-      if (!line) return;
-      line.dataset.messageId = message.id;
-      line.dataset.messageSort = message.sort;
-      if (message.sort === 'Reply') {
-        line.setAttribute('stroke-dasharray', '6 4');
-        line.setAttribute('marker-end', 'url(#seq-open)');
-      }
-    });
-  }
-
   function decorateSequenceMessageNotation() {
     const diagram = activeSequenceDiagram();
     if (!diagram) return;
@@ -87,24 +76,24 @@
     if (!frame || !interactionValue) return;
 
     const lifelines = lifelineNodes(interactionValue);
-    decorateMessageLines(interactionValue);
-
     for (const message of interactionValue.messages || []) {
       const y = occurrenceY(message);
       if (message.sort === 'Create' && message.receive_event) {
-        startLifelineAt(lifelines.get(message.receive_event.lifeline_id), y);
+        startLifelineAt(lifelines.get(String(message.receive_event.lifeline_id)), y);
       }
       if (message.sort === 'Delete' && message.receive_event) {
-        const target = lifelines.get(message.receive_event.lifeline_id);
+        const target = lifelines.get(String(message.receive_event.lifeline_id));
         shortenLifelineAt(target, y);
         addDestructionMarker(frame, diagram, message, y);
       }
     }
   }
 
-  const baseRenderCanvas = renderCanvas;
-  renderCanvas = function renderCanvasWithMessageNotation() {
-    const result = baseRenderCanvas();
+  // Decorate the authoritative canvas after it has been rendered. Do not wrap
+  // renderCanvas; that would create a competing renderer again.
+  const baseRender = render;
+  render = function renderWithSequenceLifecycleNotation() {
+    const result = baseRender();
     decorateSequenceMessageNotation();
     return result;
   };
