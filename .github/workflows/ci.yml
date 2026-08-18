@@ -5,7 +5,38 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
+  integrate-pr12:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/pr12-state-sequence-rust'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr12-state-sequence-rust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply integrated behavior implementation
+        run: python scripts/pr12_integrate.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Core tests
+        run: cargo test -p systems-modeler-core -p systems-modeler-persistence
+      - name: Core lint
+        run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
+      - name: Commit product changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Integrate native State Machine and Sequence modeling"
+          git push
+
   core:
     runs-on: ubuntu-latest
     steps:
