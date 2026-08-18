@@ -1,10 +1,10 @@
 use super::super::behavior_workspace::BehaviorDiagramKind;
 use super::super::{WorkspaceState, parse_element_id};
+use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
     ExecutionId, FragmentId, InteractionId, InteractionOperand, InvariantId, LifelineId, MessageId,
     MessageSignature, MessageSort, Occurrence, OccurrenceId, OperandId,
 };
-use systems_modeler_core::Project;
 
 fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
     uuid::Uuid::parse_str(value).map_err(|_| format!("invalid behavior id: {value}"))
