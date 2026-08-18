@@ -14,12 +14,19 @@ def require(path: str, *needles: str) -> None:
         raise SystemExit(f"{path}: missing required PR12 integration markers: {missing}")
 
 
-# Tauri must register every Rust-authoritative behavior command used by the migrated UI.
+def forbid(path: str, *needles: str) -> None:
+    payload = text(path)
+    present = [needle for needle in needles if needle in payload]
+    if present:
+        raise SystemExit(f"{path}: forbidden legacy PR12 integration markers remain active: {present}")
+
+
+# Rust/Tauri must register every authoritative behavior operation used by the desktop UI.
 require(
     "apps/desktop/src-tauri/src/main.rs",
     "behavior_snapshot",
-    "create_state_machine_diagram",
-    "create_sequence_diagram",
+    "create_state_machine_diagram_staged",
+    "create_sequence_diagram_staged",
     "add_state_vertex",
     "add_composite_state",
     "add_submachine_state",
@@ -43,7 +50,7 @@ require(
     "delete_behavior_item",
 )
 
-# Project lifecycle must persist and restore behavior semantics and presentation.
+# Project lifecycle must persist and restore Rust behavior semantics and presentation.
 require(
     "apps/desktop/src-tauri/src/workspace.rs",
     "BehaviorRepository::default()",
@@ -59,94 +66,74 @@ require(
     "restored_message.receive_event",
 )
 
-# The authoritative ribbon shell must expose behavior creation on Home and Diagram.
+# Shell creation commands must survive ribbon reconstruction and keep a stable context node.
 require(
     "apps/desktop/frontend/ui-shell.js",
     'data-action="new-state-machine"',
     'data-action="new-sequence"',
+    'id="active-diagram-summary"',
     "smpCreateStateMachineForSelectedBlock",
     "smpCreateSequenceForSelectedBlock",
 )
+forbid(
+    "apps/desktop/frontend/ui-shell.js",
+    "active-diagram-summary-shell",
+)
 
-# Creation must select the exact Rust-created diagram without relying on a chained refresh race.
+# Creation must use staged Rust commands and select the exact returned behavior diagram.
 require(
     "apps/desktop/frontend/behavior-ribbon.js",
-    "create_state_machine_diagram",
-    "create_sequence_diagram",
+    "create_state_machine_diagram_staged",
+    "create_sequence_diagram_staged",
     "behavior_snapshot",
     "selectedBehaviorDiagramId = diagramId",
 )
 
-# Required migrated State Machine and Sequence capabilities must remain available.
+# behavior-ui.js is intentionally only a thin adapter. It must not regain a second
+# palette, canvas renderer, or legacy transition implementation.
 require(
     "apps/desktop/frontend/behavior-ui.js",
-    "StateMachine",
-    "Sequence",
-    "Initial",
-    "FinalState",
-    "Choice",
-    "Junction",
-    "Fork",
-    "Join",
-    "ShallowHistory",
-    "DeepHistory",
-    "EntryPoint",
-    "ExitPoint",
-    "Terminate",
-    "Transition",
-    "Lifeline",
-    "SynchCall",
-    "AsynchCall",
-    "AsynchSignal",
-    "Reply",
-    "Create",
-    "Delete",
-    "Lost",
-    "Found",
-    "Execution",
-    "alt",
-    "opt",
-    "loop",
-    "par",
-    "critical",
-    "State Invariant",
+    "smpLoadBehaviorSnapshot",
+    "smpSelectBehaviorDiagram",
+    "smpBehaviorLifelineClick",
+    "behavior_snapshot",
+    "add_sequence_message",
+)
+forbid(
+    "apps/desktop/frontend/behavior-ui.js",
+    "STATE_PALETTE",
+    "SEQUENCE_PALETTE",
+    "function renderStateMachine",
+    "function renderSequence",
+    "function commitTransition",
+    "create_state_machine_diagram'",
+    "create_sequence_diagram'",
 )
 
-# Completion bridges and the final authoritative renderer must be loaded by the shell.
+# Exactly one active behavior canvas renderer is loaded. Removed legacy override
+# layers must not be reintroduced into the shell.
 require(
     "apps/desktop/frontend/index.html",
-    'src="behavior-safe-transition.js"',
+    'src="behavior-ui.js"',
+    'src="behavior-ribbon.js"',
     'src="behavior-completion-ui.js"',
     'src="behavior-atomic-message.js"',
     'src="behavior-delete-ui.js"',
     'src="behavior-message-notation.js"',
-    'href="behavior-message-notation.css"',
     'src="behavior-submachine.js"',
-    'href="behavior-submachine.css"',
-    'src="behavior-nested-transition-notation.js"',
     'src="behavior-region-placement.js"',
     'src="behavior-command-authority.js"',
-    'src="behavior-runtime-hardening.js"',
     'src="behavior-authoritative-renderer.js"',
 )
-require(
-    "apps/desktop/frontend/behavior-safe-transition.js",
-    "add_state_transition_complete",
+forbid(
+    "apps/desktop/frontend/index.html",
+    'src="behavior-safe-transition.js"',
+    'src="behavior-runtime-hardening.js"',
+    'src="behavior-nested-transition-notation.js"',
 )
-require(
-    "apps/desktop/frontend/behavior-command-authority.js",
-    "create_state_machine_diagram_staged",
-    "create_sequence_diagram_staged",
-    "add_state_transition_complete",
-)
-require(
-    "apps/desktop/frontend/behavior-runtime-hardening.js",
-    "clearBehaviorSelection",
-    "clearStructuralSelection",
-    "enforceSingleMode",
-    "ensureStatePresentations",
-    "smpActivateDiagramMode",
-)
+
+# The final renderer must draw all primary State Machine/Sequence presentation
+# families directly from Rust snapshot/presentation records.
 require(
     "apps/desktop/frontend/behavior-authoritative-renderer.js",
     "renderAuthoritativeBehaviorCanvas",
@@ -155,6 +142,7 @@ require(
     "statePresentationMap",
     "fallbackStatePresentation",
     "state-vertex",
+    "state-transition",
     "sequence-lifeline",
     "sequence-message",
     "execution-spec",
@@ -163,6 +151,24 @@ require(
     "move_state_vertex",
     "move_sequence_lifeline",
 )
+
+# Rust-defined palette and semantic editing bridges remain available.
+require(
+    "apps/desktop/frontend/behavior-completion-ui.js",
+    "diagram_palette",
+    "add_composite_state",
+    "update_state_transition",
+    "update_execution_specification",
+    "add_combined_fragment_operand",
+    "update_combined_fragment_operand",
+    "update_state_invariant",
+)
+require(
+    "apps/desktop/frontend/behavior-command-authority.js",
+    "create_state_machine_diagram_staged",
+    "create_sequence_diagram_staged",
+    "add_state_transition_complete",
+)
 require(
     "apps/desktop/frontend/behavior-atomic-message.js",
     "update_sequence_message_complete",
@@ -170,15 +176,6 @@ require(
 require(
     "apps/desktop/frontend/behavior-delete-ui.js",
     "delete_behavior_item",
-)
-require(
-    "apps/desktop/frontend/behavior-completion-ui.js",
-    "add_composite_state",
-    "update_state_transition",
-    "update_execution_specification",
-    "add_combined_fragment_operand",
-    "update_combined_fragment_operand",
-    "update_state_invariant",
 )
 require(
     "apps/desktop/frontend/behavior-message-notation.js",
@@ -195,19 +192,14 @@ require(
     "«submachine»",
 )
 require(
-    "apps/desktop/frontend/behavior-nested-transition-notation.js",
-    "nestedTransitions",
-    "nested-state-transition",
-    "transition.source_id",
-    "transition.target_id",
-)
-require(
     "apps/desktop/frontend/behavior-region-placement.js",
     "REGION_VERTEX_TOOLS",
     "regionIdValue: region.id",
     "add_composite_state",
     "add_state_vertex",
 )
+
+# Core owns true Submachine State semantics and cycle/error validation.
 require(
     "crates/model-core/src/behavior.rs",
     "pub submachine: Option<StateMachineId>",
@@ -216,4 +208,4 @@ require(
     "SubmachineCycle",
 )
 
-print("PR12 behavior desktop integration markers are complete")
+print("PR12 consolidated Rust-authoritative behavior integration is complete")
