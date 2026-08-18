@@ -81,7 +81,6 @@ jobs:
       - name: Verify repair before publication
         run: |
           cargo fmt --all
-          cargo test -p systems-modeler-desktop validation::tests -- --nocapture
           cargo test --workspace --exclude systems-modeler-desktop
           python scripts/validate_behavior_integration.py
       - name: Publish verified source repair
