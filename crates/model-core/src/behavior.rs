@@ -81,6 +81,8 @@ pub struct State {
     pub entry: Option<String>,
     pub do_activity: Option<String>,
     pub exit: Option<String>,
+    #[serde(default)]
+    pub submachine: Option<StateMachineId>,
     pub regions: Vec<Region>,
 }
 
@@ -266,6 +268,12 @@ pub enum BehaviorError {
     InvalidJoin,
     #[error("transition references a vertex that does not exist in the state machine")]
     UnknownTransitionVertex,
+    #[error("submachine state references an unknown state machine: {0}")]
+    UnknownSubmachine(StateMachineId),
+    #[error("state machine cannot reference itself as a submachine: {0}")]
+    SelfSubmachine(StateMachineId),
+    #[error("submachine state references form a cycle involving state machine: {0}")]
+    SubmachineCycle(StateMachineId),
     #[error("signal trigger/signature must reference a Signal: {0}")]
     InvalidSignal(ElementId),
     #[error("call trigger/message signature must reference an Operation: {0}")]
@@ -358,6 +366,7 @@ impl BehaviorRepository {
         for machine in self.state_machines.values() {
             validate_state_machine(project, machine)?;
         }
+        validate_submachine_references(self)?;
         for interaction in self.interactions.values() {
             validate_interaction(project, interaction)?;
         }
@@ -395,6 +404,72 @@ fn collect_vertices<'a>(regions: &'a [Region], out: &mut HashMap<VertexId, &'a V
             }
         }
     }
+}
+
+fn collect_submachine_references(regions: &[Region], output: &mut Vec<StateMachineId>) {
+    for region in regions {
+        for vertex in &region.vertices {
+            if let VertexKind::State(state) = &vertex.kind {
+                if let Some(submachine) = state.submachine {
+                    output.push(submachine);
+                }
+                collect_submachine_references(&state.regions, output);
+            }
+        }
+    }
+}
+
+fn validate_submachine_references(repository: &BehaviorRepository) -> Result<(), BehaviorError> {
+    for machine in repository.state_machines.values() {
+        let mut references = Vec::new();
+        collect_submachine_references(&machine.regions, &mut references);
+        for referenced in references {
+            if referenced == machine.id {
+                return Err(BehaviorError::SelfSubmachine(machine.id));
+            }
+            if !repository.state_machines.contains_key(&referenced) {
+                return Err(BehaviorError::UnknownSubmachine(referenced));
+            }
+        }
+    }
+
+    let mut validated = HashSet::new();
+    for machine_id in repository.state_machines.keys().copied() {
+        validate_submachine_cycle(machine_id, repository, &mut HashSet::new(), &mut validated)?;
+    }
+    Ok(())
+}
+
+fn validate_submachine_cycle(
+    machine_id: StateMachineId,
+    repository: &BehaviorRepository,
+    visiting: &mut HashSet<StateMachineId>,
+    validated: &mut HashSet<StateMachineId>,
+) -> Result<(), BehaviorError> {
+    if validated.contains(&machine_id) {
+        return Ok(());
+    }
+    if !visiting.insert(machine_id) {
+        return Err(BehaviorError::SubmachineCycle(machine_id));
+    }
+    let machine = repository
+        .state_machines
+        .get(&machine_id)
+        .ok_or(BehaviorError::UnknownSubmachine(machine_id))?;
+    let mut references = Vec::new();
+    collect_submachine_references(&machine.regions, &mut references);
+    for referenced in references {
+        if referenced == machine_id {
+            return Err(BehaviorError::SelfSubmachine(machine_id));
+        }
+        if !repository.state_machines.contains_key(&referenced) {
+            return Err(BehaviorError::UnknownSubmachine(referenced));
+        }
+        validate_submachine_cycle(referenced, repository, visiting, validated)?;
+    }
+    visiting.remove(&machine_id);
+    validated.insert(machine_id);
+    Ok(())
 }
 
 fn validate_region(
@@ -657,6 +732,91 @@ mod tests {
             repo.validate(&project),
             Err(BehaviorError::InitialTransitionHasTriggerOrGuard)
         );
+    }
+
+    #[test]
+    fn submachine_state_references_existing_machine_without_cycles() {
+        let mut project = Project::new("P");
+        let block = project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        let mut repo = BehaviorRepository::default();
+        let parent_id = repo
+            .create_state_machine(&project, block, "Parent")
+            .unwrap();
+        let child_id = repo
+            .create_state_machine(&project, block, "Child")
+            .unwrap();
+        let parent = repo.state_machines.get_mut(&parent_id).unwrap();
+        parent.regions[0].vertices.push(Vertex {
+            id: VertexId::new(),
+            name: "ChildBehavior".into(),
+            kind: VertexKind::State(State {
+                submachine: Some(child_id),
+                ..State::default()
+            }),
+        });
+        repo.validate(&project).unwrap();
+    }
+
+    #[test]
+    fn submachine_state_rejects_self_reference() {
+        let mut project = Project::new("P");
+        let block = project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        let mut repo = BehaviorRepository::default();
+        let parent_id = repo
+            .create_state_machine(&project, block, "Parent")
+            .unwrap();
+        let parent = repo.state_machines.get_mut(&parent_id).unwrap();
+        parent.regions[0].vertices.push(Vertex {
+            id: VertexId::new(),
+            name: "Recursive".into(),
+            kind: VertexKind::State(State {
+                submachine: Some(parent_id),
+                ..State::default()
+            }),
+        });
+        assert_eq!(
+            repo.validate(&project),
+            Err(BehaviorError::SelfSubmachine(parent_id))
+        );
+    }
+
+    #[test]
+    fn submachine_state_rejects_reference_cycle() {
+        let mut project = Project::new("P");
+        let block = project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        let mut repo = BehaviorRepository::default();
+        let a = repo.create_state_machine(&project, block, "A").unwrap();
+        let b = repo.create_state_machine(&project, block, "B").unwrap();
+        repo.state_machines.get_mut(&a).unwrap().regions[0]
+            .vertices
+            .push(Vertex {
+                id: VertexId::new(),
+                name: "B".into(),
+                kind: VertexKind::State(State {
+                    submachine: Some(b),
+                    ..State::default()
+                }),
+            });
+        repo.state_machines.get_mut(&b).unwrap().regions[0]
+            .vertices
+            .push(Vertex {
+                id: VertexId::new(),
+                name: "A".into(),
+                kind: VertexKind::State(State {
+                    submachine: Some(a),
+                    ..State::default()
+                }),
+            });
+        assert!(matches!(
+            repo.validate(&project),
+            Err(BehaviorError::SubmachineCycle(_))
+        ));
     }
 
     #[test]
