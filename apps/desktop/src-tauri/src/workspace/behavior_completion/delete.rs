@@ -30,7 +30,7 @@ fn diagram_semantics(
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("behavior diagram not found")?;
-    Ok((diagram.kind, diagram.semantic_id.clone()))
+    Ok((diagram.kind.clone(), diagram.semantic_id.clone()))
 }
 
 fn collect_vertex_subtree(
