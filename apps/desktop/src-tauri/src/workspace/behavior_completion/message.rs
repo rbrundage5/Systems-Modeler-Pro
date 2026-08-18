@@ -59,13 +59,11 @@ fn parse_message_sort(value: &str) -> Result<MessageSort, String> {
     }
 }
 
-fn occurrence(
-    previous: Option<&Occurrence>,
-    lifeline_id: LifelineId,
-    order: u32,
-) -> Occurrence {
+fn occurrence(previous: Option<&Occurrence>, lifeline_id: LifelineId, order: u32) -> Occurrence {
     Occurrence {
-        id: previous.map(|item| item.id).unwrap_or_else(OccurrenceId::new),
+        id: previous
+            .map(|item| item.id)
+            .unwrap_or_else(OccurrenceId::new),
         lifeline_id,
         order,
     }
@@ -117,7 +115,11 @@ pub fn update_sequence_message_complete(
         .get_mut(&interaction_id)
         .ok_or("Interaction not found")?;
     for endpoint in [source, target].into_iter().flatten() {
-        if !interaction.lifelines.iter().any(|lifeline| lifeline.id == endpoint) {
+        if !interaction
+            .lifelines
+            .iter()
+            .any(|lifeline| lifeline.id == endpoint)
+        {
             return Err("Message endpoint must be a Lifeline in this Interaction".into());
         }
     }
@@ -134,13 +136,8 @@ pub fn update_sequence_message_complete(
     message.signature = signature;
     message.arguments = arguments;
     message.send_event = source.map(|id| occurrence(original.send_event.as_ref(), id, order));
-    message.receive_event = target.map(|id| {
-        occurrence(
-            original.receive_event.as_ref(),
-            id,
-            order.saturating_add(1),
-        )
-    });
+    message.receive_event =
+        target.map(|id| occurrence(original.receive_event.as_ref(), id, order.saturating_add(1)));
 
     if let Err(error) = systems_modeler_core::behavior::validate_interaction(&project, interaction)
     {
