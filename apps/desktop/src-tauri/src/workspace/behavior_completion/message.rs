@@ -164,4 +164,22 @@ mod tests {
             assert!(parse_message_sort(value).is_ok());
         }
     }
+
+    #[test]
+    fn occurrence_edit_preserves_semantic_identity() {
+        let existing_id = systems_modeler_core::behavior::OccurrenceId::new();
+        let old_lifeline = LifelineId::new();
+        let new_lifeline = LifelineId::new();
+        let previous = Occurrence {
+            id: existing_id,
+            lifeline_id: old_lifeline,
+            order: 10,
+        };
+
+        let updated = occurrence(Some(&previous), new_lifeline, 25);
+
+        assert_eq!(updated.id, existing_id);
+        assert_eq!(updated.lifeline_id, new_lifeline);
+        assert_eq!(updated.order, 25);
+    }
 }
