@@ -1,0 +1,122 @@
+name: pr11-itemflow-notation
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/pr11-complete-ibd-rust]
+    paths: [.github/workflows/pr11-itemflow-notation.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr11-complete-ibd-rust
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply Item Flow snapshot and notation changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p=Path(path); s=p.read_text()
+              if old not in s: raise SystemExit(f'expected fragment not found in {path}')
+              p.write_text(s.replace(old,new))
+
+          # Expose enough first-class ItemFlow semantics to render standards notation.
+          for path in ['apps/desktop/src-tauri/src/workspace.rs','apps/desktop/src-tauri/src/workspace/bdd_elements.rs']:
+              replace(path,
+'''    pub source_id: String,
+    pub target_id: String,
+    pub association_ends: Vec<AssociationEndSnapshot>,''',
+'''    pub source_id: String,
+    pub target_id: String,
+    pub name: String,
+    pub item_flow_connector_id: Option<String>,
+    pub conveyed_item_ids: Vec<String>,
+    pub association_ends: Vec<AssociationEndSnapshot>,''')
+              replace(path,
+'''            source_id: relationship.source_id.to_string(),
+            target_id: relationship.target_id.to_string(),
+            association_ends:''',
+'''            source_id: relationship.source_id.to_string(),
+            target_id: relationship.target_id.to_string(),
+            name: relationship.name.clone(),
+            item_flow_connector_id: relationship
+                .item_flow
+                .as_ref()
+                .map(|flow| flow.connector_id.to_string()),
+            conveyed_item_ids: relationship
+                .item_flow
+                .as_ref()
+                .map(|flow| flow.conveyed_item_ids.iter().map(ToString::to_string).collect())
+                .unwrap_or_default(),
+            association_ends:''')
+
+          p=Path('apps/desktop/frontend/ibd-ui.js'); s=p.read_text()
+          old='''  const relationships = new Map(project.relationships.map((r) => [r.id, r]));
+  for (const edge of diagram.connectors) {'''
+          new='''  const relationships = new Map(project.relationships.map((r) => [r.id, r]));
+  const itemFlowsByConnector = new Map();
+  for (const flow of project.relationships.filter((r) => r.kind === 'ItemFlow' && r.item_flow_connector_id)) {
+    if (!itemFlowsByConnector.has(flow.item_flow_connector_id)) itemFlowsByConnector.set(flow.item_flow_connector_id, []);
+    itemFlowsByConnector.get(flow.item_flow_connector_id).push(flow);
+  }
+  for (const edge of diagram.connectors) {'''
+          if old not in s: raise SystemExit('connector-layer anchor missing')
+          s=s.replace(old,new)
+          old2='''    svg.appendChild(polyline);
+    const midpoint = edge.points[Math.floor(edge.points.length / 2)];
+    if (relationship.name) {'''
+          new2='''    svg.appendChild(polyline);
+    const midpointIndex = Math.max(1, Math.floor(edge.points.length / 2));
+    const midpoint = edge.points[midpointIndex];
+    const previous = edge.points[midpointIndex - 1] || edge.points[0];
+    const itemFlows = itemFlowsByConnector.get(relationship.id) || [];
+    itemFlows.forEach((flow, flowIndex) => {
+      const dx = midpoint.x - previous.x;
+      const dy = midpoint.y - previous.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const ux = dx / length;
+      const uy = dy / length;
+      const px = -uy;
+      const py = ux;
+      const tipX = midpoint.x + px * flowIndex * 14;
+      const tipY = midpoint.y + py * flowIndex * 14;
+      const arrowLength = 10;
+      const arrowWidth = 5;
+      const baseX = tipX - ux * arrowLength;
+      const baseY = tipY - uy * arrowLength;
+      const arrow = document.createElementNS(SVG_NS, 'polygon');
+      arrow.classList.add('ibd-item-flow-arrow');
+      arrow.setAttribute('points', `${tipX},${tipY} ${baseX + px * arrowWidth},${baseY + py * arrowWidth} ${baseX - px * arrowWidth},${baseY - py * arrowWidth}`);
+      arrow.setAttribute('aria-label', 'Item Flow direction');
+      svg.appendChild(arrow);
+      const conveyed = (flow.conveyed_item_ids || []).map((id) => ibdElement(project, id)?.name || id).join(', ');
+      const label = document.createElementNS(SVG_NS, 'text');
+      label.classList.add('item-flow-label');
+      label.setAttribute('x', tipX + px * 9 + 4);
+      label.setAttribute('y', tipY + py * 9 - 4);
+      label.textContent = conveyed || 'item';
+      svg.appendChild(label);
+    });
+    if (relationship.name) {'''
+          if old2 not in s: raise SystemExit('connector midpoint anchor missing')
+          p.write_text(s.replace(old2,new2))
+
+          p=Path('apps/desktop/frontend/ibd.css'); s=p.read_text()
+          s += '\n.ibd-item-flow-arrow{fill:#111;stroke:#111;stroke-width:1;pointer-events:none}.ibd-frame .item-flow-label{font-size:11px;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;fill:#111;pointer-events:none}\n'
+          p.write_text(s)
+      - name: Format and validate core
+        run: |
+          cargo fmt --all
+          cargo test -p systems-modeler-core
+          cargo clippy -p systems-modeler-core -- -D warnings
+      - name: Commit product changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/desktop/src-tauri/src/workspace.rs apps/desktop/src-tauri/src/workspace/bdd_elements.rs apps/desktop/frontend/ibd-ui.js apps/desktop/frontend/ibd.css
+          git commit -m "Render SysML Item Flow notation on IBD connectors"
+          git push
