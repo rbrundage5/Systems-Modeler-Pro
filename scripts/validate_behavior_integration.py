@@ -138,6 +138,8 @@ require(
     "state-invariant-box",
     "move_state_vertex",
     "move_sequence_lifeline",
+    "Reply",
+    "stroke-dasharray",
 )
 
 require(
@@ -178,7 +180,6 @@ require(
     "sequence-destruction-marker",
     "message.sort === 'Create'",
     "message.sort === 'Delete'",
-    "message.sort === 'Reply'",
 )
 require(
     "apps/desktop/frontend/behavior-submachine.js",
