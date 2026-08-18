@@ -22,6 +22,7 @@ require(
     "create_sequence_diagram",
     "add_state_vertex",
     "add_composite_state",
+    "add_submachine_state",
     "add_state_region",
     "update_state_behaviors",
     "add_state_transition_complete",
@@ -113,6 +114,8 @@ require(
     'src="behavior-delete-ui.js"',
     'src="behavior-message-notation.js"',
     'href="behavior-message-notation.css"',
+    'src="behavior-submachine.js"',
+    'href="behavior-submachine.css"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
@@ -142,6 +145,19 @@ require(
     "message.sort === 'Create'",
     "message.sort === 'Delete'",
     "message.sort === 'Reply'",
+)
+require(
+    "apps/desktop/frontend/behavior-submachine.js",
+    "SubmachineState",
+    "add_submachine_state",
+    "«submachine»",
+)
+require(
+    "crates/model-core/src/behavior.rs",
+    "pub submachine: Option<StateMachineId>",
+    "UnknownSubmachine",
+    "SelfSubmachine",
+    "SubmachineCycle",
 )
 
 print("PR12 behavior desktop integration markers are complete")
