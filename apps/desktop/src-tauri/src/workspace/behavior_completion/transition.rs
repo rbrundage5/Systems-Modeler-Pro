@@ -47,6 +47,16 @@ fn parse_transition_kind(value: &str) -> Result<TransitionKind, String> {
     }
 }
 
+fn required_expression(value: Option<String>, event_kind: &str) -> Result<String, String> {
+    let expression = value.unwrap_or_default();
+    if expression.trim().is_empty() {
+        return Err(format!(
+            "{event_kind} trigger requires a non-empty expression before the Transition can be created"
+        ));
+    }
+    Ok(expression)
+}
+
 fn trigger_from_input(
     event_kind: Option<String>,
     event_reference_id: Option<String>,
@@ -71,11 +81,11 @@ fn trigger_from_input(
             )?,
         },
         "Time" => Event::Time {
-            expression: event_expression.unwrap_or_default(),
+            expression: required_expression(event_expression, "Time")?,
             is_relative: true,
         },
         "Change" => Event::Change {
-            expression: event_expression.unwrap_or_default(),
+            expression: required_expression(event_expression, "Change")?,
         },
         "AnyReceive" => Event::AnyReceive,
         _ => return Err(format!("unsupported trigger event: {kind}")),
@@ -205,5 +215,16 @@ mod tests {
             transitions: Vec::new(),
         }];
         assert_eq!(containing_region(&regions, wanted), Some(child_id));
+    }
+
+    #[test]
+    fn time_and_change_triggers_require_expressions() {
+        let time = trigger_from_input(Some("Time".into()), None, Some("   ".into()))
+            .expect_err("blank Time expression should be rejected");
+        assert!(time.contains("Time trigger requires a non-empty expression"));
+
+        let change = trigger_from_input(Some("Change".into()), None, None)
+            .expect_err("missing Change expression should be rejected");
+        assert!(change.contains("Change trigger requires a non-empty expression"));
     }
 }
