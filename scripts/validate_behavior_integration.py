@@ -126,6 +126,7 @@ require(
     'src="behavior-nested-transition-notation.js"',
     'src="behavior-region-placement.js"',
     'src="behavior-command-authority.js"',
+    'src="behavior-runtime-hardening.js"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
@@ -136,6 +137,14 @@ require(
     "create_state_machine_diagram_staged",
     "create_sequence_diagram_staged",
     "add_state_transition_complete",
+)
+require(
+    "apps/desktop/frontend/behavior-runtime-hardening.js",
+    "clearBehaviorSelection",
+    "clearStructuralSelection",
+    "enforceSingleMode",
+    "ensureStatePresentations",
+    "smpActivateDiagramMode",
 )
 require(
     "apps/desktop/frontend/behavior-atomic-message.js",
