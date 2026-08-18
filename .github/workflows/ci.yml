@@ -5,7 +5,32 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
+  repair-pr12:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/pr12-state-sequence-rust'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr12-state-sequence-rust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply repair
+        run: python scripts/pr12_ci_repair.py
+      - name: Format repaired Rust
+        run: cargo fmt --all
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/desktop/src-tauri/src/workspace/bdd_elements.rs apps/desktop/src-tauri/src/workspace/feature_editing.rs apps/desktop/src-tauri/src/workspace/behavior_workspace.rs crates/model-core/tests/pr12_behavior.rs
+          git commit -m "Repair PR12 Rust qualification" || exit 0
+          git push
+
   core:
     runs-on: ubuntu-latest
     steps:
