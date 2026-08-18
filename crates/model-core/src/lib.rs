@@ -333,10 +333,10 @@ pub enum ModelError {
     AssemblyRequiresInternalEnds,
     #[error("delegation connector requires exactly one boundary end and one internal end")]
     DelegationRequiresBoundaryAndInternal,
-    #[error("connector endpoint types are incompatible: {source} vs {target}")]
+    #[error("connector endpoint types are incompatible: {source_id} vs {target_id}")]
     IncompatibleConnectorTypes {
-        source: ElementId,
-        target: ElementId,
+        source_id: ElementId,
+        target_id: ElementId,
     },
     #[error("FullPort cannot be conjugated: {0}")]
     FullPortCannotBeConjugated(ElementId),
