@@ -1,7 +1,8 @@
 (() => {
   function activeStateMachineDiagram() {
     return state.behaviorSnapshot?.diagrams?.find(
-      (diagram) => diagram.id === state.selectedBehaviorDiagramId && diagram.kind === 'StateMachine',
+      (diagram) => String(diagram.id) === String(state.selectedBehaviorDiagramId)
+        && diagram.kind === 'StateMachine',
     ) || null;
   }
 
@@ -21,7 +22,7 @@
 
   function chooseSubmachine(currentSemanticId) {
     const candidates = Object.entries(stateMachines())
-      .filter(([id]) => id !== currentSemanticId)
+      .filter(([id]) => String(id) !== String(currentSemanticId))
       .map(([id, machine]) => ({ id, name: machine.name || id }));
     if (!candidates.length) {
       alert('Create another State Machine first. A Submachine State must reference an existing different State Machine.');
@@ -54,7 +55,7 @@
   }
 
   function decorateSubmachineStates(diagram) {
-    const machine = stateMachines()[diagram.semantic_id];
+    const machine = stateMachines()[String(diagram.semantic_id)];
     if (!machine) return;
     const vertices = flattenVertices(machine.regions);
     const nodes = [...document.querySelectorAll('.state-machine-frame .state-vertex')];
@@ -62,8 +63,9 @@
       const vertex = vertices[index];
       const submachineId = vertex?.kind?.State?.submachine;
       if (!submachineId) return;
-      const referenced = stateMachines()[submachineId];
+      const referenced = stateMachines()[String(submachineId)];
       node.classList.add('submachine-state');
+      if (node.querySelector('.submachine-reference')) return;
       const label = document.createElement('span');
       label.className = 'submachine-reference';
       label.textContent = `«submachine» ${referenced?.name || submachineId}`;
@@ -86,9 +88,11 @@
     return result;
   };
 
-  const baseRenderCanvas = renderCanvas;
-  renderCanvas = function renderCanvasWithSubmachineState() {
-    const result = baseRenderCanvas();
+  // Wrap the final render lifecycle, not renderCanvas. The authoritative behavior
+  // renderer owns canvas construction and this adapter only decorates/forwards input.
+  const baseRender = render;
+  render = function renderWithSubmachineState() {
+    const result = baseRender();
     const diagram = activeStateMachineDiagram();
     if (!diagram) return result;
     decorateSubmachineStates(diagram);
