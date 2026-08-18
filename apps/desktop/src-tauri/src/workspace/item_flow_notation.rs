@@ -24,7 +24,9 @@ pub fn ibd_item_flow_notation(
         let mut ids = Vec::new();
         let mut names = Vec::new();
         for item_id in &flow.conveyed_item_ids {
-            let item = project.element(*item_id).map_err(|error| error.to_string())?;
+            let item = project
+                .element(*item_id)
+                .map_err(|error| error.to_string())?;
             ids.push(item.id.to_string());
             names.push(item.name.clone());
         }
