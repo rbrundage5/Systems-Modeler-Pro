@@ -52,7 +52,7 @@ require(
     "load_behavior_metadata",
 )
 require(
-    "crates/model-core/tests/behavior_persistence.rs",
+    "crates/persistence/tests/behavior_persistence.rs",
     "behavior_repository_round_trip_preserves_submachine_and_occurrence_identity",
     "restored_state.submachine",
     "restored_message.send_event",
