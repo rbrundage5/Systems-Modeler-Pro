@@ -92,6 +92,7 @@ fn ibd_end_for_presentation(
             port_rect(port),
         ));
     }
+
     for property in &diagram.properties {
         if property.id == presentation_id {
             let path = parse_path(&property.property_path)?;
@@ -107,6 +108,7 @@ fn ibd_end_for_presentation(
             };
             return Ok((end, property_rect(property)));
         }
+
         if let Some(port) = property
             .ports
             .iter()
@@ -119,6 +121,7 @@ fn ibd_end_for_presentation(
             ));
         }
     }
+
     Err(format!(
         "IBD endpoint presentation not found: {presentation_id}"
     ))
@@ -175,11 +178,13 @@ pub fn route_ibd_edge(
 pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Result<(), String> {
     let mut diagram_ids = HashSet::new();
     let mut presentation_ids = HashSet::new();
+
     for diagram in diagrams {
         parse_diagram_id(&diagram.id)?;
         if !diagram_ids.insert(&diagram.id) {
             return Err(format!("duplicate IBD diagram id: {}", diagram.id));
         }
+
         let context_id = parse_element_id(&diagram.context_block_id)?;
         let context = project
             .element(context_id)
@@ -193,16 +198,19 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 diagram.context_block_id
             ));
         }
+
         let owner = project
             .element(parse_element_id(&diagram.owner_id)?)
             .map_err(|error| error.to_string())?;
         if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
             return Err("IBD repository owner must be Model or Package".into());
         }
+
         for property in &diagram.properties {
             if !presentation_ids.insert(&property.id) {
                 return Err(format!("duplicate IBD presentation id: {}", property.id));
             }
+
             let element = project
                 .element(parse_element_id(&property.element_id)?)
                 .map_err(|error| error.to_string())?;
@@ -215,6 +223,7 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                     property.element_id
                 ));
             }
+
             let path = parse_path(&property.property_path)?;
             if path.last().copied() != Some(element.id) {
                 return Err(format!(
@@ -225,6 +234,7 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
             project
                 .resolve_structural_path(context_id, &path)
                 .map_err(|error| error.to_string())?;
+
             for port in &property.ports {
                 if !presentation_ids.insert(&port.id) {
                     return Err(format!("duplicate IBD port presentation id: {}", port.id));
@@ -245,6 +255,7 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                     .map_err(|error| error.to_string())?;
             }
         }
+
         for port in &diagram.boundary_ports {
             if !presentation_ids.insert(&port.id) {
                 return Err(format!("duplicate IBD port presentation id: {}", port.id));
@@ -254,6 +265,7 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 .validate_connector_end(context_id, &end)
                 .map_err(|error| error.to_string())?;
         }
+
         for edge in &diagram.connectors {
             if !presentation_ids.insert(&edge.id) {
                 return Err(format!(
@@ -287,6 +299,7 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
             }
         }
     }
+
     Ok(())
 }
 
@@ -318,6 +331,7 @@ pub fn create_ibd(
             return Err("IBD repository owner must be a Model or Package".into());
         }
     }
+
     if state
         .ibd_diagrams
         .lock()
@@ -327,6 +341,7 @@ pub fn create_ibd(
     {
         return Err("this Block already has an Internal Block Diagram".into());
     }
+
     let id = DiagramId::new().to_string();
     state
         .ibd_diagrams
@@ -359,6 +374,7 @@ pub fn populate_ibd_from_context(
     let context = parse_element_id(&diagram.context_block_id)?;
     let mut x = 120.0;
     let mut y = 120.0;
+
     for feature in project.children(context) {
         match feature.kind {
             ElementKind::PartProperty | ElementKind::ReferenceProperty => {
@@ -405,6 +421,7 @@ pub fn populate_ibd_from_context(
             _ => {}
         }
     }
+
     Ok(())
 }
 
@@ -424,6 +441,7 @@ pub fn add_nested_port_to_ibd(
         .iter_mut()
         .find(|d| d.id == diagram_id)
         .ok_or("IBD not found")?;
+    let context_id = parse_element_id(&diagram.context_block_id)?;
     let property = diagram
         .properties
         .iter_mut()
@@ -431,11 +449,13 @@ pub fn add_nested_port_to_ibd(
         .ok_or("property presentation not found")?;
     let end = ConnectorEnd::nested_port(parse_path(&property.property_path)?, port_id_parsed);
     project
-        .validate_connector_end(parse_element_id(&diagram.context_block_id)?, &end)
+        .validate_connector_end(context_id, &end)
         .map_err(|error| error.to_string())?;
+
     if property.ports.iter().any(|p| p.element_id == port_id) {
         return Err("that port is already presented on this property presentation".into());
     }
+
     let id = uuid::Uuid::new_v4().to_string();
     let (x, y) = match side.as_str() {
         "left" => (property.x, property.y + property.height / 2.0),
@@ -450,6 +470,7 @@ pub fn add_nested_port_to_ibd(
         ),
         _ => return Err("port side must be left, right, top, or bottom".into()),
     };
+
     property.ports.push(IbdPortPresentation {
         id: id.clone(),
         element_id: port_id,
@@ -492,9 +513,11 @@ pub fn create_ibd_connector(
             target,
         })
         .map_err(|error| error.to_string())?;
+
     if let Some(name) = name {
         project.relationships.get_mut(&semantic_id).unwrap().name = name.trim().to_string();
     }
+
     let points = route_ibd_edge(diagram, &source_presentation_id, &target_presentation_id)?;
     diagram.connectors.push(IbdConnectorPresentation {
         id: uuid::Uuid::new_v4().to_string(),
@@ -546,23 +569,24 @@ pub fn route_ibd(
         .iter_mut()
         .find(|d| d.id == diagram_id)
         .ok_or("IBD not found")?;
-    let endpoint_pairs: Vec<_> = diagram
+
+    let snapshot = diagram.clone();
+    let routes = snapshot
         .connectors
         .iter()
         .map(|edge| {
-            (
-                edge.source_presentation_id.clone(),
-                edge.target_presentation_id.clone(),
+            route_ibd_edge(
+                &snapshot,
+                &edge.source_presentation_id,
+                &edge.target_presentation_id,
             )
         })
-        .collect();
-    for (index, edge) in diagram.connectors.iter_mut().enumerate() {
-        let source = endpoint_pairs[index].0.clone();
-        let target = endpoint_pairs[index].1.clone();
-        // Recompute against an immutable clone so all edges use the same routing rules.
-        let snapshot = diagram.clone();
-        edge.points = route_ibd_edge(&snapshot, &source, &target)?;
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (edge, points) in diagram.connectors.iter_mut().zip(routes) {
+        edge.points = points;
     }
+
     Ok(())
 }
 
