@@ -154,8 +154,12 @@ require(
     "apps/desktop/frontend/behavior-sequence-input.js",
     "behavior_lifeline_candidates",
     "add_sequence_lifeline",
+    "add_execution_specification",
+    "add_state_invariant",
+    "add_combined_fragment",
     "representedPath",
-    "state.behaviorTool !== 'Lifeline'",
+    "coveredLifelineIds",
+    "SECONDARY_TOOLS",
 )
 require(
     "apps/desktop/frontend/behavior-command-authority.js",
