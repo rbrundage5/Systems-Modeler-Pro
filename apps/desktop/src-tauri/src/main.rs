@@ -17,7 +17,7 @@ mod workspace {
     pub use behavior_completion::{
         add_combined_fragment_operand, add_composite_state, reconnect_sequence_message,
         update_combined_fragment_operand, update_execution_specification, update_sequence_message,
-        update_state_invariant, update_state_transition,
+        update_sequence_message_complete, update_state_invariant, update_state_transition,
     };
     pub use behavior_creation::{
         create_sequence_diagram_staged, create_state_machine_diagram_staged,
@@ -56,8 +56,8 @@ use workspace::{
     rename_element, route_ibd, save_current_project, save_current_project_complete,
     save_project_file, save_project_file_complete, update_association_end,
     update_bdd_element_details, update_bdd_feature_semantics, update_combined_fragment_operand,
-    update_execution_specification, update_sequence_message, update_state_behaviors,
-    update_state_invariant, update_state_transition, workspace_snapshot,
+    update_execution_specification, update_sequence_message, update_sequence_message_complete,
+    update_state_behaviors, update_state_invariant, update_state_transition, workspace_snapshot,
     workspace_snapshot_complete,
 };
 
@@ -296,6 +296,7 @@ fn main() {
             move_sequence_lifeline,
             add_sequence_message,
             update_sequence_message,
+            update_sequence_message_complete,
             reconnect_sequence_message,
             add_execution_specification,
             update_execution_specification,
