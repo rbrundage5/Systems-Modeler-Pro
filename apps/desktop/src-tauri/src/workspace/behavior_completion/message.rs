@@ -2,7 +2,7 @@ use super::super::behavior_workspace::BehaviorDiagramKind;
 use super::super::{WorkspaceState, parse_element_id};
 use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
-    InteractionId, LifelineId, MessageId, MessageSignature, MessageSort, Occurrence, OccurrenceId,
+    InteractionId, LifelineId, MessageId, MessageSignature, MessageSort, Occurrence,
 };
 
 fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
