@@ -744,9 +744,7 @@ mod tests {
         let parent_id = repo
             .create_state_machine(&project, block, "Parent")
             .unwrap();
-        let child_id = repo
-            .create_state_machine(&project, block, "Child")
-            .unwrap();
+        let child_id = repo.create_state_machine(&project, block, "Child").unwrap();
         let parent = repo.state_machines.get_mut(&parent_id).unwrap();
         parent.regions[0].vertices.push(Vertex {
             id: VertexId::new(),
