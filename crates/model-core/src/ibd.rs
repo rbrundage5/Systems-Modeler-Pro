@@ -194,8 +194,8 @@ impl Project {
             || self.is_generalization_related(target_type, source_type);
         if !compatible {
             return Err(ModelError::IncompatibleConnectorTypes {
-                source: source_type,
-                target: target_type,
+                source_id: source_type,
+                target_id: target_type,
             });
         }
         if source_element.kind == ElementKind::FullPort && source_element.is_conjugated {
