@@ -2,13 +2,21 @@ mod workspace {
     include!("workspace.rs");
     mod bdd_elements;
     mod feature_editing;
+    mod ibd;
+    mod item_flow_notation;
     mod relationship_editing;
+    mod routing;
     pub use bdd_elements::{
         create_bdd_element, create_bdd_feature, create_bdd_relationship_complete,
         open_project_file_complete, place_bdd_element, save_current_project_complete,
         save_project_file_complete, update_bdd_element_details, workspace_snapshot_complete,
     };
     pub use feature_editing::update_bdd_feature_semantics;
+    pub use ibd::{
+        add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
+        populate_ibd_from_context, route_ibd,
+    };
+    pub use item_flow_notation::ibd_item_flow_notation;
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -16,13 +24,15 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, create_bdd, create_bdd_element, create_bdd_feature, create_bdd_relationship,
-    create_bdd_relationship_complete, create_block, create_package, delete_bdd_relationship,
-    new_project, open_project_file, open_project_file_complete, place_bdd_element,
-    place_element_on_bdd, reconnect_bdd_relationship, rename_element, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
-    workspace_snapshot, workspace_snapshot_complete,
+    WorkspaceState, add_item_flow_to_connector, add_nested_port_to_ibd, create_bdd,
+    create_bdd_element, create_bdd_feature, create_bdd_relationship,
+    create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
+    create_package, delete_bdd_relationship, ibd_item_flow_notation, new_project,
+    open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
+    populate_ibd_from_context, reconnect_bdd_relationship, rename_element, route_ibd,
+    save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, update_association_end, update_bdd_element_details,
+    update_bdd_feature_semantics, workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -100,59 +110,71 @@ fn relationship_item(
 
 #[tauri::command]
 fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, String> {
-    if diagram_type != "BDD" {
-        return Err(format!("unsupported diagram palette: {diagram_type}"));
+    match diagram_type.as_str() {
+        "BDD" => Ok(vec![
+            element_item("block", "Block", "Block"),
+            element_item("association-block", "Association Block", "AssociationBlock"),
+            element_item("interface-block", "Interface Block", "InterfaceBlock"),
+            element_item("constraint-block", "Constraint Block", "ConstraintBlock"),
+            element_item("value-type", "Value Type", "ValueType"),
+            element_item("data-type", "Data Type", "DataType"),
+            element_item("primitive-type", "Primitive Type", "PrimitiveType"),
+            element_item("enumeration", "Enumeration", "Enumeration"),
+            element_item("signal", "Signal", "Signal"),
+            element_item("unit", "Unit", "Unit"),
+            element_item("quantity-kind", "Quantity Kind", "QuantityKind"),
+            element_item(
+                "instance-specification",
+                "Instance Specification",
+                "InstanceSpecification",
+            ),
+            element_item("comment", "Comment", "Comment"),
+            feature_item("part-property", "Part Property", "PartProperty"),
+            feature_item(
+                "reference-property",
+                "Reference Property",
+                "ReferenceProperty",
+            ),
+            feature_item("value-property", "Value Property", "ValueProperty"),
+            feature_item("flow-property", "Flow Property", "FlowProperty"),
+            feature_item(
+                "constraint-property",
+                "Constraint Property",
+                "ConstraintProperty",
+            ),
+            feature_item("proxy-port", "Proxy Port", "ProxyPort"),
+            feature_item("full-port", "Full Port", "FullPort"),
+            feature_item("operation", "Operation", "Operation"),
+            feature_item("reception", "Reception", "Reception"),
+            feature_item("parameter", "Parameter", "Parameter"),
+            feature_item(
+                "enumeration-literal",
+                "Enumeration Literal",
+                "EnumerationLiteral",
+            ),
+            feature_item("slot", "Slot", "Slot"),
+            relationship_item("association", "Association", "Association"),
+            relationship_item("aggregation", "Aggregation", "Aggregation"),
+            relationship_item("composition", "Composition", "Composition"),
+            relationship_item("generalization", "Generalization", "Generalization"),
+            relationship_item("dependency", "Dependency", "Dependency"),
+            relationship_item("realization", "Realization", "Realization"),
+        ]),
+        "IBD" => Ok(vec![
+            feature_item("part-property", "Part Property", "PartProperty"),
+            feature_item(
+                "reference-property",
+                "Reference Property",
+                "ReferenceProperty",
+            ),
+            feature_item("proxy-port", "Proxy Port", "ProxyPort"),
+            feature_item("full-port", "Full Port", "FullPort"),
+            relationship_item("assembly-connector", "Assembly Connector", "Assembly"),
+            relationship_item("delegation-connector", "Delegation Connector", "Delegation"),
+            relationship_item("item-flow", "Item Flow", "ItemFlow"),
+        ]),
+        _ => Err(format!("unsupported diagram palette: {diagram_type}")),
     }
-
-    Ok(vec![
-        element_item("block", "Block", "Block"),
-        element_item("association-block", "Association Block", "AssociationBlock"),
-        element_item("interface-block", "Interface Block", "InterfaceBlock"),
-        element_item("constraint-block", "Constraint Block", "ConstraintBlock"),
-        element_item("value-type", "Value Type", "ValueType"),
-        element_item("data-type", "Data Type", "DataType"),
-        element_item("primitive-type", "Primitive Type", "PrimitiveType"),
-        element_item("enumeration", "Enumeration", "Enumeration"),
-        element_item("signal", "Signal", "Signal"),
-        element_item("unit", "Unit", "Unit"),
-        element_item("quantity-kind", "Quantity Kind", "QuantityKind"),
-        element_item(
-            "instance-specification",
-            "Instance Specification",
-            "InstanceSpecification",
-        ),
-        element_item("comment", "Comment", "Comment"),
-        feature_item("part-property", "Part Property", "PartProperty"),
-        feature_item(
-            "reference-property",
-            "Reference Property",
-            "ReferenceProperty",
-        ),
-        feature_item("value-property", "Value Property", "ValueProperty"),
-        feature_item("flow-property", "Flow Property", "FlowProperty"),
-        feature_item(
-            "constraint-property",
-            "Constraint Property",
-            "ConstraintProperty",
-        ),
-        feature_item("proxy-port", "Proxy Port", "ProxyPort"),
-        feature_item("full-port", "Full Port", "FullPort"),
-        feature_item("operation", "Operation", "Operation"),
-        feature_item("reception", "Reception", "Reception"),
-        feature_item("parameter", "Parameter", "Parameter"),
-        feature_item(
-            "enumeration-literal",
-            "Enumeration Literal",
-            "EnumerationLiteral",
-        ),
-        feature_item("slot", "Slot", "Slot"),
-        relationship_item("association", "Association", "Association"),
-        relationship_item("aggregation", "Aggregation", "Aggregation"),
-        relationship_item("composition", "Composition", "Composition"),
-        relationship_item("generalization", "Generalization", "Generalization"),
-        relationship_item("dependency", "Dependency", "Dependency"),
-        relationship_item("realization", "Realization", "Realization"),
-    ])
 }
 
 fn main() {
@@ -178,6 +200,13 @@ fn main() {
             update_bdd_feature_semantics,
             rename_element,
             create_bdd,
+            create_ibd,
+            populate_ibd_from_context,
+            add_nested_port_to_ibd,
+            create_ibd_connector,
+            add_item_flow_to_connector,
+            ibd_item_flow_notation,
+            route_ibd,
             place_element_on_bdd,
             place_bdd_element,
             create_bdd_relationship,

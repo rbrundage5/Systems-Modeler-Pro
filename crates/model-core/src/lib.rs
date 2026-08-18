@@ -3,6 +3,9 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod ibd;
+pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
+
 macro_rules! id_type {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,6 +75,8 @@ pub enum RelationshipKind {
     Composition,
     Generalization,
     Realization,
+    Connector,
+    ItemFlow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -253,6 +258,10 @@ pub struct Relationship {
     pub documentation: String,
     pub applied_stereotypes: Vec<String>,
     pub association_ends: Vec<AssociationEnd>,
+    #[serde(default)]
+    pub connector: Option<Connector>,
+    #[serde(default)]
+    pub item_flow: Option<ItemFlow>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,6 +319,45 @@ pub enum ModelError {
     InvalidQuantityKindReference(String),
     #[error("value type unit does not resolve to Unit: {0}")]
     InvalidUnitReference(String),
+    #[error("IBD context must be a Block or AssociationBlock: {0}")]
+    InvalidIbdContext(ElementId),
+    #[error(
+        "invalid nested connector property path at {0}; select a property/port that is actually reachable from this IBD context"
+    )]
+    InvalidConnectorPath(ElementId),
+    #[error(
+        "connector endpoint must be a PartProperty, ReferenceProperty, ProxyPort, or FullPort: {0}; select an internal structural property or a valid port"
+    )]
+    ConnectorEndpointMustBePortOrProperty(ElementId),
+    #[error("connector cannot connect an endpoint to itself; select a different second endpoint")]
+    ConnectorSelfConnection,
+    #[error(
+        "assembly connector requires two internal endpoints; select an internal Part/Reference Property or one of its nested ports for endpoint 1, then a second internal property/port. Do not use an outer Block boundary port"
+    )]
+    AssemblyRequiresInternalEnds,
+    #[error(
+        "delegation connector requires exactly one outer Block boundary port and one internal Part/Reference Property or nested port; select one endpoint of each kind"
+    )]
+    DelegationRequiresBoundaryAndInternal,
+    #[error(
+        "connector endpoint types are incompatible: {source_id} vs {target_id}; choose endpoints with compatible semantic types"
+    )]
+    IncompatibleConnectorTypes {
+        source_id: ElementId,
+        target_id: ElementId,
+    },
+    #[error("FullPort cannot be conjugated: {0}")]
+    FullPortCannotBeConjugated(ElementId),
+    #[error(
+        "item flow requires at least one conveyed classifier; select an existing Connector, then choose the classifier conveyed by that Connector"
+    )]
+    ItemFlowRequiresConveyedItem,
+    #[error("invalid conveyed item: {0}; ItemFlow conveyed items must be semantic classifiers")]
+    InvalidConveyedItem(ElementId),
+    #[error("relationship is not a connector: {0}")]
+    RelationshipIsNotConnector(RelationshipId),
+    #[error("item flow must realize an existing connector: {0}")]
+    ItemFlowConnectorNotFound(RelationshipId),
 }
 
 impl Project {
@@ -527,8 +575,45 @@ impl Project {
                 documentation: String::new(),
                 applied_stereotypes: Vec::new(),
                 association_ends: Vec::new(),
+                connector: None,
+                item_flow: None,
             },
         );
+        Ok(id)
+    }
+
+    pub fn create_connector(&mut self, connector: Connector) -> Result<RelationshipId, ModelError> {
+        self.validate_connector(&connector)?;
+        let source_id = connector.source.port_id.unwrap_or(connector.source.role_id);
+        let target_id = connector.target.port_id.unwrap_or(connector.target.role_id);
+        let id = self.create_relationship(
+            RelationshipKind::Connector,
+            source_id,
+            target_id,
+            Some(connector.context_id),
+        )?;
+        self.relationships.get_mut(&id).unwrap().connector = Some(connector);
+        Ok(id)
+    }
+
+    pub fn create_item_flow(&mut self, flow: ItemFlow) -> Result<RelationshipId, ModelError> {
+        let connector = self
+            .relationship(flow.connector_id)
+            .map_err(|_| ModelError::ItemFlowConnectorNotFound(flow.connector_id))?;
+        if connector.kind != RelationshipKind::Connector || connector.connector.is_none() {
+            return Err(ModelError::ItemFlowConnectorNotFound(flow.connector_id));
+        }
+        self.validate_item_flow(&flow)?;
+        let context_id = connector.connector.as_ref().unwrap().context_id;
+        let source_id = flow.source.port_id.unwrap_or(flow.source.role_id);
+        let target_id = flow.target.port_id.unwrap_or(flow.target.role_id);
+        let id = self.create_relationship(
+            RelationshipKind::ItemFlow,
+            source_id,
+            target_id,
+            Some(context_id),
+        )?;
+        self.relationships.get_mut(&id).unwrap().item_flow = Some(flow);
         Ok(id)
     }
 
@@ -591,6 +676,21 @@ impl Project {
                     .association_ends
                     .iter()
                     .any(|end| end.classifier_id == id)
+                || relationship.connector.as_ref().is_some_and(|connector| {
+                    connector.source.role_id == id
+                        || connector.source.port_id == Some(id)
+                        || connector.source.property_path.contains(&id)
+                        || connector.target.role_id == id
+                        || connector.target.port_id == Some(id)
+                        || connector.target.property_path.contains(&id)
+                })
+                || relationship.item_flow.as_ref().is_some_and(|flow| {
+                    flow.conveyed_item_ids.contains(&id)
+                        || flow.source.role_id == id
+                        || flow.source.port_id == Some(id)
+                        || flow.target.role_id == id
+                        || flow.target.port_id == Some(id)
+                })
         }) || self
             .elements
             .values()
@@ -627,6 +727,9 @@ impl Project {
             && element.aggregation == AggregationKind::Composite
         {
             return Err(ModelError::ReferenceCannotBeComposite(id));
+        }
+        if element.kind == ElementKind::FullPort && element.is_conjugated {
+            return Err(ModelError::FullPortCannotBeConjugated(id));
         }
         if element.kind == ElementKind::ValueType {
             if let Some(quantity_kind) = &element.quantity_kind_external_id
@@ -676,6 +779,23 @@ impl Project {
                 if !source.is_classifier() || !target.is_classifier() {
                     return Err(ModelError::GeneralizationRequiresClassifiers);
                 }
+            }
+            match relationship.kind {
+                RelationshipKind::Connector => {
+                    let connector = relationship
+                        .connector
+                        .as_ref()
+                        .ok_or(ModelError::RelationshipIsNotConnector(relationship.id))?;
+                    self.validate_connector(connector)?;
+                }
+                RelationshipKind::ItemFlow => {
+                    let flow = relationship
+                        .item_flow
+                        .as_ref()
+                        .ok_or(ModelError::ItemFlowRequiresConveyedItem)?;
+                    self.validate_item_flow(flow)?;
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -974,6 +1094,11 @@ pub mod notation {
                     target_decoration,
                 }
             }
+            RelationshipKind::Connector | RelationshipKind::ItemFlow => RelationshipNotation {
+                line: LineStyle::Solid,
+                source_decoration: EndDecoration::None,
+                target_decoration: EndDecoration::None,
+            },
         }
     }
 }
