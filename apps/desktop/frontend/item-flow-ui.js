@@ -116,7 +116,7 @@
         label.classList.add('item-flow-label');
         label.setAttribute('x', tipX + px * 14 + 5);
         label.setAttribute('y', tipY + py * 14 - 5);
-        label.textContent = `▶ ${(flow.conveyed_item_names || []).join(', ') || 'item'}`;
+        label.textContent = (flow.conveyed_item_names || []).join(', ') || 'item';
         svg.appendChild(label);
       });
     }
@@ -137,7 +137,7 @@
     section.className = 'item-flow-properties';
     section.innerHTML = `<div class="property-heading">Item Flows</div>${
       flows.length
-        ? flows.map((flow) => `<div class="item-flow-property-row">▶ ${escapeHtml((flow.conveyed_item_names || []).join(', ') || 'conveyed item')}</div>`).join('')
+        ? flows.map((flow) => `<div class="item-flow-property-row">${escapeHtml((flow.conveyed_item_names || []).join(', ') || 'conveyed item')}</div>`).join('')
         : '<div class="muted">No Item Flow on this Connector.</div>'
     }`;
     panel.appendChild(section);
