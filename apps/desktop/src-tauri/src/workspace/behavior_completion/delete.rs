@@ -1,6 +1,7 @@
 use super::super::WorkspaceState;
 use super::super::behavior_workspace::BehaviorDiagramKind;
 use std::collections::HashSet;
+use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
     FragmentId, InteractionId, InvariantId, LifelineId, MessageId, Region, StateMachineId,
     TransitionId, VertexId, VertexKind,
@@ -16,6 +17,15 @@ fn state_machine_id(value: &str) -> Result<StateMachineId, String> {
 
 fn interaction_id(value: &str) -> Result<InteractionId, String> {
     parse_uuid(value).map(InteractionId)
+}
+
+fn project_snapshot(state: &WorkspaceState) -> Result<Project, String> {
+    state
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned".to_string())?
+        .clone()
+        .ok_or_else(|| "no project open".to_string())
 }
 
 fn diagram_semantics(
@@ -109,6 +119,7 @@ fn delete_state_item(
     item_type: &str,
     item_id: &str,
 ) -> Result<(), String> {
+    let project = project_snapshot(state)?;
     let machine_id = state_machine_id(semantic_id)?;
     match item_type {
         "Vertex" => {
@@ -122,7 +133,18 @@ fn delete_state_item(
                     .state_machines
                     .get_mut(&machine_id)
                     .ok_or("State Machine not found")?;
-                remove_vertex_from_regions(&mut machine.regions, wanted).ok_or("State not found")?
+                let original = machine.clone();
+                let removed = remove_vertex_from_regions(&mut machine.regions, wanted)
+                    .ok_or("State not found")?;
+                if let Err(error) =
+                    systems_modeler_core::behavior::validate_state_machine(&project, machine)
+                {
+                    *machine = original;
+                    return Err(format!(
+                        "Deletion rejected because it would leave the State Machine invalid: {error}"
+                    ));
+                }
+                removed
             };
             let mut diagrams = state
                 .behavior_diagrams
@@ -150,11 +172,18 @@ fn delete_state_item(
                 .state_machines
                 .get_mut(&machine_id)
                 .ok_or("State Machine not found")?;
-            if remove_transition(&mut machine.regions, wanted) {
-                Ok(())
-            } else {
-                Err("Transition not found".into())
+            let original = machine.clone();
+            if !remove_transition(&mut machine.regions, wanted) {
+                return Err("Transition not found".into());
             }
+            if let Err(error) = systems_modeler_core::behavior::validate_state_machine(&project, machine)
+            {
+                *machine = original;
+                return Err(format!(
+                    "Deletion rejected because it would leave the State Machine invalid: {error}"
+                ));
+            }
+            Ok(())
         }
         _ => Err(format!(
             "unsupported State Machine deletion type: {item_type}"
