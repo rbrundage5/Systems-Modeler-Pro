@@ -25,19 +25,37 @@
         `Creating ${label} diagram…`,
         () => requireInvoke()(command, { contextId: context.id, name }),
       );
+
+      // Do not depend on the chained global refresh wrappers to discover a newly
+      // created behavior diagram. Read the authoritative Rust behavior workspace
+      // immediately and select the exact ID returned by the creation command.
+      state.behaviorSnapshot = await requireInvoke()('behavior_snapshot');
+      if (!state.behaviorSnapshot?.diagrams?.some((diagram) => diagram.id === diagramId)) {
+        throw new Error(`${label} was created by Rust but was not returned by the behavior workspace snapshot.`);
+      }
+
       state.selectedBehaviorDiagramId = diagramId;
       state.selectedDiagramId = null;
       state.selectedElementId = null;
       state.selectedRelationshipId = null;
-      await refresh();
+      state.selectedBehaviorItem = null;
+      state.behaviorTool = null;
+      state.behaviorPending = null;
+      render();
       $('status').textContent = `${label} created for ${context.name}`;
     } catch (error) {
+      const message = error?.message || String(error);
       console.error(`Unable to create ${label}`, error);
+      $('status').textContent = `${label} creation failed: ${message}`;
+      alert(`${label} creation failed: ${message}`);
     }
   }
 
+  window.smpCreateStateMachineForSelectedBlock = () => createBehaviorDiagram('StateMachine');
+  window.smpCreateSequenceForSelectedBlock = () => createBehaviorDiagram('Sequence');
+
   const stateMachine = $('new-state-machine');
   const sequence = $('new-sequence');
-  if (stateMachine) stateMachine.onclick = () => createBehaviorDiagram('StateMachine');
-  if (sequence) sequence.onclick = () => createBehaviorDiagram('Sequence');
+  if (stateMachine) stateMachine.onclick = window.smpCreateStateMachineForSelectedBlock;
+  if (sequence) sequence.onclick = window.smpCreateSequenceForSelectedBlock;
 })();
