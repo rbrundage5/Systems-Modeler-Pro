@@ -119,8 +119,24 @@ fn behavior_repository_round_trip_preserves_submachine_and_occurrence_identity()
         .expect("interaction")
         .messages[0];
     assert_eq!(restored_message.id, message_id);
-    assert_eq!(restored_message.send_event.as_ref().expect("send").id, send_id);
-    assert_eq!(restored_message.receive_event.as_ref().expect("receive").id, receive_id);
-    assert_eq!(restored_message.send_event.as_ref().expect("send").order, 10);
-    assert_eq!(restored_message.receive_event.as_ref().expect("receive").order, 15);
+    assert_eq!(
+        restored_message.send_event.as_ref().expect("send").id,
+        send_id
+    );
+    assert_eq!(
+        restored_message.receive_event.as_ref().expect("receive").id,
+        receive_id
+    );
+    assert_eq!(
+        restored_message.send_event.as_ref().expect("send").order,
+        10
+    );
+    assert_eq!(
+        restored_message
+            .receive_event
+            .as_ref()
+            .expect("receive")
+            .order,
+        15
+    );
 }
