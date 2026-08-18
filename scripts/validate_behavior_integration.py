@@ -51,6 +51,13 @@ require(
     "save_behavior_metadata",
     "load_behavior_metadata",
 )
+require(
+    "crates/model-core/tests/behavior_persistence.rs",
+    "behavior_repository_round_trip_preserves_submachine_and_occurrence_identity",
+    "restored_state.submachine",
+    "restored_message.send_event",
+    "restored_message.receive_event",
+)
 
 # The authoritative ribbon shell must expose behavior creation on Home and Diagram.
 require(
@@ -117,6 +124,7 @@ require(
     'src="behavior-submachine.js"',
     'href="behavior-submachine.css"',
     'src="behavior-nested-transition-notation.js"',
+    'src="behavior-region-placement.js"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
@@ -159,6 +167,13 @@ require(
     "nested-state-transition",
     "transition.source_id",
     "transition.target_id",
+)
+require(
+    "apps/desktop/frontend/behavior-region-placement.js",
+    "REGION_VERTEX_TOOLS",
+    "regionIdValue: region.id",
+    "add_composite_state",
+    "add_state_vertex",
 )
 require(
     "crates/model-core/src/behavior.rs",
