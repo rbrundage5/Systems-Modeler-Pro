@@ -20,16 +20,51 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Repair thiserror field naming
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          lib = Path('crates/model-core/src/lib.rs')
+          text = lib.read_text()
+          old = '''    #[error("connector endpoint types are incompatible: {source} vs {target}")]
+    IncompatibleConnectorTypes {
+        source: ElementId,
+        target: ElementId,
+    },'''
+          new = '''    #[error("connector endpoint types are incompatible: {source_id} vs {target_id}")]
+    IncompatibleConnectorTypes {
+        source_id: ElementId,
+        target_id: ElementId,
+    },'''
+          if old not in text:
+              raise SystemExit('expected IncompatibleConnectorTypes definition not found')
+          lib.write_text(text.replace(old, new, 1))
+
+          ibd = Path('crates/model-core/src/ibd.rs')
+          text = ibd.read_text()
+          old = '''            return Err(ModelError::IncompatibleConnectorTypes {
+                source: source_type,
+                target: target_type,
+            });'''
+          new = '''            return Err(ModelError::IncompatibleConnectorTypes {
+                source_id: source_type,
+                target_id: target_type,
+            });'''
+          if old not in text:
+              raise SystemExit('expected IncompatibleConnectorTypes construction not found')
+          ibd.write_text(text.replace(old, new, 1))
+          PY
       - name: Apply rustfmt
         run: cargo fmt --all
-      - name: Commit formatted Rust
+      - name: Commit repaired Rust
         run: |
           if git diff --quiet; then
-            echo "No formatting changes required."
+            echo "No changes required."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- '*.rs'
-          git commit -m "Apply rustfmt to PR11"
+          git commit -m "Fix thiserror connector type fields and apply rustfmt"
           git push origin HEAD:agent/pr11-complete-ibd-rust
