@@ -2,8 +2,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
 def text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
 
 def require(path: str, *needles: str) -> None:
     payload = text(path)
@@ -11,24 +13,33 @@ def require(path: str, *needles: str) -> None:
     if missing:
         raise SystemExit(f"{path}: missing required PR12 integration markers: {missing}")
 
-# Tauri must register every behavior command that the migrated UI calls.
+
+# Tauri must register every Rust-authoritative behavior command used by the migrated UI.
 require(
     "apps/desktop/src-tauri/src/main.rs",
     "behavior_snapshot",
     "create_state_machine_diagram",
     "create_sequence_diagram",
     "add_state_vertex",
+    "add_composite_state",
     "add_state_region",
     "update_state_behaviors",
-    "add_state_transition",
+    "add_state_transition_complete",
+    "update_state_transition",
     "move_state_vertex",
     "behavior_lifeline_candidates",
     "add_sequence_lifeline",
     "move_sequence_lifeline",
     "add_sequence_message",
+    "update_sequence_message_complete",
     "add_execution_specification",
+    "update_execution_specification",
     "add_combined_fragment",
+    "add_combined_fragment_operand",
+    "update_combined_fragment_operand",
     "add_state_invariant",
+    "update_state_invariant",
+    "delete_behavior_item",
 )
 
 # Project lifecycle must persist and restore behavior semantics and presentation.
@@ -91,6 +102,36 @@ require(
     "par",
     "critical",
     "State Invariant",
+)
+
+# Completion bridges must be present and actually loaded by the desktop shell.
+require(
+    "apps/desktop/frontend/index.html",
+    'src="behavior-safe-transition.js"',
+    'src="behavior-completion-ui.js"',
+    'src="behavior-atomic-message.js"',
+    'src="behavior-delete-ui.js"',
+)
+require(
+    "apps/desktop/frontend/behavior-safe-transition.js",
+    "add_state_transition_complete",
+)
+require(
+    "apps/desktop/frontend/behavior-atomic-message.js",
+    "update_sequence_message_complete",
+)
+require(
+    "apps/desktop/frontend/behavior-delete-ui.js",
+    "delete_behavior_item",
+)
+require(
+    "apps/desktop/frontend/behavior-completion-ui.js",
+    "add_composite_state",
+    "update_state_transition",
+    "update_execution_specification",
+    "add_combined_fragment_operand",
+    "update_combined_fragment_operand",
+    "update_state_invariant",
 )
 
 print("PR12 behavior desktop integration markers are complete")
