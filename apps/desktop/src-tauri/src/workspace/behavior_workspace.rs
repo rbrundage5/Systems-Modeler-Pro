@@ -104,7 +104,7 @@ fn root_region_id(
         .ok_or_else(|| "state machine has no root Region".into())
 }
 
-fn find_region_mut<'a>(regions: &'a mut [Region], wanted: RegionId) -> Option<&'a mut Region> {
+fn find_region_mut(regions: &mut [Region], wanted: RegionId) -> Option<&mut Region> {
     for region in regions {
         if region.id == wanted {
             return Some(region);
@@ -120,7 +120,7 @@ fn find_region_mut<'a>(regions: &'a mut [Region], wanted: RegionId) -> Option<&'
     None
 }
 
-fn find_vertex_mut<'a>(regions: &'a mut [Region], wanted: VertexId) -> Option<&'a mut Vertex> {
+fn find_vertex_mut(regions: &mut [Region], wanted: VertexId) -> Option<&mut Vertex> {
     for region in regions {
         for vertex in &mut region.vertices {
             if vertex.id == wanted {
@@ -136,7 +136,7 @@ fn find_vertex_mut<'a>(regions: &'a mut [Region], wanted: VertexId) -> Option<&'
     None
 }
 
-fn find_vertex<'a>(regions: &'a [Region], wanted: VertexId) -> Option<&'a Vertex> {
+fn find_vertex(regions: &[Region], wanted: VertexId) -> Option<&Vertex> {
     for region in regions {
         for vertex in &region.vertices {
             if vertex.id == wanted {
@@ -529,6 +529,7 @@ pub fn update_state_behaviors(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn add_state_transition(
     diagram_id: String,
     region_id_value: Option<String>,
@@ -742,6 +743,7 @@ pub fn move_sequence_lifeline(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn add_sequence_message(
     diagram_id: String,
     source_lifeline_id: Option<String>,

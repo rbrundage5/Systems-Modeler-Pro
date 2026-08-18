@@ -1,9 +1,9 @@
 use systems_modeler_core::{
-    BehaviorError, BehaviorRepository, CombinedFragment, ElementKind, Event, ExecutionSpecification,
-    InteractionOperand, InteractionOperator, Lifeline, LifelineId, Message, MessageSignature,
-    MessageSort, Multiplicity, Occurrence, OccurrenceId, OperandId, Project, PseudostateKind,
-    State, StateInvariant, Transition, TransitionId, TransitionKind, Trigger, Vertex, VertexId,
-    VertexKind,
+    BehaviorError, BehaviorRepository, CombinedFragment, ElementKind, Event,
+    ExecutionSpecification, InteractionOperand, InteractionOperator, Lifeline, LifelineId, Message,
+    MessageSignature, MessageSort, Multiplicity, Occurrence, OccurrenceId, OperandId, Project,
+    PseudostateKind, State, StateInvariant, Transition, TransitionId, TransitionKind, Trigger,
+    Vertex, VertexId, VertexKind,
 };
 
 struct Fixture {
@@ -106,7 +106,9 @@ fn state_machine_supports_valid_initial_state_final_flow() {
             target_id: final_state,
             kind: TransitionKind::External,
             trigger: Some(Trigger {
-                event: Event::Signal { signal_id: f.signal },
+                event: Event::Signal {
+                    signal_id: f.signal,
+                },
             }),
             guard: Some("enabled".into()),
             effect: Some("stop".into()),
@@ -145,7 +147,9 @@ fn initial_transition_rejects_trigger_or_guard() {
         target_id: state,
         kind: TransitionKind::External,
         trigger: Some(Trigger {
-            event: Event::Signal { signal_id: f.signal },
+            event: Event::Signal {
+                signal_id: f.signal,
+            },
         }),
         guard: None,
         effect: None,

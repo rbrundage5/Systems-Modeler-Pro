@@ -260,6 +260,9 @@ pub fn workspace_snapshot_complete(
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     let ibd_diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    if let Some(project) = project.as_ref() {
+        validate_complete_diagrams(project, &diagrams)?;
+    }
     let current_file = state
         .current_file
         .lock()
@@ -293,6 +296,7 @@ fn parse_multiplicity(lower: u32, upper: Option<u32>) -> Result<Multiplicity, St
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable Tauri IPC contract; frontend sends named fields.
 pub fn create_bdd_feature(
     kind: String,
     owner_id: String,
