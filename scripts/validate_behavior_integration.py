@@ -116,6 +116,7 @@ require(
     'href="behavior-message-notation.css"',
     'src="behavior-submachine.js"',
     'href="behavior-submachine.css"',
+    'src="behavior-nested-transition-notation.js"',
 )
 require(
     "apps/desktop/frontend/behavior-safe-transition.js",
@@ -151,6 +152,13 @@ require(
     "SubmachineState",
     "add_submachine_state",
     "«submachine»",
+)
+require(
+    "apps/desktop/frontend/behavior-nested-transition-notation.js",
+    "nestedTransitions",
+    "nested-state-transition",
+    "transition.source_id",
+    "transition.target_id",
 )
 require(
     "crates/model-core/src/behavior.rs",
