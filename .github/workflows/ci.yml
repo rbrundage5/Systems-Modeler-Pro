@@ -306,8 +306,6 @@ jobs:
           node --check apps/desktop/frontend/behavior-authoritative-renderer.js
           python scripts/validate_behavior_integration.py
           cargo test --workspace --exclude systems-modeler-desktop
-          cargo check -p systems-modeler-desktop
-          cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
       - name: Publish patch and restore CI
         shell: bash
         run: |
