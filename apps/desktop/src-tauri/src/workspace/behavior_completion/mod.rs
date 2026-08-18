@@ -2,6 +2,7 @@ mod delete;
 mod message;
 mod sequence;
 mod state;
+mod transition;
 
 pub use delete::delete_behavior_item;
 pub use message::update_sequence_message_complete;
@@ -10,3 +11,4 @@ pub use sequence::{
     update_execution_specification, update_sequence_message, update_state_invariant,
 };
 pub use state::{add_composite_state, update_state_transition};
+pub use transition::add_state_transition_complete;
