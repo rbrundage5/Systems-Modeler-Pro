@@ -1,12 +1,12 @@
 name: pr12-integrate-behavior
 on:
-  push:
-    branches: [agent/pr12-state-sequence-rust]
-    paths: [.github/workflows/pr12-integrate-behavior.yml]
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
 permissions:
   contents: write
 jobs:
   integrate:
+    if: github.event.pull_request.head.ref == 'agent/pr12-state-sequence-rust'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +24,6 @@ jobs:
                   raise SystemExit(f'anchor missing in {path}: {old[:80]!r}')
               p.write_text(s.replace(old,new,1))
 
-          # Compile the behavior semantic engine as part of model-core.
           replace('crates/model-core/src/lib.rs',
 '''pub mod ibd;
 pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};''',
@@ -33,7 +32,6 @@ pub mod ibd;
 pub use behavior::*;
 pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};''')
 
-          # Persist behavior semantics/presentations in the authoritative workspace.
           p=Path('apps/desktop/src-tauri/src/workspace.rs'); s=p.read_text()
           s=s.replace('''use systems_modeler_core::{
     AggregationKind, DiagramId, ElementId, ElementKind, Multiplicity, Project, Relationship,
@@ -97,7 +95,6 @@ pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};''')
           s=s.replace(old,new,1)
           p.write_text(s)
 
-          # Register behavior module and commands with Tauri.
           p=Path('apps/desktop/src-tauri/src/main.rs'); s=p.read_text()
           s=s.replace('''    mod bdd_elements;
     mod feature_editing;''','''    mod bdd_elements;
@@ -162,14 +159,12 @@ pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};''')
           s=s.replace(old,new,1)
           p.write_text(s)
 
-          # Load behavior notation/UI after existing structural modules.
           p=Path('apps/desktop/frontend/index.html'); s=p.read_text()
           s=s.replace('''  <link rel="stylesheet" href="ibd.css" />''','''  <link rel="stylesheet" href="ibd.css" />
   <link rel="stylesheet" href="behavior.css" />''',1)
           s=s.replace('''<script src="item-flow-ui.js"></script><script src="ui-shell.js"></script>''','''<script src="item-flow-ui.js"></script><script src="behavior-ui.js"></script><script src="ui-shell.js"></script>''',1)
           p.write_text(s)
 
-          # Remove temporary repair/bootstrap workflows from permanent PR contents.
           for name in ['.github/workflows/pr11-dedupe-itemflows.yml','.github/workflows/pr12-bootstrap.yml','.github/workflows/pr12-fix-clippy.yml','.github/workflows/pr12-integrate-behavior.yml']:
               q=Path(name)
               if q.exists(): q.unlink()
