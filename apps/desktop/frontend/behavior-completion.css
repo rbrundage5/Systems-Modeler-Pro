@@ -1,0 +1,120 @@
+.state-vertex.composite-state {
+  overflow: hidden;
+}
+
+.state-region-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 44px;
+  bottom: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border-top: 1px solid #666;
+  pointer-events: none;
+}
+
+.state-region-cell {
+  position: relative;
+  min-width: 0;
+  border-left: 1px dashed #777;
+}
+
+.state-region-cell:first-child {
+  border-left: 0;
+}
+
+.state-region-cell > span {
+  display: block;
+  padding: 3px 5px;
+  font-size: 10px;
+  color: #555;
+  text-align: left;
+}
+
+.sequence-message.selected,
+.self-message.selected {
+  stroke-width: 3;
+}
+
+.unknown-message-end {
+  fill: #111;
+  stroke: #111;
+}
+
+.execution-spec {
+  pointer-events: auto;
+}
+
+.execution-spec.selected {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.execution-resize-handle {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  bottom: -4px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.combined-fragment {
+  pointer-events: auto;
+}
+
+.combined-fragment.selected {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.fragment-operand-divider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed #555;
+}
+
+.fragment-operand-guard {
+  position: absolute;
+  left: 8px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 1px 4px;
+}
+
+.state-invariant-box {
+  position: absolute;
+  width: 104px;
+  min-height: 26px;
+  transform: translateY(-13px);
+  border: 1px solid #555;
+  background: #fff;
+  font-size: 11px;
+  padding: 3px 5px;
+  z-index: 7;
+}
+
+.state-invariant-box.selected {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.region-target-picker,
+.operand-editor {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #d0d0d0;
+}
+
+.region-target-picker > strong,
+.operand-editor > strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.region-target-picker button {
+  margin: 2px 4px 2px 0;
+}
