@@ -1,10 +1,10 @@
 use super::super::behavior_workspace::{BehaviorDiagramKind, StateNodePresentation};
 use super::super::{WorkspaceState, parse_element_id};
+use systems_modeler_core::Project;
 use systems_modeler_core::behavior::{
     Event, Region, RegionId, State, TransitionId, TransitionKind, Trigger, Vertex, VertexId,
     VertexKind,
 };
-use systems_modeler_core::Project;
 
 fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
     uuid::Uuid::parse_str(value).map_err(|_| format!("invalid behavior id: {value}"))
@@ -27,10 +27,7 @@ fn project_snapshot(state: &WorkspaceState) -> Result<Project, String> {
         .ok_or_else(|| "no project open".to_string())
 }
 
-fn behavior_semantic_id(
-    state: &WorkspaceState,
-    diagram_id: &str,
-) -> Result<String, String> {
+fn behavior_semantic_id(state: &WorkspaceState, diagram_id: &str) -> Result<String, String> {
     let diagrams = state
         .behavior_diagrams
         .lock()
