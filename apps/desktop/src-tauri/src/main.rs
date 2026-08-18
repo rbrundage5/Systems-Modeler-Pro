@@ -226,7 +226,11 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             relationship_item("Delete", "Delete Message", "Delete"),
             relationship_item("Lost", "Lost Message", "Lost"),
             relationship_item("Found", "Found Message", "Found"),
-            element_item("Execution", "Execution Specification", "ExecutionSpecification"),
+            element_item(
+                "Execution",
+                "Execution Specification",
+                "ExecutionSpecification",
+            ),
             element_item("alt", "alt Fragment", "CombinedFragment"),
             element_item("opt", "opt Fragment", "CombinedFragment"),
             element_item("loop", "loop Fragment", "CombinedFragment"),
