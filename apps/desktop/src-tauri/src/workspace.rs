@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    AggregationKind, DiagramId, ElementId, ElementKind, Multiplicity, Project, Relationship,
-    RelationshipId, RelationshipKind,
+    AggregationKind, BehaviorRepository, DiagramId, ElementId, ElementKind, Multiplicity, Project,
+    Relationship, RelationshipId, RelationshipKind,
 };
 use systems_modeler_persistence::ProjectDatabase;
 
@@ -88,6 +88,8 @@ pub struct WorkspaceSnapshot {
     pub project: Option<ProjectSnapshot>,
     pub diagrams: Vec<BddDiagram>,
     pub ibd_diagrams: Vec<ibd::IbdDiagram>,
+    pub behavior_repository: BehaviorRepository,
+    pub behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
     pub current_file: Option<String>,
 }
 
@@ -95,6 +97,8 @@ pub struct WorkspaceState {
     project: Mutex<Option<Project>>,
     diagrams: Mutex<Vec<BddDiagram>>,
     ibd_diagrams: Mutex<Vec<ibd::IbdDiagram>>,
+    behavior: Mutex<BehaviorRepository>,
+    behavior_diagrams: Mutex<Vec<behavior_workspace::BehaviorDiagram>>,
     current_file: Mutex<Option<String>>,
 }
 
@@ -104,6 +108,8 @@ impl Default for WorkspaceState {
             project: Mutex::new(None),
             diagrams: Mutex::new(Vec::new()),
             ibd_diagrams: Mutex::new(Vec::new()),
+            behavior: Mutex::new(BehaviorRepository::default()),
+            behavior_diagrams: Mutex::new(Vec::new()),
             current_file: Mutex::new(None),
         }
     }
@@ -278,11 +284,18 @@ pub fn workspace_snapshot(state: tauri::State<'_, WorkspaceState>) -> Result<Wor
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     let ibd_diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let behavior_repository = state.behavior.lock().map_err(|_| "behavior lock poisoned")?;
+    let behavior_diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
     let current_file = state.current_file.lock().map_err(|_| "project path lock poisoned")?;
     Ok(WorkspaceSnapshot {
         project: project.as_ref().map(snapshot_project),
         diagrams: diagrams.clone(),
         ibd_diagrams: ibd_diagrams.clone(),
+        behavior_repository: behavior_repository.clone(),
+        behavior_diagrams: behavior_diagrams.clone(),
         current_file: current_file.clone(),
     })
 }
@@ -292,6 +305,8 @@ pub fn new_project(name: String, state: tauri::State<'_, WorkspaceState>) -> Res
     *state.project.lock().map_err(|_| "project lock poisoned")? = Some(Project::new(name));
     state.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clear();
     state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?.clear();
+    *state.behavior.lock().map_err(|_| "behavior lock poisoned")? = BehaviorRepository::default();
+    state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?.clear();
     *state.current_file.lock().map_err(|_| "project path lock poisoned")? = None;
     Ok(())
 }
@@ -311,6 +326,9 @@ pub fn save_project_file(path: String, state: tauri::State<'_, WorkspaceState>) 
     let diagram_payload = serde_json::to_string(&*diagrams).map_err(|error| error.to_string())?;
     database.save_metadata(project.id, BDD_METADATA_KEY, &diagram_payload).map_err(|error| error.to_string())?;
     ibd::save_ibd_metadata(&mut database, project, &ibd_diagrams)?;
+    let behavior = state.behavior.lock().map_err(|_| "behavior lock poisoned")?;
+    let behavior_diagrams = state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?;
+    behavior_workspace::save_behavior_metadata(&mut database, project, &behavior, &behavior_diagrams)?;
     let saved_path = path.to_string_lossy().into_owned();
     *state.current_file.lock().map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
     Ok(saved_path)
@@ -337,10 +355,13 @@ pub fn open_project_file(path: String, state: tauri::State<'_, WorkspaceState>) 
     };
     validate_loaded_diagrams(&project, &diagrams)?;
     let ibd_diagrams = ibd::load_ibd_metadata(&database, &project)?;
+    let (behavior, behavior_diagrams) = behavior_workspace::load_behavior_metadata(&database, &project)?;
     let opened_path = path.to_string_lossy().into_owned();
     *state.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
     *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
     *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = ibd_diagrams;
+    *state.behavior.lock().map_err(|_| "behavior lock poisoned")? = behavior;
+    *state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")? = behavior_diagrams;
     *state.current_file.lock().map_err(|_| "project path lock poisoned")? = Some(opened_path.clone());
     Ok(opened_path)
 }

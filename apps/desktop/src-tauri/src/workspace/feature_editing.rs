@@ -31,6 +31,7 @@ fn parse_flow_direction(value: &str) -> Result<systems_modeler_core::FlowDirecti
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable Tauri IPC contract; frontend sends named fields.
 pub fn update_bdd_feature_semantics(
     element_id: String,
     lower: Option<u32>,

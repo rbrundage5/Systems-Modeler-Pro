@@ -9,6 +9,10 @@
   <link rel="stylesheet" href="bdd-completion.css" />
   <link rel="stylesheet" href="catia-light.css" />
   <link rel="stylesheet" href="ibd.css" />
+  <link rel="stylesheet" href="behavior.css" />
+  <link rel="stylesheet" href="behavior-completion.css" />
+  <link rel="stylesheet" href="behavior-message-notation.css" />
+  <link rel="stylesheet" href="behavior-submachine.css" />
 </head>
 <body>
   <header class="app-header">
@@ -20,7 +24,7 @@
       </nav>
     </div>
     <div class="ribbon">
-      <section class="ribbon-group"><div class="ribbon-actions"><button id="new-package" class="ribbon-command"><span class="command-icon">□</span><span>Package</span></button><button id="new-bdd" class="ribbon-command"><span class="command-icon">▤</span><span>BDD</span></button></div><div class="ribbon-label">Create</div></section>
+      <section class="ribbon-group"><div class="ribbon-actions"><button id="new-package" class="ribbon-command"><span class="command-icon">□</span><span>Package</span></button><button id="new-bdd" class="ribbon-command"><span class="command-icon">▤</span><span>BDD</span></button><button id="new-state-machine" class="ribbon-command"><span class="command-icon">◉</span><span>State Machine</span></button><button id="new-sequence" class="ribbon-command"><span class="command-icon">⇥</span><span>Sequence</span></button></div><div class="ribbon-label">Create</div></section>
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow this diagram</div><div class="ribbon-label">Context</div></section>
     </div>
     <div class="shell-command-host" aria-hidden="true"><button id="new-project"></button><button id="open-project"></button><button id="save-project"></button><button id="save-project-as"></button></div>
@@ -34,6 +38,26 @@
   </div>
 
   <div class="statusbar"><span id="status">Starting Rust workspace…</span><span id="model-counts" class="status-counts"></span></div>
-  <script src="app.js"></script><script src="workspace-ux.js"></script><script src="bdd-completion-ui.js"></script><script src="bdd-extended-ui.js"></script><script src="palette-icons.js"></script><script src="bdd-feature-editing.js"></script><script src="ibd-ui.js"></script><script src="item-flow-ui.js"></script><script src="ui-shell.js"></script>
+  <script src="app.js"></script>
+  <script src="workspace-ux.js"></script>
+  <script src="bdd-completion-ui.js"></script>
+  <script src="bdd-extended-ui.js"></script>
+  <script src="palette-icons.js"></script>
+  <script src="bdd-feature-editing.js"></script>
+  <script src="ibd-ui.js"></script>
+  <script src="item-flow-ui.js"></script>
+  <script src="behavior-ui.js"></script>
+  <script src="behavior-ribbon.js"></script>
+  <script src="ui-shell.js"></script>
+  <script src="behavior-completion-ui.js"></script>
+  <script src="behavior-atomic-message.js"></script>
+  <script src="behavior-delete-ui.js"></script>
+  <script src="behavior-message-notation.js"></script>
+  <script src="behavior-submachine.js"></script>
+  <script src="behavior-region-placement.js"></script>
+  <script src="behavior-sequence-input.js"></script>
+  <script src="behavior-command-authority.js"></script>
+  <script src="behavior-authoritative-renderer.js"></script>
+  <script src="behavior-transition-presentation.js"></script>
 </body>
 </html>

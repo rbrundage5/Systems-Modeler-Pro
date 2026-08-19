@@ -16,15 +16,19 @@
         <button class="ribbon-command" data-forward="new-package"><span class="command-icon">□</span><span>Package</span></button>
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>BDD</span></button>
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>IBD</span></button>
+        <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>State Machine</span></button>
+        <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>Sequence</span></button>
       </div><div class="ribbon-label">Create</div></section>
-      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary-shell" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow the active diagram</div><div class="ribbon-label">Context</div></section>`,
+      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow the active diagram</div><div class="ribbon-label">Context</div></section>`,
     Diagram: `
       <section class="ribbon-group"><div class="ribbon-actions">
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>New BDD</span></button>
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>New IBD</span></button>
+        <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>New State Machine</span></button>
+        <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>New Sequence</span></button>
         <button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route</span></button>
       </div><div class="ribbon-label">Diagram</div></section>
-      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary-shell" class="context-value">No diagram selected</div><div class="context-subtitle">Rust-owned diagram commands</div><div class="ribbon-label">Context</div></section>`,
+      <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Rust-owned diagram commands</div><div class="ribbon-label">Context</div></section>`,
     Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route IBD</span></button></div><div class="ribbon-label">Routing</div></section><section class="ribbon-group ribbon-context"><div class="context-title">Shared router</div><div class="context-value">Deterministic orthogonal routing</div><div class="context-subtitle">BDD and IBD use the same Rust obstacle-routing foundation.</div><div class="ribbon-label">Layout</div></section>`,
     View: `
       <section class="ribbon-group"><div class="ribbon-actions compact-actions">
@@ -41,12 +45,6 @@
     if (node) original.set(id, node);
   }
 
-  function syncContext() {
-    const source = document.getElementById('active-diagram-summary');
-    const target = document.getElementById('active-diagram-summary-shell');
-    if (target) target.textContent = source?.textContent || 'No diagram selected';
-  }
-
   function syncPanelToggles() {
     document.querySelectorAll('.panel-toggle').forEach((button) => {
       const panel = document.querySelector(`.${button.dataset.panel}`);
@@ -61,6 +59,12 @@
     ribbon.querySelectorAll('[data-action="new-ibd"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateIbdForSelectedBlock?.());
     });
+    ribbon.querySelectorAll('[data-action="new-state-machine"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpCreateStateMachineForSelectedBlock?.());
+    });
+    ribbon.querySelectorAll('[data-action="new-sequence"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpCreateSequenceForSelectedBlock?.());
+    });
     ribbon.querySelectorAll('[data-action="route-ibd"]').forEach((button) => {
       button.addEventListener('click', () => window.smpRouteSelectedIbd?.());
     });
@@ -71,14 +75,17 @@
         syncPanelToggles();
       });
     });
-    syncContext();
     syncPanelToggles();
   }
 
   function activate(name) {
+    const currentContext = document.getElementById('active-diagram-summary')?.textContent || 'No diagram selected';
     tabs.forEach((tab) => tab.classList.toggle('active', tab.textContent.trim() === name));
     ribbon.innerHTML = panels[name] || panels.Home;
     bindRibbon();
+    const context = document.getElementById('active-diagram-summary');
+    if (context) context.textContent = currentContext;
+    if (typeof renderContext === 'function') renderContext();
   }
 
   tabs.forEach((tab) => {
@@ -90,10 +97,6 @@
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateTab(); }
     });
   });
-
-  const observer = new MutationObserver(syncContext);
-  const context = document.getElementById('active-diagram-summary');
-  if (context) observer.observe(context, { childList: true, characterData: true, subtree: true });
 
   activate('Home');
 })();

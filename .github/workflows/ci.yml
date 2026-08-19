@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   core:
     runs-on: ubuntu-latest
@@ -13,20 +16,51 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Format
         run: cargo fmt --all --check
-      - name: Core tests
-        run: cargo test -p systems-modeler-core -p systems-modeler-persistence
-      - name: Core lint
-        run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
+      - name: Core and persistence tests
+        run: cargo test --workspace --exclude systems-modeler-desktop
+      - name: Core and persistence lint
+        run: cargo clippy --workspace --exclude systems-modeler-desktop --all-targets -- -D warnings
+      - name: Behavior frontend syntax
+        shell: bash
+        run: |
+          for file in \
+            apps/desktop/frontend/behavior-ui.js \
+            apps/desktop/frontend/behavior-ribbon.js \
+            apps/desktop/frontend/ui-shell.js \
+            apps/desktop/frontend/behavior-completion-ui.js \
+            apps/desktop/frontend/behavior-atomic-message.js \
+            apps/desktop/frontend/behavior-delete-ui.js \
+            apps/desktop/frontend/behavior-message-notation.js \
+            apps/desktop/frontend/behavior-submachine.js \
+            apps/desktop/frontend/behavior-region-placement.js \
+            apps/desktop/frontend/behavior-sequence-input.js \
+            apps/desktop/frontend/behavior-command-authority.js \
+            apps/desktop/frontend/behavior-authoritative-renderer.js; do
+            node --check "$file"
+          done
+      - name: Behavior desktop integration contract
+        run: python scripts/validate_behavior_integration.py
 
   desktop-check:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Check desktop shell
         run: cargo check -p systems-modeler-desktop
+      - name: Desktop tests
+        run: cargo test -p systems-modeler-desktop
+      - name: Desktop lint
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Behavior desktop integration contract
+        run: python scripts/validate_behavior_integration.py
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
