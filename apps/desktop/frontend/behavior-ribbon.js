@@ -48,11 +48,35 @@
     }
   }
 
+  // app.js loads structural state directly after Open instead of calling the
+  // behavior-aware refresh wrapper. Rehydrate the Rust behavior repository and
+  // diagram presentations before rendering the reopened project.
+  const baseOpenProject = openProject;
+  async function openProjectWithBehaviorHydration() {
+    await baseOpenProject();
+    if (typeof window.smpLoadBehaviorSnapshot === 'function') {
+      await window.smpLoadBehaviorSnapshot();
+    } else {
+      state.behaviorSnapshot = await requireInvoke()('behavior_snapshot');
+    }
+    state.selectedBehaviorDiagramId = null;
+    state.selectedBehaviorItem = null;
+    state.behaviorTool = null;
+    state.behaviorPending = null;
+    state.behaviorTargetRegionId = null;
+    if (!state.selectedDiagramId && state.behaviorSnapshot?.diagrams?.length) {
+      state.selectedBehaviorDiagramId = state.behaviorSnapshot.diagrams[0].id;
+    }
+    render();
+  }
+
   window.smpCreateStateMachineForSelectedBlock = () => createBehaviorDiagram('StateMachine');
   window.smpCreateSequenceForSelectedBlock = () => createBehaviorDiagram('Sequence');
 
   const stateMachine = $('new-state-machine');
   const sequence = $('new-sequence');
+  const open = $('open-project');
   if (stateMachine) stateMachine.onclick = window.smpCreateStateMachineForSelectedBlock;
   if (sequence) sequence.onclick = window.smpCreateSequenceForSelectedBlock;
+  if (open) open.onclick = openProjectWithBehaviorHydration;
 })();
