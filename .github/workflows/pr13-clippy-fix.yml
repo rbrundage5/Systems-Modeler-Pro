@@ -1,0 +1,48 @@
+name: pr13-clippy-fix
+
+on:
+  push:
+    branches: [agent/pr13-activity-rust]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr13-activity-rust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply Clippy cleanup
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('crates/model-core/src/activity.rs')
+          text = p.read_text()
+          old = '''            ActivityNodeKind::Merge => {
+                if incoming.is_empty() || outgoing.len() != 1 {
+                    return Err(ActivityError::InvalidMergeTopology);
+                }
+            }
+'''
+          new = '''            ActivityNodeKind::Merge if incoming.is_empty() || outgoing.len() != 1 => {
+                return Err(ActivityError::InvalidMergeTopology);
+            }
+'''
+          if old not in text:
+              raise SystemExit('expected Merge validation block not found')
+          p.write_text(text.replace(old, new, 1))
+      - run: cargo fmt --all
+      - name: Remove temporary helper and commit
+        shell: bash
+        run: |
+          rm .github/workflows/pr13-clippy-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/model-core/src/activity.rs .github/workflows/pr13-clippy-fix.yml
+          git commit -m "Resolve Activity validation Clippy warning"
+          git push origin HEAD:agent/pr13-activity-rust
