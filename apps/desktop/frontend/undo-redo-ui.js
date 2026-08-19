@@ -48,8 +48,7 @@
       state.behaviorPending = null;
       state.behaviorTool = null;
 
-      // Reuse the already-qualified refresh chain. The behavior refresh
-      // authority rehydrates STM/SEQ and preserves the active Behavior diagram.
+      // Reuse the already-qualified structural, Activity, and Behavior refresh chain.
       await refresh();
       renderStatus(direction === 'undo' ? 'Undo complete' : 'Redo complete');
     } catch (error) {
@@ -62,32 +61,10 @@
     }
   }
 
-  function ensureAndBindHistoryButtons() {
-    const ribbon = document.querySelector('.ribbon');
-    if (!ribbon) return;
-
-    if (!document.getElementById('undo-command')) {
-      const group = document.createElement('section');
-      group.className = 'ribbon-group history-ribbon-group';
-      group.innerHTML = `
-        <div class="ribbon-actions">
-          <button id="undo-command" class="ribbon-command" title="Undo (Ctrl+Z)">
-            <span class="command-icon">↶</span><span>Undo</span>
-          </button>
-          <button id="redo-command" class="ribbon-command" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">
-            <span class="command-icon">↷</span><span>Redo</span>
-          </button>
-        </div>
-        <div class="ribbon-label">History</div>`;
-      const context = ribbon.querySelector('.ribbon-context');
-      ribbon.insertBefore(group, context || null);
-    }
-
-    const undo = document.getElementById('undo-command');
-    const redo = document.getElementById('redo-command');
-    if (undo) undo.onclick = () => void performHistory('undo');
-    if (redo) redo.onclick = () => void performHistory('redo');
-  }
+  // ui-shell owns the visible ribbon and recreates it whenever the user changes
+  // ribbon tabs. Export stable actions for that owner instead of inserting DOM here.
+  window.smpUndo = () => performHistory('undo');
+  window.smpRedo = () => performHistory('redo');
 
   document.addEventListener('keydown', (event) => {
     const tag = document.activeElement?.tagName?.toLowerCase();
@@ -103,6 +80,4 @@
       void performHistory('redo');
     }
   }, true);
-
-  ensureAndBindHistoryButtons();
 })();
