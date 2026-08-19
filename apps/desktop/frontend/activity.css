@@ -15,3 +15,16 @@
 .activity-flow.object-flow{stroke-dasharray:7 3}
 .activity-svg marker path{fill:#20252b;stroke:#20252b}
 .activity-edge-label{fill:#20252b;font-size:12px;font-family:Segoe UI,Arial,sans-serif;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+.activity-semantic-regions{pointer-events:none}
+.activity-partition-frame rect{fill:#eef4fb;fill-opacity:.34;stroke:#728197;stroke-width:1.4}
+.activity-partition-frame text{fill:#344054;font:600 12px Segoe UI,Arial,sans-serif}
+.activity-structured-frame rect{fill:#fff;fill-opacity:.18;stroke:#667085;stroke-width:1.4;stroke-dasharray:7 4}
+.activity-structured-frame text{fill:#475467;font:600 12px Segoe UI,Arial,sans-serif}
+.activity-structured-interruptibleregion rect{stroke-dasharray:3 3}
+.activity-pin-anchor{cursor:crosshair}
+.activity-pin-anchor rect{fill:#fff;stroke:#20252b;stroke-width:1.4}
+.activity-pin-anchor:hover rect{fill:#dbeafe;stroke:#1f6feb;stroke-width:2}
+.activity-pin-anchor text{fill:#344054;stroke:none;font:10px Segoe UI,Arial,sans-serif;pointer-events:none}
+.activity-pin-input rect{fill:#f8fafc}
+.activity-pin-output rect{fill:#fff}
+.activity-pin-value rect{fill:#fefce8}
