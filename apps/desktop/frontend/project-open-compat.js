@@ -39,15 +39,21 @@
       pendingRelationship: null,
       selectedBehaviorDiagramId: null,
       selectedActivityDiagramId: null,
+      selectedActivityNodeId: null,
+      activityTool: null,
+      activityPendingFlow: null,
     });
 
     await requireInvoke()('load_activity_workspace', { path: openedPath });
+    state.activitySnapshot = await requireInvoke()('activity_snapshot');
     await refresh();
+    state.activitySnapshot = await requireInvoke()('activity_snapshot');
+
     if (!state.selectedDiagramId && state.snapshot?.diagrams?.length) {
       state.selectedDiagramId = state.snapshot.diagrams[0].id;
       await loadPalette();
-      render();
     }
+    render();
   }
 
   const openButton = $('open-project');
