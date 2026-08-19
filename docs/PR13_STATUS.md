@@ -12,13 +12,15 @@ Completed implementation boundaries:
 - Typed Activity repository persistence is implemented over the existing transactional SQLite metadata channel.
 - Activity repository save/reload qualification preserves semantic Activity, node, and edge identities.
 - Checkpoint 2 passed formatting, core/persistence tests, strict Clippy, frontend syntax, and the existing behavior integration contract.
-- A Rust/Tauri Activity workspace slice is now implemented with dedicated Activity state, Activity diagram presentation metadata, Activity snapshots, diagram creation, executable node/flow commands, Activity metadata save/load, a Rust-owned Activity palette, and shared obstacle-safe routing reuse.
+- The Rust/Tauri Activity workspace is implemented with Activity state, Activity diagram presentation metadata, Activity snapshots, diagram creation, executable node/flow commands, metadata save/load, Rust-owned palette entries, and shared obstacle-safe routing reuse.
+- The Activity desktop create/connect/save/reopen/render checkpoint passed on Linux and Windows.
+- Richer Activity editing now exposes CallBehaviorAction, CallOperationAction, SendSignalAction, AcceptEventAction, AcceptTimeEventAction, ActivityParameterNodes, operation-derived pins, partitions, structured regions, node assignment, and Rust-backed semantic property editing.
 
 Current qualification state:
-- Checkpoint 3 is active for the new desktop/Tauri boundary.
-- The first checkpoint-3 run stopped at rustfmt before compilation; canonical formatting has been applied and the standard two-job CI workflow restored.
-- No desktop Activity completion claim is made until Windows `cargo check`, desktop tests, desktop Clippy, and focused Activity integration qualification pass on the clean head.
+- The richer Activity editing checkpoint initially stopped at `cargo fmt --all --check` before compilation.
+- Canonical rustfmt formatting has now been applied to the richer Rust slice; no semantic behavior was changed by that fix.
+- Standard Linux/core and Windows/desktop CI is being rerun on the formatted head before any further Activity scope is added.
 
-Remaining scope includes richer action/reference creation, pins and parameter-node desktop workflows, partitions/structured regions, properties/editing, frontend Activity rendering/interaction, full Activity save/open command integration, deletion/reconnection/drill-down, final routing qualification, and focused manual create/edit/connect/save/reopen acceptance.
+Remaining scope includes pin-to-pin Object Flow editing, visual partition/structured-region geometry, deletion/reconnection/drill-down, final routing qualification, and focused manual create/edit/connect/save/reopen acceptance.
 
 No completion claim is made until the gates in `PR13_IMPLEMENTATION_CHECKLIST.md` are satisfied.
