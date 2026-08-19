@@ -3,10 +3,12 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-8")
 workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text(encoding="utf-8")
+editing_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_editing.rs").read_text(encoding="utf-8")
 frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text(encoding="utf-8")
+rich_frontend = (root / "apps/desktop/frontend/activity-rich-ui.js").read_text(encoding="utf-8")
 index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
 
-required_commands = [
+base_commands = [
     "activity_snapshot",
     "create_activity_diagram",
     "add_activity_node",
@@ -15,9 +17,36 @@ required_commands = [
     "load_activity_workspace",
     "reset_activity_workspace",
 ]
-for command in required_commands:
+for command in base_commands:
     assert command in main_rs, f"Activity Tauri command is not registered: {command}"
     assert command in workspace_rs, f"Activity command implementation is missing: {command}"
+
+rich_commands = [
+    "add_activity_action",
+    "add_activity_parameter_node",
+    "add_activity_partition",
+    "assign_activity_node_partition",
+    "add_structured_activity_node",
+    "assign_activity_node_structured_parent",
+    "update_activity_node_semantics",
+]
+for command in rich_commands:
+    assert command in main_rs, f"Rich Activity command is not registered: {command}"
+    assert command in editing_rs, f"Rich Activity command implementation is missing: {command}"
+    assert command in rich_frontend, f"Rich Activity command is not forwarded by the frontend: {command}"
+
+for semantic_kind in [
+    "CallBehaviorAction",
+    "CallOperationAction",
+    "SendSignalAction",
+    "AcceptEventAction",
+    "AcceptTimeEventAction",
+    "ActivityParameterNode",
+    "ActivityPartition",
+    "StructuredActivityNode",
+    "InterruptibleActivityRegion",
+]:
+    assert semantic_kind in main_rs, f"Rust-owned Activity palette is missing {semantic_kind}"
 
 assert '"Activity" => Ok(vec![' in main_rs, "Rust-owned Activity palette is missing"
 assert 'diagramType: \'Activity\'' in frontend, "Activity frontend does not request the Rust palette"
@@ -26,16 +55,20 @@ assert "add_activity_node" in frontend, "Activity node creation is not forwarded
 assert "add_activity_edge" in frontend, "Activity flow creation is not forwarded to Rust"
 assert "save_activity_workspace" in frontend and "load_activity_workspace" in frontend, "Activity project lifecycle integration is incomplete"
 assert '<script src="activity-ui.js"></script>' in index, "Activity frontend is not loaded"
+assert '<script src="activity-rich-ui.js"></script>' in index, "Rich Activity frontend is not loaded"
 assert '<link rel="stylesheet" href="activity.css" />' in index, "Activity notation stylesheet is not loaded"
 
 # Frontend may maintain selection/presentation state, but semantic Activity objects
 # must only arrive from Rust snapshots and commands.
-for forbidden in [
-    "ActivityRepository =",
-    "new ActivityRepository",
-    "activity.edges.push",
-    "activity.nodes.push",
-]:
-    assert forbidden not in frontend, f"JavaScript appears to own Activity semantics: {forbidden}"
+for source in [frontend, rich_frontend]:
+    for forbidden in [
+        "ActivityRepository =",
+        "new ActivityRepository",
+        "activity.edges.push",
+        "activity.nodes.push",
+        "activity.partitions.push",
+        "activity.structured_nodes.push",
+    ]:
+        assert forbidden not in source, f"JavaScript appears to own Activity semantics: {forbidden}"
 
 print("Activity desktop integration contract passed")
