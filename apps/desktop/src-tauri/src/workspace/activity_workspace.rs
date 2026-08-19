@@ -450,21 +450,30 @@ pub fn add_activity_edge(
 
     if edge_kind == ActivityEdgeKind::ObjectFlow {
         let source_pin = match source_endpoint {
-            ActivityEndpoint::Pin(pin_id) => activity.nodes.iter().find_map(|node| match &node.kind {
-                ActivityNodeKind::Action(action) => action.pins.iter().find(|pin| pin.id == pin_id),
-                _ => None,
-            }),
+            ActivityEndpoint::Pin(pin_id) => {
+                activity.nodes.iter().find_map(|node| match &node.kind {
+                    ActivityNodeKind::Action(action) => {
+                        action.pins.iter().find(|pin| pin.id == pin_id)
+                    }
+                    _ => None,
+                })
+            }
             ActivityEndpoint::Node(_) => None,
         };
         let target_pin = match target_endpoint {
-            ActivityEndpoint::Pin(pin_id) => activity.nodes.iter().find_map(|node| match &node.kind {
-                ActivityNodeKind::Action(action) => action.pins.iter().find(|pin| pin.id == pin_id),
-                _ => None,
-            }),
+            ActivityEndpoint::Pin(pin_id) => {
+                activity.nodes.iter().find_map(|node| match &node.kind {
+                    ActivityNodeKind::Action(action) => {
+                        action.pins.iter().find(|pin| pin.id == pin_id)
+                    }
+                    _ => None,
+                })
+            }
             ActivityEndpoint::Node(_) => None,
         };
         if source_pin.is_some_and(|pin| pin.direction == systems_modeler_core::PinDirection::Input)
-            || target_pin.is_some_and(|pin| pin.direction == systems_modeler_core::PinDirection::Output)
+            || target_pin
+                .is_some_and(|pin| pin.direction == systems_modeler_core::PinDirection::Output)
         {
             return Err("ObjectFlow pin direction is invalid".into());
         }
