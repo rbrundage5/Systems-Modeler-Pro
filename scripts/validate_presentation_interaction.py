@@ -8,6 +8,9 @@ interaction_rs = (
 frontend = (root / "apps/desktop/frontend/diagram-interaction.js").read_text(
     encoding="utf-8"
 )
+state_bar_frontend = (root / "apps/desktop/frontend/state-bar-resize.js").read_text(
+    encoding="utf-8"
+)
 index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
 
 commands = [
@@ -41,5 +44,14 @@ assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not constrained to boundaries"
 assert '<script src="diagram-interaction.js"></script>' in index
+
+# State Machine Fork/Join must resize the visible notation, not only an outer hitbox.
+assert ".state-fork, #canvas .state-join" in state_bar_frontend
+assert "bar.style.width = '100%'" in state_bar_frontend
+assert "bar.style.height = '100%'" in state_bar_frontend
+assert "Math.max(8, Math.min(24" in state_bar_frontend
+assert "update_state_presentation_geometry" in state_bar_frontend
+assert "updateIncidentTransitions" in state_bar_frontend
+assert '<script src="state-bar-resize.js"></script>' in index
 
 print("Shared presentation interaction contract passed")
