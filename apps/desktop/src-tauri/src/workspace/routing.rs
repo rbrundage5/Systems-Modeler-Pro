@@ -30,9 +30,10 @@ pub struct RouteRequest<'a> {
 }
 
 /// Shared deterministic orthogonal router for BDD and IBD presentations.
-/// It never intentionally returns a segment through an obstacle. If direct and
-/// side-channel candidates are blocked, progressively wider outer channels are
-/// searched in deterministic order.
+/// It never intentionally returns a segment through an obstacle. If the direct
+/// dogleg is blocked, perpendicular outer channels are searched in deterministic
+/// order. Horizontal relationships detour above/below obstacles; vertical
+/// relationships detour left/right.
 pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
     let source_center = request.source.center();
     let target_center = request.target.center();
@@ -43,6 +44,7 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
 
     let (start, end) = attached_endpoints(request.source, request.target, horizontal);
     let mut candidates = Vec::new();
+
     if horizontal {
         let mid_x = (start.x + end.x) / 2.0 + lane_offset;
         candidates.push(compact(vec![
@@ -54,40 +56,11 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
             DiagramPoint { x: mid_x, y: end.y },
             end,
         ]));
-        let min_x = request
-            .obstacles
-            .iter()
-            .chain([&request.source, &request.target])
-            .map(|rect| rect.x)
-            .fold(f64::INFINITY, f64::min);
-        let max_x = request
-            .obstacles
-            .iter()
-            .chain([&request.source, &request.target])
-            .map(|rect| rect.x + rect.width)
-            .fold(f64::NEG_INFINITY, f64::max);
-        for ring in 1..=8 {
-            let clearance = ROUTE_CLEARANCE + lane_offset + ring as f64 * LANE_SPACING;
-            for x in [min_x - clearance, max_x + clearance] {
-                candidates.push(compact(vec![
-                    start,
-                    DiagramPoint { x, y: start.y },
-                    DiagramPoint { x, y: end.y },
-                    end,
-                ]));
-            }
-        }
-    } else {
-        let mid_y = (start.y + end.y) / 2.0 + lane_offset;
-        candidates.push(compact(vec![
-            start,
-            DiagramPoint {
-                x: start.x,
-                y: mid_y,
-            },
-            DiagramPoint { x: end.x, y: mid_y },
-            end,
-        ]));
+
+        // A left/right relationship blocked between its endpoints must escape
+        // perpendicular to the relationship, then traverse above or below all
+        // blocking geometry. Searching another x channel cannot help because
+        // the final horizontal segment would still cross the obstacle.
         let min_y = request
             .obstacles
             .iter()
@@ -111,6 +84,42 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                 ]));
             }
         }
+    } else {
+        let mid_y = (start.y + end.y) / 2.0 + lane_offset;
+        candidates.push(compact(vec![
+            start,
+            DiagramPoint {
+                x: start.x,
+                y: mid_y,
+            },
+            DiagramPoint { x: end.x, y: mid_y },
+            end,
+        ]));
+
+        // A top/bottom relationship detours left or right of blocking geometry.
+        let min_x = request
+            .obstacles
+            .iter()
+            .chain([&request.source, &request.target])
+            .map(|rect| rect.x)
+            .fold(f64::INFINITY, f64::min);
+        let max_x = request
+            .obstacles
+            .iter()
+            .chain([&request.source, &request.target])
+            .map(|rect| rect.x + rect.width)
+            .fold(f64::NEG_INFINITY, f64::max);
+        for ring in 1..=8 {
+            let clearance = ROUTE_CLEARANCE + lane_offset + ring as f64 * LANE_SPACING;
+            for x in [min_x - clearance, max_x + clearance] {
+                candidates.push(compact(vec![
+                    start,
+                    DiagramPoint { x, y: start.y },
+                    DiagramPoint { x, y: end.y },
+                    end,
+                ]));
+            }
+        }
     }
 
     candidates
@@ -118,24 +127,11 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
         .find(|candidate| route_is_clear(candidate, request.obstacles))
         .unwrap_or_else(|| {
             // Preserve endpoint attachment and orthogonality even in a severely
-            // constrained diagram; the outer ring is deterministic and avoids
-            // silently falling back to a diagonal through model elements.
+            // constrained diagram. The fallback also escapes perpendicular to
+            // the primary relationship direction, so it cannot reproduce the
+            // blocked-axis failure mode above.
             let padding = 10.0 * (ROUTE_CLEARANCE + LANE_SPACING) + lane_offset;
             if horizontal {
-                let x = request.source.x.min(request.target.x).min(
-                    request
-                        .obstacles
-                        .iter()
-                        .map(|o| o.x)
-                        .fold(f64::INFINITY, f64::min),
-                ) - padding;
-                compact(vec![
-                    start,
-                    DiagramPoint { x, y: start.y },
-                    DiagramPoint { x, y: end.y },
-                    end,
-                ])
-            } else {
                 let y = request.source.y.min(request.target.y).min(
                     request
                         .obstacles
@@ -147,6 +143,20 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                     start,
                     DiagramPoint { x: start.x, y },
                     DiagramPoint { x: end.x, y },
+                    end,
+                ])
+            } else {
+                let x = request.source.x.min(request.target.x).min(
+                    request
+                        .obstacles
+                        .iter()
+                        .map(|o| o.x)
+                        .fold(f64::INFINITY, f64::min),
+                ) - padding;
+                compact(vec![
+                    start,
+                    DiagramPoint { x, y: start.y },
+                    DiagramPoint { x, y: end.y },
                     end,
                 ])
             }
@@ -207,7 +217,8 @@ fn compact(points: Vec<DiagramPoint>) -> Vec<DiagramPoint> {
     let mut result = Vec::new();
     for point in points {
         if result.last().is_some_and(|last: &DiagramPoint| {
-            (last.x - point.x).abs() < f64::EPSILON && (last.y - point.y).abs() < f64::EPSILON
+            (last.x - point.x).abs() < f64::EPSILON
+                && (last.y - point.y).abs() < f64::EPSILON
         }) {
             continue;
         }
@@ -266,6 +277,38 @@ mod tests {
                 y: 100.0,
                 width: 100.0,
                 height: 60.0,
+            },
+            obstacles: &[obstacle],
+            lane_index: 0,
+        });
+        assert!(route_is_clear(&points, &[obstacle]));
+        assert!(
+            points
+                .windows(2)
+                .all(|p| p[0].x == p[1].x || p[0].y == p[1].y)
+        );
+    }
+
+    #[test]
+    fn vertical_route_avoids_blocking_rectangle_and_is_orthogonal() {
+        let obstacle = RouteRect {
+            x: 80.0,
+            y: 190.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        let points = orthogonal_route(RouteRequest {
+            source: RouteRect {
+                x: 100.0,
+                y: 20.0,
+                width: 60.0,
+                height: 100.0,
+            },
+            target: RouteRect {
+                x: 100.0,
+                y: 360.0,
+                width: 60.0,
+                height: 100.0,
             },
             obstacles: &[obstacle],
             lane_index: 0,
