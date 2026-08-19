@@ -6,6 +6,7 @@ workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.
 editing_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_editing.rs").read_text(encoding="utf-8")
 frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text(encoding="utf-8")
 rich_frontend = (root / "apps/desktop/frontend/activity-rich-ui.js").read_text(encoding="utf-8")
+navigation_frontend = (root / "apps/desktop/frontend/activity-navigation-ui.js").read_text(encoding="utf-8")
 index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
 
 base_commands = [
@@ -54,13 +55,23 @@ assert "create_activity_diagram" in frontend, "Activity creation is not forwarde
 assert "add_activity_node" in frontend, "Activity node creation is not forwarded to Rust"
 assert "add_activity_edge" in frontend, "Activity flow creation is not forwarded to Rust"
 assert "save_activity_workspace" in frontend and "load_activity_workspace" in frontend, "Activity project lifecycle integration is incomplete"
+assert 'strip_prefix("pin:")' in workspace_rs, "Rust Activity edge command does not accept semantic pin endpoint tokens"
+assert "ActivityEndpoint::Pin" in workspace_rs, "Rust Activity edge command does not persist PinId endpoints"
+assert "ObjectFlow pin direction is invalid" in workspace_rs, "Pin direction validation is missing from ObjectFlow creation"
+assert "ObjectFlow pin types are incompatible" in workspace_rs, "Pin type compatibility validation is missing from ObjectFlow creation"
+assert "activity-pin-anchor" in rich_frontend, "Activity pin presentation anchors are missing"
+assert "activity-partition-frame" in rich_frontend, "Activity partition presentation geometry is missing"
+assert "activity-structured-frame" in rich_frontend, "Structured Activity presentation geometry is missing"
+assert "pin:${pin.id}" in rich_frontend, "Activity frontend does not forward stable PinId endpoint tokens"
+assert "CallBehavior" in navigation_frontend and "smpSelectActivityDiagram" in navigation_frontend, "CallBehavior Activity drill-down is missing"
 assert '<script src="activity-ui.js"></script>' in index, "Activity frontend is not loaded"
 assert '<script src="activity-rich-ui.js"></script>' in index, "Rich Activity frontend is not loaded"
+assert '<script src="activity-navigation-ui.js"></script>' in index, "Activity navigation frontend is not loaded"
 assert '<link rel="stylesheet" href="activity.css" />' in index, "Activity notation stylesheet is not loaded"
 
 # Frontend may maintain selection/presentation state, but semantic Activity objects
 # must only arrive from Rust snapshots and commands.
-for source in [frontend, rich_frontend]:
+for source in [frontend, rich_frontend, navigation_frontend]:
     for forbidden in [
         "ActivityRepository =",
         "new ActivityRepository",
