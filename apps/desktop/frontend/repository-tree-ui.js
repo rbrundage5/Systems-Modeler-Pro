@@ -100,7 +100,9 @@
       row.dataset.elementId = String(element.id);
       row.dataset.treeDepth = String(depth);
       row.style.paddingLeft = `${8 + depth * 16}px`;
-      row.hidden = hasCollapsedAncestor(element, byId);
+      const collapsedByAncestor = hasCollapsedAncestor(element, byId);
+      row.hidden = collapsedByAncestor;
+      row.style.display = collapsedByAncestor ? 'none' : '';
 
       const hasChildren = (byOwner.get(String(element.id)) || []).length > 0;
       row.classList.toggle('containment-parent-row', hasChildren);
