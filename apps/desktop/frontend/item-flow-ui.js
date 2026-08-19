@@ -69,7 +69,12 @@
     if (!svg) return;
 
     const flowsByConnector = new Map();
+    const seenFlowKeys = new Set();
     for (const flow of state.itemFlowNotation || []) {
+      const conveyedKey = [...(flow.conveyed_item_ids || [])].map(String).sort().join(',');
+      const key = `${flow.connector_id}|${conveyedKey}`;
+      if (seenFlowKeys.has(key)) continue;
+      seenFlowKeys.add(key);
       if (!flowsByConnector.has(flow.connector_id)) flowsByConnector.set(flow.connector_id, []);
       flowsByConnector.get(flow.connector_id).push(flow);
     }
