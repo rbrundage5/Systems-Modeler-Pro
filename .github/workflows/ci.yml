@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   core:
@@ -64,51 +64,3 @@ jobs:
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
-
-  finalize-unified-workspace:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/pr12-state-sequence-rust
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Apply source transformation
-        run: python scripts/pr12_apply_unified_snapshot.py
-      - name: Format and verify portable gates
-        run: |
-          cargo fmt --all
-          node --check apps/desktop/frontend/app.js
-          node --check apps/desktop/frontend/behavior-ui.js
-          node --check apps/desktop/frontend/behavior-command-authority.js
-          python scripts/validate_behavior_integration.py
-          cargo test --workspace --exclude systems-modeler-desktop
-      - name: Commit verified source repair if needed
-        shell: bash
-        run: |
-          if git diff --quiet -- \
-            apps/desktop/src-tauri/src/workspace.rs \
-            apps/desktop/src-tauri/src/workspace/behavior_workspace.rs \
-            apps/desktop/frontend/app.js \
-            apps/desktop/frontend/behavior-ui.js \
-            apps/desktop/frontend/behavior-command-authority.js \
-            scripts/validate_behavior_integration.py; then
-            echo "Unified snapshot source already applied; nothing to publish."
-            exit 0
-          fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add \
-            apps/desktop/src-tauri/src/workspace.rs \
-            apps/desktop/src-tauri/src/workspace/behavior_workspace.rs \
-            apps/desktop/frontend/app.js \
-            apps/desktop/frontend/behavior-ui.js \
-            apps/desktop/frontend/behavior-command-authority.js \
-            scripts/validate_behavior_integration.py
-          git commit -m "Unify workspace snapshot and behavior save-open persistence"
-          git push
