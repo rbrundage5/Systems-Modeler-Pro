@@ -48,9 +48,8 @@
       state.behaviorPending = null;
       state.behaviorTool = null;
 
-      // This is the already-qualified refresh chain. In particular,
-      // behavior-refresh-authority rehydrates STM/SEQ from behavior_snapshot
-      // and preserves the active Behavior diagram when it still exists.
+      // Reuse the already-qualified refresh chain. The behavior refresh
+      // authority rehydrates STM/SEQ and preserves the active Behavior diagram.
       await refresh();
       renderStatus(direction === 'undo' ? 'Undo complete' : 'Redo complete');
     } catch (error) {
@@ -63,26 +62,31 @@
     }
   }
 
-  function addHistoryButtons() {
-    if (document.getElementById('undo-command')) return;
+  function ensureAndBindHistoryButtons() {
     const ribbon = document.querySelector('.ribbon');
     if (!ribbon) return;
-    const group = document.createElement('section');
-    group.className = 'ribbon-group history-ribbon-group';
-    group.innerHTML = `
-      <div class="ribbon-actions">
-        <button id="undo-command" class="ribbon-command" title="Undo (Ctrl+Z)">
-          <span class="command-icon">↶</span><span>Undo</span>
-        </button>
-        <button id="redo-command" class="ribbon-command" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">
-          <span class="command-icon">↷</span><span>Redo</span>
-        </button>
-      </div>
-      <div class="ribbon-label">History</div>`;
-    const context = ribbon.querySelector('.ribbon-context');
-    ribbon.insertBefore(group, context || null);
-    document.getElementById('undo-command').onclick = () => void performHistory('undo');
-    document.getElementById('redo-command').onclick = () => void performHistory('redo');
+
+    if (!document.getElementById('undo-command')) {
+      const group = document.createElement('section');
+      group.className = 'ribbon-group history-ribbon-group';
+      group.innerHTML = `
+        <div class="ribbon-actions">
+          <button id="undo-command" class="ribbon-command" title="Undo (Ctrl+Z)">
+            <span class="command-icon">↶</span><span>Undo</span>
+          </button>
+          <button id="redo-command" class="ribbon-command" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">
+            <span class="command-icon">↷</span><span>Redo</span>
+          </button>
+        </div>
+        <div class="ribbon-label">History</div>`;
+      const context = ribbon.querySelector('.ribbon-context');
+      ribbon.insertBefore(group, context || null);
+    }
+
+    const undo = document.getElementById('undo-command');
+    const redo = document.getElementById('redo-command');
+    if (undo) undo.onclick = () => void performHistory('undo');
+    if (redo) redo.onclick = () => void performHistory('redo');
   }
 
   document.addEventListener('keydown', (event) => {
@@ -100,5 +104,5 @@
     }
   }, true);
 
-  addHistoryButtons();
+  ensureAndBindHistoryButtons();
 })();
