@@ -18,6 +18,7 @@
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>Sequence</span></button>
+        <button class="ribbon-command" data-action="new-activity"><span class="command-icon">▶</span><span>Activity</span></button>
       </div><div class="ribbon-label">Create</div></section>
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow the active diagram</div><div class="ribbon-label">Context</div></section>`,
     Diagram: `
@@ -26,10 +27,11 @@
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>New IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>New State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>New Sequence</span></button>
+        <button class="ribbon-command" data-action="new-activity"><span class="command-icon">▶</span><span>New Activity</span></button>
         <button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route</span></button>
       </div><div class="ribbon-label">Diagram</div></section>
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Rust-owned diagram commands</div><div class="ribbon-label">Context</div></section>`,
-    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route IBD</span></button></div><div class="ribbon-label">Routing</div></section><section class="ribbon-group ribbon-context"><div class="context-title">Shared router</div><div class="context-value">Deterministic orthogonal routing</div><div class="context-subtitle">BDD and IBD use the same Rust obstacle-routing foundation.</div><div class="ribbon-label">Layout</div></section>`,
+    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route IBD</span></button></div><div class="ribbon-label">Routing</div></section><section class="ribbon-group ribbon-context"><div class="context-title">Shared router</div><div class="context-value">Deterministic orthogonal routing</div><div class="context-subtitle">BDD, IBD, and Activity flows use the shared Rust obstacle-routing foundation.</div><div class="ribbon-label">Layout</div></section>`,
     View: `
       <section class="ribbon-group"><div class="ribbon-actions compact-actions">
         <button class="ribbon-command panel-toggle" data-panel="repository-panel"><span class="command-icon">▥</span><span>Repository</span></button>
@@ -64,6 +66,9 @@
     });
     ribbon.querySelectorAll('[data-action="new-sequence"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateSequenceForSelectedBlock?.());
+    });
+    ribbon.querySelectorAll('[data-action="new-activity"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpCreateActivityForSelection?.());
     });
     ribbon.querySelectorAll('[data-action="route-ibd"]').forEach((button) => {
       button.addEventListener('click', () => window.smpRouteSelectedIbd?.());
