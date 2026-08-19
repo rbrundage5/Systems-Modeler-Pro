@@ -217,8 +217,7 @@ fn compact(points: Vec<DiagramPoint>) -> Vec<DiagramPoint> {
     let mut result = Vec::new();
     for point in points {
         if result.last().is_some_and(|last: &DiagramPoint| {
-            (last.x - point.x).abs() < f64::EPSILON
-                && (last.y - point.y).abs() < f64::EPSILON
+            (last.x - point.x).abs() < f64::EPSILON && (last.y - point.y).abs() < f64::EPSILON
         }) {
             continue;
         }
