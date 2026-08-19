@@ -1,14 +1,15 @@
 name: pr13-clippy-fix
 
 on:
-  push:
-    branches: [agent/pr13-activity-rust]
+  pull_request:
+    types: [synchronize]
 
 permissions:
   contents: write
 
 jobs:
   fix:
+    if: github.event.pull_request.head.ref == 'agent/pr13-activity-rust'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
