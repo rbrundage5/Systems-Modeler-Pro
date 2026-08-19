@@ -1,0 +1,40 @@
+name: pr13-fix-activity
+
+on:
+  push:
+    branches: [agent/pr13-activity-rust]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: "!contains(github.event.head_commit.message, '[pr13 compile fix]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr13-activity-rust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Fix borrowed ActionKind match
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('crates/model-core/src/activity.rs')
+          text = p.read_text()
+          old = '    match action.kind {\n'
+          new = '    match action.kind.clone() {\n'
+          if old not in text:
+              raise SystemExit('expected validate_action match not found')
+          p.write_text(text.replace(old, new, 1))
+      - run: cargo fmt --all
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/model-core/src/activity.rs
+          git commit -m "Fix Activity action validation borrow [pr13 compile fix]"
+          git push origin HEAD:agent/pr13-activity-rust
