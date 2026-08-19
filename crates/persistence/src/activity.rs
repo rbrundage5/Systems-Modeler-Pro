@@ -8,6 +8,8 @@ pub const ACTIVITY_METADATA_KEY: &str = "activity-repository";
 pub enum ActivityPersistenceError {
     #[error(transparent)]
     Persistence(#[from] PersistenceError),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
     #[error("activity repository validation failed: {0}")]
     Validation(String),
 }
