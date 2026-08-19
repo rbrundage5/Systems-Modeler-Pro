@@ -31,10 +31,7 @@ pub fn update_bdd_presentation_geometry(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 48.0, 32.0)?;
-    let mut diagrams = state
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")?;
+    let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -90,10 +87,7 @@ pub fn update_ibd_property_geometry(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
-    let mut diagrams = state
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")?;
+    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -122,10 +116,7 @@ pub fn update_ibd_property_geometry(
     let routes = endpoints
         .into_iter()
         .map(|(edge_id, source, target)| {
-            Ok((
-                edge_id,
-                ibd::route_ibd_edge(diagram, &source, &target)?,
-            ))
+            Ok((edge_id, ibd::route_ibd_edge(diagram, &source, &target)?))
         })
         .collect::<Result<Vec<_>, String>>()?;
     for (edge_id, points) in routes {
@@ -152,10 +143,7 @@ pub fn update_ibd_port_geometry(
     if !x.is_finite() || !y.is_finite() || !size.is_finite() || size < 10.0 {
         return Err("port presentation geometry is invalid".into());
     }
-    let mut diagrams = state
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")?;
+    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -267,10 +255,7 @@ pub fn update_ibd_port_geometry(
     let routes = endpoints
         .into_iter()
         .map(|(edge_id, source, target)| {
-            Ok((
-                edge_id,
-                ibd::route_ibd_edge(diagram, &source, &target)?,
-            ))
+            Ok((edge_id, ibd::route_ibd_edge(diagram, &source, &target)?))
         })
         .collect::<Result<Vec<_>, String>>()?;
     for (edge_id, points) in routes {
