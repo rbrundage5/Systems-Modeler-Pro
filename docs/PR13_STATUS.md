@@ -4,7 +4,7 @@ Current branch: `agent/pr13-activity-rust`
 
 Baseline: merged PR #12 / `fe671378dbca700f60eb38a3950faf47f2f46edd`.
 
-Current state: final automated qualification in progress.
+Current state: final routing-quality qualification in progress.
 
 Completed implementation boundaries:
 - Rust Activity semantic core is implemented and exported from `systems-modeler-core`.
@@ -21,11 +21,15 @@ Completed implementation boundaries:
 - Activity node/edge deletion, flow reconnection, and full diagram rerouting are implemented as explicit Rust commands.
 - Node deletion removes incident pin/node flows transactionally; failed semantic mutations restore both Activity and presentation snapshots.
 - Activity rerouting reuses the shared Rust orthogonal obstacle-aware router.
+- Focused manual acceptance passed for flow reconnection, node deletion with incident-flow cleanup, and full Activity rerouting.
+- Activity reroute now assigns deterministic diagram-wide lanes so decision/merge/fork/join branches do not collapse onto identical orthogonal corridors.
 
 Current qualification state:
-- Final automated checkpoint covers formatting, core/persistence tests, strict Clippy, frontend syntax, Activity integration contract, Windows desktop check/tests/lint, and Cargo.lock cleanliness.
+- Previous automated checkpoint passed formatting, core/persistence tests, strict Clippy, frontend syntax, Activity integration contract, Windows desktop check/tests/lint, and Cargo.lock cleanliness.
+- New diagram-wide Activity routing-lane change is awaiting CI qualification and focused visual verification.
 
-Remaining completion gate after automated qualification:
-- Focused manual desktop acceptance: create/edit/connect pin flows, reconnect, delete, route, drill down, save, close, reopen, and verify semantic/presentation identity and routing remain correct.
+Remaining completion gate:
+- CI must pass on the routing-lane checkpoint.
+- Focused visual Activity routing verification must confirm improved branch separation while retaining legal endpoint attachment and obstacle avoidance.
 
-No completion claim is made until the automated and focused manual gates in `PR13_IMPLEMENTATION_CHECKLIST.md` are satisfied.
+No completion claim is made until the final routing-quality gate is satisfied.
