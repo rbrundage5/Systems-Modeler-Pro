@@ -87,6 +87,13 @@ assert '<script src="activity-navigation-ui.js"></script>' in index, "Activity n
 assert '<script src="activity-mutation-ui.js"></script>' in index, "Activity mutation frontend is not loaded"
 assert '<link rel="stylesheet" href="activity.css" />' in index, "Activity notation stylesheet is not loaded"
 
+# Activity branch/merge/fork/join flows must not collapse back onto the same
+# duplicate-endpoint-only lanes. Each flow gets a deterministic diagram-wide
+# lane while the shared Rust router continues to enforce node obstacle clearance.
+assert "route_semantic_edge(&snapshot, activity, semantic, index)?" in mutation_rs, "Activity flows are not assigned diagram-wide deterministic lanes"
+assert "Assign every Activity flow a deterministic diagram-wide lane" in mutation_rs, "Activity routing-lane intent is not documented in the implementation"
+assert "candidate.source_node_id == presentation.source_node_id" not in mutation_rs, "Activity routing regressed to duplicate-endpoint-only lanes"
+
 # Frontend may maintain selection/presentation state, but semantic Activity objects
 # must only arrive from Rust snapshots and commands.
 for source in [frontend, rich_frontend, navigation_frontend, mutation_frontend]:
