@@ -46,8 +46,8 @@ pub struct ActivityWorkspaceSnapshot {
 }
 
 pub struct ActivityWorkspaceState {
-    repository: Mutex<ActivityRepository>,
-    diagrams: Mutex<Vec<ActivityDiagram>>,
+    pub(super) repository: Mutex<ActivityRepository>,
+    pub(super) diagrams: Mutex<Vec<ActivityDiagram>>,
 }
 
 impl Default for ActivityWorkspaceState {
@@ -59,19 +59,19 @@ impl Default for ActivityWorkspaceState {
     }
 }
 
-fn parse_activity_id(value: &str) -> Result<ActivityId, String> {
+pub(super) fn parse_activity_id(value: &str) -> Result<ActivityId, String> {
     uuid::Uuid::parse_str(value)
         .map(ActivityId)
         .map_err(|_| format!("invalid activity id: {value}"))
 }
 
-fn parse_activity_node_id(value: &str) -> Result<ActivityNodeId, String> {
+pub(super) fn parse_activity_node_id(value: &str) -> Result<ActivityNodeId, String> {
     uuid::Uuid::parse_str(value)
         .map(ActivityNodeId)
         .map_err(|_| format!("invalid activity node id: {value}"))
 }
 
-fn activity_node_size(kind: &ActivityNodeKind) -> (f64, f64) {
+pub(super) fn activity_node_size(kind: &ActivityNodeKind) -> (f64, f64) {
     match kind {
         ActivityNodeKind::Initial
         | ActivityNodeKind::ActivityFinal
@@ -521,46 +521,4 @@ pub fn load_activity_workspace(
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")? = diagrams;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn activity_route_reuses_shared_obstacle_router() {
-        let source = ActivityDiagramNode {
-            id: "s".into(),
-            activity_node_id: ActivityNodeId::new().to_string(),
-            x: 0.0,
-            y: 80.0,
-            width: 120.0,
-            height: 60.0,
-        };
-        let target = ActivityDiagramNode {
-            id: "t".into(),
-            activity_node_id: ActivityNodeId::new().to_string(),
-            x: 420.0,
-            y: 80.0,
-            width: 120.0,
-            height: 60.0,
-        };
-        let obstacle = routing::RouteRect {
-            x: 190.0,
-            y: 60.0,
-            width: 120.0,
-            height: 100.0,
-        };
-        let route = routing::orthogonal_route(routing::RouteRequest {
-            source: node_rect(&source),
-            target: node_rect(&target),
-            obstacles: &[obstacle],
-            lane_index: 0,
-        });
-        assert!(routing::route_is_clear(&route, &[obstacle]));
-        assert!(route.windows(2).all(|segment| {
-            (segment[0].x - segment[1].x).abs() < f64::EPSILON
-                || (segment[0].y - segment[1].y).abs() < f64::EPSILON
-        }));
-    }
 }
