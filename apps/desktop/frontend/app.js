@@ -612,10 +612,12 @@ async function openProject() {
     paletteItems: [], paletteTool: null, selectedElementId: null, selectedPackageId: null,
     selectedDiagramId: null, selectedRelationshipId: null, pendingRelationship: null,
   });
-  state.snapshot = await requireInvoke()('workspace_snapshot');
-  if (state.snapshot.diagrams.length) state.selectedDiagramId = state.snapshot.diagrams[0].id;
-  await loadPalette();
-  render();
+  await refresh();
+  if (!state.selectedDiagramId && state.snapshot?.diagrams?.length) {
+    state.selectedDiagramId = state.snapshot.diagrams[0].id;
+    await loadPalette();
+    render();
+  }
 }
 
 async function saveProjectAs() {

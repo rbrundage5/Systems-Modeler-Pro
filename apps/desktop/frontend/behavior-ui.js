@@ -12,7 +12,18 @@
     'SynchCall', 'AsynchCall', 'AsynchSignal', 'Reply', 'Create', 'Delete', 'Lost', 'Found',
   ]);
 
+  function syncBehaviorSnapshotFromWorkspace() {
+    if (state.snapshot?.behavior_repository && Array.isArray(state.snapshot?.behavior_diagrams)) {
+      state.behaviorSnapshot = {
+        repository: state.snapshot.behavior_repository,
+        diagrams: state.snapshot.behavior_diagrams,
+      };
+    }
+    return state.behaviorSnapshot;
+  }
+
   function activeBehaviorDiagram() {
+    syncBehaviorSnapshotFromWorkspace();
     return state.behaviorSnapshot?.diagrams?.find(
       (diagram) => String(diagram.id) === String(state.selectedBehaviorDiagramId),
     ) || null;
@@ -25,8 +36,12 @@
   }
 
   async function loadBehaviorSnapshot() {
+    if (state.snapshot?.behavior_repository && Array.isArray(state.snapshot?.behavior_diagrams)) {
+      return syncBehaviorSnapshotFromWorkspace();
+    }
     try {
       state.behaviorSnapshot = await requireInvoke()('behavior_snapshot');
+      return state.behaviorSnapshot;
     } catch (error) {
       console.error('Unable to load Rust behavior workspace', error);
       state.behaviorSnapshot = {
@@ -43,7 +58,7 @@
   refresh = async function refreshWithBehaviorSnapshot() {
     const selected = state.selectedBehaviorDiagramId;
     await baseRefresh();
-    await loadBehaviorSnapshot();
+    syncBehaviorSnapshotFromWorkspace();
     if (selected && state.behaviorSnapshot?.diagrams?.some(
       (diagram) => String(diagram.id) === String(selected),
     )) {
@@ -91,6 +106,7 @@
 
   const baseRenderDiagramTabs = renderDiagramTabs;
   renderDiagramTabs = function renderBehaviorDiagramTabs() {
+    syncBehaviorSnapshotFromWorkspace();
     baseRenderDiagramTabs();
     const host = $('diagram-tabs');
     if (!host) return;
@@ -106,6 +122,7 @@
 
   const baseRenderRepository = renderRepository;
   renderRepository = function renderBehaviorRepository() {
+    syncBehaviorSnapshotFromWorkspace();
     baseRenderRepository();
     const host = $('repository');
     if (!host) return;
@@ -286,8 +303,7 @@
     void window.smpBehaviorLifelineClick(diagram, lifeline);
   }, true);
 
-  loadBehaviorSnapshot().then(() => render()).catch((error) => {
-    const status = $('status');
-    if (status) status.textContent = `Behavior workspace unavailable: ${error?.message || String(error)}`;
-  });
+  // app.js owns initial loading. Behavior state is taken from the same Rust
+  // workspace snapshot so a stale startup request cannot overwrite a project Open.
+  syncBehaviorSnapshotFromWorkspace();
 })();

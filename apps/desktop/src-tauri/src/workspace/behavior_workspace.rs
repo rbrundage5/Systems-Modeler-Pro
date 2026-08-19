@@ -1135,3 +1135,79 @@ mod lifeline_presentation_tests {
         assert!(presentation.timeline_end_y - presentation.timeline_start_y >= 80.0);
     }
 }
+
+#[cfg(test)]
+mod behavior_metadata_database_tests {
+    use super::*;
+
+    #[test]
+    fn behavior_metadata_database_round_trip_preserves_stm_and_seq_diagrams() {
+        let mut project = Project::new("Behavior Round Trip");
+        let package = project
+            .create_element(ElementKind::Package, "Behavior", project.root_id)
+            .expect("package");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", package)
+            .expect("block");
+
+        let mut repository = BehaviorRepository::default();
+        let state_machine_id = repository
+            .create_state_machine(&project, block, "Controller States")
+            .expect("state machine");
+        let interaction_id = repository
+            .create_interaction(&project, block, "Controller Sequence")
+            .expect("interaction");
+        let diagrams = vec![
+            BehaviorDiagram {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "Controller States".into(),
+                owner_id: package.to_string(),
+                context_id: block.to_string(),
+                kind: BehaviorDiagramKind::StateMachine,
+                semantic_id: state_machine_id.to_string(),
+                state_nodes: Vec::new(),
+                lifelines: Vec::new(),
+            },
+            BehaviorDiagram {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "Controller Sequence".into(),
+                owner_id: package.to_string(),
+                context_id: block.to_string(),
+                kind: BehaviorDiagramKind::Sequence,
+                semantic_id: interaction_id.to_string(),
+                state_nodes: Vec::new(),
+                lifelines: Vec::new(),
+            },
+        ];
+
+        let path = std::env::temp_dir().join(format!(
+            "systems-modeler-behavior-round-trip-{}.smproj",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let mut database = ProjectDatabase::open(&path).expect("open database");
+            database.save_project(&project).expect("save project");
+            save_behavior_metadata(&mut database, &project, &repository, &diagrams)
+                .expect("save behavior metadata");
+        }
+        {
+            let database = ProjectDatabase::open(&path).expect("reopen database");
+            let restored_project = database.load_first_project().expect("load project");
+            let (restored_repository, restored_diagrams) =
+                load_behavior_metadata(&database, &restored_project)
+                    .expect("load behavior metadata");
+            assert_eq!(restored_repository.state_machines.len(), 1);
+            assert_eq!(restored_repository.interactions.len(), 1);
+            assert_eq!(restored_diagrams.len(), 2);
+            assert!(restored_diagrams.iter().any(|diagram| {
+                diagram.kind == BehaviorDiagramKind::StateMachine
+                    && diagram.semantic_id == state_machine_id.to_string()
+            }));
+            assert!(restored_diagrams.iter().any(|diagram| {
+                diagram.kind == BehaviorDiagramKind::Sequence
+                    && diagram.semantic_id == interaction_id.to_string()
+            }));
+        }
+        let _ = std::fs::remove_file(path);
+    }
+}

@@ -223,4 +223,29 @@ require(
     "Initial pseudostate may have only one outgoing Transition",
 )
 
+
+require(
+    "apps/desktop/src-tauri/src/workspace.rs",
+    "pub behavior_repository: BehaviorRepository",
+    "pub behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>",
+    "behavior_repository: behavior_repository.clone()",
+    "behavior_diagrams: behavior_diagrams.clone()",
+)
+require(
+    "apps/desktop/frontend/behavior-ui.js",
+    "syncBehaviorSnapshotFromWorkspace",
+    "state.snapshot.behavior_repository",
+    "state.snapshot.behavior_diagrams",
+)
+app_payload = text("apps/desktop/frontend/app.js")
+open_section = app_payload.split("async function openProject()", 1)[1].split("async function saveProjectAs()", 1)[0]
+if "await refresh();" not in open_section:
+    raise SystemExit("apps/desktop/frontend/app.js: Open must use unified refresh()")
+if "state.snapshot = await requireInvoke()('workspace_snapshot')" in open_section:
+    raise SystemExit("apps/desktop/frontend/app.js: Open must not bypass unified refresh()")
+require(
+    "apps/desktop/src-tauri/src/workspace/behavior_workspace.rs",
+    "behavior_metadata_database_round_trip_preserves_stm_and_seq_diagrams",
+)
+
 print("PR12 consolidated Rust-authoritative behavior integration is complete")

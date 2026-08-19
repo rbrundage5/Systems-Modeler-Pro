@@ -88,6 +88,8 @@ pub struct WorkspaceSnapshot {
     pub project: Option<ProjectSnapshot>,
     pub diagrams: Vec<BddDiagram>,
     pub ibd_diagrams: Vec<ibd::IbdDiagram>,
+    pub behavior_repository: BehaviorRepository,
+    pub behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
     pub current_file: Option<String>,
 }
 
@@ -282,11 +284,18 @@ pub fn workspace_snapshot(state: tauri::State<'_, WorkspaceState>) -> Result<Wor
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     let ibd_diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let behavior_repository = state.behavior.lock().map_err(|_| "behavior lock poisoned")?;
+    let behavior_diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
     let current_file = state.current_file.lock().map_err(|_| "project path lock poisoned")?;
     Ok(WorkspaceSnapshot {
         project: project.as_ref().map(snapshot_project),
         diagrams: diagrams.clone(),
         ibd_diagrams: ibd_diagrams.clone(),
+        behavior_repository: behavior_repository.clone(),
+        behavior_diagrams: behavior_diagrams.clone(),
         current_file: current_file.clone(),
     })
 }
