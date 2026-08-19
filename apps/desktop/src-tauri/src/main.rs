@@ -8,6 +8,7 @@ mod workspace {
     mod behavior_creation;
     mod behavior_workspace;
     mod feature_editing;
+    mod history;
     mod ibd;
     mod item_flow_notation;
     mod presentation_interaction;
@@ -48,6 +49,9 @@ mod workspace {
         resize_sequence_lifeline_timeline, update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
+    pub use history::{
+        HistoryState, history_checkpoint, history_redo, history_reset, history_undo,
+    };
     pub use ibd::{
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
@@ -64,7 +68,7 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    ActivityWorkspaceState, WorkspaceState, activity_snapshot, add_activity_action,
+    ActivityWorkspaceState, HistoryState, WorkspaceState, activity_snapshot, add_activity_action,
     add_activity_edge, add_activity_node, add_activity_parameter_node, add_activity_partition,
     add_combined_fragment, add_combined_fragment_operand, add_composite_state,
     add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
@@ -76,15 +80,16 @@ use workspace::{
     create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
     create_ibd_connector, create_package, create_sequence_diagram, create_sequence_diagram_staged,
     create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
-    delete_bdd_relationship, delete_behavior_item, ibd_item_flow_notation, load_activity_workspace,
-    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
-    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
-    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message,
-    rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline,
-    route_activity_diagram, route_ibd, save_activity_workspace, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_activity_node_semantics, update_activity_presentation_geometry, update_association_end,
-    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
+    delete_bdd_relationship, delete_behavior_item, history_checkpoint, history_redo, history_reset,
+    history_undo, ibd_item_flow_notation, load_activity_workspace, move_sequence_lifeline,
+    move_state_vertex, new_project, open_project_file, open_project_file_complete,
+    place_bdd_element, place_element_on_bdd, populate_ibd_from_context, reconnect_activity_edge,
+    reconnect_bdd_relationship, reconnect_sequence_message, rename_element,
+    reset_activity_workspace, resize_sequence_lifeline_timeline, route_activity_diagram, route_ibd,
+    save_activity_workspace, save_current_project, save_current_project_complete,
+    save_project_file, save_project_file_complete, update_activity_node_semantics,
+    update_activity_presentation_geometry, update_association_end, update_bdd_element_details,
+    update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
     update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
     update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
@@ -344,9 +349,14 @@ fn main() {
     tauri::Builder::default()
         .manage(WorkspaceState::default())
         .manage(ActivityWorkspaceState::default())
+        .manage(HistoryState::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             diagram_palette,
+            history_checkpoint,
+            history_undo,
+            history_redo,
+            history_reset,
             workspace_snapshot,
             workspace_snapshot_complete,
             activity_snapshot,
