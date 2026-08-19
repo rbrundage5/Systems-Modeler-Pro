@@ -1,5 +1,8 @@
 (() => {
-  state.collapsedRepositoryPackages = state.collapsedRepositoryPackages || new Set();
+  state.collapsedRepositoryNodes = state.collapsedRepositoryNodes
+    || state.collapsedRepositoryPackages
+    || new Set();
+  state.collapsedRepositoryPackages = state.collapsedRepositoryNodes;
 
   const baseRenderRepository = renderRepository;
 
@@ -53,27 +56,27 @@
     while (ownerId && !seen.has(String(ownerId))) {
       const key = String(ownerId);
       seen.add(key);
-      if (state.collapsedRepositoryPackages.has(key)) return true;
+      if (state.collapsedRepositoryNodes.has(key)) return true;
       const owner = byId.get(key);
       ownerId = owner?.owner_id || null;
     }
     return false;
   }
 
-  function disclosure(packageId, expanded) {
+  function disclosure(elementId, expanded) {
     const control = document.createElement('span');
     control.className = 'repository-disclosure';
     control.setAttribute('role', 'button');
     control.setAttribute('tabindex', '-1');
-    control.setAttribute('aria-label', expanded ? 'Collapse package' : 'Expand package');
+    control.setAttribute('aria-label', expanded ? 'Collapse contained elements' : 'Expand contained elements');
     control.setAttribute('aria-expanded', String(expanded));
     control.textContent = expanded ? '▾' : '▸';
     control.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const key = String(packageId);
-      if (state.collapsedRepositoryPackages.has(key)) state.collapsedRepositoryPackages.delete(key);
-      else state.collapsedRepositoryPackages.add(key);
+      const key = String(elementId);
+      if (state.collapsedRepositoryNodes.has(key)) state.collapsedRepositoryNodes.delete(key);
+      else state.collapsedRepositoryNodes.add(key);
       render();
     };
     return control;
@@ -99,12 +102,11 @@
       row.style.paddingLeft = `${8 + depth * 16}px`;
       row.hidden = hasCollapsedAncestor(element, byId);
 
-      if (element.kind !== 'Package') return;
-      row.classList.add('package-row');
       const hasChildren = (byOwner.get(String(element.id)) || []).length > 0;
+      row.classList.toggle('containment-parent-row', hasChildren);
       if (!hasChildren) return;
 
-      const collapsed = state.collapsedRepositoryPackages.has(String(element.id));
+      const collapsed = state.collapsedRepositoryNodes.has(String(element.id));
       row.classList.toggle('collapsed', collapsed);
       row.insertBefore(disclosure(element.id, !collapsed), row.firstChild);
     });
