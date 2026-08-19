@@ -11,7 +11,10 @@ fn parse_edge_id(value: &str) -> Result<ActivityEdgeId, String> {
         .map_err(|_| format!("invalid Activity edge id: {value}"))
 }
 
-fn endpoint_owner(activity: &Activity, endpoint: ActivityEndpoint) -> Result<ActivityNodeId, String> {
+fn endpoint_owner(
+    activity: &Activity,
+    endpoint: ActivityEndpoint,
+) -> Result<ActivityNodeId, String> {
     match endpoint {
         ActivityEndpoint::Node(id) => activity
             .nodes
@@ -118,7 +121,9 @@ fn pin_ids_for_node(activity: &Activity, node_id: ActivityNodeId) -> HashSet<Pin
         .iter()
         .find(|node| node.id == node_id)
         .and_then(|node| match &node.kind {
-            ActivityNodeKind::Action(action) => Some(action.pins.iter().map(|pin| pin.id).collect()),
+            ActivityNodeKind::Action(action) => {
+                Some(action.pins.iter().map(|pin| pin.id).collect())
+            }
             _ => None,
         })
         .unwrap_or_default()
@@ -223,7 +228,10 @@ pub fn delete_activity_item(
         }
     }
 
-    if let Err(error) = repository.validate(project).map_err(|error| error.to_string()) {
+    if let Err(error) = repository
+        .validate(project)
+        .map_err(|error| error.to_string())
+    {
         repository.activities.insert(activity_id, original_activity);
         *diagram = original_diagram;
         return Err(error);
@@ -277,7 +285,9 @@ pub fn reconnect_activity_edge(
             .ok_or("Activity not found")?;
         let source = parse_endpoint(activity, &source_endpoint)?;
         let target = parse_endpoint(activity, &target_endpoint)?;
-        if source == target || endpoint_owner(activity, source)? == endpoint_owner(activity, target)? {
+        if source == target
+            || endpoint_owner(activity, source)? == endpoint_owner(activity, target)?
+        {
             return Err("Activity flow requires distinct source and target nodes".into());
         }
         (source, target)
@@ -296,7 +306,10 @@ pub fn reconnect_activity_edge(
         edge.target = target;
     }
 
-    if let Err(error) = repository.validate(project).map_err(|error| error.to_string()) {
+    if let Err(error) = repository
+        .validate(project)
+        .map_err(|error| error.to_string())
+    {
         repository.activities.insert(activity_id, original_activity);
         *diagram = original_diagram;
         return Err(error);
