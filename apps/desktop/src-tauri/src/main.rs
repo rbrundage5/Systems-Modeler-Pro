@@ -10,6 +10,7 @@ mod workspace {
     mod feature_editing;
     mod ibd;
     mod item_flow_notation;
+    mod presentation_interaction;
     mod relationship_editing;
     mod routing;
     pub use activity_editing::{
@@ -52,6 +53,10 @@ mod workspace {
         populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
+    pub use presentation_interaction::{
+        update_activity_presentation_geometry, update_bdd_presentation_geometry,
+        update_ibd_port_geometry, update_ibd_property_geometry, update_state_presentation_geometry,
+    };
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -78,11 +83,12 @@ use workspace::{
     rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline,
     route_activity_diagram, route_ibd, save_activity_workspace, save_current_project,
     save_current_project_complete, save_project_file, save_project_file_complete,
-    update_activity_node_semantics, update_association_end, update_bdd_element_details,
-    update_bdd_feature_semantics, update_combined_fragment_operand, update_execution_specification,
-    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
-    update_state_invariant, update_state_transition, workspace_snapshot,
-    workspace_snapshot_complete,
+    update_activity_node_semantics, update_activity_presentation_geometry, update_association_end,
+    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
+    update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
+    update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
+    update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
+    update_state_transition, workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -355,6 +361,7 @@ fn main() {
             add_structured_activity_node,
             assign_activity_node_structured_parent,
             update_activity_node_semantics,
+            update_activity_presentation_geometry,
             delete_activity_item,
             reconnect_activity_edge,
             route_activity_diagram,
@@ -373,11 +380,14 @@ fn main() {
             create_bdd_feature,
             update_bdd_element_details,
             update_bdd_feature_semantics,
+            update_bdd_presentation_geometry,
             rename_element,
             create_bdd,
             create_ibd,
             populate_ibd_from_context,
             add_nested_port_to_ibd,
+            update_ibd_property_geometry,
+            update_ibd_port_geometry,
             create_ibd_connector,
             add_item_flow_to_connector,
             ibd_item_flow_notation,
@@ -396,6 +406,7 @@ fn main() {
             add_state_transition_complete,
             update_state_transition,
             move_state_vertex,
+            update_state_presentation_geometry,
             behavior_lifeline_candidates,
             add_sequence_lifeline,
             move_sequence_lifeline,
