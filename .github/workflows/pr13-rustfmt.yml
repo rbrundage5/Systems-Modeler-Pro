@@ -1,0 +1,35 @@
+name: pr13-rustfmt
+
+on:
+  push:
+    branches:
+      - agent/pr13-activity-rust
+
+permissions:
+  contents: write
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr13-activity-rust
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply canonical Rust formatting
+        run: cargo fmt --all
+      - name: Commit formatting and remove helper
+        shell: bash
+        run: |
+          rm .github/workflows/pr13-rustfmt.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/src-tauri/src/main.rs apps/desktop/src-tauri/src/workspace/activity_editing.rs .github/workflows/pr13-rustfmt.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Format richer Activity editing slice"
+          git push origin HEAD:agent/pr13-activity-rust
