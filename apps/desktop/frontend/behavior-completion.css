@@ -1,5 +1,14 @@
 .state-vertex.composite-state {
   overflow: hidden;
+  z-index: 2;
+}
+
+.state-machine-frame .behavior-relationship-layer {
+  z-index: 3;
+}
+
+.state-machine-frame .state-vertex:not(.composite-state) {
+  z-index: 4;
 }
 
 .state-region-grid {
