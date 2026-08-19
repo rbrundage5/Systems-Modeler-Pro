@@ -223,4 +223,143 @@
       render();
     };
   };
+
+  function svgElement(tag, attrs = {}) {
+    const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, String(value));
+    return element;
+  }
+
+  function presentationForNode(diagram, nodeId) {
+    return diagram.nodes?.find((item) => String(item.activity_node_id) === String(nodeId)) || null;
+  }
+
+  function boundsForMembers(diagram, memberIds, fallbackIndex) {
+    const boxes = memberIds.map((id) => presentationForNode(diagram, id)).filter(Boolean);
+    if (!boxes.length) {
+      return { x: 70 + fallbackIndex * 34, y: 70 + fallbackIndex * 28, width: 360, height: 220 };
+    }
+    const left = Math.min(...boxes.map((box) => box.x)) - 36;
+    const top = Math.min(...boxes.map((box) => box.y)) - 54;
+    const right = Math.max(...boxes.map((box) => box.x + box.width)) + 36;
+    const bottom = Math.max(...boxes.map((box) => box.y + box.height)) + 36;
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
+
+  function appendFrame(layer, bounds, label, className) {
+    const group = svgElement('g', { class: className });
+    group.appendChild(svgElement('rect', {
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, rx: 4,
+    }));
+    const text = svgElement('text', { x: bounds.x + 10, y: bounds.y + 18 });
+    text.textContent = label;
+    group.appendChild(text);
+    layer.appendChild(group);
+  }
+
+  function renderSemanticRegions(svg, diagram, activity) {
+    const layer = svgElement('g', { class: 'activity-semantic-regions' });
+    (activity.partitions || []).forEach((partition, index) => {
+      const members = activity.nodes.filter((node) => String(node.partition_id || '') === String(partition.id)).map((node) => node.id);
+      const bounds = boundsForMembers(diagram, members, index);
+      appendFrame(layer, bounds, partition.name || 'Partition', 'activity-partition-frame');
+    });
+    (activity.structured_nodes || []).forEach((structured, index) => {
+      const members = activity.nodes.filter((node) => String(node.structured_node_id || '') === String(structured.id)).map((node) => node.id);
+      const bounds = boundsForMembers(diagram, members, index + (activity.partitions || []).length);
+      const kind = typeof structured.kind === 'string' ? structured.kind : Object.keys(structured.kind || {})[0] || 'Structured';
+      appendFrame(layer, bounds, `${kind} · ${structured.name || ''}`, `activity-structured-frame activity-structured-${kind.toLowerCase()}`);
+    });
+    const defs = svg.querySelector('defs');
+    if (defs?.nextSibling) svg.insertBefore(layer, defs.nextSibling);
+    else svg.appendChild(layer);
+  }
+
+  function pinAnchor(presentation, pin, index, count) {
+    const direction = pin.direction;
+    if (direction === 'Input') {
+      return { x: presentation.x, y: presentation.y + ((index + 1) * presentation.height) / (count + 1), side: 'left' };
+    }
+    if (direction === 'Output') {
+      return { x: presentation.x + presentation.width, y: presentation.y + ((index + 1) * presentation.height) / (count + 1), side: 'right' };
+    }
+    return { x: presentation.x + ((index + 1) * presentation.width) / (count + 1), y: presentation.y + presentation.height, side: 'bottom' };
+  }
+
+  function renderPins(svg, diagram, activity) {
+    for (const node of activity.nodes || []) {
+      const action = node.kind?.Action;
+      if (!action?.pins?.length) continue;
+      const presentation = presentationForNode(diagram, node.id);
+      if (!presentation) continue;
+      for (const direction of ['Input', 'Output', 'Value']) {
+        const pins = action.pins.filter((pin) => pin.direction === direction);
+        pins.forEach((pin, index) => {
+          const anchor = pinAnchor(presentation, pin, index, pins.length);
+          const group = svgElement('g', {
+            class: `activity-pin-anchor activity-pin-${direction.toLowerCase()}`,
+            'data-pin-token': `pin:${pin.id}`,
+            'data-owner-node-id': node.id,
+          });
+          group.appendChild(svgElement('rect', { x: anchor.x - 5, y: anchor.y - 5, width: 10, height: 10 }));
+          const labelX = anchor.side === 'left' ? anchor.x + 9 : anchor.side === 'right' ? anchor.x - 9 : anchor.x + 8;
+          const label = svgElement('text', {
+            x: labelX,
+            y: anchor.side === 'bottom' ? anchor.y + 16 : anchor.y - 8,
+            'text-anchor': anchor.side === 'right' ? 'end' : 'start',
+          });
+          label.textContent = pin.name || direction;
+          group.appendChild(label);
+          svg.appendChild(group);
+        });
+      }
+    }
+  }
+
+  const baseRenderCanvas = renderCanvas;
+  renderCanvas = function renderRichActivityCanvas() {
+    baseRenderCanvas();
+    const diagram = activeDiagram();
+    const activity = activeActivity();
+    const svg = document.querySelector('.activity-svg');
+    if (!diagram || !activity || !svg) return;
+    renderSemanticRegions(svg, diagram, activity);
+    renderPins(svg, diagram, activity);
+  };
+
+  document.addEventListener('click', async (event) => {
+    const pin = event.target.closest?.('.activity-pin-anchor');
+    if (!pin || !activeDiagram()) return;
+    if (state.activityPendingFlow?.kind !== 'ObjectFlow') {
+      state.selectedActivityNodeId = pin.dataset.ownerNodeId || null;
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const token = pin.dataset.pinToken;
+    if (!state.activityPendingFlow.source) {
+      state.activityPendingFlow.source = token;
+      state.selectedActivityNodeId = pin.dataset.ownerNodeId || null;
+      render();
+      return;
+    }
+    const source = state.activityPendingFlow.source;
+    const diagram = activeDiagram();
+    state.activityPendingFlow = null;
+    try {
+      await runCommand('Creating ObjectFlow…', () => requireInvoke()('add_activity_edge', {
+        diagramId: diagram.id,
+        kind: 'ObjectFlow',
+        sourceActivityNodeId: source,
+        targetActivityNodeId: token,
+        guard: null,
+        weight: null,
+      }));
+      state.selectedActivityNodeId = null;
+      state.activitySnapshot = await requireInvoke()('activity_snapshot');
+      render();
+    } catch (error) {
+      console.error('Activity pin ObjectFlow creation failed', error);
+    }
+  }, true);
 })();
