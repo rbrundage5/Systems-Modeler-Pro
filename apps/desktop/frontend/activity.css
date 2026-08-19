@@ -11,7 +11,8 @@
 .activity-decision polygon,.activity-merge polygon,.activity-fork rect,.activity-join rect{fill:#111;stroke:#111}
 .activity-opaqueaction rect{fill:#fff;stroke:#20252b}
 .activity-objectnode rect,.activity-centralbuffernode rect,.activity-datastorenode rect{fill:#fff;stroke:#20252b}
-.activity-flow{fill:none;stroke:#20252b;stroke-width:1.7;stroke-linejoin:round;stroke-linecap:square}
+.activity-flow{fill:none;stroke:#20252b;stroke-width:1.7;stroke-linejoin:round;stroke-linecap:square;cursor:pointer}
+.activity-flow.selected{stroke:#1f6feb;stroke-width:3}
 .activity-flow.object-flow{stroke-dasharray:7 3}
 .activity-svg marker path{fill:#20252b;stroke:#20252b}
 .activity-edge-label{fill:#20252b;font-size:12px;font-family:Segoe UI,Arial,sans-serif;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
@@ -28,3 +29,4 @@
 .activity-pin-input rect{fill:#f8fafc}
 .activity-pin-output rect{fill:#fff}
 .activity-pin-value rect{fill:#fefce8}
+.activity-mutation-actions{display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px}
