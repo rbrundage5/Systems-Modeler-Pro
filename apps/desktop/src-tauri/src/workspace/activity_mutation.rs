@@ -103,14 +103,10 @@ fn reroute_diagram(
             .iter()
             .find(|edge| edge.id.to_string() == presentation.activity_edge_id)
             .ok_or("Activity presentation edge references missing semantic edge")?;
-        let lane_index = snapshot.edges[..index]
-            .iter()
-            .filter(|candidate| {
-                candidate.source_node_id == presentation.source_node_id
-                    && candidate.target_node_id == presentation.target_node_id
-            })
-            .count();
-        presentation.points = route_semantic_edge(&snapshot, activity, semantic, lane_index)?;
+        // Assign every Activity flow a deterministic diagram-wide lane. This
+        // separates decision/merge/fork/join branches while retaining the
+        // shared obstacle-safe orthogonal router.
+        presentation.points = route_semantic_edge(&snapshot, activity, semantic, index)?;
     }
     Ok(())
 }
