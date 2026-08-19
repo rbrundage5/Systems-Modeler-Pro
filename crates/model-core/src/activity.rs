@@ -430,7 +430,7 @@ fn validate_action(
     project: &Project,
     action: &Action,
 ) -> Result<(), ActivityError> {
-    match action.kind {
+    match action.kind.clone() {
         ActionKind::CallBehavior { activity_id } => {
             if !repository.activities.contains_key(&activity_id) {
                 return Err(ActivityError::UnknownCalledActivity);
