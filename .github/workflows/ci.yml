@@ -25,7 +25,7 @@ jobs:
         run: cargo test --workspace --exclude systems-modeler-desktop
       - name: Core and persistence lint
         run: cargo clippy --workspace --exclude systems-modeler-desktop --all-targets -- -D warnings
-      - name: Behavior frontend syntax
+      - name: Behavior and Activity frontend syntax
         shell: bash
         run: |
           for file in \
@@ -40,11 +40,14 @@ jobs:
             apps/desktop/frontend/behavior-region-placement.js \
             apps/desktop/frontend/behavior-sequence-input.js \
             apps/desktop/frontend/behavior-command-authority.js \
-            apps/desktop/frontend/behavior-authoritative-renderer.js; do
+            apps/desktop/frontend/behavior-authoritative-renderer.js \
+            apps/desktop/frontend/activity-ui.js; do
             node --check "$file"
           done
       - name: Behavior desktop integration contract
         run: python scripts/validate_behavior_integration.py
+      - name: Activity desktop integration contract
+        run: python scripts/validate_activity_integration.py
 
   desktop-check:
     runs-on: windows-latest
@@ -61,6 +64,8 @@ jobs:
         run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
       - name: Behavior desktop integration contract
         run: python scripts/validate_behavior_integration.py
+      - name: Activity desktop integration contract
+        run: python scripts/validate_activity_integration.py
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
