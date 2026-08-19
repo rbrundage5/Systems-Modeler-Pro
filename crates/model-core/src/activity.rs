@@ -236,7 +236,9 @@ pub enum ActivityError {
     UnknownStructuredParent,
     #[error("structured activity node containment contains a cycle")]
     StructuredContainmentCycle,
-    #[error("initial node cannot have incoming edges and must have exactly one outgoing control flow")]
+    #[error(
+        "initial node cannot have incoming edges and must have exactly one outgoing control flow"
+    )]
     InvalidInitialTopology,
     #[error("activity final and flow final nodes cannot have outgoing edges")]
     InvalidFinalTopology,
@@ -350,7 +352,10 @@ fn validate_structure(activity: &Activity) -> Result<(), ActivityError> {
         if !node_ids.insert(node.id) {
             return Err(ActivityError::DuplicateNode);
         }
-        if node.partition_id.is_some_and(|id| !partition_ids.contains(&id)) {
+        if node
+            .partition_id
+            .is_some_and(|id| !partition_ids.contains(&id))
+        {
             return Err(ActivityError::UnknownPartition);
         }
         if node
@@ -409,7 +414,9 @@ fn validate_references(
             ActivityNodeKind::ActivityParameter(parameter) => {
                 let element = project.element(parameter.parameter_id)?;
                 if element.kind != ElementKind::Parameter {
-                    return Err(ActivityError::InvalidActivityParameter(parameter.parameter_id));
+                    return Err(ActivityError::InvalidActivityParameter(
+                        parameter.parameter_id,
+                    ));
                 }
             }
             _ => {}
@@ -504,8 +511,12 @@ fn validate_edges(project: &Project, activity: &Activity) -> Result<(), Activity
                 if !source.object_capable || !target.object_capable {
                     return Err(ActivityError::InvalidObjectFlowEndpoint);
                 }
-                if source.pin.is_some_and(|pin| pin.direction == PinDirection::Input)
-                    || target.pin.is_some_and(|pin| pin.direction == PinDirection::Output)
+                if source
+                    .pin
+                    .is_some_and(|pin| pin.direction == PinDirection::Input)
+                    || target
+                        .pin
+                        .is_some_and(|pin| pin.direction == PinDirection::Output)
                 {
                     return Err(ActivityError::InvalidPinDirection);
                 }

@@ -71,7 +71,9 @@ fn validates_initial_action_and_final_control_topology() {
     let action = node(
         "Compute",
         ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body: "x = 1".into() },
+            kind: ActionKind::Opaque {
+                body: "x = 1".into(),
+            },
             pins: vec![],
         }),
     );
@@ -95,14 +97,19 @@ fn rejects_invalid_fork_topology() {
     let action = node(
         "A",
         ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body: String::new() },
+            kind: ActionKind::Opaque {
+                body: String::new(),
+            },
             pins: vec![],
         }),
     );
     activity.edges.push(control(initial.id, fork.id));
     activity.edges.push(control(fork.id, action.id));
     activity.nodes.extend([initial, fork, action]);
-    assert_eq!(repository.validate(&project), Err(ActivityError::InvalidForkTopology));
+    assert_eq!(
+        repository.validate(&project),
+        Err(ActivityError::InvalidForkTopology)
+    );
 }
 
 #[test]
@@ -120,14 +127,18 @@ fn object_flow_connects_output_to_input_with_matching_types() {
     activity.nodes.push(node(
         "Produce",
         ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body: String::new() },
+            kind: ActionKind::Opaque {
+                body: String::new(),
+            },
             pins: vec![output],
         }),
     ));
     activity.nodes.push(node(
         "Consume",
         ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body: String::new() },
+            kind: ActionKind::Opaque {
+                body: String::new(),
+            },
             pins: vec![input],
         }),
     ));
@@ -172,7 +183,9 @@ fn call_operation_pins_reference_real_operation_parameters() {
     repository.activities.get_mut(&id).unwrap().nodes.push(node(
         "process",
         ActivityNodeKind::Action(Action {
-            kind: ActionKind::CallOperation { operation_id: operation },
+            kind: ActionKind::CallOperation {
+                operation_id: operation,
+            },
             pins: vec![pin],
         }),
     ));
@@ -193,20 +206,26 @@ fn interrupting_edge_must_reference_interruptible_region() {
         kind: StructuredActivityNodeKind::InterruptibleRegion,
         parent_id: None,
     };
-    let a = node("A", ActivityNodeKind::Object(ObjectNode {
-        kind: ObjectNodeKind::Object,
-        type_id: None,
-        multiplicity: Multiplicity::ONE,
-        ordering: ObjectNodeOrdering::Unordered,
-        selection: None,
-    }));
-    let b = node("B", ActivityNodeKind::Object(ObjectNode {
-        kind: ObjectNodeKind::Object,
-        type_id: None,
-        multiplicity: Multiplicity::ONE,
-        ordering: ObjectNodeOrdering::Unordered,
-        selection: None,
-    }));
+    let a = node(
+        "A",
+        ActivityNodeKind::Object(ObjectNode {
+            kind: ObjectNodeKind::Object,
+            type_id: None,
+            multiplicity: Multiplicity::ONE,
+            ordering: ObjectNodeOrdering::Unordered,
+            selection: None,
+        }),
+    );
+    let b = node(
+        "B",
+        ActivityNodeKind::Object(ObjectNode {
+            kind: ObjectNodeKind::Object,
+            type_id: None,
+            multiplicity: Multiplicity::ONE,
+            ordering: ObjectNodeOrdering::Unordered,
+            selection: None,
+        }),
+    );
     activity.edges.push(ActivityEdge {
         id: ActivityEdgeId::new(),
         name: String::new(),
