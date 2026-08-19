@@ -49,7 +49,8 @@ jobs:
             apps/desktop/frontend/diagram-interaction.js \
             apps/desktop/frontend/repository-tree-ui.js \
             apps/desktop/frontend/interaction-runtime-fixes.js \
-            apps/desktop/frontend/bdd-compartment-visibility.js; do
+            apps/desktop/frontend/bdd-compartment-visibility.js \
+            apps/desktop/frontend/structural-interaction-rebind.js; do
             node --check "$file"
           done
       - name: Behavior desktop integration contract
