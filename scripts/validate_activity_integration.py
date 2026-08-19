@@ -1,10 +1,10 @@
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text()
-workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text()
-frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text()
-index = (root / "apps/desktop/frontend/index.html").read_text()
+main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-8")
+workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text(encoding="utf-8")
+frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text(encoding="utf-8")
+index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
 
 required_commands = [
     "activity_snapshot",
