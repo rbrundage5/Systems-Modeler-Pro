@@ -8,6 +8,7 @@ mod workspace {
     mod behavior_creation;
     mod behavior_workspace;
     mod feature_editing;
+    mod history;
     mod ibd;
     mod item_flow_notation;
     mod presentation_interaction;
@@ -48,6 +49,7 @@ mod workspace {
         resize_sequence_lifeline_timeline, update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
+    pub use history::{HistoryState, history_checkpoint, history_redo, history_reset, history_undo};
     pub use ibd::{
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
@@ -64,7 +66,7 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    ActivityWorkspaceState, WorkspaceState, activity_snapshot, add_activity_action,
+    ActivityWorkspaceState, HistoryState, WorkspaceState, activity_snapshot, add_activity_action,
     add_activity_edge, add_activity_node, add_activity_parameter_node, add_activity_partition,
     add_combined_fragment, add_combined_fragment_operand, add_composite_state,
     add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
@@ -76,19 +78,20 @@ use workspace::{
     create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
     create_ibd_connector, create_package, create_sequence_diagram, create_sequence_diagram_staged,
     create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
-    delete_bdd_relationship, delete_behavior_item, ibd_item_flow_notation, load_activity_workspace,
-    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
-    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
-    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message,
-    rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline,
-    route_activity_diagram, route_ibd, save_activity_workspace, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_activity_node_semantics, update_activity_presentation_geometry, update_association_end,
-    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
-    update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
-    update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
-    update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
-    update_state_transition, workspace_snapshot, workspace_snapshot_complete,
+    delete_bdd_relationship, delete_behavior_item, history_checkpoint, history_redo, history_reset,
+    history_undo, ibd_item_flow_notation, load_activity_workspace, move_sequence_lifeline,
+    move_state_vertex, new_project, open_project_file, open_project_file_complete,
+    place_bdd_element, place_element_on_bdd, populate_ibd_from_context, reconnect_activity_edge,
+    reconnect_bdd_relationship, reconnect_sequence_message, rename_element, reset_activity_workspace,
+    resize_sequence_lifeline_timeline, route_activity_diagram, route_ibd,
+    save_activity_workspace, save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, update_activity_node_semantics, update_activity_presentation_geometry,
+    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
+    update_bdd_presentation_geometry, update_combined_fragment_operand,
+    update_execution_specification, update_ibd_port_geometry, update_ibd_property_geometry,
+    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
+    update_state_invariant, update_state_presentation_geometry, update_state_transition,
+    workspace_snapshot, workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -186,28 +189,16 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             ),
             element_item("comment", "Comment", "Comment"),
             feature_item("part-property", "Part Property", "PartProperty"),
-            feature_item(
-                "reference-property",
-                "Reference Property",
-                "ReferenceProperty",
-            ),
+            feature_item("reference-property", "Reference Property", "ReferenceProperty"),
             feature_item("value-property", "Value Property", "ValueProperty"),
             feature_item("flow-property", "Flow Property", "FlowProperty"),
-            feature_item(
-                "constraint-property",
-                "Constraint Property",
-                "ConstraintProperty",
-            ),
+            feature_item("constraint-property", "Constraint Property", "ConstraintProperty"),
             feature_item("proxy-port", "Proxy Port", "ProxyPort"),
             feature_item("full-port", "Full Port", "FullPort"),
             feature_item("operation", "Operation", "Operation"),
             feature_item("reception", "Reception", "Reception"),
             feature_item("parameter", "Parameter", "Parameter"),
-            feature_item(
-                "enumeration-literal",
-                "Enumeration Literal",
-                "EnumerationLiteral",
-            ),
+            feature_item("enumeration-literal", "Enumeration Literal", "EnumerationLiteral"),
             feature_item("slot", "Slot", "Slot"),
             relationship_item("association", "Association", "Association"),
             relationship_item("aggregation", "Aggregation", "Aggregation"),
@@ -218,11 +209,7 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
         ]),
         "IBD" => Ok(vec![
             feature_item("part-property", "Part Property", "PartProperty"),
-            feature_item(
-                "reference-property",
-                "Reference Property",
-                "ReferenceProperty",
-            ),
+            feature_item("reference-property", "Reference Property", "ReferenceProperty"),
             feature_item("proxy-port", "Proxy Port", "ProxyPort"),
             feature_item("full-port", "Full Port", "FullPort"),
             relationship_item("assembly-connector", "Assembly Connector", "Assembly"),
@@ -257,11 +244,7 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             relationship_item("Delete", "Delete Message", "Delete"),
             relationship_item("Lost", "Lost Message", "Lost"),
             relationship_item("Found", "Found Message", "Found"),
-            element_item(
-                "Execution",
-                "Execution Specification",
-                "ExecutionSpecification",
-            ),
+            element_item("Execution", "Execution Specification", "ExecutionSpecification"),
             element_item("alt", "alt Fragment", "CombinedFragment"),
             element_item("opt", "opt Fragment", "CombinedFragment"),
             element_item("loop", "loop Fragment", "CombinedFragment"),
@@ -281,32 +264,12 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("ActivityFinal", "Activity Final", "ActivityFinal"),
             element_item("FlowFinal", "Flow Final", "FlowFinal"),
             element_item("OpaqueAction", "Opaque Action", "OpaqueAction"),
-            element_item(
-                "CallBehaviorAction",
-                "Call Behavior Action",
-                "CallBehaviorAction",
-            ),
-            element_item(
-                "CallOperationAction",
-                "Call Operation Action",
-                "CallOperationAction",
-            ),
+            element_item("CallBehaviorAction", "Call Behavior Action", "CallBehaviorAction"),
+            element_item("CallOperationAction", "Call Operation Action", "CallOperationAction"),
             element_item("SendSignalAction", "Send Signal Action", "SendSignalAction"),
-            element_item(
-                "AcceptEventAction",
-                "Accept Event Action",
-                "AcceptEventAction",
-            ),
-            element_item(
-                "AcceptTimeEventAction",
-                "Accept Time Event",
-                "AcceptTimeEventAction",
-            ),
-            element_item(
-                "ActivityParameterNode",
-                "Activity Parameter",
-                "ActivityParameterNode",
-            ),
+            element_item("AcceptEventAction", "Accept Event Action", "AcceptEventAction"),
+            element_item("AcceptTimeEventAction", "Accept Time Event", "AcceptTimeEventAction"),
+            element_item("ActivityParameterNode", "Activity Parameter", "ActivityParameterNode"),
             element_item("Decision", "Decision", "Decision"),
             element_item("Merge", "Merge", "Merge"),
             element_item("Fork", "Fork", "Fork"),
@@ -314,16 +277,8 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("ObjectNode", "Object Node", "ObjectNode"),
             element_item("CentralBufferNode", "Central Buffer", "CentralBufferNode"),
             element_item("DataStoreNode", "Data Store", "DataStoreNode"),
-            element_item(
-                "ActivityPartition",
-                "Activity Partition",
-                "ActivityPartition",
-            ),
-            element_item(
-                "StructuredActivityNode",
-                "Structured Activity Node",
-                "StructuredActivityNode",
-            ),
+            element_item("ActivityPartition", "Activity Partition", "ActivityPartition"),
+            element_item("StructuredActivityNode", "Structured Activity Node", "StructuredActivityNode"),
             element_item("ConditionalNode", "Conditional Node", "ConditionalNode"),
             element_item("LoopNode", "Loop Node", "LoopNode"),
             element_item("SequenceNode", "Sequence Node", "SequenceNode"),
@@ -344,9 +299,14 @@ fn main() {
     tauri::Builder::default()
         .manage(WorkspaceState::default())
         .manage(ActivityWorkspaceState::default())
+        .manage(HistoryState::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             diagram_palette,
+            history_checkpoint,
+            history_undo,
+            history_redo,
+            history_reset,
             workspace_snapshot,
             workspace_snapshot_complete,
             activity_snapshot,
