@@ -23,8 +23,10 @@
   };
 
   async function refreshAfterHistory() {
-    // The final refresh wrapper reloads the Rust workspace plus Behavior/Activity
-    // snapshots and rerenders the active presentation family.
+    if (typeof window.smpSynchronizeAuthoritativeState === 'function') {
+      await window.smpSynchronizeAuthoritativeState();
+      return;
+    }
     await refresh();
   }
 
@@ -37,6 +39,7 @@
       if (changed) {
         state.selectedRelationshipId = null;
         state.selectedActivityEdgeId = null;
+        state.selectedBehaviorItem = null;
         state.pendingRelationship = null;
         state.paletteTool = null;
         await refreshAfterHistory();
@@ -90,8 +93,6 @@
     }
   }, true);
 
-  // Project replacement begins a new editing session. The existing project-open
-  // wrappers ultimately call render(), so clear stale history when the project ID changes.
   let lastProjectId = state.snapshot?.project?.id || null;
   const baseRender = render;
   render = function renderWithHistoryControls() {
