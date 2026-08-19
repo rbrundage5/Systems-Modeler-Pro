@@ -1,5 +1,6 @@
 mod workspace {
     include!("workspace.rs");
+    mod activity_workspace;
     mod bdd_elements;
     mod behavior_completion;
     mod behavior_creation;
@@ -9,6 +10,11 @@ mod workspace {
     mod item_flow_notation;
     mod relationship_editing;
     mod routing;
+    pub use activity_workspace::{
+        ActivityWorkspaceState, activity_snapshot, add_activity_edge, add_activity_node,
+        create_activity_diagram, load_activity_workspace, reset_activity_workspace,
+        save_activity_workspace,
+    };
     pub use bdd_elements::{
         create_bdd_element, create_bdd_feature, create_bdd_relationship_complete,
         open_project_file_complete, place_bdd_element, save_current_project_complete,
@@ -43,24 +49,27 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, add_combined_fragment, add_combined_fragment_operand, add_composite_state,
+    ActivityWorkspaceState, WorkspaceState, activity_snapshot, add_activity_edge,
+    add_activity_node, add_combined_fragment, add_combined_fragment_operand, add_composite_state,
     add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
     add_sequence_lifeline, add_sequence_message, add_state_invariant, add_state_region,
     add_state_transition, add_state_transition_complete, add_state_vertex, add_submachine_state,
-    behavior_lifeline_candidates, behavior_snapshot, create_bdd, create_bdd_element,
-    create_bdd_feature, create_bdd_relationship, create_bdd_relationship_complete, create_block,
-    create_ibd, create_ibd_connector, create_package, create_sequence_diagram,
-    create_sequence_diagram_staged, create_state_machine_diagram,
-    create_state_machine_diagram_staged, delete_bdd_relationship, delete_behavior_item,
-    ibd_item_flow_notation, move_sequence_lifeline, move_state_vertex, new_project,
-    open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
+    behavior_lifeline_candidates, behavior_snapshot, create_activity_diagram, create_bdd,
+    create_bdd_element, create_bdd_feature, create_bdd_relationship,
+    create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
+    create_package, create_sequence_diagram, create_sequence_diagram_staged,
+    create_state_machine_diagram, create_state_machine_diagram_staged, delete_bdd_relationship,
+    delete_behavior_item, ibd_item_flow_notation, load_activity_workspace,
+    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
+    open_project_file_complete, place_bdd_element, place_element_on_bdd,
     populate_ibd_from_context, reconnect_bdd_relationship, reconnect_sequence_message,
-    rename_element, resize_sequence_lifeline_timeline, route_ibd, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
-    update_combined_fragment_operand, update_execution_specification, update_sequence_message,
-    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
-    update_state_transition, workspace_snapshot, workspace_snapshot_complete,
+    rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline, route_ibd,
+    save_activity_workspace, save_current_project, save_current_project_complete,
+    save_project_file, save_project_file_complete, update_association_end,
+    update_bdd_element_details, update_bdd_feature_semantics, update_combined_fragment_operand,
+    update_execution_specification, update_sequence_message, update_sequence_message_complete,
+    update_state_behaviors, update_state_invariant, update_state_transition, workspace_snapshot,
+    workspace_snapshot_complete,
 };
 
 #[derive(Serialize)]
@@ -248,6 +257,21 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("consider", "consider Fragment", "CombinedFragment"),
             element_item("Invariant", "State Invariant", "StateInvariant"),
         ]),
+        "Activity" => Ok(vec![
+            element_item("Initial", "Initial Node", "Initial"),
+            element_item("ActivityFinal", "Activity Final", "ActivityFinal"),
+            element_item("FlowFinal", "Flow Final", "FlowFinal"),
+            element_item("OpaqueAction", "Opaque Action", "OpaqueAction"),
+            element_item("Decision", "Decision", "Decision"),
+            element_item("Merge", "Merge", "Merge"),
+            element_item("Fork", "Fork", "Fork"),
+            element_item("Join", "Join", "Join"),
+            element_item("ObjectNode", "Object Node", "ObjectNode"),
+            element_item("CentralBufferNode", "Central Buffer", "CentralBufferNode"),
+            element_item("DataStoreNode", "Data Store", "DataStoreNode"),
+            relationship_item("ControlFlow", "Control Flow", "ControlFlow"),
+            relationship_item("ObjectFlow", "Object Flow", "ObjectFlow"),
+        ]),
         _ => Err(format!("unsupported diagram palette: {diagram_type}")),
     }
 }
@@ -255,11 +279,19 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
 fn main() {
     tauri::Builder::default()
         .manage(WorkspaceState::default())
+        .manage(ActivityWorkspaceState::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             diagram_palette,
             workspace_snapshot,
             workspace_snapshot_complete,
+            activity_snapshot,
+            reset_activity_workspace,
+            create_activity_diagram,
+            add_activity_node,
+            add_activity_edge,
+            save_activity_workspace,
+            load_activity_workspace,
             new_project,
             save_project_file,
             save_project_file_complete,
