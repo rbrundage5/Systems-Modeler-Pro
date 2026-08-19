@@ -157,76 +157,82 @@ pub fn delete_activity_item(
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+    let original_diagram = diagram.clone();
     let mut repository = activity_state
         .repository
         .lock()
         .map_err(|_| "Activity repository lock poisoned")?;
-    let activity = repository
+    let original_activity = repository
         .activities
-        .get_mut(&activity_id)
+        .get(&activity_id)
+        .cloned()
         .ok_or("Activity not found")?;
-    let original_activity = activity.clone();
-    let original_diagram = diagram.clone();
 
-    let result = match item_kind.as_str() {
-        "edge" => {
-            let edge_id = parse_edge_id(&item_id)?;
-            let before = activity.edges.len();
-            activity.edges.retain(|edge| edge.id != edge_id);
-            if before == activity.edges.len() {
-                return Err("Activity edge not found".into());
+    {
+        let activity = repository
+            .activities
+            .get_mut(&activity_id)
+            .ok_or("Activity not found")?;
+        match item_kind.as_str() {
+            "edge" => {
+                let edge_id = parse_edge_id(&item_id)?;
+                let before = activity.edges.len();
+                activity.edges.retain(|edge| edge.id != edge_id);
+                if before == activity.edges.len() {
+                    return Err("Activity edge not found".into());
+                }
+                diagram
+                    .edges
+                    .retain(|edge| edge.activity_edge_id != edge_id.to_string());
             }
-            diagram
-                .edges
-                .retain(|edge| edge.activity_edge_id != edge_id.to_string());
-            Ok(())
-        }
-        "node" => {
-            let node_id = activity_workspace::parse_activity_node_id(&item_id)?;
-            if !activity.nodes.iter().any(|node| node.id == node_id) {
-                return Err("Activity node not found".into());
+            "node" => {
+                let node_id = activity_workspace::parse_activity_node_id(&item_id)?;
+                if !activity.nodes.iter().any(|node| node.id == node_id) {
+                    return Err("Activity node not found".into());
+                }
+                let pins = pin_ids_for_node(activity, node_id);
+                let incident: HashSet<_> = activity
+                    .edges
+                    .iter()
+                    .filter(|edge| {
+                        endpoint_is_incident(edge.source, node_id, &pins)
+                            || endpoint_is_incident(edge.target, node_id, &pins)
+                    })
+                    .map(|edge| edge.id)
+                    .collect();
+                let incident_strings: HashSet<_> =
+                    incident.iter().map(ToString::to_string).collect();
+                activity.edges.retain(|edge| !incident.contains(&edge.id));
+                activity.nodes.retain(|node| node.id != node_id);
+                let removed_presentations: HashSet<_> = diagram
+                    .nodes
+                    .iter()
+                    .filter(|node| node.activity_node_id == node_id.to_string())
+                    .map(|node| node.id.clone())
+                    .collect();
+                diagram
+                    .nodes
+                    .retain(|node| node.activity_node_id != node_id.to_string());
+                diagram.edges.retain(|edge| {
+                    !incident_strings.contains(&edge.activity_edge_id)
+                        && !removed_presentations.contains(&edge.source_node_id)
+                        && !removed_presentations.contains(&edge.target_node_id)
+                });
             }
-            let pins = pin_ids_for_node(activity, node_id);
-            let incident: HashSet<_> = activity
-                .edges
-                .iter()
-                .filter(|edge| {
-                    endpoint_is_incident(edge.source, node_id, &pins)
-                        || endpoint_is_incident(edge.target, node_id, &pins)
-                })
-                .map(|edge| edge.id)
-                .collect();
-            activity.edges.retain(|edge| !incident.contains(&edge.id));
-            activity.nodes.retain(|node| node.id != node_id);
-            let removed_presentations: HashSet<_> = diagram
-                .nodes
-                .iter()
-                .filter(|node| node.activity_node_id == node_id.to_string())
-                .map(|node| node.id.clone())
-                .collect();
-            diagram
-                .nodes
-                .retain(|node| node.activity_node_id != node_id.to_string());
-            diagram.edges.retain(|edge| {
-                !incident.contains(
-                    &uuid::Uuid::parse_str(&edge.activity_edge_id)
-                        .map(ActivityEdgeId)
-                        .unwrap_or(ActivityEdgeId(uuid::Uuid::nil())),
-                ) && !removed_presentations.contains(&edge.source_node_id)
-                    && !removed_presentations.contains(&edge.target_node_id)
-            });
-            Ok(())
+            _ => return Err(format!("unsupported Activity delete kind: {item_kind}")),
         }
-        _ => Err(format!("unsupported Activity delete kind: {item_kind}")),
-    };
+    }
 
-    if let Err(error) = result.and_then(|_| repository.validate(project).map_err(|e| e.to_string())) {
-        *activity = original_activity;
+    if let Err(error) = repository.validate(project).map_err(|error| error.to_string()) {
+        repository.activities.insert(activity_id, original_activity);
         *diagram = original_diagram;
         return Err(error);
     }
-    reroute_diagram(diagram, activity)?;
-    Ok(())
+    let activity = repository
+        .activities
+        .get(&activity_id)
+        .ok_or("Activity not found")?;
+    reroute_diagram(diagram, activity)
 }
 
 #[tauri::command]
@@ -253,58 +259,76 @@ pub fn reconnect_activity_edge(
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+    let original_diagram = diagram.clone();
     let mut repository = activity_state
         .repository
         .lock()
         .map_err(|_| "Activity repository lock poisoned")?;
-    let activity = repository
+    let original_activity = repository
         .activities
-        .get_mut(&activity_id)
+        .get(&activity_id)
+        .cloned()
         .ok_or("Activity not found")?;
-    let original_activity = activity.clone();
-    let original_diagram = diagram.clone();
 
-    let source = parse_endpoint(activity, &source_endpoint)?;
-    let target = parse_endpoint(activity, &target_endpoint)?;
-    if source == target || endpoint_owner(activity, source)? == endpoint_owner(activity, target)? {
-        return Err("Activity flow requires distinct source and target nodes".into());
+    let (source, target) = {
+        let activity = repository
+            .activities
+            .get(&activity_id)
+            .ok_or("Activity not found")?;
+        let source = parse_endpoint(activity, &source_endpoint)?;
+        let target = parse_endpoint(activity, &target_endpoint)?;
+        if source == target || endpoint_owner(activity, source)? == endpoint_owner(activity, target)? {
+            return Err("Activity flow requires distinct source and target nodes".into());
+        }
+        (source, target)
+    };
+    {
+        let activity = repository
+            .activities
+            .get_mut(&activity_id)
+            .ok_or("Activity not found")?;
+        let edge = activity
+            .edges
+            .iter_mut()
+            .find(|edge| edge.id == edge_id)
+            .ok_or("Activity edge not found")?;
+        edge.source = source;
+        edge.target = target;
     }
-    let edge = activity
-        .edges
-        .iter_mut()
-        .find(|edge| edge.id == edge_id)
-        .ok_or("Activity edge not found")?;
-    edge.source = source;
-    edge.target = target;
 
     if let Err(error) = repository.validate(project).map_err(|error| error.to_string()) {
-        *activity = original_activity;
+        repository.activities.insert(activity_id, original_activity);
         *diagram = original_diagram;
         return Err(error);
     }
-    let presentation = diagram
-        .edges
-        .iter_mut()
-        .find(|edge| edge.activity_edge_id == edge_id.to_string())
-        .ok_or("Activity edge is not presented on this diagram")?;
+    let activity = repository
+        .activities
+        .get(&activity_id)
+        .ok_or("Activity not found")?;
     let source_owner = endpoint_owner(activity, source)?.to_string();
     let target_owner = endpoint_owner(activity, target)?.to_string();
-    presentation.source_node_id = diagram
+    let source_presentation_id = diagram
         .nodes
         .iter()
         .find(|node| node.activity_node_id == source_owner)
         .ok_or("source Activity endpoint owner is not presented on this diagram")?
         .id
         .clone();
-    presentation.target_node_id = diagram
+    let target_presentation_id = diagram
         .nodes
         .iter()
         .find(|node| node.activity_node_id == target_owner)
         .ok_or("target Activity endpoint owner is not presented on this diagram")?
         .id
         .clone();
-    reroute_diagram(diagram, activity)?;
-    Ok(())
+    let presentation = diagram
+        .edges
+        .iter_mut()
+        .find(|edge| edge.activity_edge_id == edge_id.to_string())
+        .ok_or("Activity edge is not presented on this diagram")?;
+    presentation.source_node_id = source_presentation_id;
+    presentation.target_node_id = target_presentation_id;
+    reroute_diagram(diagram, activity)
 }
 
 #[tauri::command]
