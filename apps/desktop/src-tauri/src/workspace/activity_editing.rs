@@ -452,17 +452,13 @@ pub fn update_activity_node_semantics(
         }
         ActivityNodeKind::Decision {
             decision_input: value,
-        } => {
-            if decision_input.is_some() {
-                *value = decision_input.filter(|text| !text.is_empty());
-            }
+        } if decision_input.is_some() => {
+            *value = decision_input.filter(|text| !text.is_empty());
         }
         ActivityNodeKind::Join {
             join_specification: value,
-        } => {
-            if join_specification.is_some() {
-                *value = join_specification.filter(|text| !text.is_empty());
-            }
+        } if join_specification.is_some() => {
+            *value = join_specification.filter(|text| !text.is_empty());
         }
         _ => {}
     }
