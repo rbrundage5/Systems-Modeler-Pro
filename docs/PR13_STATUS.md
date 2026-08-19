@@ -15,13 +15,14 @@ Completed implementation boundaries:
 - The Rust/Tauri Activity workspace is implemented with Activity state, Activity diagram presentation metadata, Activity snapshots, diagram creation, executable node/flow commands, metadata save/load, Rust-owned palette entries, and shared obstacle-safe routing reuse.
 - The Activity desktop create/connect/save/reopen/render checkpoint passed on Linux and Windows.
 - Richer Activity editing now exposes CallBehaviorAction, CallOperationAction, SendSignalAction, AcceptEventAction, AcceptTimeEventAction, ActivityParameterNodes, operation-derived pins, partitions, structured regions, node assignment, and Rust-backed semantic property editing.
+- The richer Activity semantic-editing checkpoint passed Linux/core and Windows/desktop qualification.
 
-Current qualification state:
-- The richer Activity editing checkpoint initially stopped at `cargo fmt --all --check` before compilation.
-- Canonical rustfmt formatting was applied to the richer Rust slice.
-- Strict Clippy then identified a `collapsible_match` issue in Activity Decision/Join property updates; the narrow idiomatic match-guard correction is being applied without changing Activity semantics.
-- Standard Linux/core and Windows/desktop CI will rerun on that corrected head before further Activity scope is added.
+Current implementation slice:
+- Add true semantic pin endpoints for Object Flows while preserving the existing `add_activity_edge` command contract.
+- Render action pins from Rust snapshots and allow pin selection only for Object Flow endpoints.
+- Render ActivityPartitions as swimlane geometry and structured Activity nodes/regions as derived presentation frames without moving semantic ownership into JavaScript.
+- Follow with deletion/reconnection, drill-down/navigation, and final routing qualification.
 
-Remaining scope includes pin-to-pin Object Flow editing, visual partition/structured-region geometry, deletion/reconnection/drill-down, final routing qualification, and focused manual create/edit/connect/save/reopen acceptance.
+Remaining completion gates include deletion/reconnection/drill-down, final routing qualification, and focused manual create/edit/connect/save/reopen acceptance.
 
 No completion claim is made until the gates in `PR13_IMPLEMENTATION_CHECKLIST.md` are satisfied.
