@@ -16,10 +16,6 @@
       || isSessionResetCommand(label);
   }
 
-  async function resetHistory() {
-    await requireInvoke()('history_reset');
-  }
-
   async function checkpointIfNeeded(label) {
     if (restoringHistory || isNonMutatingCommand(label)) return;
     await requireInvoke()('history_checkpoint');
@@ -28,34 +24,10 @@
   const baseRunCommand = runCommand;
   runCommand = async function runCommandWithHistory(label, operation) {
     await checkpointIfNeeded(label);
-    try {
-      const result = await baseRunCommand(label, operation);
-      if (isSessionResetCommand(label)) await resetHistory();
-      return result;
-    } catch (error) {
-      // A failed command must not leave an unusable history checkpoint. Remove
-      // the speculative checkpoint by restoring it, then discard the redo entry.
-      if (!restoringHistory && !isNonMutatingCommand(label)) {
-        restoringHistory = true;
-        try {
-          const reverted = await requireInvoke()('history_undo');
-          if (reverted) await requireInvoke()('history_reset');
-        } catch (rollbackError) {
-          console.error('Unable to discard failed history checkpoint', rollbackError);
-        } finally {
-          restoringHistory = false;
-        }
-      }
-      throw error;
-    }
+    const result = await baseRunCommand(label, operation);
+    if (isSessionResetCommand(label)) await requireInvoke()('history_reset');
+    return result;
   };
-
-  async function refreshAfterHistory() {
-    // refresh() is already wrapped by the validated structural, Activity, and
-    // behavior-refresh-authority layers. Reuse that qualified path rather than
-    // introducing another snapshot synchronizer here.
-    await refresh();
-  }
 
   async function performHistory(direction) {
     if (historyBusy) return;
@@ -75,7 +47,11 @@
       state.paletteTool = null;
       state.behaviorPending = null;
       state.behaviorTool = null;
-      await refreshAfterHistory();
+
+      // This is the already-qualified refresh chain. In particular,
+      // behavior-refresh-authority rehydrates STM/SEQ from behavior_snapshot
+      // and preserves the active Behavior diagram when it still exists.
+      await refresh();
       renderStatus(direction === 'undo' ? 'Undo complete' : 'Redo complete');
     } catch (error) {
       const message = error?.message || String(error);
