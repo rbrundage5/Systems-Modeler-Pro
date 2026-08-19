@@ -372,6 +372,35 @@ pub fn add_activity_node(
     Ok(node_id.to_string())
 }
 
+fn resolve_activity_endpoint(
+    activity: &systems_modeler_core::Activity,
+    token: &str,
+) -> Result<(ActivityEndpoint, ActivityNodeId), String> {
+    if let Some(value) = token.strip_prefix("pin:") {
+        let pin_id = uuid::Uuid::parse_str(value)
+            .map(systems_modeler_core::PinId)
+            .map_err(|_| format!("invalid Activity pin id: {value}"))?;
+        let owner = activity
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(
+                    &node.kind,
+                    ActivityNodeKind::Action(action)
+                        if action.pins.iter().any(|pin| pin.id == pin_id)
+                )
+            })
+            .ok_or_else(|| format!("Activity pin is not owned by this Activity: {pin_id}"))?;
+        Ok((ActivityEndpoint::Pin(pin_id), owner.id))
+    } else {
+        let node_id = parse_activity_node_id(token)?;
+        if !activity.nodes.iter().any(|node| node.id == node_id) {
+            return Err("Activity flow endpoint is not owned by this Activity".into());
+        }
+        Ok((ActivityEndpoint::Node(node_id), node_id))
+    }
+}
+
 #[tauri::command]
 pub fn add_activity_edge(
     diagram_id: String,
@@ -382,11 +411,6 @@ pub fn add_activity_edge(
     weight: Option<String>,
     activity_state: tauri::State<'_, ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    let source_id = parse_activity_node_id(&source_activity_node_id)?;
-    let target_id = parse_activity_node_id(&target_activity_node_id)?;
-    if source_id == target_id {
-        return Err("Activity flow cannot connect a node to itself".into());
-    }
     let edge_kind = match kind.as_str() {
         "ControlFlow" => ActivityEdgeKind::ControlFlow,
         "ObjectFlow" => ActivityEdgeKind::ObjectFlow,
@@ -401,18 +425,6 @@ pub fn add_activity_edge(
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = parse_activity_id(&diagram.activity_id)?;
-    let source_presentation = diagram
-        .nodes
-        .iter()
-        .find(|node| node.activity_node_id == source_activity_node_id)
-        .cloned()
-        .ok_or("source Activity node is not presented on this diagram")?;
-    let target_presentation = diagram
-        .nodes
-        .iter()
-        .find(|node| node.activity_node_id == target_activity_node_id)
-        .cloned()
-        .ok_or("target Activity node is not presented on this diagram")?;
 
     let mut repository = activity_state
         .repository
@@ -422,18 +434,71 @@ pub fn add_activity_edge(
         .activities
         .get_mut(&activity_id)
         .ok_or("Activity not found")?;
-    if !activity.nodes.iter().any(|node| node.id == source_id)
-        || !activity.nodes.iter().any(|node| node.id == target_id)
-    {
-        return Err("Activity flow endpoint is not owned by this Activity".into());
+    let (source_endpoint, source_owner_id) =
+        resolve_activity_endpoint(activity, &source_activity_node_id)?;
+    let (target_endpoint, target_owner_id) =
+        resolve_activity_endpoint(activity, &target_activity_node_id)?;
+    if source_endpoint == target_endpoint || source_owner_id == target_owner_id {
+        return Err("Activity flow requires distinct source and target nodes".into());
     }
+    if edge_kind == ActivityEdgeKind::ControlFlow
+        && (matches!(source_endpoint, ActivityEndpoint::Pin(_))
+            || matches!(target_endpoint, ActivityEndpoint::Pin(_)))
+    {
+        return Err("ControlFlow cannot connect directly to Activity pins".into());
+    }
+
+    if edge_kind == ActivityEdgeKind::ObjectFlow {
+        let source_pin = match source_endpoint {
+            ActivityEndpoint::Pin(pin_id) => activity.nodes.iter().find_map(|node| match &node.kind {
+                ActivityNodeKind::Action(action) => action.pins.iter().find(|pin| pin.id == pin_id),
+                _ => None,
+            }),
+            ActivityEndpoint::Node(_) => None,
+        };
+        let target_pin = match target_endpoint {
+            ActivityEndpoint::Pin(pin_id) => activity.nodes.iter().find_map(|node| match &node.kind {
+                ActivityNodeKind::Action(action) => action.pins.iter().find(|pin| pin.id == pin_id),
+                _ => None,
+            }),
+            ActivityEndpoint::Node(_) => None,
+        };
+        if source_pin.is_some_and(|pin| pin.direction == systems_modeler_core::PinDirection::Input)
+            || target_pin.is_some_and(|pin| pin.direction == systems_modeler_core::PinDirection::Output)
+        {
+            return Err("ObjectFlow pin direction is invalid".into());
+        }
+        if let (Some(source), Some(target)) = (source_pin, target_pin)
+            && source.type_id.is_some()
+            && target.type_id.is_some()
+            && source.type_id != target.type_id
+        {
+            return Err("ObjectFlow pin types are incompatible".into());
+        }
+    }
+
+    let source_owner = source_owner_id.to_string();
+    let target_owner = target_owner_id.to_string();
+    let source_presentation = diagram
+        .nodes
+        .iter()
+        .find(|node| node.activity_node_id == source_owner)
+        .cloned()
+        .ok_or("source Activity endpoint owner is not presented on this diagram")?;
+    let target_presentation = diagram
+        .nodes
+        .iter()
+        .find(|node| node.activity_node_id == target_owner)
+        .cloned()
+        .ok_or("target Activity endpoint owner is not presented on this diagram")?;
+
     let edge_id = ActivityEdgeId::new();
     activity.edges.push(ActivityEdge {
         id: edge_id,
         name: String::new(),
         kind: edge_kind,
-        source: ActivityEndpoint::Node(source_id),
-        target: ActivityEndpoint::Node(target_id),
+        source: source_endpoint,
+        target: target_endpoint,
         guard,
         weight,
         selection: None,
