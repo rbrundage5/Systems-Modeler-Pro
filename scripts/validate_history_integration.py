@@ -39,8 +39,16 @@ require(
     "history_redo",
     "history_reset",
     "await refresh();",
-    "Ctrl+Z",
-    "Ctrl+Y / Ctrl+Shift+Z",
+    "window.smpUndo",
+    "window.smpRedo",
+)
+require(
+    "apps/desktop/frontend/ui-shell.js",
+    "data-action=\"undo\"",
+    "data-action=\"redo\"",
+    "window.smpUndo?.()",
+    "window.smpRedo?.()",
+    "History",
 )
 
 index = text("apps/desktop/frontend/index.html")
@@ -68,4 +76,4 @@ if (root / "apps/desktop/frontend/authoritative-mutation-sync.js").exists():
         "authoritative-mutation-sync.js must not return; it caused the STM/SEQ regression"
     )
 
-print("PR13 history integration preserves qualified cross-diagram refresh authority")
+print("PR13 history integration preserves qualified cross-diagram refresh authority and visible shell controls")
