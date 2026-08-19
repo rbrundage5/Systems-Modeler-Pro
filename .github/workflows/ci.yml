@@ -48,7 +48,8 @@ jobs:
             apps/desktop/frontend/project-open-compat.js \
             apps/desktop/frontend/diagram-interaction.js \
             apps/desktop/frontend/repository-tree-ui.js \
-            apps/desktop/frontend/interaction-runtime-fixes.js; do
+            apps/desktop/frontend/interaction-runtime-fixes.js \
+            apps/desktop/frontend/bdd-compartment-visibility.js; do
             node --check "$file"
           done
       - name: Behavior desktop integration contract
