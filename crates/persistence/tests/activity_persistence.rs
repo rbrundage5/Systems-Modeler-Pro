@@ -1,9 +1,9 @@
 use systems_modeler_core::{
-    Action, ActionKind, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint, ActivityNode,
-    ActivityNodeId, ActivityNodeKind, ActivityRepository, ElementKind, Project,
+    Action, ActionKind, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint,
+    ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository, ElementKind, Project,
 };
 use systems_modeler_persistence::{
-    load_activity_repository, save_activity_repository, ProjectDatabase,
+    ProjectDatabase, load_activity_repository, save_activity_repository,
 };
 
 fn node(name: &str, kind: ActivityNodeKind) -> ActivityNode {
@@ -87,11 +87,31 @@ fn activity_repository_round_trips_with_stable_semantic_identity() {
     assert_eq!(loaded_activity.id, activity_id);
     assert_eq!(loaded_activity.owner_id, behavior_package);
     assert_eq!(loaded_activity.context_id, Some(controller));
-    assert!(loaded_activity.nodes.iter().any(|node| node.id == initial_id));
-    assert!(loaded_activity.nodes.iter().any(|node| node.id == action_id));
+    assert!(
+        loaded_activity
+            .nodes
+            .iter()
+            .any(|node| node.id == initial_id)
+    );
+    assert!(
+        loaded_activity
+            .nodes
+            .iter()
+            .any(|node| node.id == action_id)
+    );
     assert!(loaded_activity.nodes.iter().any(|node| node.id == final_id));
-    assert!(loaded_activity.edges.iter().any(|edge| edge.id == first_edge_id));
-    assert!(loaded_activity.edges.iter().any(|edge| edge.id == second_edge_id));
+    assert!(
+        loaded_activity
+            .edges
+            .iter()
+            .any(|edge| edge.id == first_edge_id)
+    );
+    assert!(
+        loaded_activity
+            .edges
+            .iter()
+            .any(|edge| edge.id == second_edge_id)
+    );
 
     loaded.validate(&loaded_project).unwrap();
 }
