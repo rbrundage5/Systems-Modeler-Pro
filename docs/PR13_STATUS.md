@@ -18,8 +18,9 @@ Completed implementation boundaries:
 
 Current qualification state:
 - The richer Activity editing checkpoint initially stopped at `cargo fmt --all --check` before compilation.
-- Canonical rustfmt formatting has now been applied to the richer Rust slice; no semantic behavior was changed by that fix.
-- Standard Linux/core and Windows/desktop CI is being rerun on the formatted head before any further Activity scope is added.
+- Canonical rustfmt formatting was applied to the richer Rust slice.
+- Strict Clippy then identified a `collapsible_match` issue in Activity Decision/Join property updates; the narrow idiomatic match-guard correction is being applied without changing Activity semantics.
+- Standard Linux/core and Windows/desktop CI will rerun on that corrected head before further Activity scope is added.
 
 Remaining scope includes pin-to-pin Object Flow editing, visual partition/structured-region geometry, deletion/reconnection/drill-down, final routing qualification, and focused manual create/edit/connect/save/reopen acceptance.
 
