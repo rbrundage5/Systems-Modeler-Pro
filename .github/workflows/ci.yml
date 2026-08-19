@@ -51,7 +51,8 @@ jobs:
             apps/desktop/frontend/interaction-runtime-fixes.js \
             apps/desktop/frontend/bdd-compartment-visibility.js \
             apps/desktop/frontend/structural-interaction-rebind.js \
-            apps/desktop/frontend/undo-redo-ui.js; do
+            apps/desktop/frontend/undo-redo-ui.js \
+            apps/desktop/frontend/authoritative-mutation-sync.js; do
             node --check "$file"
           done
       - name: Behavior desktop integration contract
@@ -60,6 +61,8 @@ jobs:
         run: python scripts/validate_activity_integration.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
+      - name: General interaction synchronization contract
+        run: python scripts/validate_general_interaction.py
 
   desktop-check:
     runs-on: windows-latest
@@ -80,6 +83,8 @@ jobs:
         run: python scripts/validate_activity_integration.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
+      - name: General interaction synchronization contract
+        run: python scripts/validate_general_interaction.py
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
