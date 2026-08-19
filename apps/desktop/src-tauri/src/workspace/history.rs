@@ -115,7 +115,10 @@ pub fn history_checkpoint(
     history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     let snapshot = capture(&workspace, &activity)?;
-    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
     undo.push(snapshot);
     if undo.len() > HISTORY_LIMIT {
         undo.remove(0);
@@ -135,7 +138,10 @@ pub fn history_undo(
     history: tauri::State<'_, HistoryState>,
 ) -> Result<bool, String> {
     let target = {
-        let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
+        let mut undo = history
+            .undo
+            .lock()
+            .map_err(|_| "undo history lock poisoned")?;
         undo.pop()
     };
     let Some(target) = target else {
@@ -143,7 +149,10 @@ pub fn history_undo(
     };
     let current = capture(&workspace, &activity)?;
     restore(target, &workspace, &activity)?;
-    let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
     redo.push(current);
     if redo.len() > HISTORY_LIMIT {
         redo.remove(0);
@@ -158,7 +167,10 @@ pub fn history_redo(
     history: tauri::State<'_, HistoryState>,
 ) -> Result<bool, String> {
     let target = {
-        let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+        let mut redo = history
+            .redo
+            .lock()
+            .map_err(|_| "redo history lock poisoned")?;
         redo.pop()
     };
     let Some(target) = target else {
@@ -166,7 +178,10 @@ pub fn history_redo(
     };
     let current = capture(&workspace, &activity)?;
     restore(target, &workspace, &activity)?;
-    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
     undo.push(current);
     if undo.len() > HISTORY_LIMIT {
         undo.remove(0);
