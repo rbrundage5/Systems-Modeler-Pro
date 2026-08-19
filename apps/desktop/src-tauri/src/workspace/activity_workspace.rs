@@ -2,9 +2,9 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use systems_modeler_core::{
-    Action, ActionKind, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint, ActivityId,
-    ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository, ObjectNode, ObjectNodeKind,
-    ObjectNodeOrdering,
+    Action, ActionKind, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint,
+    ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository, ObjectNode,
+    ObjectNodeKind, ObjectNodeOrdering,
 };
 use systems_modeler_persistence::{load_activity_repository, save_activity_repository};
 
@@ -101,39 +101,70 @@ fn validate_activity_diagrams(
     let mut presentation_edge_ids = HashSet::new();
     for diagram in diagrams {
         if uuid::Uuid::parse_str(&diagram.id).is_err() || !diagram_ids.insert(&diagram.id) {
-            return Err(format!("invalid or duplicate Activity diagram id: {}", diagram.id));
+            return Err(format!(
+                "invalid or duplicate Activity diagram id: {}",
+                diagram.id
+            ));
         }
         let activity_id = parse_activity_id(&diagram.activity_id)?;
-        let activity = repository
-            .activities
-            .get(&activity_id)
-            .ok_or_else(|| format!("Activity diagram references missing activity: {activity_id}"))?;
+        let activity = repository.activities.get(&activity_id).ok_or_else(|| {
+            format!("Activity diagram references missing activity: {activity_id}")
+        })?;
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() || !presentation_ids.insert(&node.id) {
-                return Err(format!("invalid or duplicate Activity presentation node: {}", node.id));
+                return Err(format!(
+                    "invalid or duplicate Activity presentation node: {}",
+                    node.id
+                ));
             }
             let semantic_id = parse_activity_node_id(&node.activity_node_id)?;
-            if !activity.nodes.iter().any(|candidate| candidate.id == semantic_id) {
-                return Err(format!("Activity presentation references missing node: {semantic_id}"));
+            if !activity
+                .nodes
+                .iter()
+                .any(|candidate| candidate.id == semantic_id)
+            {
+                return Err(format!(
+                    "Activity presentation references missing node: {semantic_id}"
+                ));
             }
         }
         for edge in &diagram.edges {
             if uuid::Uuid::parse_str(&edge.id).is_err() || !presentation_edge_ids.insert(&edge.id) {
-                return Err(format!("invalid or duplicate Activity presentation edge: {}", edge.id));
+                return Err(format!(
+                    "invalid or duplicate Activity presentation edge: {}",
+                    edge.id
+                ));
             }
             let semantic_edge_id = uuid::Uuid::parse_str(&edge.activity_edge_id)
                 .map(ActivityEdgeId)
                 .map_err(|_| format!("invalid Activity edge id: {}", edge.activity_edge_id))?;
-            if !activity.edges.iter().any(|candidate| candidate.id == semantic_edge_id) {
-                return Err(format!("Activity presentation references missing edge: {semantic_edge_id}"));
-            }
-            if !diagram.nodes.iter().any(|node| node.id == edge.source_node_id)
-                || !diagram.nodes.iter().any(|node| node.id == edge.target_node_id)
+            if !activity
+                .edges
+                .iter()
+                .any(|candidate| candidate.id == semantic_edge_id)
             {
-                return Err("Activity presentation edge references a missing presentation node".into());
+                return Err(format!(
+                    "Activity presentation references missing edge: {semantic_edge_id}"
+                ));
+            }
+            if !diagram
+                .nodes
+                .iter()
+                .any(|node| node.id == edge.source_node_id)
+                || !diagram
+                    .nodes
+                    .iter()
+                    .any(|node| node.id == edge.target_node_id)
+            {
+                return Err(
+                    "Activity presentation edge references a missing presentation node".into(),
+                );
             }
             if edge.points.len() < 2 || !routing::route_is_clear(&edge.points, &[]) {
-                return Err(format!("Activity presentation edge has invalid route: {}", edge.id));
+                return Err(format!(
+                    "Activity presentation edge has invalid route: {}",
+                    edge.id
+                ));
             }
         }
     }
@@ -146,7 +177,9 @@ pub fn save_activity_workspace_metadata(
     repository: &ActivityRepository,
     diagrams: &[ActivityDiagram],
 ) -> Result<(), String> {
-    repository.validate(project).map_err(|error| error.to_string())?;
+    repository
+        .validate(project)
+        .map_err(|error| error.to_string())?;
     validate_activity_diagrams(repository, diagrams)?;
     save_activity_repository(database, project, repository).map_err(|error| error.to_string())?;
     let payload = serde_json::to_string(diagrams).map_err(|error| error.to_string())?;
@@ -159,7 +192,8 @@ pub fn load_activity_workspace_metadata(
     database: &ProjectDatabase,
     project: &Project,
 ) -> Result<(ActivityRepository, Vec<ActivityDiagram>), String> {
-    let repository = load_activity_repository(database, project).map_err(|error| error.to_string())?;
+    let repository =
+        load_activity_repository(database, project).map_err(|error| error.to_string())?;
     let diagrams = match database
         .load_metadata(project.id, ACTIVITY_DIAGRAM_METADATA_KEY)
         .map_err(|error| error.to_string())?
@@ -216,7 +250,10 @@ pub fn create_activity_diagram(
 ) -> Result<String, String> {
     let owner_id = parse_element_id(&owner_id)?;
     let context_id = context_id.as_deref().map(parse_element_id).transpose()?;
-    let project_guard = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let project_guard = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_ref().ok_or("no project open")?;
     let mut repository = activity_state
         .repository
@@ -246,14 +283,18 @@ fn make_activity_node(kind: &str, name: String) -> Result<ActivityNode, String> 
         "Initial" => ActivityNodeKind::Initial,
         "ActivityFinal" => ActivityNodeKind::ActivityFinal,
         "FlowFinal" => ActivityNodeKind::FlowFinal,
-        "Decision" => ActivityNodeKind::Decision { decision_input: None },
+        "Decision" => ActivityNodeKind::Decision {
+            decision_input: None,
+        },
         "Merge" => ActivityNodeKind::Merge,
         "Fork" => ActivityNodeKind::Fork,
         "Join" => ActivityNodeKind::Join {
             join_specification: None,
         },
         "OpaqueAction" => ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body: String::new() },
+            kind: ActionKind::Opaque {
+                body: String::new(),
+            },
             pins: Vec::new(),
         }),
         "ObjectNode" => ActivityNodeKind::Object(ObjectNode {
@@ -437,7 +478,10 @@ pub fn save_activity_workspace(
     activity_state: tauri::State<'_, ActivityWorkspaceState>,
 ) -> Result<String, String> {
     let path = normalize_project_path(&path)?;
-    let project_guard = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let project_guard = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_ref().ok_or("no project open")?;
     let repository = activity_state
         .repository
@@ -460,8 +504,13 @@ pub fn load_activity_workspace(
 ) -> Result<(), String> {
     let path = normalize_project_path(&path)?;
     let database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
-    let project_guard = workspace.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_ref().ok_or("open the project before loading Activity metadata")?;
+    let project_guard = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
+    let project = project_guard
+        .as_ref()
+        .ok_or("open the project before loading Activity metadata")?;
     let (repository, diagrams) = load_activity_workspace_metadata(&database, project)?;
     *activity_state
         .repository
