@@ -3,7 +3,7 @@
 
   requireInvoke = function requireInvokeWithBehaviorAuthority() {
     const invoke = previousRequireInvoke();
-    return (command, args = {}) => {
+    return async (command, args = {}) => {
       if (command === 'create_state_machine_diagram') {
         return invoke('create_state_machine_diagram_staged', args);
       }
@@ -23,26 +23,25 @@
           effect: args.effect ?? null,
         });
       }
-      return invoke(command, args);
-    };
-  };
 
-  // app.js historically reloads only the structural workspace snapshot after
-  // Open. Because behavior metadata is restored by Rust in the same project-open
-  // command, hydrate the Rust behavior snapshot immediately after that handler
-  // completes so saved STM/SEQ diagrams appear without creating another diagram.
-  const openProjectButton = $('open-project');
-  const previousOpenProject = openProjectButton?.onclick;
-  if (openProjectButton && previousOpenProject) {
-    openProjectButton.onclick = async function openProjectWithBehaviorHydration(event) {
-      const result = await previousOpenProject.call(this, event);
-      await window.smpLoadBehaviorSnapshot?.();
-      state.selectedBehaviorDiagramId = null;
-      state.selectedBehaviorItem = null;
-      state.behaviorTool = null;
-      state.behaviorPending = null;
-      render();
+      const result = await invoke(command, args);
+
+      // Rust restores BDD, IBD, State Machine and Sequence metadata atomically
+      // inside open_project_file. Hydrate the behavior snapshot before the
+      // command promise resolves so every frontend Open path renders from the
+      // fully restored Rust workspace on its first render.
+      if (command === 'open_project_file') {
+        if (typeof window.smpLoadBehaviorSnapshot !== 'function') {
+          throw new Error('Behavior snapshot loader is unavailable after project open.');
+        }
+        await window.smpLoadBehaviorSnapshot();
+        state.selectedBehaviorDiagramId = null;
+        state.selectedBehaviorItem = null;
+        state.behaviorTool = null;
+        state.behaviorPending = null;
+      }
+
       return result;
     };
-  }
+  };
 })();
