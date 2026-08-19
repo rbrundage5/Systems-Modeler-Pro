@@ -1,6 +1,7 @@
 mod workspace {
     include!("workspace.rs");
     mod activity_editing;
+    mod activity_mutation;
     mod activity_workspace;
     mod bdd_elements;
     mod behavior_completion;
@@ -15,6 +16,9 @@ mod workspace {
         add_activity_action, add_activity_parameter_node, add_activity_partition,
         add_structured_activity_node, assign_activity_node_partition,
         assign_activity_node_structured_parent, update_activity_node_semantics,
+    };
+    pub use activity_mutation::{
+        delete_activity_item, reconnect_activity_edge, route_activity_diagram,
     };
     pub use activity_workspace::{
         ActivityWorkspaceState, activity_snapshot, add_activity_edge, add_activity_node,
@@ -66,17 +70,17 @@ use workspace::{
     create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
     create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
     create_ibd_connector, create_package, create_sequence_diagram, create_sequence_diagram_staged,
-    create_state_machine_diagram, create_state_machine_diagram_staged, delete_bdd_relationship,
-    delete_behavior_item, ibd_item_flow_notation, load_activity_workspace, move_sequence_lifeline,
-    move_state_vertex, new_project, open_project_file, open_project_file_complete,
-    place_bdd_element, place_element_on_bdd, populate_ibd_from_context, reconnect_bdd_relationship,
-    reconnect_sequence_message, rename_element, reset_activity_workspace,
-    resize_sequence_lifeline_timeline, route_ibd, save_activity_workspace, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_activity_node_semantics, update_association_end, update_bdd_element_details,
-    update_bdd_feature_semantics, update_combined_fragment_operand, update_execution_specification,
-    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
-    update_state_invariant, update_state_transition, workspace_snapshot,
+    create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
+    delete_bdd_relationship, delete_behavior_item, ibd_item_flow_notation, load_activity_workspace,
+    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
+    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
+    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message, rename_element,
+    reset_activity_workspace, resize_sequence_lifeline_timeline, route_activity_diagram, route_ibd,
+    save_activity_workspace, save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, update_activity_node_semantics, update_association_end,
+    update_bdd_element_details, update_bdd_feature_semantics, update_combined_fragment_operand,
+    update_execution_specification, update_sequence_message, update_sequence_message_complete,
+    update_state_behaviors, update_state_invariant, update_state_transition, workspace_snapshot,
     workspace_snapshot_complete,
 };
 
@@ -350,6 +354,9 @@ fn main() {
             add_structured_activity_node,
             assign_activity_node_structured_parent,
             update_activity_node_semantics,
+            delete_activity_item,
+            reconnect_activity_edge,
+            route_activity_diagram,
             save_activity_workspace,
             load_activity_workspace,
             new_project,
