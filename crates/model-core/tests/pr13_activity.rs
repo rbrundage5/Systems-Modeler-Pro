@@ -1,11 +1,4 @@
-pub use systems_modeler_core::{
-    ElementId, ElementKind, ModelError, Multiplicity, ParameterDirection, Project,
-};
-
-#[path = "../src/activity.rs"]
-mod activity;
-
-use activity::*;
+use systems_modeler_core::*;
 
 fn base_project() -> (Project, ElementId, ElementId, ElementId) {
     let mut project = Project::new("Activity qualification");
