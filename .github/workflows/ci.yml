@@ -42,7 +42,8 @@ jobs:
             apps/desktop/frontend/behavior-command-authority.js \
             apps/desktop/frontend/behavior-authoritative-renderer.js \
             apps/desktop/frontend/activity-ui.js \
-            apps/desktop/frontend/activity-rich-ui.js; do
+            apps/desktop/frontend/activity-rich-ui.js \
+            apps/desktop/frontend/activity-navigation-ui.js; do
             node --check "$file"
           done
       - name: Behavior desktop integration contract
