@@ -60,6 +60,26 @@ fn route_rect(node: &activity_workspace::ActivityDiagramNode) -> routing::RouteR
     }
 }
 
+fn rect_overlaps_corridor(
+    rect: routing::RouteRect,
+    source: routing::RouteRect,
+    target: routing::RouteRect,
+) -> bool {
+    const CORRIDOR_PADDING: f64 = 72.0;
+    let left = source.x.min(target.x) - CORRIDOR_PADDING;
+    let right = (source.x + source.width)
+        .max(target.x + target.width)
+        + CORRIDOR_PADDING;
+    let top = source.y.min(target.y) - CORRIDOR_PADDING;
+    let bottom = (source.y + source.height)
+        .max(target.y + target.height)
+        + CORRIDOR_PADDING;
+    rect.x + rect.width >= left
+        && rect.x <= right
+        && rect.y + rect.height >= top
+        && rect.y <= bottom
+}
+
 fn route_semantic_edge(
     diagram: &activity_workspace::ActivityDiagram,
     activity: &Activity,
@@ -78,15 +98,18 @@ fn route_semantic_edge(
         .iter()
         .find(|node| node.activity_node_id == target_owner)
         .ok_or("target Activity endpoint owner is not presented on this diagram")?;
+    let source_rect = route_rect(source);
+    let target_rect = route_rect(target);
     let obstacles: Vec<_> = diagram
         .nodes
         .iter()
         .filter(|node| node.id != source.id && node.id != target.id)
         .map(route_rect)
+        .filter(|rect| rect_overlaps_corridor(*rect, source_rect, target_rect))
         .collect();
     Ok(routing::orthogonal_route(routing::RouteRequest {
-        source: route_rect(source),
-        target: route_rect(target),
+        source: source_rect,
+        target: target_rect,
         obstacles: &obstacles,
         lane_index,
     }))
@@ -103,10 +126,20 @@ fn reroute_diagram(
             .iter()
             .find(|edge| edge.id.to_string() == presentation.activity_edge_id)
             .ok_or("Activity presentation edge references missing semantic edge")?;
-        // Assign every Activity flow a deterministic diagram-wide lane. This
-        // separates decision/merge/fork/join branches while retaining the
-        // shared obstacle-safe orthogonal router.
-        presentation.points = route_semantic_edge(&snapshot, activity, semantic, index)?;
+        // Separate flows that actually branch from or converge on the same
+        // endpoint. Unrelated flows can reuse lane zero, avoiding the large
+        // perimeter detours caused by a diagram-global monotonically growing
+        // lane index.
+        let lane_index = snapshot.edges[..index]
+            .iter()
+            .filter(|candidate| {
+                candidate.source_node_id == presentation.source_node_id
+                    || candidate.target_node_id == presentation.target_node_id
+                    || candidate.source_node_id == presentation.target_node_id
+                    || candidate.target_node_id == presentation.source_node_id
+            })
+            .count();
+        presentation.points = route_semantic_edge(&snapshot, activity, semantic, lane_index)?;
     }
     Ok(())
 }
