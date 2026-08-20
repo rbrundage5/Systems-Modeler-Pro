@@ -95,6 +95,10 @@ assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
 assert 'storedRoute?.label_anchor||' in behavior_ui
 assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
 assert 'container-type:inline-size' in styles and 'font-size:clamp(' in styles
+for kind in ["PartProperty", "ReferenceProperty", "ProxyPort", "FullPort", "ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
+    assert f'("{kind}",' in theme
+for kind in ["ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
+    assert f"semanticKind='{kind}'" in behavior_ui
 presentation = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 assert 'data-semantic-kind=\\\"Lifeline\\\"]{background:transparent' in presentation
 assert 'ACTIVITY_CALL' in presentation and 'ACTIVITY_OBJECT' in presentation
