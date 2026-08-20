@@ -20,6 +20,9 @@ family_contract = read(root / "crates/model-core/src/diagram_family.rs")
 for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
     assert f'registerRenderer(\'{family}\'' in workspace
     assert f'"{family}"' in family_contract
+for abbreviation, context_kind in [("bdd", "package"), ("ibd", "block"), ("stm", "stateMachine"), ("seq", "interaction"), ("act", "activity")]:
+    assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
+assert "frameAbbreviation" in workspace and "frameContextKind" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
