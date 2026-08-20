@@ -23,6 +23,8 @@ pub struct ActiveDiagramContext {
     pub diagram_id: String,
     pub family: DiagramFamilyDescriptor,
     pub name: String,
+    pub model_element_name: String,
+    pub frame_label: String,
     pub semantic_context_id: String,
 }
 
@@ -194,6 +196,7 @@ pub fn activate_diagram(
     diagram_id: String,
     family_id: String,
     name: String,
+    model_element_name: Option<String>,
     semantic_context_id: String,
 ) -> Result<ActiveWorkspaceSnapshot, String> {
     if uuid::Uuid::parse_str(&diagram_id).is_err() {
@@ -204,10 +207,19 @@ pub fn activate_diagram(
         .get(&family_id)
         .cloned()
         .ok_or_else(|| format!("unregistered diagram family: {}", family_id.0))?;
+    let model_element_name = model_element_name
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| name.clone());
+    let frame_label = format!(
+        "{} [{}] {} [{}]",
+        family.frame_abbreviation, family.frame_model_element_type, model_element_name, name
+    );
     let context = ActiveDiagramContext {
         diagram_id,
         family,
         name,
+        model_element_name,
+        frame_label,
         semantic_context_id,
     };
     let changed_diagram = state
@@ -487,6 +499,8 @@ mod tests {
             diagram_id: uuid::Uuid::new_v4().to_string(),
             family: family.clone(),
             name: "System Structure".into(),
+            model_element_name: "Vehicle".into(),
+            frame_label: "bdd [Package] Vehicle [System Structure]".into(),
             semantic_context_id: "model".into(),
         };
         let snapshot = ActiveWorkspaceSnapshot {
@@ -499,6 +513,10 @@ mod tests {
         };
         let value = serde_json::to_value(snapshot).expect("workspace host snapshot serializes");
         assert!(value["context"]["diagramId"].is_string());
+        assert_eq!(
+            value["context"]["frameLabel"],
+            "bdd [Package] Vehicle [System Structure]"
+        );
         assert!(value["interaction"]["revision"].is_number());
         assert!(value["commands"].is_array());
     }
