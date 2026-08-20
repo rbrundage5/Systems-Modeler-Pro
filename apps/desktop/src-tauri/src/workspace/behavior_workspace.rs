@@ -47,6 +47,12 @@ pub struct LifelinePresentation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorEdgePresentation {
+    pub semantic_id: String,
+    pub points: Vec<DiagramPoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorDiagram {
     pub id: String,
     pub name: String,
@@ -58,6 +64,8 @@ pub struct BehaviorDiagram {
     pub state_nodes: Vec<StateNodePresentation>,
     #[serde(default)]
     pub lifelines: Vec<LifelinePresentation>,
+    #[serde(default)]
+    pub edge_routes: Vec<BehaviorEdgePresentation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +170,26 @@ fn find_vertex(regions: &[Region], wanted: VertexId) -> Option<&Vertex> {
         }
     }
     None
+}
+
+fn collect_transition_endpoints(
+    regions: &[Region],
+    output: &mut Vec<(String, String, String)>,
+) {
+    for region in regions {
+        output.extend(region.transitions.iter().map(|transition| {
+            (
+                transition.id.to_string(),
+                transition.source_id.to_string(),
+                transition.target_id.to_string(),
+            )
+        }));
+        for vertex in &region.vertices {
+            if let VertexKind::State(state) = &vertex.kind {
+                collect_transition_endpoints(&state.regions, output);
+            }
+        }
+    }
 }
 
 fn vertex_kind(value: &str) -> Result<VertexKind, String> {
@@ -355,6 +383,7 @@ pub fn create_state_machine_diagram(
             semantic_id: semantic_id.to_string(),
             state_nodes: Vec::new(),
             lifelines: Vec::new(),
+            edge_routes: Vec::new(),
         });
     Ok(id)
 }
@@ -390,6 +419,7 @@ pub fn create_sequence_diagram(
             semantic_id: semantic_id.to_string(),
             state_nodes: Vec::new(),
             lifelines: Vec::new(),
+            edge_routes: Vec::new(),
         });
     Ok(id)
 }
@@ -1040,6 +1070,20 @@ pub fn validate_behavior_workspace(
     for diagram in diagrams {
         parse_element_id(&diagram.context_id)?;
         parse_element_id(&diagram.owner_id)?;
+        for route in &diagram.edge_routes {
+            parse_uuid(&route.semantic_id)?;
+            if route.points.len() < 2
+                || route
+                    .points
+                    .iter()
+                    .any(|point| !point.x.is_finite() || !point.y.is_finite())
+            {
+                return Err(format!(
+                    "behavior edge has invalid presentation route: {}",
+                    route.semantic_id
+                ));
+            }
+        }
         match diagram.kind {
             BehaviorDiagramKind::StateMachine => {
                 let id = state_machine_id(&diagram.semantic_id)?;
@@ -1062,6 +1106,150 @@ pub fn validate_behavior_workspace(
             }
         }
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn route_behavior_diagram(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    let diagram = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .cloned()
+        .ok_or("behavior diagram not found")?;
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+
+    let routes = match diagram.kind {
+        BehaviorDiagramKind::StateMachine => {
+            let machine_id = state_machine_id(&diagram.semantic_id)?;
+            let machine = repository
+                .state_machines
+                .get(&machine_id)
+                .ok_or("State Machine not found")?;
+            let mut transitions = Vec::new();
+            collect_transition_endpoints(&machine.regions, &mut transitions);
+            let mut reserved_routes = Vec::new();
+            let mut routes = Vec::new();
+            for (index, (id, source_id, target_id)) in transitions.iter().enumerate() {
+                let source = diagram
+                    .state_nodes
+                    .iter()
+                    .find(|node| node.vertex_id == *source_id)
+                    .ok_or("State transition source presentation not found")?;
+                let target = diagram
+                    .state_nodes
+                    .iter()
+                    .find(|node| node.vertex_id == *target_id)
+                    .ok_or("State transition target presentation not found")?;
+                let obstacles: Vec<_> = diagram
+                    .state_nodes
+                    .iter()
+                    .filter(|node| node.vertex_id != *source_id && node.vertex_id != *target_id)
+                    .map(|node| super::routing::RouteRect {
+                        x: node.x,
+                        y: node.y,
+                        width: node.width,
+                        height: node.height,
+                    })
+                    .collect();
+                let same_source_count = transitions[..index]
+                    .iter()
+                    .filter(|(_, candidate_source, _)| candidate_source == source_id)
+                    .count();
+                let points = super::routing::orthogonal_route(super::routing::RouteRequest {
+                    source: super::routing::RouteRect {
+                        x: source.x,
+                        y: source.y,
+                        width: source.width,
+                        height: source.height,
+                    },
+                    target: super::routing::RouteRect {
+                        x: target.x,
+                        y: target.y,
+                        width: target.width,
+                        height: target.height,
+                    },
+                    obstacles: &obstacles,
+                    lane_index: same_source_count,
+                    reserved_routes: &reserved_routes,
+                    allow_shared_departure: same_source_count > 0,
+                });
+                reserved_routes.push(points.clone());
+                routes.push(BehaviorEdgePresentation {
+                    semantic_id: id.clone(),
+                    points,
+                });
+            }
+            routes
+        }
+        BehaviorDiagramKind::Sequence => {
+            let interaction_id = parse_uuid(&diagram.semantic_id)
+                .map(systems_modeler_core::behavior::InteractionId)?;
+            let interaction = repository
+                .interactions
+                .get(&interaction_id)
+                .ok_or("Interaction not found")?;
+            interaction
+                .messages
+                .iter()
+                .enumerate()
+                .map(|(index, message)| {
+                    let source_x = message
+                        .send_event
+                        .as_ref()
+                        .and_then(|event| {
+                            diagram
+                                .lifelines
+                                .iter()
+                                .find(|line| line.lifeline_id == event.lifeline_id.to_string())
+                        })
+                        .map_or(70.0, |line| line.x);
+                    let target_x = message
+                        .receive_event
+                        .as_ref()
+                        .and_then(|event| {
+                            diagram
+                                .lifelines
+                                .iter()
+                                .find(|line| line.lifeline_id == event.lifeline_id.to_string())
+                        })
+                        .map_or(1000.0, |line| line.x);
+                    let order = message
+                        .send_event
+                        .as_ref()
+                        .or(message.receive_event.as_ref())
+                        .map_or((index as u32 + 1) * 10, |event| event.order);
+                    let y = 110.0 + f64::from(order) * 4.0;
+                    BehaviorEdgePresentation {
+                        semantic_id: message.id.to_string(),
+                        points: vec![
+                            DiagramPoint { x: source_x, y },
+                            DiagramPoint { x: target_x, y },
+                        ],
+                    }
+                })
+                .collect()
+        }
+    };
+    drop(repository);
+
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let target = diagrams
+        .iter_mut()
+        .find(|candidate| candidate.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    target.edge_routes = routes;
     Ok(())
 }
 
@@ -1167,6 +1355,7 @@ mod behavior_metadata_database_tests {
                 semantic_id: state_machine_id.to_string(),
                 state_nodes: Vec::new(),
                 lifelines: Vec::new(),
+                edge_routes: Vec::new(),
             },
             BehaviorDiagram {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -1177,6 +1366,7 @@ mod behavior_metadata_database_tests {
                 semantic_id: interaction_id.to_string(),
                 state_nodes: Vec::new(),
                 lifelines: Vec::new(),
+                edge_routes: Vec::new(),
             },
         ];
 
