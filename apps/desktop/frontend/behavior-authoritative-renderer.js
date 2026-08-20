@@ -177,11 +177,10 @@
       const y1 = source.y + source.height / 2;
       const x2 = target.x + target.width / 2;
       const y2 = target.y + target.height / 2;
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', x1);
-      line.setAttribute('y1', y1);
-      line.setAttribute('x2', x2);
-      line.setAttribute('y2', y2);
+      const storedRoute = (diagram.edge_routes || []).find((route) => String(route.semantic_id) === String(transition.id)); const routePoints = storedRoute?.points?.length >= 2 ? storedRoute.points : [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+      const line = document.createElementNS(SVG_NS, 'polyline');
+      line.setAttribute('points', routePoints.map((point) => `${point.x},${point.y}`).join(' '));
+      line.setAttribute('fill', 'none');
       line.setAttribute('marker-end', 'url(#authoritative-state-arrow)');
       line.classList.add('state-transition');
       line.dataset.transitionId = String(transition.id);
@@ -199,8 +198,9 @@
       if (labelText) {
         const label = document.createElementNS(SVG_NS, 'text');
         label.classList.add('behavior-edge-label');
-        label.setAttribute('x', (x1 + x2) / 2 + 6);
-        label.setAttribute('y', (y1 + y2) / 2 - 7);
+        const labelPoint = routePoints[Math.floor(routePoints.length / 2)];
+        label.setAttribute('x', labelPoint.x + 6);
+        label.setAttribute('y', labelPoint.y - 7);
         label.textContent = labelText;
         svg.appendChild(label);
       }
@@ -341,11 +341,10 @@
       const sourceX = sourceId ? (lifelinePositions.get(String(sourceId)) ?? 70) : 70;
       const targetX = targetId ? (lifelinePositions.get(String(targetId)) ?? 1000) : 1000;
       const y = 110 + messageOrder(message, index) * 4;
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', sourceX);
-      line.setAttribute('y1', y);
-      line.setAttribute('x2', targetX);
-      line.setAttribute('y2', y);
+      const storedRoute = (diagram.edge_routes || []).find((route) => String(route.semantic_id) === String(message.id)); const routePoints = storedRoute?.points?.length >= 2 ? storedRoute.points : [{ x: sourceX, y }, { x: targetX, y }];
+      const line = document.createElementNS(SVG_NS, 'polyline');
+      line.setAttribute('points', routePoints.map((point) => `${point.x},${point.y}`).join(' '));
+      line.setAttribute('fill', 'none');
       line.classList.add('sequence-message', `message-${String(message.sort).toLowerCase()}`);
       line.dataset.messageId = String(message.id);
       const openArrow = ['Reply', 'AsynchCall', 'AsynchSignal'].includes(message.sort);
@@ -363,8 +362,9 @@
       svg.appendChild(line);
       const label = document.createElementNS(SVG_NS, 'text');
       label.classList.add('behavior-edge-label');
-      label.setAttribute('x', Math.min(sourceX, targetX) + Math.abs(targetX - sourceX) / 2);
-      label.setAttribute('y', y - 6);
+      const labelPoint = routePoints[Math.floor(routePoints.length / 2)];
+      label.setAttribute('x', labelPoint.x);
+      label.setAttribute('y', labelPoint.y - 6);
       const name = messageSignatureName(message);
       label.textContent = `${name}${message.arguments?.length ? `(${message.arguments.join(', ')})` : ''}`;
       svg.appendChild(label);
