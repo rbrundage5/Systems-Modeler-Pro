@@ -169,6 +169,7 @@ function renderIbdPort(frame, diagram, port, project, boundary = false) {
   if (!element) return;
   const node = document.createElement('button');
   node.className = `ibd-port ${element.kind === 'ProxyPort' ? 'proxy-port' : 'full-port'} ${boundary ? 'boundary-port' : 'nested-port'}`;
+  node.dataset.semanticKind = element.kind;
   if (state.selectedElementId === element.id) node.classList.add('selected');
   if (state.pendingRelationship?.sourcePresentationId === port.id) node.classList.add('connector-source');
   node.style.left = `${port.x - port.size / 2}px`;
@@ -210,6 +211,7 @@ function renderIbdCanvas(canvas, diagram, project) {
     if (!element) continue;
     const box = document.createElement('button');
     box.className = `ibd-property ${element.kind === 'ReferenceProperty' ? 'reference-property' : 'part-property'}`;
+    box.dataset.semanticKind = element.kind;
     if (state.selectedElementId === element.id) box.classList.add('selected');
     if (state.pendingRelationship?.sourcePresentationId === property.id) box.classList.add('connector-source');
     box.style.left = `${property.x}px`;

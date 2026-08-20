@@ -28,6 +28,7 @@ assert "get_viewport_preference" in workspace and "get_panel_preferences" in wor
 assert "workspace-preferences.json" in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
 assert "event.ctrlKey" in workspace and "event.clientX" in workspace
 assert "semantic_presentation_manifest" in main and "diagram_command_manifest" in main
+assert "semantic_presentation_stylesheet" in main and "semantic_presentation_stylesheet" in workspace
 assert "min-width:0" in styles and "overflow:auto" in styles
 assert "minmax(0,1fr)" in shell_styles
 assert "minmax(540px,1fr)" not in shell_styles

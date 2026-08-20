@@ -134,8 +134,17 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("Fork", CONTROL),
     ("Join", CONTROL),
     ("InitialNode", CONTROL),
+    ("Initial", CONTROL),
     ("ActivityFinalNode", CONTROL),
+    ("ActivityFinal", CONTROL),
     ("FlowFinalNode", CONTROL),
+    ("FlowFinal", CONTROL),
+    ("Choice", CONTROL),
+    ("Junction", CONTROL),
+    ("EntryPoint", CONTROL),
+    ("ExitPoint", CONTROL),
+    ("ShallowHistory", CONTROL),
+    ("DeepHistory", CONTROL),
     ("Requirement", REQUIREMENT),
     ("ConstraintBlock", CONSTRAINT),
     ("ConstraintProperty", CONSTRAINT),
@@ -172,6 +181,20 @@ pub fn semantic_presentation_manifest() -> Vec<SemanticPresentation> {
             style: *style,
         })
         .collect()
+}
+
+#[tauri::command]
+pub fn semantic_presentation_stylesheet() -> String {
+    let mut stylesheet = String::from(
+        "/* Rust-generated semantic presentation tokens. */\n[data-semantic-kind]{background:var(--semantic-fill)!important;border-color:var(--semantic-border)!important;color:var(--semantic-text)!important}\n[data-semantic-kind] :is(.diagram-header,.lifeline-head,.block-name){background:var(--semantic-header)!important;color:var(--semantic-text)!important}\nsvg [data-semantic-kind] :is(rect,polygon,ellipse){fill:var(--semantic-fill)!important;stroke:var(--semantic-border)!important}\nsvg [data-semantic-kind] text{fill:var(--semantic-text)!important}\n",
+    );
+    for (kind, style) in PRESENTATIONS {
+        stylesheet.push_str(&format!(
+            "[data-semantic-kind=\"{kind}\"]{{--semantic-fill:{};--semantic-header:{};--semantic-border:{};--semantic-text:{}}}\n",
+            style.fill, style.header, style.border, style.text
+        ));
+    }
+    stylesheet
 }
 
 #[derive(Serialize)]
@@ -493,5 +516,14 @@ mod tests {
             assert!(!command.enabled);
             assert!(command.disabled_reason.is_some());
         }
+    }
+
+    #[test]
+    fn generated_stylesheet_covers_every_registered_presentation() {
+        let stylesheet = semantic_presentation_stylesheet();
+        for (kind, _) in PRESENTATIONS {
+            assert!(stylesheet.contains(&format!("data-semantic-kind=\"{kind}\"")));
+        }
+        assert!(!stylesheet.contains("undefined"));
     }
 }
