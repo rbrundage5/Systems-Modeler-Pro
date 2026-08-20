@@ -31,6 +31,79 @@ pub struct RouteRequest<'a> {
     pub allow_shared_departure: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiagramRouteEdge {
+    pub id: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub source: RouteRect,
+    pub target: RouteRect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RoutedDiagramEdge {
+    pub id: String,
+    pub points: Vec<DiagramPoint>,
+}
+
+/// Application-wide batch routing contract. Diagram families provide semantic
+/// endpoint identity and geometry; this service owns corridor reservation.
+pub fn route_diagram(
+    edges: &[DiagramRouteEdge],
+    obstacles: &[RouteRect],
+) -> Vec<RoutedDiagramEdge> {
+    let mut reserved_routes = Vec::new();
+    let mut routed = Vec::new();
+    for (index, edge) in edges.iter().enumerate() {
+        let same_source_count = edges[..index]
+            .iter()
+            .filter(|candidate| candidate.source_id == edge.source_id)
+            .count();
+        let points = orthogonal_route(RouteRequest {
+            source: edge.source,
+            target: edge.target,
+            obstacles,
+            lane_index: same_source_count,
+            reserved_routes: &reserved_routes,
+            allow_shared_departure: same_source_count > 0,
+        });
+        reserved_routes.push(points.clone());
+        routed.push(RoutedDiagramEdge {
+            id: edge.id.clone(),
+            points,
+        });
+    }
+    routed
+}
+
+#[tauri::command]
+pub fn route_diagram_geometry(
+    edges: Vec<DiagramRouteEdge>,
+    obstacles: Vec<RouteRect>,
+) -> Result<Vec<RoutedDiagramEdge>, String> {
+    if edges.iter().any(|edge| {
+        edge.id.trim().is_empty()
+            || edge.source_id.trim().is_empty()
+            || edge.target_id.trim().is_empty()
+    }) {
+        return Err("diagram routing requires stable edge and endpoint identifiers".into());
+    }
+    let invalid = obstacles
+        .iter()
+        .chain(edges.iter().flat_map(|edge| [&edge.source, &edge.target]))
+        .any(|rect| {
+            ![rect.x, rect.y, rect.width, rect.height]
+                .iter()
+                .all(|value| value.is_finite())
+                || rect.width <= 0.0
+                || rect.height <= 0.0
+        });
+    if invalid {
+        return Err("diagram routing contains invalid geometry".into());
+    }
+    Ok(route_diagram(&edges, &obstacles))
+}
+
 /// Shared deterministic orthogonal router for BDD and IBD presentations.
 /// It never intentionally returns a segment through an obstacle. If the direct
 /// dogleg is blocked, perpendicular outer channels are searched in deterministic
@@ -437,5 +510,17 @@ mod tests {
         ];
         assert!(route_avoids_reserved(&candidate, &reserved, true));
         assert!(!route_avoids_reserved(&candidate, &reserved, false));
+    }
+
+    #[test]
+    fn batch_router_applies_one_policy_to_every_diagram_family_adapter() {
+        let source = RouteRect { x: 20.0, y: 20.0, width: 100.0, height: 60.0 };
+        let edges = vec![
+            DiagramRouteEdge { id: "a".into(), source_id: "source".into(), target_id: "one".into(), source, target: RouteRect { x: 320.0, y: 20.0, width: 100.0, height: 60.0 } },
+            DiagramRouteEdge { id: "b".into(), source_id: "other".into(), target_id: "two".into(), source: RouteRect { x: 20.0, y: 120.0, width: 100.0, height: 60.0 }, target: RouteRect { x: 320.0, y: 120.0, width: 100.0, height: 60.0 } },
+        ];
+        let routed = route_diagram(&edges, &[]);
+        assert_eq!(routed.len(), 2);
+        assert!(route_avoids_reserved(&routed[1].points, &[routed[0].points.clone()], false));
     }
 }
