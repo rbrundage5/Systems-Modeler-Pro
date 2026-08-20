@@ -49,8 +49,7 @@ mod workspace {
         add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
         add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, create_sequence_diagram,
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
-        resize_sequence_lifeline_timeline, route_behavior_diagram,
-        update_state_behaviors,
+        resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
     pub use history::{
