@@ -14,7 +14,36 @@ use tauri::Manager;
 #[serde(rename_all = "camelCase")]
 struct PersistedWorkspacePreferences {
     viewports: BTreeMap<String, ViewportPreference>,
+    #[serde(default)]
+    frames: BTreeMap<String, DiagramFramePreference>,
     panels: PanelPreference,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagramFramePreference {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default)]
+    pub manually_sized: bool,
+}
+
+impl DiagramFramePreference {
+    fn validate(&self) -> Result<(), String> {
+        if ![self.x, self.y, self.width, self.height]
+            .iter()
+            .all(|value| value.is_finite())
+            || self.width < 320.0
+            || self.height < 240.0
+            || self.width > 100_000.0
+            || self.height > 100_000.0
+        {
+            return Err("diagram frame preference contains invalid geometry".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -102,6 +131,7 @@ pub struct SharedWorkspaceState {
     active: Mutex<Option<ActiveDiagramContext>>,
     interaction: Mutex<WorkspaceInteractionSnapshot>,
     viewports: Mutex<BTreeMap<String, ViewportPreference>>,
+    frames: Mutex<BTreeMap<String, DiagramFramePreference>>,
     panels: Mutex<PanelPreference>,
     preferences_loaded: Mutex<bool>,
 }
@@ -134,10 +164,17 @@ fn ensure_preferences_loaded(
         for preference in preferences.viewports.values() {
             preference.validate()?;
         }
+        for preference in preferences.frames.values() {
+            preference.validate()?;
+        }
         *state
             .viewports
             .lock()
             .map_err(|_| "viewport preference lock poisoned")? = preferences.viewports;
+        *state
+            .frames
+            .lock()
+            .map_err(|_| "diagram frame preference lock poisoned")? = preferences.frames;
         *state
             .panels
             .lock()
@@ -159,6 +196,11 @@ fn save_preferences(app: &tauri::AppHandle, state: &SharedWorkspaceState) -> Res
             .viewports
             .lock()
             .map_err(|_| "viewport preference lock poisoned")?
+            .clone(),
+        frames: state
+            .frames
+            .lock()
+            .map_err(|_| "diagram frame preference lock poisoned")?
             .clone(),
         panels: state
             .panels
@@ -370,6 +412,41 @@ pub fn set_viewport_preference(
 }
 
 #[tauri::command]
+pub fn get_diagram_frame_preference(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedWorkspaceState>,
+    diagram_id: String,
+) -> Result<Option<DiagramFramePreference>, String> {
+    ensure_preferences_loaded(&app, &state)?;
+    Ok(state
+        .frames
+        .lock()
+        .map_err(|_| "diagram frame preference lock poisoned")?
+        .get(&diagram_id)
+        .cloned())
+}
+
+#[tauri::command]
+pub fn set_diagram_frame_preference(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedWorkspaceState>,
+    diagram_id: String,
+    preference: DiagramFramePreference,
+) -> Result<(), String> {
+    ensure_preferences_loaded(&app, &state)?;
+    if uuid::Uuid::parse_str(&diagram_id).is_err() {
+        return Err("diagram frame id is invalid".into());
+    }
+    preference.validate()?;
+    state
+        .frames
+        .lock()
+        .map_err(|_| "diagram frame preference lock poisoned")?
+        .insert(diagram_id, preference);
+    save_preferences(&app, &state)
+}
+
+#[tauri::command]
 pub fn fit_diagram_viewport(
     bounds: GeometryRect,
     viewport_width: f64,
@@ -450,10 +527,22 @@ mod tests {
         );
         preferences.panels.repository_width = 310;
         preferences.panels.properties_visible = false;
+        preferences.frames.insert(
+            diagram_id.clone(),
+            DiagramFramePreference {
+                x: 12.0,
+                y: 18.0,
+                width: 960.0,
+                height: 640.0,
+                manually_sized: true,
+            },
+        );
         let json = serde_json::to_vec(&preferences).expect("preferences serialize");
         let restored: PersistedWorkspacePreferences =
             serde_json::from_slice(&json).expect("preferences deserialize");
         assert_eq!(restored.viewports[&diagram_id].zoom, 1.5);
+        assert_eq!(restored.frames[&diagram_id].width, 960.0);
+        assert!(restored.frames[&diagram_id].manually_sized);
         assert_eq!(restored.panels.repository_width, 310);
         assert!(!restored.panels.properties_visible);
     }
