@@ -7,7 +7,7 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const renderers = new Map();
   const commands = new Map();
-  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false };
+  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false }; const validFrame = (value) => value && ['x','y','width','height'].every((key) => Number.isFinite(value[key]));
 
   function notify(message, level = 'info') {
     window.smpDialogs?.notify(message, level);
@@ -25,14 +25,14 @@
   function renderer() { return state.context ? renderers.get(state.context.family.id) : null; }
   async function activate(input) {
     if (!invoke || !input?.diagramId) return null;
-    await persistViewport();
+    await persistViewport(); clearTimeout(framePersistTimer);
     const activated = await invoke('activate_diagram', {
       diagramId: input.diagramId, familyId: input.familyId, name: input.name, modelElementName:input.modelElementName||input.name,
       semanticContextId: input.semanticContextId || '',
     });
     state.context = activated.context; interaction = activated.interaction; applyCommands(activated.commands);
     state.viewport = await invoke('get_viewport_preference', { diagramId: input.diagramId });
-    Object.assign(state, { frame:await invoke('get_diagram_frame_preference', { diagramId:input.diagramId }) });
+    const storedFrame=await invoke('get_diagram_frame_preference',{diagramId:input.diagramId}); Object.assign(state,{frame:validFrame(storedFrame)?storedFrame:null});
     updateHeader();
     queueMicrotask(mountSurface);
     return state.context;
@@ -46,7 +46,7 @@
   }
   function mountSurface() {
     const root = [...canvas.children].find((node) => !node.classList.contains('workspace-transform-spacer'));
-    if (!root || root === state.surface) { applyViewport(); return; }
+    if (!root) return; if(root===state.surface){if(!state.frameElement?.isConnected||state.frameElement.dataset.diagramId!==state.context?.diagramId)mountDiagramFrame();applyViewport();return;}
     const spacer=document.createElement('div'); spacer.className='workspace-transform-spacer'; canvas.insertBefore(spacer,root); spacer.appendChild(root);
     state.surface = root; state.spacer = spacer;
     root.classList.add('workspace-renderer-surface'); root.dataset.renderer=state.context?.family.rendererId||'';
@@ -55,11 +55,11 @@
 
   function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(720,bounds.width+padding*2), height:Math.max(520,bounds.height+padding*2), manuallySized:false }; }
 
-  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; frame.querySelector('span').textContent=state.context.frameLabel; state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:state.frame||automaticFrame()}); applyDiagramFrame(); }
+  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.dataset.diagramId=state.context.diagramId; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; frame.querySelector('span').textContent=state.context.frameLabel; state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:validFrame(state.frame)?state.frame:automaticFrame()}); applyDiagramFrame(); }
   function applyDiagramFrame() { const frame=state.frameElement,geometry=state.frame; if(frame&&geometry)Object.assign(frame.style,{left:`${geometry.x}px`,top:`${geometry.y}px`,width:`${geometry.width}px`,height:`${geometry.height}px`}); }
 
-  let framePersistTimer; function persistDiagramFrame() { if(!invoke||!state.context||!state.frame)return Promise.resolve(); clearTimeout(framePersistTimer); return invoke('set_diagram_frame_preference',{diagramId:state.context.diagramId,preference:state.frame}).catch((error)=>notify(String(error),'error')); }
-  function scheduleFramePersistence() { clearTimeout(framePersistTimer); framePersistTimer = setTimeout(persistDiagramFrame, 120); }
+  let framePersistTimer; function persistDiagramFrame(diagramId=state.context?.diagramId,preference=state.frame) { if(!invoke||!diagramId||!validFrame(preference))return Promise.resolve(); clearTimeout(framePersistTimer); return invoke('set_diagram_frame_preference',{diagramId,preference}).catch((error)=>notify(String(error),'error')); }
+  function scheduleFramePersistence() { clearTimeout(framePersistTimer); const diagramId=state.context?.diagramId,preference=state.frame?{...state.frame}:null; framePersistTimer=setTimeout(()=>persistDiagramFrame(diagramId,preference),120); }
 
   function contentBounds() {
     const supplied=renderer()?.contentBounds?.();
@@ -72,7 +72,7 @@
     if (!root || !spacer) return;
     const bounds=contentBounds(),view=state.viewport;
     if (state.frame&&!state.frame.manuallySized) { Object.assign(state,{frame:automaticFrame()}); applyDiagramFrame(); }
-    const left=Math.max(0,view.panX),top=Math.max(0,view.panY); root.style.transform=`translate(${left}px,${top}px) scale(${view.zoom})`;
+    const left=Math.max(0,view.panX),top=Math.max(0,view.panY),transform=`translate(${left}px,${top}px) scale(${view.zoom})`; root.style.transform=transform;if(state.frameElement){state.frameElement.style.transform=transform;state.frameElement.style.transformOrigin='0 0';}
     const frameRight=state.frame?state.frame.x+state.frame.width:bounds.x+bounds.width, frameBottom=state.frame?state.frame.y+state.frame.height:bounds.y+bounds.height;
     spacer.style.width = `${Math.ceil(left + Math.max(bounds.x + bounds.width, frameRight) * view.zoom + 56)}px`;
     spacer.style.height = `${Math.ceil(top + Math.max(bounds.y + bounds.height, frameBottom) * view.zoom + 56)}px`;
@@ -231,7 +231,7 @@
 
   function startPan(event) {
     if (!state.viewport || !(event.button === 1 || (event.button === 0 && (state.space || canvas.classList.contains('pan-active'))))) return false;
-    event.preventDefault(); canvas.setPointerCapture(event.pointerId); canvas.classList.add('is-panning');
+    event.preventDefault(); event.stopImmediatePropagation(); canvas.setPointerCapture(event.pointerId); canvas.classList.add('is-panning');
     state.panning = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, panX:state.viewport.panX, panY:state.viewport.panY };
     return true;
   }
@@ -239,7 +239,7 @@
     const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
     if (startPan(event)) return;
     if (event.target === canvas || event.target === state.spacer) clearSelection();
-  });
+  }, true);
   canvas.addEventListener('pointermove', (event) => {
     if(state.frameDrag?.pointerId===event.pointerId){const dx=(event.clientX-state.frameDrag.x)/(state.viewport?.zoom||1),dy=(event.clientY-state.frameDrag.y)/(state.viewport?.zoom||1);Object.assign(state,{frame:state.frameDrag.resizing?{...state.frameDrag.start,width:Math.max(320,state.frameDrag.start.width+dx),height:Math.max(240,state.frameDrag.start.height+dy),manuallySized:true}:{...state.frameDrag.start,x:Math.max(0,state.frameDrag.start.x+dx),y:Math.max(0,state.frameDrag.start.y+dy),manuallySized:true}});applyDiagramFrame();return;}
     if (!state.panning || state.panning.pointerId !== event.pointerId) return;
