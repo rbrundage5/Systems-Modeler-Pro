@@ -71,6 +71,8 @@ pub struct DiagramEdge {
     pub source_node_id: String,
     pub target_node_id: String,
     pub points: Vec<DiagramPoint>,
+    #[serde(default)]
+    pub label_anchor: Option<DiagramPoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -475,7 +477,14 @@ pub fn create_bdd_relationship(diagram_id: String, kind: String, source_element_
     };
     let points = route_relationship(&source_node, &target_node, &diagram.nodes);
     let edge_id = uuid::Uuid::new_v4().to_string();
-    diagram.edges.push(DiagramEdge { id: edge_id, relationship_id: relationship_id.to_string(), source_node_id: source_node.id, target_node_id: target_node.id, points });
+    diagram.edges.push(DiagramEdge {
+        id: edge_id,
+        relationship_id: relationship_id.to_string(),
+        source_node_id: source_node.id,
+        target_node_id: target_node.id,
+        label_anchor: Some(routing::route_label_anchor(&points)),
+        points,
+    });
     Ok(relationship_id.to_string())
 }
 
@@ -554,6 +563,7 @@ pub fn route_bdd(
     }
 
     for (edge, points) in diagram.edges.iter_mut().zip(routes) {
+        edge.label_anchor = Some(routing::route_label_anchor(&points));
         edge.points = points;
     }
     Ok(())
