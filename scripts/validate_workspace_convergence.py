@@ -11,6 +11,8 @@ workspace = read(frontend / "shared-workspace.js")
 dialogs = read(frontend / "shared-dialogs.js")
 styles = read(frontend / "shared-workspace.css")
 shell_styles = read(frontend / "workspace-polish.css")
+ibd_ui = read(frontend / "ibd-ui.js")
+behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
 
@@ -22,7 +24,7 @@ for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
     assert f'"{family}"' in family_contract
 for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
-assert "modelElementName" in workspace and "context?.frameLabel" in workspace
+assert "modelElementName" in workspace and "state.context.frameLabel" in workspace
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
 assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_preference" in workspace
 assert "validFrame(storedFrame)?storedFrame:null" in workspace
@@ -80,8 +82,12 @@ assert "activated.context" in workspace and "applyCommands(activated.commands)" 
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
 assert '.diagram-frame>.diagram-header{display:none!important}' in styles
 assert '.canvas .activity-svg{background:transparent!important}' in styles
+assert '.canvas .ibd-frame::after{display:none!important}' in styles
 assert 'overflow:visible!important' in styles
 assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
+assert 'frameGeometry:() => state.frame' in workspace and 'outerFramePoint' in ibd_ui
+assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
+assert 'labelPoint={x:(first.x+last.x)/2' in behavior_ui
 presentation = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 assert 'data-semantic-kind=\\\"Lifeline\\\"]{background:transparent' in presentation
 assert 'ACTIVITY_CALL' in presentation and 'ACTIVITY_OBJECT' in presentation
