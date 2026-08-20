@@ -534,6 +534,8 @@ pub fn add_activity_edge(
         target: node_rect(&target_presentation),
         obstacles: &obstacles,
         lane_index,
+        reserved_routes: &[],
+        allow_shared_departure: false,
     });
     diagram.edges.push(ActivityDiagramEdge {
         id: uuid::Uuid::new_v4().to_string(),
