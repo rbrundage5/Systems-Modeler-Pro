@@ -198,7 +198,7 @@
       if (labelText) {
         const label = document.createElementNS(SVG_NS, 'text');
         label.classList.add('behavior-edge-label');
-        const labelPoint = routePoints[Math.floor(routePoints.length / 2)];
+        const first=routePoints[0],last=routePoints[routePoints.length-1],labelPoint={x:(first.x+last.x)/2,y:(first.y+last.y)/2};
         label.setAttribute('x', labelPoint.x + 6);
         label.setAttribute('y', labelPoint.y - 7);
         label.textContent = labelText;
