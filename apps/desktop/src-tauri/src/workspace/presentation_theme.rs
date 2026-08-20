@@ -562,14 +562,18 @@ mod tests {
             .get(&systems_modeler_core::DiagramFamilyId("sequence".into()))
             .expect("sequence is registered");
         let commands = resolve_diagram_commands(Some(sequence));
-        for id in ["route", "cleanLayout"] {
-            let command = commands
-                .iter()
-                .find(|item| item.command.id == id)
-                .expect("global command is registered");
-            assert!(!command.enabled);
-            assert!(command.disabled_reason.is_some());
-        }
+        let route = commands
+            .iter()
+            .find(|item| item.command.id == "route")
+            .expect("Route is registered");
+        assert!(route.enabled);
+        assert!(route.disabled_reason.is_none());
+        let layout = commands
+            .iter()
+            .find(|item| item.command.id == "cleanLayout")
+            .expect("Clean Layout is registered");
+        assert!(!layout.enabled);
+        assert!(layout.disabled_reason.is_some());
     }
 
     #[test]
