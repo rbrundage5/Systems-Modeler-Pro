@@ -155,8 +155,6 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
                 C::Resize,
                 C::Delete,
                 C::Clipboard,
-                C::Routing,
-                C::CleanLayout,
                 C::DrillDown,
             ],
             PreferredFlowDirection::TopToBottom,
@@ -174,8 +172,6 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
                 C::Resize,
                 C::Delete,
                 C::Clipboard,
-                C::Routing,
-                C::CleanLayout,
                 C::DrillDown,
             ],
             PreferredFlowDirection::LeftToRight,
@@ -414,8 +410,9 @@ mod tests {
         let sequence = registry
             .get(&DiagramFamilyId::new("sequence").unwrap())
             .unwrap();
-        assert!(sequence.supports(DiagramCapability::Routing));
-        assert!(sequence.supports(DiagramCapability::CleanLayout));
+        assert!(sequence.supports(DiagramCapability::Relationships));
+        assert!(!sequence.supports(DiagramCapability::Routing));
+        assert!(!sequence.supports(DiagramCapability::CleanLayout));
     }
     #[test]
     fn bounds_include_nodes_ports_frames_routes_and_labels() {

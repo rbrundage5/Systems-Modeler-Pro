@@ -33,6 +33,7 @@
       semanticContextId: input.semanticContextId || '',
     });
     state.viewport = await invoke('get_viewport_preference', { diagramId: input.diagramId });
+    await loadCommands();
     updateHeader();
     queueMicrotask(mountSurface);
     return state.context;
@@ -146,9 +147,7 @@
   async function execute(id, args = {}) {
     const command = commands.get(id);
     if (!command) { notify(`Unknown command: ${id}`, 'error'); return false; }
-    const family = state.context?.family;
-    const capability = command.requiredCapability;
-    if (capability && !family?.capabilities?.includes(capability)) { notify(command.unavailableReason || `${command.label} is unavailable.`, 'warning'); return false; }
+    if (!command.enabled) { notify(command.disabledReason || `${command.label} is unavailable.`, 'warning'); return false; }
     const local = transientHandlers[id];
     if (local) { await local(args); return true; }
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
@@ -156,11 +155,16 @@
     await renderer()?.refresh?.(); return true;
   }
 
+  async function loadCommands() {
+    const manifest = await invoke('active_diagram_command_manifest');
+    commands.clear();
+    manifest.forEach((command) => commands.set(command.id, command));
+    document.dispatchEvent(new CustomEvent('smp:commands-ready', { detail: manifest }));
+  }
+
   async function loadContracts() {
     if (!invoke) return;
-    const [manifest] = await Promise.all([invoke('diagram_command_manifest'), invoke('diagram_family_registry')]);
-    manifest.forEach((command) => commands.set(command.id, command));
-    document.dispatchEvent(new CustomEvent('smp:commands-ready'));
+    await Promise.all([loadCommands(), invoke('diagram_family_registry')]);
   }
 
   async function activateCurrentDiagram() {

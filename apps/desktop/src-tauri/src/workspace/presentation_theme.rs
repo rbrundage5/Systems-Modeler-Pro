@@ -14,7 +14,7 @@ pub struct PresentationStyle {
     pub text: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticPresentation {
     pub semantic_kind: &'static str,
@@ -184,6 +184,38 @@ pub struct DiagramCommandCapability {
     pub rust_adapter: Option<&'static str>,
     pub unavailable_reason: Option<&'static str>,
     pub required_capability: Option<DiagramCapability>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedDiagramCommand {
+    #[serde(flatten)]
+    pub command: DiagramCommandCapability,
+    pub enabled: bool,
+    pub disabled_reason: Option<&'static str>,
+}
+
+pub fn resolve_diagram_commands(
+    family: Option<&systems_modeler_core::DiagramFamilyDescriptor>,
+) -> Vec<ResolvedDiagramCommand> {
+    diagram_command_manifest()
+        .into_iter()
+        .map(|command| {
+            let enabled = command
+                .required_capability
+                .is_none_or(|capability| family.is_some_and(|active| active.supports(capability)));
+            let disabled_reason = (!enabled).then_some(
+                command
+                    .unavailable_reason
+                    .unwrap_or("This command is unavailable in the active diagram."),
+            );
+            ResolvedDiagramCommand {
+                command,
+                enabled,
+                disabled_reason,
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -443,6 +475,23 @@ mod tests {
                 commands.iter().any(|command| command.id == id),
                 "missing {id}"
             );
+        }
+    }
+
+    #[test]
+    fn command_eligibility_is_resolved_from_registered_family_capabilities() {
+        let registry = systems_modeler_core::supported_diagram_families();
+        let sequence = registry
+            .get(&systems_modeler_core::DiagramFamilyId("sequence".into()))
+            .expect("sequence is registered");
+        let commands = resolve_diagram_commands(Some(sequence));
+        for id in ["route", "cleanLayout"] {
+            let command = commands
+                .iter()
+                .find(|item| item.command.id == id)
+                .expect("global command is registered");
+            assert!(!command.enabled);
+            assert!(command.disabled_reason.is_some());
         }
     }
 }

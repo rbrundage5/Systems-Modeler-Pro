@@ -6,6 +6,8 @@ use systems_modeler_core::{
     supported_diagram_families,
 };
 
+use super::presentation_theme::{ResolvedDiagramCommand, resolve_diagram_commands};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveDiagramContext {
@@ -25,6 +27,19 @@ pub struct SharedWorkspaceState {
 #[tauri::command]
 pub fn diagram_family_registry() -> Vec<DiagramFamilyDescriptor> {
     supported_diagram_families().descriptors()
+}
+
+#[tauri::command]
+pub fn active_diagram_command_manifest(
+    state: tauri::State<'_, SharedWorkspaceState>,
+) -> Result<Vec<ResolvedDiagramCommand>, String> {
+    let active = state
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?;
+    Ok(resolve_diagram_commands(
+        active.as_ref().map(|context| &context.family),
+    ))
 }
 
 #[tauri::command]

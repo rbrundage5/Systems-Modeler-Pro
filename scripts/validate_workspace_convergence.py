@@ -19,7 +19,9 @@ for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
     assert f'"{family}"' in family_contract
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
-assert "active_diagram_router" in theme and "requiredCapability" in workspace
+assert "active_diagram_router" in theme
+assert "resolve_diagram_commands" in theme
+assert "command.enabled" in workspace and "command.disabledReason" in workspace
 for category in ["structural", "interface", "activity", "state", "requirement", "constraint", "data", "event", "verification", "annotation", "frame"]:
     assert f'category: "{category}"' in theme
 assert "get_viewport_preference" in workspace and "get_panel_preferences" in workspace

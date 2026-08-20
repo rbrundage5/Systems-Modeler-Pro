@@ -1,12 +1,13 @@
 (() => {
   const ribbon = document.querySelector('.ribbon');
   const tabs = [...document.querySelectorAll('.workspace-tab')];
+  const commandStates = new Map();
   if (!ribbon || !tabs.length) return;
 
   const historyGroup = `
       <section class="ribbon-group"><div class="ribbon-actions">
-        <button class="ribbon-command" data-action="undo" title="Undo (Ctrl+Z)"><span class="command-icon">↶</span><span>Undo</span></button>
-        <button class="ribbon-command" data-action="redo" title="Redo (Ctrl+Y / Ctrl+Shift+Z)"><span class="command-icon">↷</span><span>Redo</span></button>
+        <button class="ribbon-command" data-command="undo"><span class="command-icon">↶</span><span>Undo</span></button>
+        <button class="ribbon-command" data-command="redo"><span class="command-icon">↷</span><span>Redo</span></button>
       </div><div class="ribbon-label">History</div></section>`;
 
   const panels = {
@@ -34,15 +35,15 @@
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>New State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>New Sequence</span></button>
         <button class="ribbon-command" data-action="new-activity"><span class="command-icon">▶</span><span>New Activity</span></button>
-        <button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route</span></button>
+        <button class="ribbon-command" data-command="route"><span class="command-icon">⌁</span><span>Route</span></button>
       </div><div class="ribbon-label">Diagram</div></section>${historyGroup}
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Rust-owned diagram commands</div><div class="ribbon-label">Context</div></section>`,
-    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route IBD</span></button></div><div class="ribbon-label">Routing</div></section>${historyGroup}<section class="ribbon-group ribbon-context"><div class="context-title">Shared router</div><div class="context-value">Deterministic orthogonal routing</div><div class="context-subtitle">BDD, IBD, and Activity flows use the shared Rust obstacle-routing foundation.</div><div class="ribbon-label">Layout</div></section>`,
+    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-command="route"><span class="command-icon">⌁</span><span>Route</span></button><button class="ribbon-command" data-command="cleanLayout"><span class="command-icon">⌁</span><span>Clean Layout</span></button></div><div class="ribbon-label">Routing and Layout</div></section>${historyGroup}<section class="ribbon-group ribbon-context"><div class="context-title">Shared geometry</div><div class="context-value">Rust-owned routing and layout</div><div class="context-subtitle">Availability follows the active diagram capabilities.</div><div class="ribbon-label">Layout</div></section>`,
     View: `
       <section class="ribbon-group"><div class="ribbon-actions compact-actions">
-        <button class="ribbon-command panel-toggle" data-panel="repository-panel"><span class="command-icon">▥</span><span>Repository</span></button>
-        <button class="ribbon-command panel-toggle" data-panel="palette-panel"><span class="command-icon">▦</span><span>Elements</span></button>
-        <button class="ribbon-command panel-toggle" data-panel="properties-panel"><span class="command-icon">▤</span><span>Properties</span></button>
+        <button class="ribbon-command panel-toggle" data-panel="repository-panel" data-command="showRepository"><span class="command-icon">▥</span><span>Repository</span></button>
+        <button class="ribbon-command panel-toggle" data-panel="palette-panel" data-command="showElements"><span class="command-icon">▦</span><span>Elements</span></button>
+        <button class="ribbon-command panel-toggle" data-panel="properties-panel" data-command="showProperties"><span class="command-icon">▤</span><span>Properties</span></button>
       </div><div class="ribbon-label">Panels</div></section>${historyGroup}`,
     Help: `<section class="ribbon-group ribbon-context"><div class="context-title">Systems Modeler Pro</div><div class="context-value">Native Rust migration</div><div class="context-subtitle">SysML engineering modeler desktop workspace</div><div class="ribbon-label">About</div></section>`,
   };
@@ -76,20 +77,21 @@
     ribbon.querySelectorAll('[data-action="new-activity"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateActivityForSelection?.());
     });
-    ribbon.querySelectorAll('[data-action="route-ibd"]').forEach((button) => {
-      button.addEventListener('click', () => window.smpRouteSelectedIbd?.());
-    });
-    ribbon.querySelectorAll('[data-action="undo"]').forEach((button) => {
-      button.addEventListener('click', () => window.smpUndo?.());
-    });
-    ribbon.querySelectorAll('[data-action="redo"]').forEach((button) => {
-      button.addEventListener('click', () => window.smpRedo?.());
-    });
-    ribbon.querySelectorAll('.panel-toggle').forEach((button) => {
-      const command = { 'repository-panel':'showRepository', 'palette-panel':'showElements', 'properties-panel':'showProperties' }[button.dataset.panel];
-      button.addEventListener('click', async () => { await window.smpRendererHost?.execute(command); syncPanelToggles(); });
+    ribbon.querySelectorAll('[data-command]').forEach((button) => {
+      button.addEventListener('click', async () => { await window.smpRendererHost?.execute(button.dataset.command); syncPanelToggles(); });
     });
     syncPanelToggles();
+    syncCommandStates();
+  }
+
+  function syncCommandStates() {
+    ribbon.querySelectorAll('[data-command]').forEach((button) => {
+      const command = commandStates.get(button.dataset.command);
+      if (!command) return;
+      button.disabled = !command.enabled;
+      button.title = command.enabled ? [command.label, command.shortcut].filter(Boolean).join(' · ') : command.disabledReason;
+      button.setAttribute('aria-disabled', String(!command.enabled));
+    });
   }
 
   function activate(name) {
@@ -110,6 +112,12 @@
     tab.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateTab(); }
     });
+  });
+
+  document.addEventListener('smp:commands-ready', (event) => {
+    commandStates.clear();
+    for (const command of event.detail || []) commandStates.set(command.id, command);
+    syncCommandStates();
   });
 
   activate('Home');

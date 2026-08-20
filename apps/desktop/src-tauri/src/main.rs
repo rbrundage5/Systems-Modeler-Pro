@@ -68,16 +68,17 @@ mod workspace {
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
     pub use shared_workspace::{
-        SharedWorkspaceState, activate_diagram, diagram_family_registry, get_panel_preferences,
-        get_viewport_preference, set_panel_preferences, set_viewport_preference,
+        SharedWorkspaceState, activate_diagram, active_diagram_command_manifest,
+        diagram_family_registry, get_panel_preferences, get_viewport_preference,
+        set_panel_preferences, set_viewport_preference,
     };
 }
 
 use serde::Serialize;
 use workspace::{
     ActivityWorkspaceState, HistoryState, SharedWorkspaceState, WorkspaceState, activate_diagram,
-    activity_snapshot, add_activity_action, add_activity_edge, add_activity_node,
-    add_activity_parameter_node, add_activity_partition, add_combined_fragment,
+    active_diagram_command_manifest, activity_snapshot, add_activity_action, add_activity_edge,
+    add_activity_node, add_activity_parameter_node, add_activity_partition, add_combined_fragment,
     add_combined_fragment_operand, add_composite_state, add_execution_specification,
     add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
     add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
@@ -365,6 +366,7 @@ fn main() {
             engine_status,
             semantic_presentation_manifest,
             diagram_command_manifest,
+            active_diagram_command_manifest,
             diagram_family_registry,
             activate_diagram,
             get_viewport_preference,
