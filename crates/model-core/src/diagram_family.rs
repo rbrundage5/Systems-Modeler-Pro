@@ -507,8 +507,12 @@ mod tests {
             .get(&DiagramFamilyId::new("sequence").unwrap())
             .unwrap();
         assert!(sequence.supports(DiagramCapability::Relationships));
-        assert!(!sequence.supports(DiagramCapability::Routing));
+        assert!(sequence.supports(DiagramCapability::Routing));
         assert!(!sequence.supports(DiagramCapability::CleanLayout));
+        let state_machine = registry
+            .get(&DiagramFamilyId::new("state-machine").unwrap())
+            .unwrap();
+        assert!(state_machine.supports(DiagramCapability::Routing));
     }
     #[test]
     fn bounds_include_nodes_ports_frames_routes_and_labels() {
