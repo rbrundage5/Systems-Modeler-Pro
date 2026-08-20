@@ -43,6 +43,34 @@ const ACTIVITY: PresentationStyle = PresentationStyle {
     border: "#49645d",
     text: "#15201d",
 };
+const ACTIVITY_CALL: PresentationStyle = PresentationStyle {
+    category: "activity",
+    fill: "#bfdccf",
+    header: "#9fc8b6",
+    border: "#3f6658",
+    text: "#10231c",
+};
+const ACTIVITY_OPERATION: PresentationStyle = PresentationStyle {
+    category: "activity",
+    fill: "#cee5d9",
+    header: "#afd3c2",
+    border: "#456b5d",
+    text: "#12241d",
+};
+const ACTIVITY_OBJECT: PresentationStyle = PresentationStyle {
+    category: "activity",
+    fill: "#edf6f1",
+    header: "#d5e9df",
+    border: "#55766a",
+    text: "#17251f",
+};
+const ACTIVITY_EVENT: PresentationStyle = PresentationStyle {
+    category: "activity",
+    fill: "#d9eadc",
+    header: "#bad6c0",
+    border: "#536f58",
+    text: "#18251a",
+};
 const STATE: PresentationStyle = PresentationStyle {
     category: "state",
     fill: "#e2edf6",
@@ -122,10 +150,15 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("FlowProperty", INTERFACE),
     ("Activity", ACTIVITY),
     ("OpaqueAction", ACTIVITY),
-    ("CallBehaviorAction", ACTIVITY),
-    ("CallOperationAction", ACTIVITY),
-    ("AcceptEventAction", ACTIVITY),
-    ("SendSignalAction", ACTIVITY),
+    ("CallBehaviorAction", ACTIVITY_CALL),
+    ("CallOperationAction", ACTIVITY_OPERATION),
+    ("AcceptEventAction", ACTIVITY_EVENT),
+    ("AcceptTimeEventAction", ACTIVITY_EVENT),
+    ("SendSignalAction", ACTIVITY_EVENT),
+    ("ObjectNode", ACTIVITY_OBJECT),
+    ("CentralBufferNode", ACTIVITY_OBJECT),
+    ("DataStoreNode", ACTIVITY_OBJECT),
+    ("ActivityParameterNode", ACTIVITY_OBJECT),
     ("State", STATE),
     ("FinalState", CONTROL),
     ("Pseudostate", CONTROL),
@@ -186,7 +219,7 @@ pub fn semantic_presentation_manifest() -> Vec<SemanticPresentation> {
 #[tauri::command]
 pub fn semantic_presentation_stylesheet() -> String {
     let mut stylesheet = String::from(
-        "/* Rust-generated semantic presentation tokens. */\n[data-semantic-kind]{background:var(--semantic-fill)!important;border-color:var(--semantic-border)!important;color:var(--semantic-text)!important}\n[data-semantic-kind] :is(.diagram-header,.lifeline-head,.block-name){background:var(--semantic-header)!important;color:var(--semantic-text)!important}\nsvg [data-semantic-kind] :is(rect,polygon,ellipse){fill:var(--semantic-fill)!important;stroke:var(--semantic-border)!important}\nsvg [data-semantic-kind] text{fill:var(--semantic-text)!important}\n",
+        "/* Rust-generated semantic presentation tokens. */\n[data-semantic-kind]:not([data-semantic-kind=\"Lifeline\"]){background:var(--semantic-fill)!important;border-color:var(--semantic-border)!important;color:var(--semantic-text)!important}\n[data-semantic-kind=\"Lifeline\"]{background:transparent!important}\n[data-semantic-kind] :is(.diagram-header,.lifeline-head,.block-name){background:var(--semantic-header)!important;color:var(--semantic-text)!important}\nsvg [data-semantic-kind] :is(rect,polygon,ellipse){fill:var(--semantic-fill)!important;stroke:var(--semantic-border)!important}\nsvg [data-semantic-kind] text{fill:var(--semantic-text)!important}\n",
     );
     for (kind, style) in PRESENTATIONS {
         stylesheet.push_str(&format!(
@@ -525,5 +558,18 @@ mod tests {
             assert!(stylesheet.contains(&format!("data-semantic-kind=\"{kind}\"")));
         }
         assert!(!stylesheet.contains("undefined"));
+        assert!(stylesheet.contains("[data-semantic-kind=\"Lifeline\"]{background:transparent"));
+        let manifest = semantic_presentation_manifest();
+        let opaque = manifest
+            .iter()
+            .find(|item| item.semantic_kind == "OpaqueAction")
+            .unwrap();
+        let call = manifest
+            .iter()
+            .find(|item| item.semantic_kind == "CallBehaviorAction")
+            .unwrap();
+        assert_eq!(opaque.style.category, "activity");
+        assert_eq!(call.style.category, "activity");
+        assert_ne!(opaque.style.fill, call.style.fill);
     }
 }
