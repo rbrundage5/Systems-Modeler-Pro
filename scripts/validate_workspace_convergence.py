@@ -28,6 +28,9 @@ assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_prefer
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
+assert "active_diagram_router" in main
+assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
+assert "pub fn route_bdd" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
 assert "route_diagram_geometry" in main
 router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
 assert "route_diagram_geometry" in router
