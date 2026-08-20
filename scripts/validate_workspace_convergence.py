@@ -25,6 +25,11 @@ for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("stm",
 assert "modelElementName" in workspace and "context?.frameLabel" in workspace
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
 assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_preference" in workspace
+assert "validFrame(storedFrame)?storedFrame:null" in workspace
+assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
+assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
+assert "state.frameElement.style.transform=transform" in workspace
+assert "frame.dataset.diagramId=state.context.diagramId" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
