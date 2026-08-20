@@ -116,8 +116,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "bdd",
             "Block Definition Diagram",
-            "bdd",
-            "Package",
+            ("bdd", "Package"),
             "bdd",
             &["Model", "Package"],
             &[
@@ -135,8 +134,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "ibd",
             "Internal Block Diagram",
-            "ibd",
-            "Block",
+            ("ibd", "Block"),
             "ibd",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -156,8 +154,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "state-machine",
             "State Machine Diagram",
-            "stm",
-            "StateMachine",
+            ("stm", "StateMachine"),
             "state-machine",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -175,8 +172,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "sequence",
             "Sequence Diagram",
-            "seq",
-            "Interaction",
+            ("seq", "Interaction"),
             "sequence",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -194,8 +190,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "activity",
             "Activity Diagram",
-            "act",
-            "Activity",
+            ("act", "Activity"),
             "activity",
             &["Model", "Package", "Block", "AssociationBlock"],
             &[
@@ -223,8 +218,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
 fn descriptor(
     id: &str,
     name: &str,
-    frame_abbreviation: &str,
-    frame_model_element_type: &str,
+    frame_notation: (&str, &str),
     renderer: &str,
     owners: &[&str],
     supported: &[DiagramCapability],
@@ -233,8 +227,8 @@ fn descriptor(
     DiagramFamilyDescriptor {
         id: DiagramFamilyId::new(id).expect("static family id is valid"),
         display_name: name.into(),
-        frame_abbreviation: frame_abbreviation.into(),
-        frame_model_element_type: frame_model_element_type.into(),
+        frame_abbreviation: frame_notation.0.into(),
+        frame_model_element_type: frame_notation.1.into(),
         renderer_id: renderer.into(),
         permitted_owner_kinds: owners.iter().map(|value| (*value).into()).collect(),
         capabilities: capabilities(supported),
@@ -479,8 +473,7 @@ mod tests {
         let future = descriptor(
             "requirement",
             "Requirement Diagram",
-            "req",
-            "Package",
+            ("req", "Package"),
             "requirement",
             &["Model", "Package"],
             &[DiagramCapability::NodePlacement],
