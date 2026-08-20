@@ -23,8 +23,7 @@ mod workspace {
         assign_activity_node_structured_parent, update_activity_node_semantics,
     };
     pub use activity_mutation::{
-        delete_activity_item, layout_activity_diagram, reconnect_activity_edge,
-        route_activity_diagram,
+        delete_activity_item, reconnect_activity_edge, route_activity_diagram,
     };
     pub use activity_workspace::{
         ActivityWorkspaceState, activity_snapshot, add_activity_edge, add_activity_node,
@@ -49,8 +48,8 @@ mod workspace {
         add_combined_fragment, add_execution_specification, add_sequence_lifeline,
         add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
         add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, create_sequence_diagram,
-        create_state_machine_diagram, layout_behavior_diagram, move_sequence_lifeline,
-        move_state_vertex, resize_sequence_lifeline_timeline, route_behavior_diagram,
+        create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
+        resize_sequence_lifeline_timeline, route_behavior_diagram,
         update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
@@ -59,7 +58,7 @@ mod workspace {
     };
     pub use ibd::{
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
-        layout_ibd, populate_ibd_from_context, route_ibd,
+        populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
     pub use presentation_interaction::{
