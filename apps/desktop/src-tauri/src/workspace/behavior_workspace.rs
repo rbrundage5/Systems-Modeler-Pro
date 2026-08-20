@@ -1281,7 +1281,10 @@ pub fn layout_behavior_diagram(
                 .collect();
             drop(repository);
             let positions = super::layout::hierarchical_positions(
-                diagram.state_nodes.iter().map(|node| node.vertex_id.clone()),
+                diagram
+                    .state_nodes
+                    .iter()
+                    .map(|node| node.vertex_id.clone()),
                 &edges,
                 systems_modeler_core::PreferredFlowDirection::TopToBottom,
             );
