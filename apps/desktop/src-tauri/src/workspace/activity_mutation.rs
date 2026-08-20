@@ -151,6 +151,7 @@ fn reroute_diagram(
             &reserved_routes,
             allow_shared_departure,
         )?;
+        presentation.label_anchor = Some(routing::route_label_anchor(&presentation.points));
         reserved_routes.push(presentation.points.clone());
     }
     Ok(())
