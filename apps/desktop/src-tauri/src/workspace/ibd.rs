@@ -164,6 +164,16 @@ pub fn route_ibd_edge(
     source_id: &str,
     target_id: &str,
 ) -> Result<Vec<DiagramPoint>, String> {
+    route_ibd_edge_avoiding(diagram, source_id, target_id, &[], false)
+}
+
+fn route_ibd_edge_avoiding(
+    diagram: &IbdDiagram,
+    source_id: &str,
+    target_id: &str,
+    reserved_routes: &[Vec<DiagramPoint>],
+    allow_shared_departure: bool,
+) -> Result<Vec<DiagramPoint>, String> {
     let (_, source_rect) = ibd_end_for_presentation(diagram, source_id)?;
     let (_, target_rect) = ibd_end_for_presentation(diagram, target_id)?;
     let obstacles = routing_obstacles(diagram, source_id, target_id);
@@ -172,6 +182,8 @@ pub fn route_ibd_edge(
         target: target_rect,
         obstacles: &obstacles,
         lane_index: lane_index(diagram, source_id, target_id),
+        reserved_routes,
+        allow_shared_departure,
     }))
 }
 
@@ -571,17 +583,19 @@ pub fn route_ibd(
         .ok_or("IBD not found")?;
 
     let snapshot = diagram.clone();
-    let routes = snapshot
-        .connectors
-        .iter()
-        .map(|edge| {
-            route_ibd_edge(
-                &snapshot,
-                &edge.source_presentation_id,
-                &edge.target_presentation_id,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut routes = Vec::new();
+    for (index, edge) in snapshot.connectors.iter().enumerate() {
+        let allow_shared_departure = snapshot.connectors[..index]
+            .iter()
+            .any(|candidate| candidate.source_presentation_id == edge.source_presentation_id);
+        routes.push(route_ibd_edge_avoiding(
+            &snapshot,
+            &edge.source_presentation_id,
+            &edge.target_presentation_id,
+            &routes,
+            allow_shared_departure,
+        )?);
+    }
 
     for (edge, points) in diagram.connectors.iter_mut().zip(routes) {
         edge.points = points;
