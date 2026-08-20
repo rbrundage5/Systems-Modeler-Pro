@@ -26,9 +26,60 @@ pub struct ActiveDiagramContext {
     pub semantic_context_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSelection {
+    pub kind: String,
+    pub id: String,
+}
+
+impl WorkspaceSelection {
+    fn validate(&self) -> Result<(), String> {
+        if self.kind.trim().is_empty() || self.id.trim().is_empty() {
+            return Err("workspace selection kind and id are required".into());
+        }
+        if self.kind.len() > 64 || self.id.len() > 256 {
+            return Err("workspace selection kind or id exceeds the supported length".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceInteractionSnapshot {
+    pub diagram_id: Option<String>,
+    pub selections: Vec<WorkspaceSelection>,
+    pub active_tool: Option<String>,
+    pub revision: u64,
+}
+
+impl WorkspaceInteractionSnapshot {
+    fn validate_for(&self, active_diagram_id: &str) -> Result<(), String> {
+        if self.diagram_id.as_deref() != Some(active_diagram_id) {
+            return Err("workspace interaction does not target the active diagram".into());
+        }
+        if self.selections.len() > 1024 {
+            return Err("workspace selection exceeds the supported size".into());
+        }
+        for selection in &self.selections {
+            selection.validate()?;
+        }
+        if self
+            .active_tool
+            .as_ref()
+            .is_some_and(|tool| tool.trim().is_empty() || tool.len() > 128)
+        {
+            return Err("workspace active tool is invalid".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 pub struct SharedWorkspaceState {
     active: Mutex<Option<ActiveDiagramContext>>,
+    interaction: Mutex<WorkspaceInteractionSnapshot>,
     viewports: Mutex<BTreeMap<String, ViewportPreference>>,
     panels: Mutex<PanelPreference>,
     preferences_loaded: Mutex<bool>,
@@ -140,11 +191,99 @@ pub fn activate_diagram(
         name,
         semantic_context_id,
     };
+    let changed_diagram = state
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?
+        .as_ref()
+        .is_none_or(|active| active.diagram_id != context.diagram_id);
     *state
         .active
         .lock()
         .map_err(|_| "active diagram context lock poisoned")? = Some(context.clone());
+    if changed_diagram {
+        let mut interaction = state
+            .interaction
+            .lock()
+            .map_err(|_| "workspace interaction lock poisoned")?;
+        interaction.diagram_id = Some(context.diagram_id.clone());
+        interaction.selections.clear();
+        interaction.active_tool = None;
+        interaction.revision = interaction.revision.saturating_add(1);
+    }
     Ok(context)
+}
+
+#[tauri::command]
+pub fn workspace_interaction_snapshot(
+    state: tauri::State<'_, SharedWorkspaceState>,
+) -> Result<WorkspaceInteractionSnapshot, String> {
+    state
+        .interaction
+        .lock()
+        .map_err(|_| "workspace interaction lock poisoned")
+        .map(|interaction| interaction.clone())
+}
+
+#[tauri::command]
+pub fn set_workspace_interaction(
+    state: tauri::State<'_, SharedWorkspaceState>,
+    diagram_id: String,
+    selections: Vec<WorkspaceSelection>,
+    active_tool: Option<String>,
+) -> Result<WorkspaceInteractionSnapshot, String> {
+    let active_diagram_id = state
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?
+        .as_ref()
+        .map(|active| active.diagram_id.clone())
+        .ok_or("no active diagram")?;
+    let next = WorkspaceInteractionSnapshot {
+        diagram_id: Some(diagram_id),
+        selections,
+        active_tool,
+        revision: 0,
+    };
+    next.validate_for(&active_diagram_id)?;
+    let mut interaction = state
+        .interaction
+        .lock()
+        .map_err(|_| "workspace interaction lock poisoned")?;
+    interaction.diagram_id = next.diagram_id;
+    interaction.selections = next.selections;
+    interaction.active_tool = next.active_tool;
+    interaction.revision = interaction.revision.saturating_add(1);
+    Ok(interaction.clone())
+}
+
+#[tauri::command]
+pub fn clear_workspace_interaction(
+    state: tauri::State<'_, SharedWorkspaceState>,
+    diagram_id: String,
+    cancel_tool: bool,
+) -> Result<WorkspaceInteractionSnapshot, String> {
+    let active_diagram_id = state
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?
+        .as_ref()
+        .map(|active| active.diagram_id.clone())
+        .ok_or("no active diagram")?;
+    if diagram_id != active_diagram_id {
+        return Err("workspace interaction does not target the active diagram".into());
+    }
+    let mut interaction = state
+        .interaction
+        .lock()
+        .map_err(|_| "workspace interaction lock poisoned")?;
+    interaction.diagram_id = Some(diagram_id);
+    interaction.selections.clear();
+    if cancel_tool {
+        interaction.active_tool = None;
+    }
+    interaction.revision = interaction.revision.saturating_add(1);
+    Ok(interaction.clone())
 }
 
 #[tauri::command]
@@ -270,5 +409,28 @@ mod tests {
         assert_eq!(restored.viewports[&diagram_id].zoom, 1.5);
         assert_eq!(restored.panels.repository_width, 310);
         assert!(!restored.panels.properties_visible);
+    }
+
+    #[test]
+    fn interaction_validation_rejects_stale_diagrams_and_invalid_selections() {
+        let active = uuid::Uuid::new_v4().to_string();
+        let stale = WorkspaceInteractionSnapshot {
+            diagram_id: Some(uuid::Uuid::new_v4().to_string()),
+            selections: Vec::new(),
+            active_tool: None,
+            revision: 0,
+        };
+        assert!(stale.validate_for(&active).is_err());
+
+        let invalid = WorkspaceInteractionSnapshot {
+            diagram_id: Some(active.clone()),
+            selections: vec![WorkspaceSelection {
+                kind: String::new(),
+                id: "id".into(),
+            }],
+            active_tool: None,
+            revision: 0,
+        };
+        assert!(invalid.validate_for(&active).is_err());
     }
 }
