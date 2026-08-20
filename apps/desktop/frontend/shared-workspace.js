@@ -40,7 +40,7 @@
 
   function updateHeader() {
     const context=state.context;
-    document.getElementById('workspace-diagram-title').textContent = context?.frameLabel || 'No diagram selected';
+    document.getElementById('workspace-diagram-title').textContent = context ? '' : 'No diagram selected';
     const contextLabel=document.getElementById('workspace-diagram-context');contextLabel.textContent=context?.family.displayName||'Select a diagram from the repository';contextLabel.title=context?.semanticContextId?`Semantic context: ${context.semanticContextId}`:'';
     canvas.setAttribute('aria-label',context?.family.accessibilityName||'Diagram canvas'); canvas.dataset.family=context?.family.id||''; document.getElementById('workspace-header').dataset.family=context?.family.id||'';
   }
@@ -247,7 +247,7 @@
     state.viewport.panY = state.panning.panY + event.clientY - state.panning.y;
     applyViewport();
   });
-  function finishPan(event) { if(state.frameDrag?.pointerId===event.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();return;} if(!state.panning||state.panning.pointerId!==event.pointerId)return;state.panning=null;canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
+  function finishPan(event) { if(state.frameDrag?.pointerId===event.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();void renderer()?.refresh?.();return;} if(!state.panning||state.panning.pointerId!==event.pointerId)return;state.panning=null;canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
   canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
   window.addEventListener('keydown', (event) => {
@@ -343,7 +343,7 @@
     }
   }
 
-  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds });
+  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:() => state.frame&&{...state.frame} });
   const selectionAdapter = (selectionKeys, toolKeys) => ({
     selection: () => selectionKeys.map((key) => window.smpState?.[key]).filter(Boolean),
     clearSelection: () => { for (const key of selectionKeys) if (window.smpState) window.smpState[key] = null; },
