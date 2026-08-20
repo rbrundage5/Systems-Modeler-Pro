@@ -3,6 +3,12 @@
   const tabs = [...document.querySelectorAll('.workspace-tab')];
   if (!ribbon || !tabs.length) return;
 
+  const historyGroup = `
+      <section class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-command" data-action="undo" title="Undo (Ctrl+Z)"><span class="command-icon">↶</span><span>Undo</span></button>
+        <button class="ribbon-command" data-action="redo" title="Redo (Ctrl+Y / Ctrl+Shift+Z)"><span class="command-icon">↷</span><span>Redo</span></button>
+      </div><div class="ribbon-label">History</div></section>`;
+
   const panels = {
     File: `
       <section class="ribbon-group"><div class="ribbon-actions ribbon-large-actions">
@@ -10,7 +16,7 @@
         <button class="ribbon-command" data-forward="open-project"><span class="command-icon">▱</span><span>Open</span></button>
         <button class="ribbon-command" data-forward="save-project"><span class="command-icon">▣</span><span>Save</span></button>
         <button class="ribbon-command" data-forward="save-project-as"><span class="command-icon">▣</span><span>Save As</span></button>
-      </div><div class="ribbon-label">Project</div></section>`,
+      </div><div class="ribbon-label">Project</div></section>${historyGroup}`,
     Home: `
       <section class="ribbon-group"><div class="ribbon-actions">
         <button class="ribbon-command" data-forward="new-package"><span class="command-icon">□</span><span>Package</span></button>
@@ -18,7 +24,8 @@
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>Sequence</span></button>
-      </div><div class="ribbon-label">Create</div></section>
+        <button class="ribbon-command" data-action="new-activity"><span class="command-icon">▶</span><span>Activity</span></button>
+      </div><div class="ribbon-label">Create</div></section>${historyGroup}
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow the active diagram</div><div class="ribbon-label">Context</div></section>`,
     Diagram: `
       <section class="ribbon-group"><div class="ribbon-actions">
@@ -26,16 +33,17 @@
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>New IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>New State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>New Sequence</span></button>
+        <button class="ribbon-command" data-action="new-activity"><span class="command-icon">▶</span><span>New Activity</span></button>
         <button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route</span></button>
-      </div><div class="ribbon-label">Diagram</div></section>
+      </div><div class="ribbon-label">Diagram</div></section>${historyGroup}
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Rust-owned diagram commands</div><div class="ribbon-label">Context</div></section>`,
-    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route IBD</span></button></div><div class="ribbon-label">Routing</div></section><section class="ribbon-group ribbon-context"><div class="context-title">Shared router</div><div class="context-value">Deterministic orthogonal routing</div><div class="context-subtitle">BDD and IBD use the same Rust obstacle-routing foundation.</div><div class="ribbon-label">Layout</div></section>`,
+    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-action="route-ibd"><span class="command-icon">⌁</span><span>Route IBD</span></button></div><div class="ribbon-label">Routing</div></section>${historyGroup}<section class="ribbon-group ribbon-context"><div class="context-title">Shared router</div><div class="context-value">Deterministic orthogonal routing</div><div class="context-subtitle">BDD, IBD, and Activity flows use the shared Rust obstacle-routing foundation.</div><div class="ribbon-label">Layout</div></section>`,
     View: `
       <section class="ribbon-group"><div class="ribbon-actions compact-actions">
         <button class="ribbon-command panel-toggle" data-panel="repository-panel"><span class="command-icon">▥</span><span>Repository</span></button>
         <button class="ribbon-command panel-toggle" data-panel="palette-panel"><span class="command-icon">▦</span><span>Elements</span></button>
         <button class="ribbon-command panel-toggle" data-panel="properties-panel"><span class="command-icon">▤</span><span>Properties</span></button>
-      </div><div class="ribbon-label">Panels</div></section>`,
+      </div><div class="ribbon-label">Panels</div></section>${historyGroup}`,
     Help: `<section class="ribbon-group ribbon-context"><div class="context-title">Systems Modeler Pro</div><div class="context-value">Native Rust migration</div><div class="context-subtitle">SysML engineering modeler desktop workspace</div><div class="ribbon-label">About</div></section>`,
   };
 
@@ -65,8 +73,17 @@
     ribbon.querySelectorAll('[data-action="new-sequence"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateSequenceForSelectedBlock?.());
     });
+    ribbon.querySelectorAll('[data-action="new-activity"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpCreateActivityForSelection?.());
+    });
     ribbon.querySelectorAll('[data-action="route-ibd"]').forEach((button) => {
       button.addEventListener('click', () => window.smpRouteSelectedIbd?.());
+    });
+    ribbon.querySelectorAll('[data-action="undo"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpUndo?.());
+    });
+    ribbon.querySelectorAll('[data-action="redo"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpRedo?.());
     });
     ribbon.querySelectorAll('.panel-toggle').forEach((button) => {
       button.addEventListener('click', () => {

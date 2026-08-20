@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="behavior-completion.css" />
   <link rel="stylesheet" href="behavior-message-notation.css" />
   <link rel="stylesheet" href="behavior-submachine.css" />
+  <link rel="stylesheet" href="activity.css" />
 </head>
 <body>
   <header class="app-header">
@@ -25,6 +26,7 @@
     </div>
     <div class="ribbon">
       <section class="ribbon-group"><div class="ribbon-actions"><button id="new-package" class="ribbon-command"><span class="command-icon">□</span><span>Package</span></button><button id="new-bdd" class="ribbon-command"><span class="command-icon">▤</span><span>BDD</span></button><button id="new-state-machine" class="ribbon-command"><span class="command-icon">◉</span><span>State Machine</span></button><button id="new-sequence" class="ribbon-command"><span class="command-icon">⇥</span><span>Sequence</span></button></div><div class="ribbon-label">Create</div></section>
+      <section class="ribbon-group history-ribbon-group"><div class="ribbon-actions"><button id="undo-command" class="ribbon-command" title="Undo (Ctrl+Z)"><span class="command-icon">↶</span><span>Undo</span></button><button id="redo-command" class="ribbon-command" title="Redo (Ctrl+Y / Ctrl+Shift+Z)"><span class="command-icon">↷</span><span>Redo</span></button></div><div class="ribbon-label">History</div></section>
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow this diagram</div><div class="ribbon-label">Context</div></section>
     </div>
     <div class="shell-command-host" aria-hidden="true"><button id="new-project"></button><button id="open-project"></button><button id="save-project"></button><button id="save-project-as"></button></div>
@@ -59,5 +61,18 @@
   <script src="behavior-command-authority.js"></script>
   <script src="behavior-authoritative-renderer.js"></script>
   <script src="behavior-transition-presentation.js"></script>
+  <script src="activity-ui.js"></script>
+  <script src="activity-rich-ui.js"></script>
+  <script src="activity-navigation-ui.js"></script>
+  <script src="activity-mutation-ui.js"></script>
+  <script src="project-open-compat.js"></script>
+  <script src="diagram-interaction.js"></script>
+  <script src="repository-tree-ui.js"></script>
+  <script src="interaction-runtime-fixes.js"></script>
+  <script src="state-bar-resize.js"></script>
+  <script src="bdd-compartment-visibility.js"></script>
+  <script src="structural-interaction-rebind.js"></script>
+  <script src="behavior-refresh-authority.js"></script>
+  <script src="undo-redo-ui.js"></script>
 </body>
 </html>

@@ -1,14 +1,32 @@
 mod workspace {
     include!("workspace.rs");
+    mod activity_editing;
+    mod activity_mutation;
+    mod activity_workspace;
     mod bdd_elements;
     mod behavior_completion;
     mod behavior_creation;
     mod behavior_workspace;
     mod feature_editing;
+    mod history;
     mod ibd;
     mod item_flow_notation;
+    mod presentation_interaction;
     mod relationship_editing;
     mod routing;
+    pub use activity_editing::{
+        add_activity_action, add_activity_parameter_node, add_activity_partition,
+        add_structured_activity_node, assign_activity_node_partition,
+        assign_activity_node_structured_parent, update_activity_node_semantics,
+    };
+    pub use activity_mutation::{
+        delete_activity_item, reconnect_activity_edge, route_activity_diagram,
+    };
+    pub use activity_workspace::{
+        ActivityWorkspaceState, activity_snapshot, add_activity_edge, add_activity_node,
+        create_activity_diagram, load_activity_workspace, reset_activity_workspace,
+        save_activity_workspace,
+    };
     pub use bdd_elements::{
         create_bdd_element, create_bdd_feature, create_bdd_relationship_complete,
         open_project_file_complete, place_bdd_element, save_current_project_complete,
@@ -31,11 +49,18 @@ mod workspace {
         resize_sequence_lifeline_timeline, update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
+    pub use history::{
+        HistoryState, history_checkpoint, history_redo, history_reset, history_undo,
+    };
     pub use ibd::{
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
+    pub use presentation_interaction::{
+        update_activity_presentation_geometry, update_bdd_presentation_geometry,
+        update_ibd_port_geometry, update_ibd_property_geometry, update_state_presentation_geometry,
+    };
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -43,23 +68,31 @@ mod workspace {
 
 use serde::Serialize;
 use workspace::{
-    WorkspaceState, add_combined_fragment, add_combined_fragment_operand, add_composite_state,
+    ActivityWorkspaceState, HistoryState, WorkspaceState, activity_snapshot, add_activity_action,
+    add_activity_edge, add_activity_node, add_activity_parameter_node, add_activity_partition,
+    add_combined_fragment, add_combined_fragment_operand, add_composite_state,
     add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
     add_sequence_lifeline, add_sequence_message, add_state_invariant, add_state_region,
-    add_state_transition, add_state_transition_complete, add_state_vertex, add_submachine_state,
-    behavior_lifeline_candidates, behavior_snapshot, create_bdd, create_bdd_element,
-    create_bdd_feature, create_bdd_relationship, create_bdd_relationship_complete, create_block,
-    create_ibd, create_ibd_connector, create_package, create_sequence_diagram,
-    create_sequence_diagram_staged, create_state_machine_diagram,
-    create_state_machine_diagram_staged, delete_bdd_relationship, delete_behavior_item,
-    ibd_item_flow_notation, move_sequence_lifeline, move_state_vertex, new_project,
-    open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
-    populate_ibd_from_context, reconnect_bdd_relationship, reconnect_sequence_message,
-    rename_element, resize_sequence_lifeline_timeline, route_ibd, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
-    update_combined_fragment_operand, update_execution_specification, update_sequence_message,
-    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
+    add_state_transition, add_state_transition_complete, add_state_vertex,
+    add_structured_activity_node, add_submachine_state, assign_activity_node_partition,
+    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
+    create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
+    create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
+    create_ibd_connector, create_package, create_sequence_diagram, create_sequence_diagram_staged,
+    create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
+    delete_bdd_relationship, delete_behavior_item, history_checkpoint, history_redo, history_reset,
+    history_undo, ibd_item_flow_notation, load_activity_workspace, move_sequence_lifeline,
+    move_state_vertex, new_project, open_project_file, open_project_file_complete,
+    place_bdd_element, place_element_on_bdd, populate_ibd_from_context, reconnect_activity_edge,
+    reconnect_bdd_relationship, reconnect_sequence_message, rename_element,
+    reset_activity_workspace, resize_sequence_lifeline_timeline, route_activity_diagram, route_ibd,
+    save_activity_workspace, save_current_project, save_current_project_complete,
+    save_project_file, save_project_file_complete, update_activity_node_semantics,
+    update_activity_presentation_geometry, update_association_end, update_bdd_element_details,
+    update_bdd_feature_semantics, update_bdd_presentation_geometry,
+    update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
+    update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
+    update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
     update_state_transition, workspace_snapshot, workspace_snapshot_complete,
 };
 
@@ -248,6 +281,66 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("consider", "consider Fragment", "CombinedFragment"),
             element_item("Invariant", "State Invariant", "StateInvariant"),
         ]),
+        "Activity" => Ok(vec![
+            element_item("Initial", "Initial Node", "Initial"),
+            element_item("ActivityFinal", "Activity Final", "ActivityFinal"),
+            element_item("FlowFinal", "Flow Final", "FlowFinal"),
+            element_item("OpaqueAction", "Opaque Action", "OpaqueAction"),
+            element_item(
+                "CallBehaviorAction",
+                "Call Behavior Action",
+                "CallBehaviorAction",
+            ),
+            element_item(
+                "CallOperationAction",
+                "Call Operation Action",
+                "CallOperationAction",
+            ),
+            element_item("SendSignalAction", "Send Signal Action", "SendSignalAction"),
+            element_item(
+                "AcceptEventAction",
+                "Accept Event Action",
+                "AcceptEventAction",
+            ),
+            element_item(
+                "AcceptTimeEventAction",
+                "Accept Time Event",
+                "AcceptTimeEventAction",
+            ),
+            element_item(
+                "ActivityParameterNode",
+                "Activity Parameter",
+                "ActivityParameterNode",
+            ),
+            element_item("Decision", "Decision", "Decision"),
+            element_item("Merge", "Merge", "Merge"),
+            element_item("Fork", "Fork", "Fork"),
+            element_item("Join", "Join", "Join"),
+            element_item("ObjectNode", "Object Node", "ObjectNode"),
+            element_item("CentralBufferNode", "Central Buffer", "CentralBufferNode"),
+            element_item("DataStoreNode", "Data Store", "DataStoreNode"),
+            element_item(
+                "ActivityPartition",
+                "Activity Partition",
+                "ActivityPartition",
+            ),
+            element_item(
+                "StructuredActivityNode",
+                "Structured Activity Node",
+                "StructuredActivityNode",
+            ),
+            element_item("ConditionalNode", "Conditional Node", "ConditionalNode"),
+            element_item("LoopNode", "Loop Node", "LoopNode"),
+            element_item("SequenceNode", "Sequence Node", "SequenceNode"),
+            element_item("ExpansionRegion", "Expansion Region", "ExpansionRegion"),
+            element_item(
+                "InterruptibleActivityRegion",
+                "Interruptible Region",
+                "InterruptibleActivityRegion",
+            ),
+            relationship_item("ControlFlow", "Control Flow", "ControlFlow"),
+            relationship_item("ObjectFlow", "Object Flow", "ObjectFlow"),
+        ]),
         _ => Err(format!("unsupported diagram palette: {diagram_type}")),
     }
 }
@@ -255,11 +348,35 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
 fn main() {
     tauri::Builder::default()
         .manage(WorkspaceState::default())
+        .manage(ActivityWorkspaceState::default())
+        .manage(HistoryState::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             diagram_palette,
+            history_checkpoint,
+            history_undo,
+            history_redo,
+            history_reset,
             workspace_snapshot,
             workspace_snapshot_complete,
+            activity_snapshot,
+            reset_activity_workspace,
+            create_activity_diagram,
+            add_activity_node,
+            add_activity_edge,
+            add_activity_action,
+            add_activity_parameter_node,
+            add_activity_partition,
+            assign_activity_node_partition,
+            add_structured_activity_node,
+            assign_activity_node_structured_parent,
+            update_activity_node_semantics,
+            update_activity_presentation_geometry,
+            delete_activity_item,
+            reconnect_activity_edge,
+            route_activity_diagram,
+            save_activity_workspace,
+            load_activity_workspace,
             new_project,
             save_project_file,
             save_project_file_complete,
@@ -273,11 +390,14 @@ fn main() {
             create_bdd_feature,
             update_bdd_element_details,
             update_bdd_feature_semantics,
+            update_bdd_presentation_geometry,
             rename_element,
             create_bdd,
             create_ibd,
             populate_ibd_from_context,
             add_nested_port_to_ibd,
+            update_ibd_property_geometry,
+            update_ibd_port_geometry,
             create_ibd_connector,
             add_item_flow_to_connector,
             ibd_item_flow_notation,
@@ -296,6 +416,7 @@ fn main() {
             add_state_transition_complete,
             update_state_transition,
             move_state_vertex,
+            update_state_presentation_geometry,
             behavior_lifeline_candidates,
             add_sequence_lifeline,
             move_sequence_lifeline,
