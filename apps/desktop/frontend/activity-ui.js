@@ -67,6 +67,8 @@
     state.pendingRelationship = null;
     clearActivityInteraction();
     await loadActivityPalette();
+    const diagram = state.activitySnapshot?.diagrams?.find((candidate) => String(candidate.id) === String(id));
+    await window.smpRendererHost?.activate({ diagramId:id, familyId:'activity', name:diagram?.name || 'Activity Diagram', semanticContextId:diagram?.activity_id || '' });
     render();
   }
   window.smpSelectActivityDiagram = selectActivityDiagram;

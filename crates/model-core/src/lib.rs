@@ -5,3 +5,6 @@ include!("model.rs");
 #[allow(clippy::collapsible_match)]
 pub mod activity;
 pub use activity::*;
+
+pub mod diagram_family;
+pub use diagram_family::*;

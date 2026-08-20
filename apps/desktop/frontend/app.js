@@ -12,6 +12,7 @@ const state = {
   pendingRelationship: null,
   repositoryFilter: '',
 };
+window.smpState = state;
 
 const $ = (id) => document.getElementById(id);
 
@@ -233,6 +234,14 @@ async function selectDiagram(diagramId) {
   state.pendingRelationship = null;
   state.paletteTool = null;
   await loadPalette();
+  const bdd = state.snapshot?.diagrams?.find((diagram) => diagram.id === diagramId);
+  const ibd = state.snapshot?.ibd_diagrams?.find((diagram) => diagram.id === diagramId);
+  await window.smpRendererHost?.activate({
+    diagramId,
+    familyId: ibd ? 'ibd' : 'bdd',
+    name: (ibd || bdd)?.name || 'Diagram',
+    semanticContextId: ibd?.context_block_id || bdd?.owner_id || '',
+  });
   render();
 }
 

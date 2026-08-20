@@ -15,6 +15,7 @@ mod workspace {
     mod presentation_theme;
     mod relationship_editing;
     mod routing;
+    mod shared_workspace;
     pub use activity_editing::{
         add_activity_action, add_activity_parameter_node, add_activity_partition,
         add_structured_activity_node, assign_activity_node_partition,
@@ -66,23 +67,29 @@ mod workspace {
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
+    pub use shared_workspace::{
+        SharedWorkspaceState, activate_diagram, diagram_family_registry, get_panel_preferences,
+        get_viewport_preference, set_panel_preferences, set_viewport_preference,
+    };
 }
 
 use serde::Serialize;
 use workspace::{
-    ActivityWorkspaceState, HistoryState, WorkspaceState, activity_snapshot, add_activity_action,
-    add_activity_edge, add_activity_node, add_activity_parameter_node, add_activity_partition,
-    add_combined_fragment, add_combined_fragment_operand, add_composite_state,
-    add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
-    add_sequence_lifeline, add_sequence_message, add_state_invariant, add_state_region,
-    add_state_transition, add_state_transition_complete, add_state_vertex,
-    add_structured_activity_node, add_submachine_state, assign_activity_node_partition,
-    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
-    create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
-    create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
-    create_ibd_connector, create_package, create_sequence_diagram, create_sequence_diagram_staged,
+    ActivityWorkspaceState, HistoryState, SharedWorkspaceState, WorkspaceState, activate_diagram,
+    activity_snapshot, add_activity_action, add_activity_edge, add_activity_node,
+    add_activity_parameter_node, add_activity_partition, add_combined_fragment,
+    add_combined_fragment_operand, add_composite_state, add_execution_specification,
+    add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
+    add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
+    add_state_transition_complete, add_state_vertex, add_structured_activity_node,
+    add_submachine_state, assign_activity_node_partition, assign_activity_node_structured_parent,
+    behavior_lifeline_candidates, behavior_snapshot, create_activity_diagram, create_bdd,
+    create_bdd_element, create_bdd_feature, create_bdd_relationship,
+    create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
+    create_package, create_sequence_diagram, create_sequence_diagram_staged,
     create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
-    delete_bdd_relationship, delete_behavior_item, diagram_command_manifest, history_checkpoint,
+    delete_bdd_relationship, delete_behavior_item, diagram_command_manifest,
+    diagram_family_registry, get_panel_preferences, get_viewport_preference, history_checkpoint,
     history_redo, history_reset, history_undo, ibd_item_flow_notation, load_activity_workspace,
     move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
     open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
@@ -90,9 +97,9 @@ use workspace::{
     rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline,
     route_activity_diagram, route_ibd, save_activity_workspace, save_current_project,
     save_current_project_complete, save_project_file, save_project_file_complete,
-    semantic_presentation_manifest, update_activity_node_semantics,
-    update_activity_presentation_geometry, update_association_end, update_bdd_element_details,
-    update_bdd_feature_semantics, update_bdd_presentation_geometry,
+    semantic_presentation_manifest, set_panel_preferences, set_viewport_preference,
+    update_activity_node_semantics, update_activity_presentation_geometry, update_association_end,
+    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
     update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
     update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
@@ -353,10 +360,17 @@ fn main() {
         .manage(WorkspaceState::default())
         .manage(ActivityWorkspaceState::default())
         .manage(HistoryState::default())
+        .manage(SharedWorkspaceState::default())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             semantic_presentation_manifest,
             diagram_command_manifest,
+            diagram_family_registry,
+            activate_diagram,
+            get_viewport_preference,
+            set_viewport_preference,
+            get_panel_preferences,
+            set_panel_preferences,
             diagram_palette,
             history_checkpoint,
             history_undo,

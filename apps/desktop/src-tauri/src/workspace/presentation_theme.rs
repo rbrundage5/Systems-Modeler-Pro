@@ -2,6 +2,7 @@
 //! Colors supplement authoritative notation; they never encode semantic identity.
 
 use serde::Serialize;
+use systems_modeler_core::DiagramCapability;
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,6 +183,7 @@ pub struct DiagramCommandCapability {
     pub supported_diagrams: &'static [&'static str],
     pub rust_adapter: Option<&'static str>,
     pub unavailable_reason: Option<&'static str>,
+    pub required_capability: Option<DiagramCapability>,
 }
 
 #[tauri::command]
@@ -195,6 +197,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "clearSelection",
@@ -203,6 +206,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "delete",
@@ -211,6 +215,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: Some("delete_active_selection"),
             unavailable_reason: None,
+            required_capability: Some(DiagramCapability::Delete),
         },
         DiagramCommandCapability {
             id: "undo",
@@ -219,6 +224,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: Some("history_undo"),
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "redo",
@@ -227,6 +233,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: Some("history_redo"),
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "copy",
@@ -235,6 +242,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: Some("copy_selection"),
             unavailable_reason: None,
+            required_capability: Some(DiagramCapability::Clipboard),
         },
         DiagramCommandCapability {
             id: "paste",
@@ -243,6 +251,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: Some("paste_selection"),
             unavailable_reason: None,
+            required_capability: Some(DiagramCapability::Clipboard),
         },
         DiagramCommandCapability {
             id: "duplicate",
@@ -251,6 +260,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: ALL,
             rust_adapter: Some("duplicate_selection"),
             unavailable_reason: None,
+            required_capability: Some(DiagramCapability::Clipboard),
         },
     ];
     commands.extend(viewport_commands());
@@ -262,6 +272,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: &["BDD", "IBD", "Activity"],
             rust_adapter: Some("active_diagram_router"),
             unavailable_reason: Some("Routing is not applicable to this diagram type."),
+            required_capability: Some(DiagramCapability::Routing),
         },
         DiagramCommandCapability {
             id: "cleanLayout",
@@ -270,6 +281,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             supported_diagrams: &["BDD", "IBD", "Activity"],
             rust_adapter: Some("active_diagram_layout"),
             unavailable_reason: Some("Automatic layout is not available for this diagram type."),
+            required_capability: Some(DiagramCapability::CleanLayout),
         },
     ]);
     commands
@@ -284,6 +296,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "zoomOut",
@@ -292,6 +305,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "actualSize",
@@ -300,6 +314,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "fitDiagram",
@@ -308,6 +323,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "pan",
@@ -316,6 +332,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "toggleGrid",
@@ -324,6 +341,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "snapGrid",
@@ -332,6 +350,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "showRepository",
@@ -340,6 +359,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
         DiagramCommandCapability {
             id: "showProperties",
@@ -348,6 +368,7 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: None,
             unavailable_reason: None,
+            required_capability: None,
         },
     ]
 }
