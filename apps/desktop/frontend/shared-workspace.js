@@ -130,7 +130,6 @@
     });
     applyViewport(); scheduleViewportPersistence(); canvas.scrollTo(0, 0);
   }
-
   function interactionPayload() {
     const adapter = renderer();
     const selections = (adapter?.selection?.() || []).map((selection, index) => {
@@ -139,7 +138,9 @@
       }
       return { kind: `selection-${index}`, id: String(selection || '') };
     }).filter((selection) => selection.id);
-    return { selections, activeTool: adapter?.activeTool?.() || null };
+    const tool = adapter?.activeTool?.();
+    const activeTool = tool && typeof tool === 'object' ? String(tool.id || tool.kind || tool.relationship_kind || tool.element_kind || tool.type || 'pending-tool') : (tool == null ? null : String(tool));
+    return { selections, activeTool };
   }
   let interactionRequest = Promise.resolve(), interaction = null;
   function queueInteraction(command, args) {
@@ -178,7 +179,6 @@
     undo: () => window.smpUndo?.(), redo: () => window.smpRedo?.(),
     showRepository: () => togglePanel('repository'), showElements: () => togglePanel('elements'), showProperties: () => togglePanel('properties'),
   };
-
   async function execute(id, args = {}) {
     const command = commands.get(id);
     if (!command) { notify(`Unknown command: ${id}`, 'error'); return false; }
