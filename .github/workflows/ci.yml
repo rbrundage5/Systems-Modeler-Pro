@@ -56,6 +56,8 @@ jobs:
             apps/desktop/frontend/undo-redo-ui.js; do
             node --check "$file"
           done
+          node --check apps/desktop/frontend/shared-dialogs.js
+          node --check apps/desktop/frontend/shared-workspace.js
       - name: Behavior desktop integration contract
         run: python scripts/validate_behavior_integration.py
       - name: Activity desktop integration contract
@@ -64,6 +66,8 @@ jobs:
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
         run: python scripts/validate_history_integration.py
+      - name: Shared workspace convergence contract
+        run: python scripts/validate_workspace_convergence.py
 
   desktop-check:
     runs-on: windows-latest
@@ -86,6 +90,8 @@ jobs:
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
         run: python scripts/validate_history_integration.py
+      - name: Shared workspace convergence contract
+        run: python scripts/validate_workspace_convergence.py
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock

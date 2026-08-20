@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="behavior-message-notation.css" />
   <link rel="stylesheet" href="behavior-submachine.css" />
   <link rel="stylesheet" href="activity.css" />
+  <link rel="stylesheet" href="shared-workspace.css" />
 </head>
 <body>
   <header class="app-header">
@@ -35,7 +36,7 @@
   <div class="workspace">
     <aside class="left repository-panel"><div class="panel-title"><span>Model Repository</span></div><div class="panel-search"><input id="repository-search" placeholder="Search repository" /></div><div id="repository" class="repository panel-scroll" tabindex="0"></div></aside>
     <aside class="palette-panel"><div class="panel-title palette-title-row"><span id="palette-title">Elements</span><button id="collapse-palette" class="icon-button" title="Collapse palette">«</button></div><div id="palette" class="palette panel-scroll" tabindex="0"></div></aside>
-    <section class="diagram-workspace"><div id="diagram-tabs" class="diagram-tabs"></div><main id="canvas" class="canvas"></main></section>
+    <section class="diagram-workspace" data-shared-workspace="true"><div id="diagram-tabs" class="diagram-tabs"></div><div id="workspace-header" class="shared-workspace-header"><span class="workspace-type-icon" aria-hidden="true"></span><span id="workspace-diagram-title">No diagram selected</span><span id="workspace-diagram-context">Select a diagram from the repository</span></div><main id="canvas" class="canvas shared-diagram-canvas" tabindex="0" aria-label="Diagram canvas"></main></section>
     <aside class="properties-panel"><div class="panel-title properties-title"><span>Properties</span></div><div id="properties" class="properties panel-scroll" tabindex="0"></div></aside>
   </div>
 
@@ -74,5 +75,7 @@
   <script src="structural-interaction-rebind.js"></script>
   <script src="behavior-refresh-authority.js"></script>
   <script src="undo-redo-ui.js"></script>
+  <script src="shared-dialogs.js"></script>
+  <script src="shared-workspace.js"></script>
 </body>
 </html>

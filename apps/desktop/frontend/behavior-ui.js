@@ -77,7 +77,7 @@
     state.behaviorTargetRegionId = null;
   }
 
-  function selectBehaviorDiagram(id) {
+  async function selectBehaviorDiagram(id) {
     state.selectedBehaviorDiagramId = id;
     state.selectedDiagramId = null;
     state.selectedElementId = null;
@@ -86,6 +86,13 @@
     state.paletteTool = null;
     state.pendingRelationship = null;
     clearBehaviorInteractionState();
+    const diagram = state.behaviorSnapshot?.diagrams?.find((candidate) => String(candidate.id) === String(id));
+    await window.smpRendererHost?.activate({
+      diagramId: id,
+      familyId: diagram?.kind === 'Sequence' ? 'sequence' : 'state-machine',
+      name: diagram?.name || 'Behavior Diagram',
+      semanticContextId: diagram?.context_id || '',
+    });
     render();
   }
 

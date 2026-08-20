@@ -44,10 +44,9 @@ require(
 )
 require(
     "apps/desktop/frontend/ui-shell.js",
-    "data-action=\"undo\"",
-    "data-action=\"redo\"",
-    "window.smpUndo?.()",
-    "window.smpRedo?.()",
+    "data-command=\"undo\"",
+    "data-command=\"redo\"",
+    "window.smpRendererHost?.execute(button.dataset.command)",
     "History",
 )
 
