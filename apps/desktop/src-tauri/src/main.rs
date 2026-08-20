@@ -69,6 +69,7 @@ mod workspace {
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
+    pub use routing::route_diagram_geometry;
     pub use shared_workspace::{
         SharedWorkspaceState, activate_diagram, active_diagram_command_manifest,
         clear_workspace_interaction, diagram_family_registry, fit_diagram_viewport,
@@ -101,7 +102,8 @@ use workspace::{
     open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
     reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message,
     rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline,
-    route_activity_diagram, route_ibd, save_activity_workspace, save_current_project,
+    route_activity_diagram, route_diagram_geometry, route_ibd, save_activity_workspace,
+    save_current_project,
     save_current_project_complete, save_project_file, save_project_file_complete,
     semantic_presentation_manifest, semantic_presentation_stylesheet, set_diagram_frame_preference,
     set_panel_preferences, set_viewport_preference, set_workspace_interaction,
@@ -438,6 +440,7 @@ fn main() {
             add_item_flow_to_connector,
             ibd_item_flow_notation,
             route_ibd,
+            route_diagram_geometry,
             behavior_snapshot,
             create_state_machine_diagram,
             create_sequence_diagram,
