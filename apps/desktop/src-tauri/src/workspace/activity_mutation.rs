@@ -67,13 +67,9 @@ fn rect_overlaps_corridor(
 ) -> bool {
     const CORRIDOR_PADDING: f64 = 72.0;
     let left = source.x.min(target.x) - CORRIDOR_PADDING;
-    let right = (source.x + source.width)
-        .max(target.x + target.width)
-        + CORRIDOR_PADDING;
+    let right = (source.x + source.width).max(target.x + target.width) + CORRIDOR_PADDING;
     let top = source.y.min(target.y) - CORRIDOR_PADDING;
-    let bottom = (source.y + source.height)
-        .max(target.y + target.height)
-        + CORRIDOR_PADDING;
+    let bottom = (source.y + source.height).max(target.y + target.height) + CORRIDOR_PADDING;
     rect.x + rect.width >= left
         && rect.x <= right
         && rect.y + rect.height >= top
