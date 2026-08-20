@@ -52,6 +52,8 @@ pub enum PreferredFlowDirection {
 pub struct DiagramFamilyDescriptor {
     pub id: DiagramFamilyId,
     pub display_name: String,
+    pub frame_abbreviation: String,
+    pub frame_context_kind: String,
     pub renderer_id: String,
     pub permitted_owner_kinds: Vec<String>,
     pub capabilities: BTreeSet<DiagramCapability>,
@@ -75,6 +77,11 @@ impl DiagramFamilyRegistry {
     pub fn register(&mut self, descriptor: DiagramFamilyDescriptor) -> Result<(), String> {
         if descriptor.renderer_id.trim().is_empty() {
             return Err("diagram renderer identifier is required".into());
+        }
+        if descriptor.frame_abbreviation.trim().is_empty()
+            || descriptor.frame_context_kind.trim().is_empty()
+        {
+            return Err("diagram family must declare SysML frame notation".into());
         }
         if descriptor.permitted_owner_kinds.is_empty() {
             return Err("diagram family must declare permitted semantic owners".into());
@@ -110,6 +117,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             "bdd",
             "Block Definition Diagram",
             "bdd",
+            "package",
+            "bdd",
             &["Model", "Package"],
             &[
                 C::NodePlacement,
@@ -126,6 +135,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "ibd",
             "Internal Block Diagram",
+            "ibd",
+            "block",
             "ibd",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -145,6 +156,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "state-machine",
             "State Machine Diagram",
+            "stm",
+            "stateMachine",
             "state-machine",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -162,6 +175,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "sequence",
             "Sequence Diagram",
+            "seq",
+            "interaction",
             "sequence",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -179,6 +194,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
         descriptor(
             "activity",
             "Activity Diagram",
+            "act",
+            "activity",
             "activity",
             &["Model", "Package", "Block", "AssociationBlock"],
             &[
@@ -206,6 +223,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
 fn descriptor(
     id: &str,
     name: &str,
+    frame_abbreviation: &str,
+    frame_context_kind: &str,
     renderer: &str,
     owners: &[&str],
     supported: &[DiagramCapability],
@@ -214,6 +233,8 @@ fn descriptor(
     DiagramFamilyDescriptor {
         id: DiagramFamilyId::new(id).expect("static family id is valid"),
         display_name: name.into(),
+        frame_abbreviation: frame_abbreviation.into(),
+        frame_context_kind: frame_context_kind.into(),
         renderer_id: renderer.into(),
         permitted_owner_kinds: owners.iter().map(|value| (*value).into()).collect(),
         capabilities: capabilities(supported),
@@ -458,6 +479,8 @@ mod tests {
         let future = descriptor(
             "requirement",
             "Requirement Diagram",
+            "req",
+            "package",
             "requirement",
             &["Model", "Package"],
             &[DiagramCapability::NodePlacement],
@@ -465,6 +488,24 @@ mod tests {
         );
         assert!(registry.register(future.clone()).is_ok());
         assert!(registry.register(future).is_err());
+    }
+    #[test]
+    fn built_in_families_expose_sysml_frame_notation() {
+        let registry = supported_diagram_families();
+        let expected = [
+            ("bdd", "bdd", "package"),
+            ("ibd", "ibd", "block"),
+            ("state-machine", "stm", "stateMachine"),
+            ("sequence", "seq", "interaction"),
+            ("activity", "act", "activity"),
+        ];
+        for (id, abbreviation, context_kind) in expected {
+            let family = registry
+                .get(&DiagramFamilyId::new(id).unwrap())
+                .unwrap();
+            assert_eq!(family.frame_abbreviation, abbreviation);
+            assert_eq!(family.frame_context_kind, context_kind);
+        }
     }
     #[test]
     fn capabilities_are_family_owned() {
