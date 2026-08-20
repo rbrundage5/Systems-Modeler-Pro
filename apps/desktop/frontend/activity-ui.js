@@ -251,7 +251,7 @@
     svg.appendChild(path);
     const guard = semantic?.guard;
     if (guard) {
-      const mid = points[Math.floor(points.length / 2)];
+      const mid = presentation.label_anchor || points[Math.floor(points.length / 2)];
       const label = makeSvg('text', { class: 'activity-edge-label', x: mid.x + 6, y: mid.y - 6 });
       label.textContent = `[${guard}]`;
       svg.appendChild(label);
