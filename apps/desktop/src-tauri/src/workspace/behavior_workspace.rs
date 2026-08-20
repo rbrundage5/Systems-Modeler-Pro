@@ -172,10 +172,7 @@ fn find_vertex(regions: &[Region], wanted: VertexId) -> Option<&Vertex> {
     None
 }
 
-fn collect_transition_endpoints(
-    regions: &[Region],
-    output: &mut Vec<(String, String, String)>,
-) {
+fn collect_transition_endpoints(regions: &[Region], output: &mut Vec<(String, String, String)>) {
     for region in regions {
         output.extend(region.transitions.iter().map(|transition| {
             (
