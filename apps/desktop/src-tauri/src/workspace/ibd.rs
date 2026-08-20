@@ -632,7 +632,10 @@ pub fn layout_ibd(
             })
             .collect();
         let positions = super::layout::hierarchical_positions(
-            diagram.properties.iter().map(|property| property.id.clone()),
+            diagram
+                .properties
+                .iter()
+                .map(|property| property.id.clone()),
             &edges,
             systems_modeler_core::PreferredFlowDirection::LeftToRight,
         );
