@@ -28,6 +28,13 @@ assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_prefer
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
+assert "route_diagram_geometry" in main
+router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
+assert "route_diagram_geometry" in router
+for routing_contract in ["DiagramRouteEdge", "RouteRect", "reserved_routes", "allow_shared_departure"]:
+    assert routing_contract in router
+for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
+    assert family in family_contract
 assert "resolve_diagram_commands" in theme
 assert "command.enabled" in workspace and "command.disabledReason" in workspace
 for category in ["structural", "interface", "activity", "state", "requirement", "constraint", "data", "event", "verification", "annotation", "frame"]:
