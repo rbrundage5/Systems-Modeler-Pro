@@ -20,9 +20,9 @@ family_contract = read(root / "crates/model-core/src/diagram_family.rs")
 for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
     assert f'registerRenderer(\'{family}\'' in workspace
     assert f'"{family}"' in family_contract
-for abbreviation, context_kind in [("bdd", "package"), ("ibd", "block"), ("stm", "stateMachine"), ("seq", "interaction"), ("act", "activity")]:
+for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
-assert "frameAbbreviation" in workspace and "frameContextKind" in workspace
+assert "modelElementName" in workspace and "context?.frameLabel" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
@@ -32,6 +32,7 @@ for category in ["structural", "interface", "activity", "state", "requirement", 
     assert f'category: "{category}"' in theme
 assert "get_viewport_preference" in workspace and "get_panel_preferences" in workspace
 shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
+assert "frame_model_element_type" in family_contract and "frame_label" in shared_workspace
 assert "workspace-preferences.json" in shared_workspace
 assert "event.ctrlKey" in workspace and "event.clientX" in workspace
 assert "semantic_presentation_manifest" in main and "diagram_command_manifest" in main
