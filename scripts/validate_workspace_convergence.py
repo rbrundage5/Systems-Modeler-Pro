@@ -23,6 +23,8 @@ for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
 for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
 assert "modelElementName" in workspace and "context?.frameLabel" in workspace
+assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
+assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_preference" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
@@ -44,6 +46,7 @@ for panel_command in ["showRepository", "showElements", "showProperties"]:
     assert f'id: "{panel_command}"' in theme
 assert "setPanelVisibility" in workspace and "configuredWidth" in workspace
 assert "set_viewport_preference" in main and "activate_diagram" in main
+assert "get_diagram_frame_preference" in main and "set_diagram_frame_preference" in main
 assert "fit_diagram_viewport" in main and "fit_diagram_viewport" in workspace
 assert "zoom_diagram_viewport" in main and "zoom_diagram_viewport" in workspace
 assert "workspace-transform-spacer" in workspace and "setPointerCapture" in workspace
