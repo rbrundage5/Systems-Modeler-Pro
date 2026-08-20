@@ -35,7 +35,7 @@ pub fn hierarchical_positions(
         .map(|(id, level)| {
             let lane = lanes.entry(level).or_default();
             let (x, y) = match flow {
-                PreferredFlowDirection::TopToBottom => (
+                PreferredFlowDirection::TopToBottom | PreferredFlowDirection::Freeform => (
                     ORIGIN_X + *lane as f64 * LANE_GAP,
                     ORIGIN_Y + level as f64 * LEVEL_GAP,
                 ),
@@ -63,5 +63,11 @@ mod tests {
         let second = hierarchical_positions(ids, &edges, PreferredFlowDirection::TopToBottom);
         assert_eq!(first, second);
         assert!(first["a"].1 < first["b"].1 && first["b"].1 < first["c"].1);
+        let freeform = hierarchical_positions(
+            ["c", "a", "b"].map(String::from),
+            &edges,
+            PreferredFlowDirection::Freeform,
+        );
+        assert!(freeform["a"].1 < freeform["b"].1);
     }
 }
