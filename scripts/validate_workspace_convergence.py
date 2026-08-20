@@ -32,6 +32,7 @@ assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
 assert "state.frameElement.style.transform=transform" in workspace
 assert "frame.dataset.diagramId=state.context.diagramId" in workspace
+assert "root?.getBBox" in workspace and "Math.max(320,bounds.width" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
