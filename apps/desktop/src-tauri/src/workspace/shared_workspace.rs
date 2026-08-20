@@ -362,6 +362,158 @@ pub fn activate_diagram(
 }
 
 #[tauri::command]
+pub fn rename_active_diagram_header(
+    diagram_id: String,
+    model_element_name: String,
+    diagram_name: String,
+    state: tauri::State<'_, SharedWorkspaceState>,
+    workspace: tauri::State<'_, super::WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
+) -> Result<ActiveDiagramContext, String> {
+    let model_element_name = model_element_name.trim();
+    let diagram_name = diagram_name.trim();
+    if model_element_name.is_empty() || diagram_name.is_empty() {
+        return Err("diagram header names cannot be empty".into());
+    }
+    if model_element_name.chars().count() > 256 || diagram_name.chars().count() > 256 {
+        return Err("diagram header names cannot exceed 256 characters".into());
+    }
+    let active = state
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?
+        .clone()
+        .ok_or("no active diagram")?;
+    if active.diagram_id != diagram_id {
+        return Err("rename request does not match the active diagram".into());
+    }
+    super::history::checkpoint_states(&workspace, &activity, &history)?;
+    match active.family.id.0.as_str() {
+        "bdd" => {
+            let owner_id = workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("BDD not found")?
+                .owner_id
+                .clone();
+            workspace
+                .project
+                .lock()
+                .map_err(|_| "project lock poisoned")?
+                .as_mut()
+                .ok_or("no project open")?
+                .rename_element(super::parse_element_id(&owner_id)?, model_element_name)
+                .map_err(|error| error.to_string())?;
+            workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("BDD not found")?
+                .name = diagram_name.into();
+        }
+        "ibd" => {
+            let context_id = workspace
+                .ibd_diagrams
+                .lock()
+                .map_err(|_| "IBD lock poisoned")?
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("IBD not found")?
+                .context_block_id
+                .clone();
+            workspace
+                .project
+                .lock()
+                .map_err(|_| "project lock poisoned")?
+                .as_mut()
+                .ok_or("no project open")?
+                .rename_element(super::parse_element_id(&context_id)?, model_element_name)
+                .map_err(|error| error.to_string())?;
+            workspace
+                .ibd_diagrams
+                .lock()
+                .map_err(|_| "IBD lock poisoned")?
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("IBD not found")?
+                .name = diagram_name.into();
+        }
+        "state-machine" | "sequence" => {
+            let mut diagrams = workspace
+                .behavior_diagrams
+                .lock()
+                .map_err(|_| "behavior diagram lock poisoned")?;
+            let diagram = diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("behavior diagram not found")?;
+            let semantic_id = uuid::Uuid::parse_str(&diagram.semantic_id)
+                .map_err(|_| "behavior semantic id is invalid")?;
+            let mut repository = workspace
+                .behavior
+                .lock()
+                .map_err(|_| "behavior repository lock poisoned")?;
+            if active.family.id.0 == "state-machine" {
+                repository
+                    .state_machines
+                    .get_mut(&systems_modeler_core::behavior::StateMachineId(semantic_id))
+                    .ok_or("StateMachine not found")?
+                    .name = model_element_name.into();
+            } else {
+                repository
+                    .interactions
+                    .get_mut(&systems_modeler_core::behavior::InteractionId(semantic_id))
+                    .ok_or("Interaction not found")?
+                    .name = model_element_name.into();
+            }
+            diagram.name = diagram_name.into();
+        }
+        "activity" => {
+            let mut diagrams = activity
+                .diagrams
+                .lock()
+                .map_err(|_| "Activity diagram lock poisoned")?;
+            let diagram = diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("Activity diagram not found")?;
+            let activity_id = super::activity_workspace::parse_activity_id(&diagram.activity_id)?;
+            activity
+                .repository
+                .lock()
+                .map_err(|_| "Activity repository lock poisoned")?
+                .activities
+                .get_mut(&activity_id)
+                .ok_or("Activity not found")?
+                .name = model_element_name.into();
+            diagram.name = diagram_name.into();
+        }
+        family => return Err(format!("diagram header editing is unavailable for {family}")),
+    }
+    let mut updated = active;
+    updated.name = diagram_name.into();
+    updated.model_element_name = model_element_name.into();
+    updated.frame_label = format!(
+        "{} [{}] {} [{}]",
+        updated.family.frame_abbreviation,
+        updated.family.frame_model_element_type,
+        updated.model_element_name,
+        updated.name
+    );
+    *state
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")? = Some(updated.clone());
+    Ok(updated)
+}
+
+#[tauri::command]
 pub fn workspace_interaction_snapshot(
     state: tauri::State<'_, SharedWorkspaceState>,
 ) -> Result<WorkspaceInteractionSnapshot, String> {
