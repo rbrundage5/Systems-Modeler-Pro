@@ -53,7 +53,7 @@ pub struct DiagramFamilyDescriptor {
     pub id: DiagramFamilyId,
     pub display_name: String,
     pub frame_abbreviation: String,
-    pub frame_context_kind: String,
+    pub frame_model_element_type: String,
     pub renderer_id: String,
     pub permitted_owner_kinds: Vec<String>,
     pub capabilities: BTreeSet<DiagramCapability>,
@@ -79,7 +79,7 @@ impl DiagramFamilyRegistry {
             return Err("diagram renderer identifier is required".into());
         }
         if descriptor.frame_abbreviation.trim().is_empty()
-            || descriptor.frame_context_kind.trim().is_empty()
+            || descriptor.frame_model_element_type.trim().is_empty()
         {
             return Err("diagram family must declare SysML frame notation".into());
         }
@@ -117,7 +117,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             "bdd",
             "Block Definition Diagram",
             "bdd",
-            "package",
+            "Package",
             "bdd",
             &["Model", "Package"],
             &[
@@ -136,7 +136,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             "ibd",
             "Internal Block Diagram",
             "ibd",
-            "block",
+            "Block",
             "ibd",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -157,7 +157,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             "state-machine",
             "State Machine Diagram",
             "stm",
-            "stateMachine",
+            "StateMachine",
             "state-machine",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -176,7 +176,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             "sequence",
             "Sequence Diagram",
             "seq",
-            "interaction",
+            "Interaction",
             "sequence",
             &["Block", "AssociationBlock", "InterfaceBlock"],
             &[
@@ -195,7 +195,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             "activity",
             "Activity Diagram",
             "act",
-            "activity",
+            "Activity",
             "activity",
             &["Model", "Package", "Block", "AssociationBlock"],
             &[
@@ -224,7 +224,7 @@ fn descriptor(
     id: &str,
     name: &str,
     frame_abbreviation: &str,
-    frame_context_kind: &str,
+    frame_model_element_type: &str,
     renderer: &str,
     owners: &[&str],
     supported: &[DiagramCapability],
@@ -234,7 +234,7 @@ fn descriptor(
         id: DiagramFamilyId::new(id).expect("static family id is valid"),
         display_name: name.into(),
         frame_abbreviation: frame_abbreviation.into(),
-        frame_context_kind: frame_context_kind.into(),
+        frame_model_element_type: frame_model_element_type.into(),
         renderer_id: renderer.into(),
         permitted_owner_kinds: owners.iter().map(|value| (*value).into()).collect(),
         capabilities: capabilities(supported),
@@ -480,7 +480,7 @@ mod tests {
             "requirement",
             "Requirement Diagram",
             "req",
-            "package",
+            "Package",
             "requirement",
             &["Model", "Package"],
             &[DiagramCapability::NodePlacement],
@@ -493,18 +493,18 @@ mod tests {
     fn built_in_families_expose_sysml_frame_notation() {
         let registry = supported_diagram_families();
         let expected = [
-            ("bdd", "bdd", "package"),
-            ("ibd", "ibd", "block"),
-            ("state-machine", "stm", "stateMachine"),
-            ("sequence", "seq", "interaction"),
-            ("activity", "act", "activity"),
+            ("bdd", "bdd", "Package"),
+            ("ibd", "ibd", "Block"),
+            ("state-machine", "stm", "StateMachine"),
+            ("sequence", "seq", "Interaction"),
+            ("activity", "act", "Activity"),
         ];
         for (id, abbreviation, context_kind) in expected {
             let family = registry
                 .get(&DiagramFamilyId::new(id).unwrap())
                 .unwrap();
             assert_eq!(family.frame_abbreviation, abbreviation);
-            assert_eq!(family.frame_context_kind, context_kind);
+            assert_eq!(family.frame_model_element_type, context_kind);
         }
     }
     #[test]
