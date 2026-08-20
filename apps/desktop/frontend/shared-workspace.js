@@ -156,19 +156,20 @@
     const payload = interactionPayload();
     return queueInteraction('set_workspace_interaction', { selections:payload.selections, activeTool:payload.activeTool });
   }
+  async function clearRendererSelections(cancelTools = false) {
+    for (const adapter of renderers.values()) { adapter.clearSelection(); if (cancelTools) adapter.cancelInteraction(); }
+    canvas.dispatchEvent(new CustomEvent('smp:selection-changed')); await renderer()?.refresh?.();
+  }
   async function clearSelection() {
-    renderer()?.clearSelection();
-    canvas.dispatchEvent(new CustomEvent('smp:selection-changed'));
+    await clearRendererSelections();
     if (invoke && state.context) await queueInteraction('clear_workspace_interaction', { cancelTool:false });
   }
   async function cancelEverything() {
     window.smpDialogs?.cancelActive?.();
-    renderer()?.cancelInteraction();
     state.panning = null; canvas.classList.remove('pan-active', 'is-panning');
-    renderer()?.clearSelection(); canvas.dispatchEvent(new CustomEvent('smp:selection-changed'));
+    await clearRendererSelections(true);
     if (invoke && state.context) await queueInteraction('clear_workspace_interaction', { cancelTool:true });
   }
-
   const transientHandlers = {
     select: () => canvas.focus(), clearSelection, zoomIn: () => setZoom(1.15, undefined, undefined, true),
     zoomOut: () => setZoom(1 / 1.15, undefined, undefined, true), actualSize: () => setZoom(1), fitDiagram,
@@ -249,10 +250,10 @@
   function finishPan(event) { if (!state.panning || state.panning.pointerId !== event.pointerId) return; state.panning = null; canvas.classList.remove('is-panning'); scheduleViewportPersistence(); }
   canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
-  document.addEventListener('keydown', (event) => {
+  window.addEventListener('keydown', (event) => {
     const editable = event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="dialog"]');
     if (event.code === 'Space' && !editable) { state.space = true; canvas.classList.add('space-pan'); event.preventDefault(); }
-    if (event.key === 'Escape') { event.preventDefault(); cancelEverything(); }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); void cancelEverything(); }
     if (editable) return;
     const shortcuts = { Delete:'delete', Backspace:'delete' };
     if (shortcuts[event.key]) { event.preventDefault(); void execute(shortcuts[event.key]); }
