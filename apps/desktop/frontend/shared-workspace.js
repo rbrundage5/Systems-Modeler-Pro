@@ -163,6 +163,30 @@
     document.dispatchEvent(new CustomEvent('smp:commands-ready'));
   }
 
+  async function activateCurrentDiagram() {
+    const application = window.smpState;
+    if (!application || state.context) return;
+    const structuralId = application.selectedDiagramId;
+    const behaviorId = application.selectedBehaviorDiagramId;
+    const activityId = application.selectedActivityDiagramId;
+    if (activityId) {
+      const diagram = application.activitySnapshot?.diagrams?.find((item) => String(item.id) === String(activityId));
+      if (diagram) await activate({ diagramId:activityId, familyId:'activity', name:diagram.name, semanticContextId:diagram.activity_id || '' });
+      return;
+    }
+    if (behaviorId) {
+      const diagram = application.behaviorSnapshot?.diagrams?.find((item) => String(item.id) === String(behaviorId));
+      if (diagram) await activate({ diagramId:behaviorId, familyId:diagram.kind === 'Sequence' ? 'sequence' : 'state-machine', name:diagram.name, semanticContextId:diagram.context_id || '' });
+      return;
+    }
+    if (structuralId) {
+      const ibd = application.snapshot?.ibd_diagrams?.find((item) => String(item.id) === String(structuralId));
+      const bdd = application.snapshot?.diagrams?.find((item) => String(item.id) === String(structuralId));
+      const diagram = ibd || bdd;
+      if (diagram) await activate({ diagramId:structuralId, familyId:ibd ? 'ibd' : 'bdd', name:diagram.name, semanticContextId:ibd?.context_block_id || bdd?.owner_id || '' });
+    }
+  }
+
   function startPan(event) {
     if (!state.viewport || !(event.button === 1 || (event.button === 0 && (state.space || canvas.classList.contains('pan-active'))))) return false;
     event.preventDefault(); canvas.setPointerCapture(event.pointerId); canvas.classList.add('is-panning');
@@ -198,16 +222,40 @@
   document.addEventListener('keyup', (event) => { if (event.code === 'Space') { state.space = false; canvas.classList.remove('space-pan'); } });
   new MutationObserver(() => queueMicrotask(mountSurface)).observe(canvas, { childList:true });
 
+  const panels = Object.freeze({
+    repository: { selector: '.repository-panel', variable: '--repository-width', hiddenClass: 'hide-repository-panel', direction: 1 },
+    elements: { selector: '.palette-panel', variable: '--elements-width', hiddenClass: 'hide-palette-panel', direction: 1 },
+    properties: { selector: '.properties-panel', variable: '--properties-width', hiddenClass: 'hide-properties-panel', direction: -1 },
+  });
+
+  function setPanelVisibility(name, visible) {
+    const descriptor = panels[name];
+    const workspace = document.querySelector('.workspace');
+    const panel = descriptor && document.querySelector(descriptor.selector);
+    if (!descriptor || !workspace || !panel) return;
+    panel.classList.toggle('shell-hidden', !visible);
+    panel.setAttribute('aria-hidden', String(!visible));
+    workspace.classList.toggle(descriptor.hiddenClass, !visible);
+    document.dispatchEvent(new CustomEvent('smp:panel-visibility-changed', { detail: { name, visible } }));
+  }
+
   async function togglePanel(name) {
-    const map = { repository:'.repository-panel', elements:'.palette-panel', properties:'.properties-panel' };
-    document.querySelector(map[name])?.classList.toggle('shell-hidden');
+    const descriptor = panels[name];
+    const panel = descriptor && document.querySelector(descriptor.selector);
+    if (!panel) return;
+    setPanelVisibility(name, panel.classList.contains('shell-hidden'));
     await persistPanels();
+  }
+  function configuredWidth(workspace, name) {
+    const descriptor = panels[name];
+    const value = parseFloat(getComputedStyle(workspace).getPropertyValue(descriptor.variable));
+    return Number.isFinite(value) ? value : document.querySelector(descriptor.selector)?.getBoundingClientRect().width || 0;
   }
   async function persistPanels() {
     if (!invoke) return;
-    const width = (selector) => Math.round(document.querySelector(selector)?.getBoundingClientRect().width || 0);
+    const workspace = document.querySelector('.workspace');
     await invoke('set_panel_preferences', { preference: {
-      repositoryWidth:clamp(width('.repository-panel'),150,480), elementsWidth:clamp(width('.palette-panel'),150,480), propertiesWidth:clamp(width('.properties-panel'),150,480),
+      repositoryWidth:clamp(Math.round(configuredWidth(workspace, 'repository')),150,480), elementsWidth:clamp(Math.round(configuredWidth(workspace, 'elements')),150,480), propertiesWidth:clamp(Math.round(configuredWidth(workspace, 'properties')),150,480),
       repositoryVisible:!document.querySelector('.repository-panel')?.classList.contains('shell-hidden'), elementsVisible:!document.querySelector('.palette-panel')?.classList.contains('shell-hidden'), propertiesVisible:!document.querySelector('.properties-panel')?.classList.contains('shell-hidden'),
     }}).catch((error) => notify(String(error), 'error'));
   }
@@ -219,14 +267,34 @@
     workspace.style.setProperty('--repository-width', `${preference.repositoryWidth}px`);
     workspace.style.setProperty('--elements-width', `${preference.elementsWidth}px`);
     workspace.style.setProperty('--properties-width', `${preference.propertiesWidth}px`);
-    for (const [selector, visible] of [['.repository-panel',preference.repositoryVisible],['.palette-panel',preference.elementsVisible],['.properties-panel',preference.propertiesVisible]]) document.querySelector(selector)?.classList.toggle('shell-hidden', !visible);
-    for (const [selector, variable, direction] of [['.repository-panel','--repository-width',1],['.palette-panel','--elements-width',1],['.properties-panel','--properties-width',-1]]) {
-      const panel=document.querySelector(selector); if(!panel) continue; const splitter=document.createElement('div');splitter.className=`panel-splitter ${direction>0?'right':'left'}`;panel.appendChild(splitter);
-      splitter.addEventListener('pointerdown',(down)=>{down.preventDefault();splitter.setPointerCapture(down.pointerId);const start=down.clientX,initial=panel.getBoundingClientRect().width;const move=(event)=>workspace.style.setProperty(variable,`${clamp(initial+(event.clientX-start)*direction,150,480)}px`);const up=()=>{splitter.removeEventListener('pointermove',move);void persistPanels();};splitter.addEventListener('pointermove',move);splitter.addEventListener('pointerup',up,{once:true});splitter.addEventListener('pointercancel',up,{once:true});});
+    setPanelVisibility('repository', preference.repositoryVisible);
+    setPanelVisibility('elements', preference.elementsVisible);
+    setPanelVisibility('properties', preference.propertiesVisible);
+    for (const [name, descriptor] of Object.entries(panels)) {
+      const panel=document.querySelector(descriptor.selector); if(!panel || panel.querySelector('.panel-splitter')) continue;
+      const splitter=document.createElement('button');
+      splitter.type='button'; splitter.className=`panel-splitter ${descriptor.direction>0?'right':'left'}`;
+      splitter.setAttribute('aria-label', `Resize ${name} panel`); splitter.title=`Drag to resize the ${name} panel`;
+      panel.appendChild(splitter);
+      const resizeTo = (width) => workspace.style.setProperty(descriptor.variable, `${clamp(Math.round(width),150,480)}px`);
+      splitter.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const delta = (event.key === 'ArrowRight' ? 12 : -12) * descriptor.direction;
+        resizeTo(configuredWidth(workspace, name) + delta); void persistPanels();
+      });
+      splitter.addEventListener('pointerdown',(down)=>{
+        if (down.button !== 0) return;
+        down.preventDefault(); splitter.setPointerCapture(down.pointerId); splitter.classList.add('dragging');
+        const start=down.clientX,initial=configuredWidth(workspace, name);
+        const move=(event)=>{ if (event.pointerId === down.pointerId) resizeTo(initial+(event.clientX-start)*descriptor.direction); };
+        const up=(event)=>{ if (event.pointerId !== down.pointerId) return; splitter.classList.remove('dragging'); splitter.removeEventListener('pointermove',move); void persistPanels(); };
+        splitter.addEventListener('pointermove',move); splitter.addEventListener('pointerup',up,{once:true}); splitter.addEventListener('pointercancel',up,{once:true});
+      });
     }
   }
 
-  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, context:() => state.context, contentBounds });
+  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, togglePanel, context:() => state.context, contentBounds });
   const selectionAdapter = (selectionKeys, toolKeys) => ({
     selection: () => selectionKeys.map((key) => window.smpState?.[key]).filter(Boolean),
     clearSelection: () => { for (const key of selectionKeys) if (window.smpState) window.smpState[key] = null; },
@@ -238,5 +306,5 @@
   registerRenderer('state-machine', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending','behaviorTargetRegionId']));
   registerRenderer('sequence', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending']));
   registerRenderer('activity', selectionAdapter(['selectedActivityNodeId','selectedActivityEdgeId'], ['activityTool','activityPendingFlow']));
-  Promise.all([loadContracts(), initializePanels()]).catch((error) => notify(`Workspace initialization failed: ${error}`, 'error'));
+  Promise.all([loadContracts(), initializePanels()]).then(activateCurrentDiagram).catch((error) => notify(`Workspace initialization failed: ${error}`, 'error'));
 })();

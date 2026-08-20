@@ -86,11 +86,8 @@
       button.addEventListener('click', () => window.smpRedo?.());
     });
     ribbon.querySelectorAll('.panel-toggle').forEach((button) => {
-      button.addEventListener('click', () => {
-        document.querySelector(`.${button.dataset.panel}`)?.classList.toggle('shell-hidden');
-        document.querySelector('.workspace')?.classList.toggle(`hide-${button.dataset.panel}`);
-        syncPanelToggles();
-      });
+      const command = { 'repository-panel':'showRepository', 'palette-panel':'showElements', 'properties-panel':'showProperties' }[button.dataset.panel];
+      button.addEventListener('click', async () => { await window.smpRendererHost?.execute(command); syncPanelToggles(); });
     });
     syncPanelToggles();
   }

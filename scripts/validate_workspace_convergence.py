@@ -7,6 +7,7 @@ index = (frontend / "index.html").read_text()
 workspace = (frontend / "shared-workspace.js").read_text()
 dialogs = (frontend / "shared-dialogs.js").read_text()
 styles = (frontend / "shared-workspace.css").read_text()
+shell_styles = (frontend / "workspace-polish.css").read_text()
 theme = (root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs").read_text()
 main = (root / "apps/desktop/src-tauri/src/main.rs").read_text()
 
@@ -24,7 +25,12 @@ for category in ["structural", "interface", "activity", "state", "requirement", 
 assert "get_viewport_preference" in workspace and "get_panel_preferences" in workspace
 assert "event.ctrlKey" in workspace and "event.clientX" in workspace
 assert "semantic_presentation_manifest" in main and "diagram_command_manifest" in main
-assert "min-width:720px" in styles and "overflow:auto" in styles
+assert "min-width:0" in styles and "overflow:auto" in styles
+assert "minmax(0,1fr)" in shell_styles
+assert "minmax(540px,1fr)" not in shell_styles
+for panel_command in ["showRepository", "showElements", "showProperties"]:
+    assert f'id: "{panel_command}"' in theme
+assert "setPanelVisibility" in workspace and "configuredWidth" in workspace
 assert "set_viewport_preference" in main and "activate_diagram" in main
 assert "workspace-transform-spacer" in workspace and "setPointerCapture" in workspace
 assert "aria-modal" in dialogs and "cancelActive" in dialogs

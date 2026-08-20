@@ -362,6 +362,15 @@ fn viewport_commands() -> [DiagramCommandCapability; 9] {
             required_capability: None,
         },
         DiagramCommandCapability {
+            id: "showElements",
+            label: "Show/Hide Elements",
+            shortcut: None,
+            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            rust_adapter: None,
+            unavailable_reason: None,
+            required_capability: None,
+        },
+        DiagramCommandCapability {
             id: "showProperties",
             label: "Show/Hide Properties",
             shortcut: None,
@@ -423,6 +432,17 @@ mod tests {
             )
         }) {
             assert_eq!(command.supported_diagrams.len(), 5);
+        }
+    }
+
+    #[test]
+    fn every_workspace_panel_has_a_registered_toggle() {
+        let commands = diagram_command_manifest();
+        for id in ["showRepository", "showElements", "showProperties"] {
+            assert!(
+                commands.iter().any(|command| command.id == id),
+                "missing {id}"
+            );
         }
     }
 }
