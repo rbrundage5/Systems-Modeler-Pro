@@ -11,6 +11,7 @@ mod workspace {
     mod history;
     mod ibd;
     mod item_flow_notation;
+    mod layout;
     mod presentation_interaction;
     mod presentation_theme;
     mod relationship_editing;
@@ -22,7 +23,8 @@ mod workspace {
         assign_activity_node_structured_parent, update_activity_node_semantics,
     };
     pub use activity_mutation::{
-        delete_activity_item, reconnect_activity_edge, route_activity_diagram,
+        delete_activity_item, layout_activity_diagram, reconnect_activity_edge,
+        route_activity_diagram,
     };
     pub use activity_workspace::{
         ActivityWorkspaceState, activity_snapshot, add_activity_edge, add_activity_node,
@@ -48,7 +50,8 @@ mod workspace {
         add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
         add_state_vertex, behavior_lifeline_candidates, behavior_snapshot, create_sequence_diagram,
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
-        resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
+        layout_behavior_diagram, resize_sequence_lifeline_timeline, route_behavior_diagram,
+        update_state_behaviors,
     };
     pub use feature_editing::update_bdd_feature_semantics;
     pub use history::{
@@ -56,7 +59,7 @@ mod workspace {
     };
     pub use ibd::{
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
-        populate_ibd_from_context, route_ibd,
+        layout_ibd, populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
     pub use presentation_interaction::{
@@ -72,7 +75,8 @@ mod workspace {
     pub use routing::route_diagram_geometry;
     pub use shared_workspace::{
         SharedWorkspaceState, activate_diagram, active_diagram_command_manifest,
-        active_diagram_router, clear_workspace_interaction, diagram_family_registry,
+        active_diagram_layout, active_diagram_router, clear_workspace_interaction,
+        diagram_family_registry,
         fit_diagram_viewport, get_diagram_frame_preference, get_panel_preferences,
         get_viewport_preference, set_diagram_frame_preference, set_panel_preferences,
         set_viewport_preference, set_workspace_interaction, workspace_interaction_snapshot,
@@ -83,7 +87,8 @@ mod workspace {
 use serde::Serialize;
 use workspace::{
     ActivityWorkspaceState, HistoryState, SharedWorkspaceState, WorkspaceState, activate_diagram,
-    active_diagram_command_manifest, active_diagram_router, activity_snapshot, add_activity_action,
+    active_diagram_command_manifest, active_diagram_layout, active_diagram_router,
+    activity_snapshot, add_activity_action,
     add_activity_edge, add_activity_node, add_activity_parameter_node, add_activity_partition,
     add_combined_fragment, add_combined_fragment_operand, add_composite_state,
     add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
@@ -378,6 +383,7 @@ fn main() {
             semantic_presentation_stylesheet,
             diagram_command_manifest,
             active_diagram_command_manifest,
+            active_diagram_layout,
             active_diagram_router,
             diagram_family_registry,
             activate_diagram,
