@@ -1,4 +1,4 @@
-use super::{WorkspaceState, parse_element_id};
+use super::{DiagramPoint, WorkspaceState, parse_element_id};
 use serde::{Deserialize, Serialize};
 use systems_modeler_core::behavior::{
     BehaviorRepository, CombinedFragment, Event, ExecutionSpecification, InteractionOperand,
