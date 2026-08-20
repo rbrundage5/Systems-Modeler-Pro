@@ -7,7 +7,7 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const renderers = new Map();
   const commands = new Map();
-  const state = { context: null, viewport: null, surface: null, spacer: null, panning: null, space: false };
+  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false };
 
   function notify(message, level = 'info') {
     window.smpDialogs?.notify(message, level);
@@ -32,52 +32,51 @@
     });
     state.context = activated.context; interaction = activated.interaction; applyCommands(activated.commands);
     state.viewport = await invoke('get_viewport_preference', { diagramId: input.diagramId });
+    Object.assign(state, { frame:await invoke('get_diagram_frame_preference', { diagramId:input.diagramId }) });
     updateHeader();
     queueMicrotask(mountSurface);
     return state.context;
   }
 
   function updateHeader() {
-    const context = state.context;
+    const context=state.context;
     document.getElementById('workspace-diagram-title').textContent = context?.frameLabel || 'No diagram selected';
     const contextLabel=document.getElementById('workspace-diagram-context');contextLabel.textContent=context?.family.displayName||'Select a diagram from the repository';contextLabel.title=context?.semanticContextId?`Semantic context: ${context.semanticContextId}`:'';
-    canvas.setAttribute('aria-label', context?.family.accessibilityName || 'Diagram canvas');
-    canvas.dataset.family = context?.family.id || '';
-    document.getElementById('workspace-header').dataset.family = context?.family.id || '';
+    canvas.setAttribute('aria-label',context?.family.accessibilityName||'Diagram canvas'); canvas.dataset.family=context?.family.id||''; document.getElementById('workspace-header').dataset.family=context?.family.id||'';
   }
   function mountSurface() {
     const root = [...canvas.children].find((node) => !node.classList.contains('workspace-transform-spacer'));
     if (!root || root === state.surface) { applyViewport(); return; }
-    const spacer = document.createElement('div');
-    spacer.className = 'workspace-transform-spacer';
-    canvas.insertBefore(spacer, root);
-    spacer.appendChild(root);
+    const spacer=document.createElement('div'); spacer.className='workspace-transform-spacer'; canvas.insertBefore(spacer,root); spacer.appendChild(root);
     state.surface = root; state.spacer = spacer;
-    root.classList.add('workspace-renderer-surface');
-    root.dataset.renderer = state.context?.family.rendererId || '';
-    applyViewport();
+    root.classList.add('workspace-renderer-surface'); root.dataset.renderer=state.context?.family.rendererId||'';
+    mountDiagramFrame(); applyViewport();
   }
 
+  function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(720,bounds.width+padding*2), height:Math.max(520,bounds.height+padding*2), manuallySized:false }; }
+
+  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; frame.querySelector('span').textContent=state.context.frameLabel; state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:state.frame||automaticFrame()}); applyDiagramFrame(); }
+  function applyDiagramFrame() { const frame=state.frameElement,geometry=state.frame; if(frame&&geometry)Object.assign(frame.style,{left:`${geometry.x}px`,top:`${geometry.y}px`,width:`${geometry.width}px`,height:`${geometry.height}px`}); }
+
+  let framePersistTimer; function persistDiagramFrame() { if(!invoke||!state.context||!state.frame)return Promise.resolve(); clearTimeout(framePersistTimer); return invoke('set_diagram_frame_preference',{diagramId:state.context.diagramId,preference:state.frame}).catch((error)=>notify(String(error),'error')); }
+  function scheduleFramePersistence() { clearTimeout(framePersistTimer); framePersistTimer = setTimeout(persistDiagramFrame, 120); }
+
   function contentBounds() {
-    const supplied = renderer()?.contentBounds?.();
+    const supplied=renderer()?.contentBounds?.();
     if (supplied && Number.isFinite(supplied.width) && Number.isFinite(supplied.height)) return supplied;
-    const root = state.surface;
-    if (!root) return { x: 0, y: 0, width: 720, height: 520 };
-    return { x: 0, y: 0, width: Math.max(root.scrollWidth, root.offsetWidth, 720), height: Math.max(root.scrollHeight, root.offsetHeight, 520) };
+    const root=state.surface; return root?{x:0,y:0,width:Math.max(root.scrollWidth,root.offsetWidth,720),height:Math.max(root.scrollHeight,root.offsetHeight,520)}:{x:0,y:0,width:720,height:520};
   }
 
   function applyViewport() {
-    if (!state.viewport) return;
-    mountSurfaceIfNeeded();
-    const root = state.surface, spacer = state.spacer;
+    if(!state.viewport)return; mountSurfaceIfNeeded(); const root=state.surface,spacer=state.spacer;
     if (!root || !spacer) return;
-    const bounds = contentBounds(), view = state.viewport;
-    const left = Math.max(0, view.panX), top = Math.max(0, view.panY);
-    root.style.transform = `translate(${left}px,${top}px) scale(${view.zoom})`;
-    spacer.style.width = `${Math.ceil(left + (bounds.x + bounds.width) * view.zoom + 56)}px`;
-    spacer.style.height = `${Math.ceil(top + (bounds.y + bounds.height) * view.zoom + 56)}px`;
-    canvas.classList.toggle('grid-hidden', !view.gridVisible);
-    canvas.dataset.zoom = String(view.zoom);
+    const bounds=contentBounds(),view=state.viewport;
+    if (state.frame&&!state.frame.manuallySized) { Object.assign(state,{frame:automaticFrame()}); applyDiagramFrame(); }
+    const left=Math.max(0,view.panX),top=Math.max(0,view.panY); root.style.transform=`translate(${left}px,${top}px) scale(${view.zoom})`;
+    const frameRight=state.frame?state.frame.x+state.frame.width:bounds.x+bounds.width, frameBottom=state.frame?state.frame.y+state.frame.height:bounds.y+bounds.height;
+    spacer.style.width = `${Math.ceil(left + Math.max(bounds.x + bounds.width, frameRight) * view.zoom + 56)}px`;
+    spacer.style.height = `${Math.ceil(top + Math.max(bounds.y + bounds.height, frameBottom) * view.zoom + 56)}px`;
+    canvas.classList.toggle('grid-hidden',!view.gridVisible); canvas.dataset.zoom=String(view.zoom);
   }
 
   function mountSurfaceIfNeeded() {
@@ -88,6 +87,7 @@
         const spacer = document.createElement('div'); spacer.className = 'workspace-transform-spacer';
         canvas.insertBefore(spacer, root); spacer.appendChild(root); state.surface = root; state.spacer = spacer;
         root.classList.add('workspace-renderer-surface');
+        mountDiagramFrame();
       }
     }
   }
@@ -236,16 +236,18 @@
     return true;
   }
   canvas.addEventListener('pointerdown', (event) => {
+    const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
     if (startPan(event)) return;
     if (event.target === canvas || event.target === state.spacer) clearSelection();
   });
   canvas.addEventListener('pointermove', (event) => {
+    if(state.frameDrag?.pointerId===event.pointerId){const dx=(event.clientX-state.frameDrag.x)/(state.viewport?.zoom||1),dy=(event.clientY-state.frameDrag.y)/(state.viewport?.zoom||1);Object.assign(state,{frame:state.frameDrag.resizing?{...state.frameDrag.start,width:Math.max(320,state.frameDrag.start.width+dx),height:Math.max(240,state.frameDrag.start.height+dy),manuallySized:true}:{...state.frameDrag.start,x:Math.max(0,state.frameDrag.start.x+dx),y:Math.max(0,state.frameDrag.start.y+dy),manuallySized:true}});applyDiagramFrame();return;}
     if (!state.panning || state.panning.pointerId !== event.pointerId) return;
     state.viewport.panX = state.panning.panX + event.clientX - state.panning.x;
     state.viewport.panY = state.panning.panY + event.clientY - state.panning.y;
     applyViewport();
   });
-  function finishPan(event) { if (!state.panning || state.panning.pointerId !== event.pointerId) return; state.panning = null; canvas.classList.remove('is-panning'); scheduleViewportPersistence(); }
+  function finishPan(event) { if(state.frameDrag?.pointerId===event.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();return;} if(!state.panning||state.panning.pointerId!==event.pointerId)return;state.panning=null;canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
   canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
   window.addEventListener('keydown', (event) => {
