@@ -1250,6 +1250,76 @@ pub fn route_behavior_diagram(
     Ok(())
 }
 
+pub fn layout_behavior_diagram(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    let diagram = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .cloned()
+        .ok_or("behavior diagram not found")?;
+    match diagram.kind {
+        BehaviorDiagramKind::StateMachine => {
+            let machine_id = state_machine_id(&diagram.semantic_id)?;
+            let repository = state
+                .behavior
+                .lock()
+                .map_err(|_| "behavior lock poisoned")?;
+            let machine = repository
+                .state_machines
+                .get(&machine_id)
+                .ok_or("State Machine not found")?;
+            let mut transitions = Vec::new();
+            collect_transition_endpoints(&machine.regions, &mut transitions);
+            let edges: Vec<_> = transitions
+                .into_iter()
+                .map(|(_, source, target)| (source, target))
+                .collect();
+            drop(repository);
+            let positions = super::layout::hierarchical_positions(
+                diagram.state_nodes.iter().map(|node| node.vertex_id.clone()),
+                &edges,
+                systems_modeler_core::PreferredFlowDirection::TopToBottom,
+            );
+            let mut diagrams = state
+                .behavior_diagrams
+                .lock()
+                .map_err(|_| "behavior diagram lock poisoned")?;
+            let target = diagrams
+                .iter_mut()
+                .find(|candidate| candidate.id == diagram_id)
+                .ok_or("behavior diagram not found")?;
+            for node in &mut target.state_nodes {
+                if let Some((x, y)) = positions.get(&node.vertex_id) {
+                    node.x = *x;
+                    node.y = *y;
+                }
+            }
+        }
+        BehaviorDiagramKind::Sequence => {
+            let mut diagrams = state
+                .behavior_diagrams
+                .lock()
+                .map_err(|_| "behavior diagram lock poisoned")?;
+            let target = diagrams
+                .iter_mut()
+                .find(|candidate| candidate.id == diagram_id)
+                .ok_or("behavior diagram not found")?;
+            target
+                .lifelines
+                .sort_by(|left, right| left.lifeline_id.cmp(&right.lifeline_id));
+            for (index, lifeline) in target.lifelines.iter_mut().enumerate() {
+                lifeline.x = 150.0 + index as f64 * 210.0;
+            }
+        }
+    }
+    route_behavior_diagram(diagram_id, state)
+}
+
 pub fn save_behavior_metadata(
     database: &mut ProjectDatabase,
     project: &Project,
