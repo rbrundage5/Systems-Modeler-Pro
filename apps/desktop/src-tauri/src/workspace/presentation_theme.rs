@@ -287,8 +287,8 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
     commands
 }
 
-fn viewport_commands() -> [DiagramCommandCapability; 9] {
-    [
+fn viewport_commands() -> Vec<DiagramCommandCapability> {
+    vec![
         DiagramCommandCapability {
             id: "zoomIn",
             label: "Zoom In",
