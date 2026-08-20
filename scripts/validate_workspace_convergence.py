@@ -46,5 +46,7 @@ assert "publishInteraction" in workspace and "activeTool" in workspace
 assert "expectedRevision" in workspace and "require_revision" in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
 assert "for (const adapter of renderers.values())" in workspace and "window.addEventListener('keydown'" in workspace
 assert "typeof tool === 'object'" in workspace and "tool.relationship_kind" in workspace
+assert "ActiveWorkspaceSnapshot" in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
+assert "activated.context" in workspace and "applyCommands(activated.commands)" in workspace
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
 print("Shared workspace convergence contract passed")
