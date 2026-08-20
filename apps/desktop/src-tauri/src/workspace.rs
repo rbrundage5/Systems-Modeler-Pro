@@ -558,3 +558,36 @@ pub fn route_bdd(
     }
     Ok(())
 }
+
+pub fn layout_bdd(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    {
+        let mut diagrams = state
+            .diagrams
+            .lock()
+            .map_err(|_| "diagram lock poisoned")?;
+        let diagram = diagrams
+            .iter_mut()
+            .find(|diagram| diagram.id == diagram_id)
+            .ok_or("BDD not found")?;
+        let edges: Vec<_> = diagram
+            .edges
+            .iter()
+            .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
+            .collect();
+        let positions = layout::hierarchical_positions(
+            diagram.nodes.iter().map(|node| node.id.clone()),
+            &edges,
+            systems_modeler_core::PreferredFlowDirection::TopToBottom,
+        );
+        for node in &mut diagram.nodes {
+            if let Some((x, y)) = positions.get(&node.id) {
+                node.x = *x;
+                node.y = *y;
+            }
+        }
+    }
+    route_bdd(diagram_id, state)
+}
