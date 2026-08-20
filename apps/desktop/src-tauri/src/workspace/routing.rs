@@ -44,6 +44,29 @@ pub struct DiagramRouteEdge {
 pub struct RoutedDiagramEdge {
     pub id: String,
     pub points: Vec<DiagramPoint>,
+    pub label_anchor: DiagramPoint,
+}
+
+pub fn route_label_anchor(points: &[DiagramPoint]) -> DiagramPoint {
+    let segment = points
+        .windows(2)
+        .max_by(|left, right| {
+            segment_length(left[0], left[1])
+                .total_cmp(&segment_length(right[0], right[1]))
+        })
+        .unwrap_or(&[
+            DiagramPoint { x: 0.0, y: 0.0 },
+            DiagramPoint { x: 0.0, y: 0.0 },
+        ]);
+    let horizontal = (segment[0].y - segment[1].y).abs() < 0.001;
+    DiagramPoint {
+        x: (segment[0].x + segment[1].x) / 2.0 + if horizontal { 0.0 } else { 8.0 },
+        y: (segment[0].y + segment[1].y) / 2.0 - if horizontal { 8.0 } else { 0.0 },
+    }
+}
+
+fn segment_length(start: DiagramPoint, end: DiagramPoint) -> f64 {
+    (end.x - start.x).abs() + (end.y - start.y).abs()
 }
 
 /// Application-wide batch routing contract. Diagram families provide semantic
@@ -70,6 +93,7 @@ pub fn route_diagram(
         reserved_routes.push(points.clone());
         routed.push(RoutedDiagramEdge {
             id: edge.id.clone(),
+            label_anchor: route_label_anchor(&points),
             points,
         });
     }
@@ -576,5 +600,19 @@ mod tests {
             &[routed[0].points.clone()],
             false
         ));
+        assert_eq!(
+            routed[0].label_anchor,
+            route_label_anchor(&routed[0].points)
+        );
+    }
+
+    #[test]
+    fn label_anchor_uses_the_longest_clear_segment() {
+        let anchor = route_label_anchor(&[
+            DiagramPoint { x: 10.0, y: 10.0 },
+            DiagramPoint { x: 30.0, y: 10.0 },
+            DiagramPoint { x: 30.0, y: 110.0 },
+        ]);
+        assert_eq!(anchor, DiagramPoint { x: 38.0, y: 60.0 });
     }
 }
