@@ -29,6 +29,27 @@ const STRUCTURAL: PresentationStyle = PresentationStyle {
     border: "#59645c",
     text: "#17201b",
 };
+const STRUCTURAL_ASSOCIATION: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#e8dfc7",
+    header: "#d4c49f",
+    border: "#526058",
+    text: "#17201b",
+};
+const STRUCTURAL_INSTANCE: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#f7f1e3",
+    header: "#e7dbc0",
+    border: "#626b63",
+    text: "#1c241f",
+};
+const INTERFACE_PORT: PresentationStyle = PresentationStyle {
+    category: "interface",
+    fill: "#d2e7d8",
+    header: "#acd0b5",
+    border: "#3f5e4b",
+    text: "#132019",
+};
 const INTERFACE: PresentationStyle = PresentationStyle {
     category: "interface",
     fill: "#e3f0e6",
@@ -139,14 +160,14 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("Model", FRAME),
     ("Package", FRAME),
     ("Block", STRUCTURAL),
-    ("AssociationBlock", STRUCTURAL),
-    ("InstanceSpecification", STRUCTURAL),
+    ("AssociationBlock", STRUCTURAL_ASSOCIATION),
+    ("InstanceSpecification", STRUCTURAL_INSTANCE),
     ("Slot", STRUCTURAL),
     ("PartProperty", STRUCTURAL),
     ("ReferenceProperty", STRUCTURAL),
     ("InterfaceBlock", INTERFACE),
-    ("ProxyPort", INTERFACE),
-    ("FullPort", INTERFACE),
+    ("ProxyPort", INTERFACE_PORT),
+    ("FullPort", INTERFACE_PORT),
     ("FlowProperty", INTERFACE),
     ("Activity", ACTIVITY),
     ("OpaqueAction", ACTIVITY),
