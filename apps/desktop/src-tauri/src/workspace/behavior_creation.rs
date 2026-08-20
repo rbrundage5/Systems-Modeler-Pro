@@ -45,6 +45,7 @@ fn append_behavior_diagram(
             semantic_id,
             state_nodes: Vec::new(),
             lifelines: Vec::new(),
+            edge_routes: Vec::new(),
         });
     Ok(id)
 }
