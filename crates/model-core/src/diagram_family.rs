@@ -500,9 +500,7 @@ mod tests {
             ("activity", "act", "Activity"),
         ];
         for (id, abbreviation, context_kind) in expected {
-            let family = registry
-                .get(&DiagramFamilyId::new(id).unwrap())
-                .unwrap();
+            let family = registry.get(&DiagramFamilyId::new(id).unwrap()).unwrap();
             assert_eq!(family.frame_abbreviation, abbreviation);
             assert_eq!(family.frame_model_element_type, context_kind);
         }
