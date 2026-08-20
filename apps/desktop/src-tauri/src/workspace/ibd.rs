@@ -604,6 +604,54 @@ pub fn route_ibd(
     Ok(())
 }
 
+pub fn layout_ibd(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    {
+        let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+        let diagram = diagrams
+            .iter_mut()
+            .find(|diagram| diagram.id == diagram_id)
+            .ok_or("IBD not found")?;
+        let owner = |presentation_id: &str| {
+            diagram.properties.iter().find_map(|property| {
+                (property.id == presentation_id
+                    || property.ports.iter().any(|port| port.id == presentation_id))
+                .then(|| property.id.clone())
+            })
+        };
+        let edges: Vec<_> = diagram
+            .connectors
+            .iter()
+            .filter_map(|edge| {
+                Some((
+                    owner(&edge.source_presentation_id)?,
+                    owner(&edge.target_presentation_id)?,
+                ))
+            })
+            .collect();
+        let positions = super::layout::hierarchical_positions(
+            diagram.properties.iter().map(|property| property.id.clone()),
+            &edges,
+            systems_modeler_core::PreferredFlowDirection::LeftToRight,
+        );
+        for property in &mut diagram.properties {
+            if let Some((x, y)) = positions.get(&property.id) {
+                let dx = *x - property.x;
+                let dy = *y - property.y;
+                property.x = *x;
+                property.y = *y;
+                for port in &mut property.ports {
+                    port.x += dx;
+                    port.y += dy;
+                }
+            }
+        }
+    }
+    route_ibd(diagram_id, state)
+}
+
 pub fn save_ibd_metadata(
     database: &mut ProjectDatabase,
     project: &Project,
