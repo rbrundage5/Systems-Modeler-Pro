@@ -558,9 +558,7 @@ mod tests {
             assert!(stylesheet.contains(&format!("data-semantic-kind=\"{kind}\"")));
         }
         assert!(!stylesheet.contains("undefined"));
-        assert!(
-            stylesheet.contains("[data-semantic-kind=\"Lifeline\"]{background:transparent")
-        );
+        assert!(stylesheet.contains("[data-semantic-kind=\"Lifeline\"]{background:transparent"));
         let manifest = semantic_presentation_manifest();
         let opaque = manifest
             .iter()
