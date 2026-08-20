@@ -58,7 +58,8 @@ mod tests {
     fn hierarchy_is_deterministic_and_follows_registered_flow() {
         let ids = ["c", "a", "b"].map(String::from);
         let edges = vec![("a".into(), "b".into()), ("b".into(), "c".into())];
-        let first = hierarchical_positions(ids.clone(), &edges, PreferredFlowDirection::TopToBottom);
+        let first =
+            hierarchical_positions(ids.clone(), &edges, PreferredFlowDirection::TopToBottom);
         let second = hierarchical_positions(ids, &edges, PreferredFlowDirection::TopToBottom);
         assert_eq!(first, second);
         assert!(first["a"].1 < first["b"].1 && first["b"].1 < first["c"].1);
