@@ -221,7 +221,7 @@ pub fn workspace_interaction_snapshot(
     state
         .interaction
         .lock()
-        .map_err(|_| "workspace interaction lock poisoned")
+        .map_err(|_| "workspace interaction lock poisoned".to_string())
         .map(|interaction| interaction.clone())
 }
 
