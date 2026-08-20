@@ -486,5 +486,7 @@ fn route_relationship(source: &DiagramNode, target: &DiagramNode, nodes: &[Diagr
         target: routing::RouteRect { x: target.x, y: target.y, width: target.width, height: target.height },
         obstacles: &obstacles,
         lane_index: 0,
+        reserved_routes: &[],
+        allow_shared_departure: false,
     })
 }
