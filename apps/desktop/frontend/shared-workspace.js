@@ -53,7 +53,7 @@
     mountDiagramFrame(); applyViewport();
   }
 
-  function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(720,bounds.width+padding*2), height:Math.max(520,bounds.height+padding*2), manuallySized:false }; }
+  function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(320,bounds.width+padding*2), height:Math.max(240,bounds.height+padding*2), manuallySized:false }; }
 
   function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.dataset.diagramId=state.context.diagramId; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; frame.querySelector('span').textContent=state.context.frameLabel; state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:validFrame(state.frame)?state.frame:automaticFrame()}); applyDiagramFrame(); }
   function applyDiagramFrame() { const frame=state.frameElement,geometry=state.frame; if(frame&&geometry)Object.assign(frame.style,{left:`${geometry.x}px`,top:`${geometry.y}px`,width:`${geometry.width}px`,height:`${geometry.height}px`}); }
@@ -64,7 +64,7 @@
   function contentBounds() {
     const supplied=renderer()?.contentBounds?.();
     if (supplied && Number.isFinite(supplied.width) && Number.isFinite(supplied.height)) return supplied;
-    const root=state.surface; return root?{x:0,y:0,width:Math.max(root.scrollWidth,root.offsetWidth,720),height:Math.max(root.scrollHeight,root.offsetHeight,520)}:{x:0,y:0,width:720,height:520};
+    const root=state.surface;if(root?.getBBox){try{const box=root.getBBox();if(box.width>0&&box.height>0)return{x:box.x,y:box.y,width:box.width,height:box.height};}catch{}} return root?{x:0,y:0,width:Math.max(root.scrollWidth,root.offsetWidth,320),height:Math.max(root.scrollHeight,root.offsetHeight,240)}:{x:0,y:0,width:320,height:240};
   }
 
   function applyViewport() {
