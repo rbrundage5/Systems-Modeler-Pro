@@ -54,6 +54,14 @@
     render();
   }
 
+  window.smpRouteActivityDiagram = async () => {
+    const diagram = activeDiagram();
+    if (!diagram) return false;
+    await runCommand('Routing Activity…', () => requireInvoke()('route_activity_diagram', { diagramId: diagram.id }));
+    await refreshActivity();
+    return true;
+  };
+
   async function deleteSelection() {
     const diagram = activeDiagram();
     if (!diagram) return false;
