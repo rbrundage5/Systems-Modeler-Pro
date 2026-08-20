@@ -38,6 +38,8 @@ pub struct IbdConnectorPresentation {
     pub target_presentation_id: String,
     #[serde(default)]
     pub points: Vec<DiagramPoint>,
+    #[serde(default)]
+    pub label_anchor: Option<DiagramPoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -536,6 +538,7 @@ pub fn create_ibd_connector(
         relationship_id: semantic_id.to_string(),
         source_presentation_id,
         target_presentation_id,
+        label_anchor: Some(super::routing::route_label_anchor(&points)),
         points,
     });
     Ok(semantic_id.to_string())
@@ -598,6 +601,7 @@ pub fn route_ibd(
     }
 
     for (edge, points) in diagram.connectors.iter_mut().zip(routes) {
+        edge.label_anchor = Some(super::routing::route_label_anchor(&points));
         edge.points = points;
     }
 
