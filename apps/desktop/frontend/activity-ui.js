@@ -26,7 +26,7 @@
     const kind = node?.kind;
     if (typeof kind === 'string') return kind;
     if (!kind || typeof kind !== 'object') return 'ActivityNode';
-    if (kind.Action) return 'OpaqueAction';
+    if (kind.Action) { const value=kind.Action.kind,action=typeof value==='string'?value:Object.keys(value||{})[0];return ({Opaque:'OpaqueAction',CallBehavior:'CallBehaviorAction',CallOperation:'CallOperationAction',SendSignal:'SendSignalAction',AcceptEvent:'AcceptEventAction',AcceptTimeEvent:'AcceptTimeEventAction'})[action]||'OpaqueAction'; }
     if (kind.Object) {
       const objectKind = kind.Object.kind;
       if (objectKind === 'CentralBuffer') return 'CentralBufferNode';
