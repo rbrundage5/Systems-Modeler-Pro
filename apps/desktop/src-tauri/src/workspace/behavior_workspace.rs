@@ -50,6 +50,8 @@ pub struct LifelinePresentation {
 pub struct BehaviorEdgePresentation {
     pub semantic_id: String,
     pub points: Vec<DiagramPoint>,
+    #[serde(default)]
+    pub label_anchor: Option<DiagramPoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1182,6 +1184,7 @@ pub fn route_behavior_diagram(
                 reserved_routes.push(points.clone());
                 routes.push(BehaviorEdgePresentation {
                     semantic_id: id.clone(),
+                    label_anchor: Some(super::routing::route_label_anchor(&points)),
                     points,
                 });
             }
@@ -1231,6 +1234,10 @@ pub fn route_behavior_diagram(
                             DiagramPoint { x: source_x, y },
                             DiagramPoint { x: target_x, y },
                         ],
+                        label_anchor: Some(DiagramPoint {
+                            x: (source_x + target_x) / 2.0,
+                            y: y - 8.0,
+                        }),
                     }
                 })
                 .collect()
