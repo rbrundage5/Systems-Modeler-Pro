@@ -51,8 +51,7 @@ pub fn route_label_anchor(points: &[DiagramPoint]) -> DiagramPoint {
     let segment = points
         .windows(2)
         .max_by(|left, right| {
-            segment_length(left[0], left[1])
-                .total_cmp(&segment_length(right[0], right[1]))
+            segment_length(left[0], left[1]).total_cmp(&segment_length(right[0], right[1]))
         })
         .unwrap_or(&[
             DiagramPoint { x: 0.0, y: 0.0 },
