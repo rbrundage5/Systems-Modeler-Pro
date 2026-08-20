@@ -112,6 +112,7 @@
       positions.set(String(vertex.id), presentation);
       const node = document.createElement('button');
       node.className = `state-vertex state-${kind.toLowerCase()}`;
+      node.dataset.semanticKind = kind;
       node.dataset.vertexId = String(vertex.id);
       node.dataset.regionId = String(region.id);
       node.style.left = `${presentation.x}px`;
@@ -251,6 +252,7 @@
       lifelinePositions.set(String(lifeline.id), presentation.x);
       const node = document.createElement('button');
       node.className = 'sequence-lifeline';
+      node.dataset.semanticKind = 'Lifeline';
       node.dataset.lifelineId = String(lifeline.id);
       const timelineStart = Number.isFinite(presentation.timeline_start_y) ? presentation.timeline_start_y : 102;
       const timelineEnd = Number.isFinite(presentation.timeline_end_y) ? presentation.timeline_end_y : 840;

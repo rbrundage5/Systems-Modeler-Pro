@@ -167,7 +167,12 @@
 
   async function loadContracts() {
     if (!invoke) return;
-    await Promise.all([loadCommands(), invoke('diagram_family_registry')]);
+    const [, , stylesheet] = await Promise.all([
+      loadCommands(), invoke('diagram_family_registry'), invoke('semantic_presentation_stylesheet'),
+    ]);
+    let style = document.getElementById('rust-semantic-presentation');
+    if (!style) { style = document.createElement('style'); style.id = 'rust-semantic-presentation'; document.head.appendChild(style); }
+    style.textContent = stylesheet;
   }
 
   async function activateCurrentDiagram() {

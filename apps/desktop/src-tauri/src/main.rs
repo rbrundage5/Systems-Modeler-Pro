@@ -63,7 +63,9 @@ mod workspace {
         update_activity_presentation_geometry, update_bdd_presentation_geometry,
         update_ibd_port_geometry, update_ibd_property_geometry, update_state_presentation_geometry,
     };
-    pub use presentation_theme::{diagram_command_manifest, semantic_presentation_manifest};
+    pub use presentation_theme::{
+        diagram_command_manifest, semantic_presentation_manifest, semantic_presentation_stylesheet,
+    };
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -99,14 +101,15 @@ use workspace::{
     reconnect_sequence_message, rename_element, reset_activity_workspace,
     resize_sequence_lifeline_timeline, route_activity_diagram, route_ibd, save_activity_workspace,
     save_current_project, save_current_project_complete, save_project_file,
-    save_project_file_complete, semantic_presentation_manifest, set_panel_preferences,
-    set_viewport_preference, update_activity_node_semantics, update_activity_presentation_geometry,
-    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
-    update_bdd_presentation_geometry, update_combined_fragment_operand,
-    update_execution_specification, update_ibd_port_geometry, update_ibd_property_geometry,
-    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
-    update_state_invariant, update_state_presentation_geometry, update_state_transition,
-    workspace_snapshot, workspace_snapshot_complete, zoom_diagram_viewport,
+    save_project_file_complete, semantic_presentation_manifest, semantic_presentation_stylesheet,
+    set_panel_preferences, set_viewport_preference, update_activity_node_semantics,
+    update_activity_presentation_geometry, update_association_end, update_bdd_element_details,
+    update_bdd_feature_semantics, update_bdd_presentation_geometry,
+    update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
+    update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
+    update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
+    update_state_transition, workspace_snapshot, workspace_snapshot_complete,
+    zoom_diagram_viewport,
 };
 
 #[derive(Serialize)]
@@ -367,6 +370,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             engine_status,
             semantic_presentation_manifest,
+            semantic_presentation_stylesheet,
             diagram_command_manifest,
             active_diagram_command_manifest,
             diagram_family_registry,

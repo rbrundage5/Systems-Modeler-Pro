@@ -206,6 +206,7 @@
 
   function drawActivityNode(svg, presentation, semantic) {
     const group = makeSvg('g', { class: `activity-node activity-${nodeKind(semantic).toLowerCase()}` });
+    group.dataset.semanticKind = nodeKind(semantic);
     group.dataset.activityNodeId = semantic.id;
     if (String(semantic.id) === String(state.selectedActivityNodeId)) group.classList.add('selected');
     const kind = nodeKind(semantic);
