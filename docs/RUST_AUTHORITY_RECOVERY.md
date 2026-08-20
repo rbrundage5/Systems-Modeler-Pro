@@ -61,6 +61,12 @@ clear/cancel commands. Existing diagram-family state remains as a compatibility
 mirror until each renderer consumes the Rust snapshot directly; this preserves
 qualified behavior while authority migrates.
 
+The second recovery slice serializes renderer publications, clear-selection,
+and cancel-all through the Rust interaction revision. Stale frontend work can
+no longer overwrite a newer Rust-owned cancellation. The renderer-local fields
+remain temporary display mirrors until family adapters consume the returned
+interaction snapshot directly.
+
 ## Performance gates
 
 Language choice alone cannot guarantee performance. Each recovered subsystem
