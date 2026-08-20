@@ -490,3 +490,71 @@ fn route_relationship(source: &DiagramNode, target: &DiagramNode, nodes: &[Diagr
         allow_shared_departure: false,
     })
 }
+
+#[tauri::command]
+pub fn route_bdd(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    let mut diagrams = state
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("BDD not found")?;
+    let snapshot = diagram.clone();
+    let mut routes = Vec::with_capacity(snapshot.edges.len());
+
+    for (index, edge) in snapshot.edges.iter().enumerate() {
+        let source = snapshot
+            .nodes
+            .iter()
+            .find(|node| node.id == edge.source_node_id)
+            .ok_or("BDD edge source presentation not found")?;
+        let target = snapshot
+            .nodes
+            .iter()
+            .find(|node| node.id == edge.target_node_id)
+            .ok_or("BDD edge target presentation not found")?;
+        let obstacles: Vec<_> = snapshot
+            .nodes
+            .iter()
+            .filter(|node| node.id != source.id && node.id != target.id)
+            .map(|node| routing::RouteRect {
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+            })
+            .collect();
+        let same_source_count = snapshot.edges[..index]
+            .iter()
+            .filter(|candidate| candidate.source_node_id == edge.source_node_id)
+            .count();
+        routes.push(routing::orthogonal_route(routing::RouteRequest {
+            source: routing::RouteRect {
+                x: source.x,
+                y: source.y,
+                width: source.width,
+                height: source.height,
+            },
+            target: routing::RouteRect {
+                x: target.x,
+                y: target.y,
+                width: target.width,
+                height: target.height,
+            },
+            obstacles: &obstacles,
+            lane_index: same_source_count,
+            reserved_routes: &routes,
+            allow_shared_departure: same_source_count > 0,
+        }));
+    }
+
+    for (edge, points) in diagram.edges.iter_mut().zip(routes) {
+        edge.points = points;
+    }
+    Ok(())
+}
