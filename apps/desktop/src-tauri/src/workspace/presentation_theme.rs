@@ -43,6 +43,20 @@ const STRUCTURAL_INSTANCE: PresentationStyle = PresentationStyle {
     border: "#626b63",
     text: "#1c241f",
 };
+const STRUCTURAL_PART: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#eadfbe",
+    header: "#d7c696",
+    border: "#536058",
+    text: "#17201b",
+};
+const STRUCTURAL_REFERENCE: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#f8f2df",
+    header: "#e9ddba",
+    border: "#687168",
+    text: "#1c241f",
+};
 const INTERFACE_PORT: PresentationStyle = PresentationStyle {
     category: "interface",
     fill: "#d2e7d8",
@@ -56,6 +70,13 @@ const INTERFACE: PresentationStyle = PresentationStyle {
     header: "#bed9c5",
     border: "#476454",
     text: "#152019",
+};
+const INTERFACE_FULL_PORT: PresentationStyle = PresentationStyle {
+    category: "interface",
+    fill: "#315443",
+    header: "#315443",
+    border: "#1f382c",
+    text: "#ffffff",
 };
 const ACTIVITY: PresentationStyle = PresentationStyle {
     category: "activity",
@@ -155,6 +176,20 @@ const FRAME: PresentationStyle = PresentationStyle {
     border: "#63717c",
     text: "#192128",
 };
+const SEQUENCE_EXECUTION: PresentationStyle = PresentationStyle {
+    category: "sequence",
+    fill: "#d7e5f0",
+    header: "#bfd3e3",
+    border: "#536a7a",
+    text: "#17232b",
+};
+const SEQUENCE_INVARIANT: PresentationStyle = PresentationStyle {
+    category: "sequence",
+    fill: "#f5efd7",
+    header: "#e7dcad",
+    border: "#6c664d",
+    text: "#272414",
+};
 
 const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("Model", FRAME),
@@ -163,11 +198,11 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("AssociationBlock", STRUCTURAL_ASSOCIATION),
     ("InstanceSpecification", STRUCTURAL_INSTANCE),
     ("Slot", STRUCTURAL),
-    ("PartProperty", STRUCTURAL),
-    ("ReferenceProperty", STRUCTURAL),
+    ("PartProperty", STRUCTURAL_PART),
+    ("ReferenceProperty", STRUCTURAL_REFERENCE),
     ("InterfaceBlock", INTERFACE),
     ("ProxyPort", INTERFACE_PORT),
-    ("FullPort", INTERFACE_PORT),
+    ("FullPort", INTERFACE_FULL_PORT),
     ("FlowProperty", INTERFACE),
     ("Activity", ACTIVITY),
     ("OpaqueAction", ACTIVITY),
@@ -224,6 +259,8 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("CompositeState", FRAME),
     ("Lifeline", STRUCTURAL),
     ("CombinedFragment", FRAME),
+    ("ExecutionSpecification", SEQUENCE_EXECUTION),
+    ("StateInvariant", SEQUENCE_INVARIANT),
 ];
 
 #[tauri::command]
