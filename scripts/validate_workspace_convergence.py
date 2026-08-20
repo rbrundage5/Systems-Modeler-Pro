@@ -29,6 +29,9 @@ for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
 assert "active_diagram_router" in main
+assert "active_diagram_layout" in main
+assert "checkpoint_states" in read(root / "apps/desktop/src-tauri/src/workspace/history.rs")
+assert "hierarchical_positions" in read(root / "apps/desktop/src-tauri/src/workspace/layout.rs")
 assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 assert "pub fn route_bdd" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
 assert "route_diagram_geometry" in main
