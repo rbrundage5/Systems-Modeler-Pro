@@ -151,7 +151,7 @@ function renderIbdConnectorLayer(frame, diagram, project) {
       render();
     };
     svg.appendChild(polyline);
-    const midpoint = points[Math.floor(points.length / 2)];
+    const midpoint = edge.label_anchor || points[Math.floor(points.length / 2)];
     if (relationship.name) {
       const text = document.createElementNS(SVG_NS, 'text');
       text.classList.add('relationship-label');
