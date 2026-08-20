@@ -39,10 +39,8 @@
 
   function updateHeader() {
     const context = state.context;
-    document.getElementById('workspace-diagram-title').textContent = context?.name || 'No diagram selected';
-    document.getElementById('workspace-diagram-context').textContent = context
-      ? `${context.family.displayName} · ${context.semanticContextId || 'model context'}`
-      : 'Select a diagram from the repository';
+    document.getElementById('workspace-diagram-title').textContent = context ? `${context.family.frameAbbreviation} [${context.family.frameContextKind}] ${context.name}` : 'No diagram selected';
+    const contextLabel=document.getElementById('workspace-diagram-context');contextLabel.textContent=context?.family.displayName||'Select a diagram from the repository';contextLabel.title=context?.semanticContextId?`Semantic context: ${context.semanticContextId}`:'';
     canvas.setAttribute('aria-label', context?.family.accessibilityName || 'Diagram canvas');
     canvas.dataset.family = context?.family.id || '';
     document.getElementById('workspace-header').dataset.family = context?.family.id || '';
