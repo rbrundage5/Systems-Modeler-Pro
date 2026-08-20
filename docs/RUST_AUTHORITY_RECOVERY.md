@@ -67,6 +67,11 @@ no longer overwrite a newer Rust-owned cancellation. The renderer-local fields
 remain temporary display mirrors until family adapters consume the returned
 interaction snapshot directly.
 
+The third recovery slice makes diagram activation atomic. Rust returns one host
+snapshot containing the active context, interaction revision, and resolved
+command manifest. The renderer no longer assembles these authority domains
+through separate asynchronous calls during a diagram switch.
+
 ## Performance gates
 
 Language choice alone cannot guarantee performance. Each recovered subsystem

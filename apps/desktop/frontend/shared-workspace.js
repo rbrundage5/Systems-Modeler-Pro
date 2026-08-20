@@ -22,19 +22,16 @@
     }
     renderers.set(familyId, Object.freeze({ ...adapter, familyId }));
   }
-
   function renderer() { return state.context ? renderers.get(state.context.family.id) : null; }
-
   async function activate(input) {
     if (!invoke || !input?.diagramId) return null;
     await persistViewport();
-    state.context = await invoke('activate_diagram', {
+    const activated = await invoke('activate_diagram', {
       diagramId: input.diagramId, familyId: input.familyId, name: input.name,
       semanticContextId: input.semanticContextId || '',
     });
-    interaction = await invoke('workspace_interaction_snapshot');
+    state.context = activated.context; interaction = activated.interaction; applyCommands(activated.commands);
     state.viewport = await invoke('get_viewport_preference', { diagramId: input.diagramId });
-    await loadCommands();
     updateHeader();
     queueMicrotask(mountSurface);
     return state.context;
@@ -192,6 +189,9 @@
 
   async function loadCommands() {
     const manifest = await invoke('active_diagram_command_manifest');
+    applyCommands(manifest);
+  }
+  function applyCommands(manifest) {
     commands.clear();
     manifest.forEach((command) => commands.set(command.id, command));
     document.dispatchEvent(new CustomEvent('smp:commands-ready', { detail: manifest }));

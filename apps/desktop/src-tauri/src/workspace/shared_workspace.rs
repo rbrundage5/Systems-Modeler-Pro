@@ -26,6 +26,14 @@ pub struct ActiveDiagramContext {
     pub semantic_context_id: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveWorkspaceSnapshot {
+    pub context: ActiveDiagramContext,
+    pub interaction: WorkspaceInteractionSnapshot,
+    pub commands: Vec<ResolvedDiagramCommand>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSelection {
@@ -187,7 +195,7 @@ pub fn activate_diagram(
     family_id: String,
     name: String,
     semantic_context_id: String,
-) -> Result<ActiveDiagramContext, String> {
+) -> Result<ActiveWorkspaceSnapshot, String> {
     if uuid::Uuid::parse_str(&diagram_id).is_err() {
         return Err("active diagram id is invalid".into());
     }
@@ -212,7 +220,7 @@ pub fn activate_diagram(
         .active
         .lock()
         .map_err(|_| "active diagram context lock poisoned")? = Some(context.clone());
-    if changed_diagram {
+    let interaction = if changed_diagram {
         let mut interaction = state
             .interaction
             .lock()
@@ -221,8 +229,20 @@ pub fn activate_diagram(
         interaction.selections.clear();
         interaction.active_tool = None;
         interaction.revision = interaction.revision.saturating_add(1);
-    }
-    Ok(context)
+        interaction.clone()
+    } else {
+        state
+            .interaction
+            .lock()
+            .map_err(|_| "workspace interaction lock poisoned")?
+            .clone()
+    };
+    let commands = resolve_diagram_commands(Some(&context.family));
+    Ok(ActiveWorkspaceSnapshot {
+        context,
+        interaction,
+        commands,
+    })
 }
 
 #[tauri::command]
@@ -458,5 +478,28 @@ mod tests {
         assert!(snapshot.require_revision(Some(6)).is_err());
         assert!(snapshot.require_revision(Some(7)).is_ok());
         assert!(snapshot.require_revision(None).is_ok());
+    }
+
+    #[test]
+    fn active_workspace_snapshot_serializes_one_host_contract() {
+        let family = diagram_family_registry().remove(0);
+        let context = ActiveDiagramContext {
+            diagram_id: uuid::Uuid::new_v4().to_string(),
+            family: family.clone(),
+            name: "System Structure".into(),
+            semantic_context_id: "model".into(),
+        };
+        let snapshot = ActiveWorkspaceSnapshot {
+            interaction: WorkspaceInteractionSnapshot {
+                diagram_id: Some(context.diagram_id.clone()),
+                ..WorkspaceInteractionSnapshot::default()
+            },
+            commands: resolve_diagram_commands(Some(&family)),
+            context,
+        };
+        let value = serde_json::to_value(snapshot).expect("workspace host snapshot serializes");
+        assert!(value["context"]["diagramId"].is_string());
+        assert!(value["interaction"]["revision"].is_number());
+        assert!(value["commands"].is_array());
     }
 }
