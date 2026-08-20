@@ -74,6 +74,17 @@ impl WorkspaceInteractionSnapshot {
         }
         Ok(())
     }
+
+    fn require_revision(&self, expected_revision: Option<u64>) -> Result<(), String> {
+        if expected_revision.is_some_and(|revision| revision != self.revision) {
+            return Err(format!(
+                "workspace interaction revision conflict: expected {}, current {}",
+                expected_revision.unwrap_or_default(),
+                self.revision
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -231,6 +242,7 @@ pub fn set_workspace_interaction(
     diagram_id: String,
     selections: Vec<WorkspaceSelection>,
     active_tool: Option<String>,
+    expected_revision: Option<u64>,
 ) -> Result<WorkspaceInteractionSnapshot, String> {
     let active_diagram_id = state
         .active
@@ -250,6 +262,7 @@ pub fn set_workspace_interaction(
         .interaction
         .lock()
         .map_err(|_| "workspace interaction lock poisoned")?;
+    interaction.require_revision(expected_revision)?;
     interaction.diagram_id = next.diagram_id;
     interaction.selections = next.selections;
     interaction.active_tool = next.active_tool;
@@ -262,6 +275,7 @@ pub fn clear_workspace_interaction(
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
     cancel_tool: bool,
+    expected_revision: Option<u64>,
 ) -> Result<WorkspaceInteractionSnapshot, String> {
     let active_diagram_id = state
         .active
@@ -277,6 +291,7 @@ pub fn clear_workspace_interaction(
         .interaction
         .lock()
         .map_err(|_| "workspace interaction lock poisoned")?;
+    interaction.require_revision(expected_revision)?;
     interaction.diagram_id = Some(diagram_id);
     interaction.selections.clear();
     if cancel_tool {
@@ -432,5 +447,16 @@ mod tests {
             revision: 0,
         };
         assert!(invalid.validate_for(&active).is_err());
+    }
+
+    #[test]
+    fn interaction_revision_rejects_stale_writers() {
+        let snapshot = WorkspaceInteractionSnapshot {
+            revision: 7,
+            ..WorkspaceInteractionSnapshot::default()
+        };
+        assert!(snapshot.require_revision(Some(6)).is_err());
+        assert!(snapshot.require_revision(Some(7)).is_ok());
+        assert!(snapshot.require_revision(None).is_ok());
     }
 }
