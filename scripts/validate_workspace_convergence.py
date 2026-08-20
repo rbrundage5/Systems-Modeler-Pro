@@ -34,6 +34,8 @@ for panel_command in ["showRepository", "showElements", "showProperties"]:
     assert f'id: "{panel_command}"' in theme
 assert "setPanelVisibility" in workspace and "configuredWidth" in workspace
 assert "set_viewport_preference" in main and "activate_diagram" in main
+assert "fit_diagram_viewport" in main and "fit_diagram_viewport" in workspace
+assert "zoom_diagram_viewport" in main and "zoom_diagram_viewport" in workspace
 assert "workspace-transform-spacer" in workspace and "setPointerCapture" in workspace
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
 print("Shared workspace convergence contract passed")

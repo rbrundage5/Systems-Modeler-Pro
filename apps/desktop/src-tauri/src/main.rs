@@ -69,8 +69,9 @@ mod workspace {
     };
     pub use shared_workspace::{
         SharedWorkspaceState, activate_diagram, active_diagram_command_manifest,
-        diagram_family_registry, get_panel_preferences, get_viewport_preference,
-        set_panel_preferences, set_viewport_preference,
+        diagram_family_registry, fit_diagram_viewport, get_panel_preferences,
+        get_viewport_preference, set_panel_preferences, set_viewport_preference,
+        zoom_diagram_viewport,
     };
 }
 
@@ -90,21 +91,22 @@ use workspace::{
     create_package, create_sequence_diagram, create_sequence_diagram_staged,
     create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
     delete_bdd_relationship, delete_behavior_item, diagram_command_manifest,
-    diagram_family_registry, get_panel_preferences, get_viewport_preference, history_checkpoint,
-    history_redo, history_reset, history_undo, ibd_item_flow_notation, load_activity_workspace,
-    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
-    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
-    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message,
-    rename_element, reset_activity_workspace, resize_sequence_lifeline_timeline,
-    route_activity_diagram, route_ibd, save_activity_workspace, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    semantic_presentation_manifest, set_panel_preferences, set_viewport_preference,
-    update_activity_node_semantics, update_activity_presentation_geometry, update_association_end,
-    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
-    update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
-    update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
-    update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
-    update_state_transition, workspace_snapshot, workspace_snapshot_complete,
+    diagram_family_registry, fit_diagram_viewport, get_panel_preferences, get_viewport_preference,
+    history_checkpoint, history_redo, history_reset, history_undo, ibd_item_flow_notation,
+    load_activity_workspace, move_sequence_lifeline, move_state_vertex, new_project,
+    open_project_file, open_project_file_complete, place_bdd_element, place_element_on_bdd,
+    populate_ibd_from_context, reconnect_activity_edge, reconnect_bdd_relationship,
+    reconnect_sequence_message, rename_element, reset_activity_workspace,
+    resize_sequence_lifeline_timeline, route_activity_diagram, route_ibd, save_activity_workspace,
+    save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, semantic_presentation_manifest, set_panel_preferences,
+    set_viewport_preference, update_activity_node_semantics, update_activity_presentation_geometry,
+    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
+    update_bdd_presentation_geometry, update_combined_fragment_operand,
+    update_execution_specification, update_ibd_port_geometry, update_ibd_property_geometry,
+    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
+    update_state_invariant, update_state_presentation_geometry, update_state_transition,
+    workspace_snapshot, workspace_snapshot_complete, zoom_diagram_viewport,
 };
 
 #[derive(Serialize)]
@@ -369,6 +371,8 @@ fn main() {
             active_diagram_command_manifest,
             diagram_family_registry,
             activate_diagram,
+            fit_diagram_viewport,
+            zoom_diagram_viewport,
             get_viewport_preference,
             set_viewport_preference,
             get_panel_preferences,

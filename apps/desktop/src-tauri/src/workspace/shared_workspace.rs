@@ -2,8 +2,8 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    DiagramFamilyDescriptor, DiagramFamilyId, PanelPreference, ViewportPreference,
-    supported_diagram_families,
+    DiagramFamilyDescriptor, DiagramFamilyId, GeometryRect, PanelPreference, ViewportPreference,
+    fit_viewport, supported_diagram_families, zoom_viewport_at,
 };
 
 use super::presentation_theme::{ResolvedDiagramCommand, resolve_diagram_commands};
@@ -101,6 +101,27 @@ pub fn set_viewport_preference(
         .map_err(|_| "viewport preference lock poisoned")?
         .insert(diagram_id, preference);
     Ok(())
+}
+
+#[tauri::command]
+pub fn fit_diagram_viewport(
+    bounds: GeometryRect,
+    viewport_width: f64,
+    viewport_height: f64,
+    padding: f64,
+    current: ViewportPreference,
+) -> Result<ViewportPreference, String> {
+    fit_viewport(bounds, viewport_width, viewport_height, padding, &current)
+}
+
+#[tauri::command]
+pub fn zoom_diagram_viewport(
+    current: ViewportPreference,
+    requested_zoom: f64,
+    pointer_x: f64,
+    pointer_y: f64,
+) -> Result<ViewportPreference, String> {
+    zoom_viewport_at(&current, requested_zoom, pointer_x, pointer_y)
 }
 
 #[tauri::command]

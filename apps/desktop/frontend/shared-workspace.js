@@ -105,25 +105,28 @@
   }
   function scheduleViewportPersistence() { clearTimeout(persistTimer); persistTimer = setTimeout(persistViewport, 120); }
 
-  function setZoom(next, clientX, clientY) {
-    if (!state.viewport) return;
-    const previous = state.viewport.zoom;
-    next = clamp(next, .25, 4);
+  let zoomRequest = Promise.resolve();
+  function setZoom(next, clientX, clientY, relative = false) {
+    if (!state.viewport || !invoke) return Promise.resolve();
     const rect = canvas.getBoundingClientRect();
     const x = (clientX ?? rect.left + canvas.clientWidth / 2) - rect.left + canvas.scrollLeft;
     const y = (clientY ?? rect.top + canvas.clientHeight / 2) - rect.top + canvas.scrollTop;
-    state.viewport.panX = x - (x - state.viewport.panX) * next / previous;
-    state.viewport.panY = y - (y - state.viewport.panY) * next / previous;
-    state.viewport.zoom = next;
-    applyViewport(); scheduleViewportPersistence();
+    zoomRequest = zoomRequest.then(async () => {
+      const requestedZoom = relative ? state.viewport.zoom * next : next;
+      state.viewport = await invoke('zoom_diagram_viewport', {
+        current: state.viewport, requestedZoom, pointerX: x, pointerY: y,
+      });
+      applyViewport(); scheduleViewportPersistence();
+    }).catch((error) => notify(String(error), 'error'));
+    return zoomRequest;
   }
 
-  function fitDiagram() {
-    if (!state.viewport) return;
-    const bounds = contentBounds();
-    state.viewport.zoom = clamp(Math.min((canvas.clientWidth - 56) / Math.max(bounds.width, 1), (canvas.clientHeight - 56) / Math.max(bounds.height, 1)), .25, 1);
-    state.viewport.panX = 28 - bounds.x * state.viewport.zoom;
-    state.viewport.panY = 28 - bounds.y * state.viewport.zoom;
+  async function fitDiagram() {
+    if (!state.viewport || !invoke) return;
+    state.viewport = await invoke('fit_diagram_viewport', {
+      bounds: contentBounds(), viewportWidth: canvas.clientWidth, viewportHeight: canvas.clientHeight,
+      padding: 28, current: state.viewport,
+    });
     applyViewport(); scheduleViewportPersistence(); canvas.scrollTo(0, 0);
   }
 
@@ -136,8 +139,8 @@
   }
 
   const transientHandlers = {
-    select: () => canvas.focus(), clearSelection, zoomIn: () => setZoom(state.viewport.zoom * 1.15),
-    zoomOut: () => setZoom(state.viewport.zoom / 1.15), actualSize: () => setZoom(1), fitDiagram,
+    select: () => canvas.focus(), clearSelection, zoomIn: () => setZoom(1.15, undefined, undefined, true),
+    zoomOut: () => setZoom(1 / 1.15, undefined, undefined, true), actualSize: () => setZoom(1), fitDiagram,
     pan: () => canvas.classList.toggle('pan-active'), toggleGrid: () => { state.viewport.gridVisible = !state.viewport.gridVisible; applyViewport(); scheduleViewportPersistence(); },
     snapGrid: () => { state.viewport.snapToGrid = !state.viewport.snapToGrid; scheduleViewportPersistence(); },
     undo: () => window.smpUndo?.(), redo: () => window.smpRedo?.(),
@@ -209,7 +212,7 @@
   });
   function finishPan(event) { if (!state.panning || state.panning.pointerId !== event.pointerId) return; state.panning = null; canvas.classList.remove('is-panning'); scheduleViewportPersistence(); }
   canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);
-  canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); setZoom(state.viewport.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), event.clientX, event.clientY); }, { passive:false });
+  canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
   document.addEventListener('keydown', (event) => {
     const editable = event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="dialog"]');
     if (event.code === 'Space' && !editable) { state.space = true; canvas.classList.add('space-pan'); event.preventDefault(); }

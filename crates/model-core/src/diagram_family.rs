@@ -347,6 +347,68 @@ impl ViewportPreference {
     }
 }
 
+pub fn fit_viewport(
+    bounds: GeometryRect,
+    viewport_width: f64,
+    viewport_height: f64,
+    padding: f64,
+    current: &ViewportPreference,
+) -> Result<ViewportPreference, String> {
+    let values = [
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        viewport_width,
+        viewport_height,
+        padding,
+    ];
+    if values.iter().any(|value| !value.is_finite())
+        || bounds.width <= 0.0
+        || bounds.height <= 0.0
+        || viewport_width <= padding * 2.0
+        || viewport_height <= padding * 2.0
+        || padding < 0.0
+    {
+        return Err("fit diagram requires finite positive bounds and viewport dimensions".into());
+    }
+    let zoom = ((viewport_width - padding * 2.0) / bounds.width)
+        .min((viewport_height - padding * 2.0) / bounds.height)
+        .clamp(0.25, 1.0);
+    let preference = ViewportPreference {
+        zoom,
+        pan_x: padding - bounds.x * zoom,
+        pan_y: padding - bounds.y * zoom,
+        grid_visible: current.grid_visible,
+        snap_to_grid: current.snap_to_grid,
+    };
+    preference.validate()?;
+    Ok(preference)
+}
+
+pub fn zoom_viewport_at(
+    current: &ViewportPreference,
+    requested_zoom: f64,
+    pointer_x: f64,
+    pointer_y: f64,
+) -> Result<ViewportPreference, String> {
+    if !requested_zoom.is_finite() || !pointer_x.is_finite() || !pointer_y.is_finite() {
+        return Err("zoom requires finite zoom and pointer coordinates".into());
+    }
+    current.validate()?;
+    let zoom = requested_zoom.clamp(0.25, 4.0);
+    let ratio = zoom / current.zoom;
+    let preference = ViewportPreference {
+        zoom,
+        pan_x: pointer_x - (pointer_x - current.pan_x) * ratio,
+        pan_y: pointer_y - (pointer_y - current.pan_y) * ratio,
+        grid_visible: current.grid_visible,
+        snap_to_grid: current.snap_to_grid,
+    };
+    preference.validate()?;
+    Ok(preference)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelPreference {
@@ -483,5 +545,49 @@ mod tests {
                 height: 20.0
             }
         );
+    }
+
+    #[test]
+    fn fit_diagram_is_deterministic_and_preserves_view_options() {
+        let current = ViewportPreference {
+            grid_visible: false,
+            snap_to_grid: false,
+            ..ViewportPreference::default()
+        };
+        let fitted = fit_viewport(
+            GeometryRect {
+                x: 100.0,
+                y: 50.0,
+                width: 1000.0,
+                height: 500.0,
+            },
+            800.0,
+            600.0,
+            28.0,
+            &current,
+        )
+        .expect("valid geometry fits");
+        assert!((fitted.zoom - 0.744).abs() < f64::EPSILON);
+        assert!((fitted.pan_x + 46.4).abs() < 1e-9);
+        assert!((fitted.pan_y + 9.2).abs() < 1e-9);
+        assert!(!fitted.grid_visible);
+        assert!(!fitted.snap_to_grid);
+    }
+
+    #[test]
+    fn pointer_centered_zoom_keeps_the_model_point_stationary() {
+        let current = ViewportPreference {
+            zoom: 1.0,
+            pan_x: 20.0,
+            pan_y: 30.0,
+            ..ViewportPreference::default()
+        };
+        let zoomed = zoom_viewport_at(&current, 2.0, 220.0, 130.0).expect("zoom is valid");
+        assert_eq!(zoomed.zoom, 2.0);
+        assert_eq!(zoomed.pan_x, -180.0);
+        assert_eq!(zoomed.pan_y, -70.0);
+        let model_x_before = (220.0 - current.pan_x) / current.zoom;
+        let model_x_after = (220.0 - zoomed.pan_x) / zoomed.zoom;
+        assert_eq!(model_x_before, model_x_after);
     }
 }
