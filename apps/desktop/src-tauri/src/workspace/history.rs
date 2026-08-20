@@ -72,6 +72,28 @@ fn capture(
     })
 }
 
+pub(super) fn checkpoint_states(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+) -> Result<(), String> {
+    let snapshot = capture(workspace, activity)?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    undo.push(snapshot);
+    if undo.len() > HISTORY_LIMIT {
+        undo.remove(0);
+    }
+    history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?
+        .clear();
+    Ok(())
+}
+
 fn restore(
     snapshot: HistorySnapshot,
     workspace: &WorkspaceState,
@@ -114,21 +136,7 @@ pub fn history_checkpoint(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
-    let snapshot = capture(&workspace, &activity)?;
-    let mut undo = history
-        .undo
-        .lock()
-        .map_err(|_| "undo history lock poisoned")?;
-    undo.push(snapshot);
-    if undo.len() > HISTORY_LIMIT {
-        undo.remove(0);
-    }
-    history
-        .redo
-        .lock()
-        .map_err(|_| "redo history lock poisoned")?
-        .clear();
-    Ok(())
+    checkpoint_states(&workspace, &activity, &history)
 }
 
 #[tauri::command]
