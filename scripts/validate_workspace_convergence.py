@@ -13,6 +13,7 @@ styles = read(frontend / "shared-workspace.css")
 shell_styles = read(frontend / "workspace-polish.css")
 ibd_ui = read(frontend / "ibd-ui.js")
 behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
+activity_ui = read(frontend / "activity-ui.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
 shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
@@ -91,11 +92,12 @@ assert 'overflow:visible!important' in styles
 assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
 assert 'frameGeometry:() => state.frame' in workspace and 'outerFramePoint' in ibd_ui
 assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
-assert 'labelPoint={x:(first.x+last.x)/2' in behavior_ui
+assert 'storedRoute?.label_anchor||' in behavior_ui
+assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
+assert 'container-type:inline-size' in styles and 'font-size:clamp(' in styles
 presentation = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 assert 'data-semantic-kind=\\\"Lifeline\\\"]{background:transparent' in presentation
 assert 'ACTIVITY_CALL' in presentation and 'ACTIVITY_OBJECT' in presentation
-activity_ui = read(frontend / "activity-ui.js")
 for kind in ["OpaqueAction", "CallBehaviorAction", "CallOperationAction", "SendSignalAction", "AcceptEventAction"]:
     assert kind in activity_ui and f'("{kind}",' in presentation
 print("Shared workspace convergence contract passed")
