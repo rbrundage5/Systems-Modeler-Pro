@@ -39,5 +39,9 @@ assert "set_viewport_preference" in main and "activate_diagram" in main
 assert "fit_diagram_viewport" in main and "fit_diagram_viewport" in workspace
 assert "zoom_diagram_viewport" in main and "zoom_diagram_viewport" in workspace
 assert "workspace-transform-spacer" in workspace and "setPointerCapture" in workspace
+for interaction_command in ["workspace_interaction_snapshot", "set_workspace_interaction", "clear_workspace_interaction"]:
+    assert interaction_command in main
+    assert interaction_command in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
+assert "publishInteraction" in workspace and "activeTool" in workspace
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
 print("Shared workspace convergence contract passed")

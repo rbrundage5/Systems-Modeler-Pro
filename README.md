@@ -18,7 +18,9 @@ The target is a professional systems-modeling platform with CATIA/Cameo-class mo
 
 ## Architecture direction
 
-The native product will use a Rust semantic/model engine, SQLite persistence, a Tauri desktop shell, and a TypeScript/web frontend. The authoritative semantic model must not live in the UI layer.
+The native product uses a Rust semantic/model engine, SQLite persistence, and a Tauri desktop shell with a thin web renderer. Rust owns application behavior and authoritative workspace state; frontend JavaScript is limited to snapshot rendering, input capture, temporary gesture previews, and typed Tauri invocation. The semantic model, command rules, routing, layout, history, validation, or persistence must never live in the UI layer.
+
+Frontend authority debt is measured and prevented from growing by `scripts/validate_rust_authority.py`. New work must reduce or preserve those ceilings while keeping Rust at least the enforced majority of application source.
 
 `modeler-proto` remains the legacy/reference implementation and is intentionally not copied into this repository.
 

@@ -130,12 +130,44 @@
     applyViewport(); scheduleViewportPersistence(); canvas.scrollTo(0, 0);
   }
 
-  function clearSelection() { renderer()?.clearSelection(); canvas.dispatchEvent(new CustomEvent('smp:selection-changed')); }
-  function cancelEverything() {
+  function interactionPayload() {
+    const adapter = renderer();
+    const selections = (adapter?.selection?.() || []).map((selection, index) => {
+      if (selection && typeof selection === 'object') {
+        return { kind: String(selection.type || selection.kind || `selection-${index}`), id: String(selection.id || selection.semantic?.id || '') };
+      }
+      return { kind: `selection-${index}`, id: String(selection || '') };
+    }).filter((selection) => selection.id);
+    return { selections, activeTool: adapter?.activeTool?.() || null };
+  }
+
+  let interactionRequest = Promise.resolve();
+  function publishInteraction() {
+    if (!invoke || !state.context) return Promise.resolve(null);
+    const payload = interactionPayload();
+    interactionRequest = interactionRequest.then(() => invoke('set_workspace_interaction', {
+      diagramId: state.context.diagramId,
+      selections: payload.selections,
+      activeTool: payload.activeTool,
+    })).catch((error) => notify(`Unable to synchronize workspace interaction: ${error}`, 'error'));
+    return interactionRequest;
+  }
+
+  async function clearSelection() {
+    if (invoke && state.context) {
+      await invoke('clear_workspace_interaction', { diagramId: state.context.diagramId, cancelTool: false });
+    }
+    renderer()?.clearSelection();
+    canvas.dispatchEvent(new CustomEvent('smp:selection-changed'));
+  }
+  async function cancelEverything() {
     window.smpDialogs?.cancelActive?.();
+    if (invoke && state.context) {
+      await invoke('clear_workspace_interaction', { diagramId: state.context.diagramId, cancelTool: true });
+    }
     renderer()?.cancelInteraction();
     state.panning = null; canvas.classList.remove('pan-active', 'is-panning');
-    clearSelection();
+    await clearSelection();
   }
 
   const transientHandlers = {
@@ -232,7 +264,12 @@
     if (event.ctrlKey && event.key.toLowerCase() === 'd') { event.preventDefault(); void execute('duplicate'); }
   }, true);
   document.addEventListener('keyup', (event) => { if (event.code === 'Space') { state.space = false; canvas.classList.remove('space-pan'); } });
-  new MutationObserver(() => queueMicrotask(mountSurface)).observe(canvas, { childList:true });
+  let interactionSyncTimer;
+  new MutationObserver(() => {
+    queueMicrotask(mountSurface);
+    clearTimeout(interactionSyncTimer);
+    interactionSyncTimer = setTimeout(() => { void publishInteraction(); }, 0);
+  }).observe(canvas, { childList:true, subtree:true });
 
   const panels = Object.freeze({
     repository: { selector: '.repository-panel', variable: '--repository-width', hiddenClass: 'hide-repository-panel', direction: 1 },
@@ -306,10 +343,11 @@
     }
   }
 
-  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, togglePanel, context:() => state.context, contentBounds });
+  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds });
   const selectionAdapter = (selectionKeys, toolKeys) => ({
     selection: () => selectionKeys.map((key) => window.smpState?.[key]).filter(Boolean),
     clearSelection: () => { for (const key of selectionKeys) if (window.smpState) window.smpState[key] = null; },
+    activeTool: () => toolKeys.map((key) => window.smpState?.[key]).find(Boolean) || null,
     cancelInteraction: () => { for (const key of toolKeys) if (window.smpState) window.smpState[key] = null; },
     refresh: async () => { if (typeof window.refresh === 'function') await window.refresh(); },
   });
