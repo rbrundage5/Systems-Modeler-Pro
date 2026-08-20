@@ -142,32 +142,31 @@
     return { selections, activeTool: adapter?.activeTool?.() || null };
   }
   let interactionRequest = Promise.resolve(), interaction = null;
+  function queueInteraction(command, args) {
+    interactionRequest = interactionRequest.then(async () => {
+      const request = () => invoke(command, { diagramId:state.context.diagramId, ...args, expectedRevision:interaction?.revision ?? null });
+      try { interaction = await request(); }
+      catch (error) { interaction = await invoke('workspace_interaction_snapshot'); if (!String(error).includes('revision conflict')) throw error; interaction = await request(); }
+      return interaction;
+    }).catch((error) => { notify(`Unable to synchronize workspace interaction: ${error}`, 'error'); return interaction; });
+    return interactionRequest;
+  }
   function publishInteraction() {
     if (!invoke || !state.context) return Promise.resolve(null);
     const payload = interactionPayload();
-    interactionRequest = interactionRequest.then(() => invoke('set_workspace_interaction', {
-      diagramId: state.context.diagramId,
-      selections: payload.selections,
-      activeTool: payload.activeTool,
-      expectedRevision: interaction?.revision ?? null,
-    })).then((next) => (interaction = next))
-      .catch(async (error) => { interaction = await invoke('workspace_interaction_snapshot'); notify(`Unable to synchronize workspace interaction: ${error}`, 'error'); return interaction; });
-    return interactionRequest;
+    return queueInteraction('set_workspace_interaction', { selections:payload.selections, activeTool:payload.activeTool });
   }
-
   async function clearSelection() {
-    if (invoke && state.context) interactionRequest = interactionRequest.then(() => invoke('clear_workspace_interaction', { diagramId: state.context.diagramId, cancelTool: false, expectedRevision: interaction?.revision ?? null })).then((next) => (interaction = next));
-    await interactionRequest;
     renderer()?.clearSelection();
     canvas.dispatchEvent(new CustomEvent('smp:selection-changed'));
+    if (invoke && state.context) await queueInteraction('clear_workspace_interaction', { cancelTool:false });
   }
   async function cancelEverything() {
     window.smpDialogs?.cancelActive?.();
-    if (invoke && state.context) interactionRequest = interactionRequest.then(() => invoke('clear_workspace_interaction', { diagramId: state.context.diagramId, cancelTool: true, expectedRevision: interaction?.revision ?? null })).then((next) => (interaction = next));
-    await interactionRequest;
     renderer()?.cancelInteraction();
     state.panning = null; canvas.classList.remove('pan-active', 'is-panning');
-    await clearSelection();
+    renderer()?.clearSelection(); canvas.dispatchEvent(new CustomEvent('smp:selection-changed'));
+    if (invoke && state.context) await queueInteraction('clear_workspace_interaction', { cancelTool:true });
   }
 
   const transientHandlers = {
