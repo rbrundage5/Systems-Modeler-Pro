@@ -251,19 +251,27 @@ pub fn route_avoids_reserved(
     allow_shared_departure: bool,
 ) -> bool {
     reserved_routes.iter().all(|reserved| {
-        candidate.windows(2).enumerate().all(|(candidate_index, candidate_segment)| {
-            reserved.windows(2).enumerate().all(|(reserved_index, reserved_segment)| {
-                let shared_departure = allow_shared_departure
-                    && candidate_index == 0
-                    && reserved_index == 0
-                    && candidate_segment[0] == reserved_segment[0];
-                shared_departure
-                    || !segments_overlap(
-                        candidate_segment[0], candidate_segment[1], reserved_segment[0],
-                        reserved_segment[1],
-                    )
+        candidate
+            .windows(2)
+            .enumerate()
+            .all(|(candidate_index, candidate_segment)| {
+                reserved
+                    .windows(2)
+                    .enumerate()
+                    .all(|(reserved_index, reserved_segment)| {
+                        let shared_departure = allow_shared_departure
+                            && candidate_index == 0
+                            && reserved_index == 0
+                            && candidate_segment[0] == reserved_segment[0];
+                        shared_departure
+                            || !segments_overlap(
+                                candidate_segment[0],
+                                candidate_segment[1],
+                                reserved_segment[0],
+                                reserved_segment[1],
+                            )
+                    })
             })
-        })
     })
 }
 
@@ -487,8 +495,18 @@ mod tests {
             DiagramPoint { x: 240.0, y: 50.0 },
         ]];
         let route = orthogonal_route(RouteRequest {
-            source: RouteRect { x: 20.0, y: 20.0, width: 100.0, height: 60.0 },
-            target: RouteRect { x: 240.0, y: 20.0, width: 100.0, height: 60.0 },
+            source: RouteRect {
+                x: 20.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            target: RouteRect {
+                x: 240.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
             obstacles: &[],
             lane_index: 0,
             reserved_routes: &reserved,
@@ -514,13 +532,49 @@ mod tests {
 
     #[test]
     fn batch_router_applies_one_policy_to_every_diagram_family_adapter() {
-        let source = RouteRect { x: 20.0, y: 20.0, width: 100.0, height: 60.0 };
+        let source = RouteRect {
+            x: 20.0,
+            y: 20.0,
+            width: 100.0,
+            height: 60.0,
+        };
         let edges = vec![
-            DiagramRouteEdge { id: "a".into(), source_id: "source".into(), target_id: "one".into(), source, target: RouteRect { x: 320.0, y: 20.0, width: 100.0, height: 60.0 } },
-            DiagramRouteEdge { id: "b".into(), source_id: "other".into(), target_id: "two".into(), source: RouteRect { x: 20.0, y: 120.0, width: 100.0, height: 60.0 }, target: RouteRect { x: 320.0, y: 120.0, width: 100.0, height: 60.0 } },
+            DiagramRouteEdge {
+                id: "a".into(),
+                source_id: "source".into(),
+                target_id: "one".into(),
+                source,
+                target: RouteRect {
+                    x: 320.0,
+                    y: 20.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+            },
+            DiagramRouteEdge {
+                id: "b".into(),
+                source_id: "other".into(),
+                target_id: "two".into(),
+                source: RouteRect {
+                    x: 20.0,
+                    y: 120.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+                target: RouteRect {
+                    x: 320.0,
+                    y: 120.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+            },
         ];
         let routed = route_diagram(&edges, &[]);
         assert_eq!(routed.len(), 2);
-        assert!(route_avoids_reserved(&routed[1].points, &[routed[0].points.clone()], false));
+        assert!(route_avoids_reserved(
+            &routed[1].points,
+            &[routed[0].points.clone()],
+            false
+        ));
     }
 }
