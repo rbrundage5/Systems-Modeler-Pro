@@ -27,6 +27,8 @@ pub struct RouteRequest<'a> {
     pub target: RouteRect,
     pub obstacles: &'a [RouteRect],
     pub lane_index: usize,
+    pub reserved_routes: &'a [Vec<DiagramPoint>],
+    pub allow_shared_departure: bool,
 }
 
 /// Shared deterministic orthogonal router for BDD and IBD presentations.
@@ -124,7 +126,14 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
 
     candidates
         .into_iter()
-        .find(|candidate| route_is_clear(candidate, request.obstacles))
+        .find(|candidate| {
+            route_is_clear(candidate, request.obstacles)
+                && route_avoids_reserved(
+                    candidate,
+                    request.reserved_routes,
+                    request.allow_shared_departure,
+                )
+        })
         .unwrap_or_else(|| {
             // Preserve endpoint attachment and orthogonality even in a severely
             // constrained diagram. The fallback also escapes perpendicular to
@@ -161,6 +170,52 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                 ])
             }
         })
+}
+
+pub fn route_avoids_reserved(
+    candidate: &[DiagramPoint],
+    reserved_routes: &[Vec<DiagramPoint>],
+    allow_shared_departure: bool,
+) -> bool {
+    reserved_routes.iter().all(|reserved| {
+        candidate.windows(2).enumerate().all(|(candidate_index, candidate_segment)| {
+            reserved.windows(2).enumerate().all(|(reserved_index, reserved_segment)| {
+                let shared_departure = allow_shared_departure
+                    && candidate_index == 0
+                    && reserved_index == 0
+                    && candidate_segment[0] == reserved_segment[0];
+                shared_departure
+                    || !segments_overlap(
+                        candidate_segment[0], candidate_segment[1], reserved_segment[0],
+                        reserved_segment[1],
+                    )
+            })
+        })
+    })
+}
+
+pub fn segments_overlap(
+    a1: DiagramPoint,
+    a2: DiagramPoint,
+    b1: DiagramPoint,
+    b2: DiagramPoint,
+) -> bool {
+    const EPSILON: f64 = 0.001;
+    let a_vertical = (a1.x - a2.x).abs() < EPSILON;
+    let b_vertical = (b1.x - b2.x).abs() < EPSILON;
+    if a_vertical && b_vertical && (a1.x - b1.x).abs() < EPSILON {
+        return ranges_overlap(a1.y, a2.y, b1.y, b2.y, EPSILON);
+    }
+    let a_horizontal = (a1.y - a2.y).abs() < EPSILON;
+    let b_horizontal = (b1.y - b2.y).abs() < EPSILON;
+    a_horizontal
+        && b_horizontal
+        && (a1.y - b1.y).abs() < EPSILON
+        && ranges_overlap(a1.x, a2.x, b1.x, b2.x, EPSILON)
+}
+
+fn ranges_overlap(a1: f64, a2: f64, b1: f64, b2: f64, epsilon: f64) -> bool {
+    a1.min(a2).max(b1.min(b2)) < a1.max(a2).min(b1.max(b2)) - epsilon
 }
 
 fn attached_endpoints(
@@ -279,6 +334,8 @@ mod tests {
             },
             obstacles: &[obstacle],
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         });
         assert!(route_is_clear(&points, &[obstacle]));
         assert!(
@@ -311,6 +368,8 @@ mod tests {
             },
             obstacles: &[obstacle],
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         });
         assert!(route_is_clear(&points, &[obstacle]));
         assert!(
@@ -337,6 +396,8 @@ mod tests {
             },
             obstacles: &[],
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         };
         let first = orthogonal_route(base);
         let second = orthogonal_route(RouteRequest {
@@ -344,5 +405,37 @@ mod tests {
             ..base
         });
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn unrelated_routes_cannot_overlap_reserved_segments() {
+        let reserved = vec![vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 240.0, y: 50.0 },
+        ]];
+        let route = orthogonal_route(RouteRequest {
+            source: RouteRect { x: 20.0, y: 20.0, width: 100.0, height: 60.0 },
+            target: RouteRect { x: 240.0, y: 20.0, width: 100.0, height: 60.0 },
+            obstacles: &[],
+            lane_index: 0,
+            reserved_routes: &reserved,
+            allow_shared_departure: false,
+        });
+        assert!(route_avoids_reserved(&route, &reserved, false));
+    }
+
+    #[test]
+    fn only_a_common_source_may_share_the_departure_segment() {
+        let reserved = vec![vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 180.0, y: 50.0 },
+        ]];
+        let candidate = vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 180.0, y: 50.0 },
+            DiagramPoint { x: 180.0, y: 120.0 },
+        ];
+        assert!(route_avoids_reserved(&candidate, &reserved, true));
+        assert!(!route_avoids_reserved(&candidate, &reserved, false));
     }
 }
