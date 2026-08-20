@@ -81,6 +81,8 @@ fn route_semantic_edge(
     activity: &Activity,
     edge: &ActivityEdge,
     lane_index: usize,
+    reserved_routes: &[Vec<DiagramPoint>],
+    allow_shared_departure: bool,
 ) -> Result<Vec<DiagramPoint>, String> {
     let source_owner = endpoint_owner(activity, edge.source)?.to_string();
     let target_owner = endpoint_owner(activity, edge.target)?.to_string();
@@ -108,6 +110,8 @@ fn route_semantic_edge(
         target: target_rect,
         obstacles: &obstacles,
         lane_index,
+        reserved_routes,
+        allow_shared_departure,
     }))
 }
 
@@ -116,6 +120,7 @@ fn reroute_diagram(
     activity: &Activity,
 ) -> Result<(), String> {
     let snapshot = diagram.clone();
+    let mut reserved_routes = Vec::new();
     for (index, presentation) in diagram.edges.iter_mut().enumerate() {
         let semantic = activity
             .edges
@@ -135,7 +140,18 @@ fn reroute_diagram(
                     || candidate.target_node_id == presentation.source_node_id
             })
             .count();
-        presentation.points = route_semantic_edge(&snapshot, activity, semantic, lane_index)?;
+        let allow_shared_departure = snapshot.edges[..index]
+            .iter()
+            .any(|edge| edge.source_node_id == presentation.source_node_id);
+        presentation.points = route_semantic_edge(
+            &snapshot,
+            activity,
+            semantic,
+            lane_index,
+            &reserved_routes,
+            allow_shared_departure,
+        )?;
+        reserved_routes.push(presentation.points.clone());
     }
     Ok(())
 }
