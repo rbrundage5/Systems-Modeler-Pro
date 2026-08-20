@@ -387,7 +387,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "cleanLayout",
             label: "Clean Layout",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "Activity"],
+            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: Some("active_diagram_layout"),
             unavailable_reason: Some("Automatic layout is not available for this diagram type."),
             required_capability: Some(DiagramCapability::CleanLayout),
@@ -572,8 +572,8 @@ mod tests {
             .iter()
             .find(|item| item.command.id == "cleanLayout")
             .expect("Clean Layout is registered");
-        assert!(!layout.enabled);
-        assert!(layout.disabled_reason.is_some());
+        assert!(layout.enabled);
+        assert!(layout.disabled_reason.is_none());
     }
 
     #[test]
