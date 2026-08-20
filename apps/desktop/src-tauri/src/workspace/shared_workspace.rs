@@ -254,9 +254,7 @@ pub fn active_diagram_router(
         "state-machine" | "sequence" => {
             super::behavior_workspace::route_behavior_diagram(diagram_id, workspace)
         }
-        "activity" => {
-            super::activity_mutation::route_activity_diagram(diagram_id, activity)
-        }
+        "activity" => super::activity_mutation::route_activity_diagram(diagram_id, activity),
         family => Err(format!(
             "shared routing geometry is not implemented for {family} yet"
         )),
