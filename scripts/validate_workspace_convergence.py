@@ -43,5 +43,6 @@ for interaction_command in ["workspace_interaction_snapshot", "set_workspace_int
     assert interaction_command in main
     assert interaction_command in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
 assert "publishInteraction" in workspace and "activeTool" in workspace
+assert "expectedRevision" in workspace and "require_revision" in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
 print("Shared workspace convergence contract passed")
