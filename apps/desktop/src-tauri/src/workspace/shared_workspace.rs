@@ -287,10 +287,10 @@ pub fn active_diagram_layout(
         "state-machine" | "sequence" => {
             super::behavior_workspace::layout_behavior_diagram(diagram_id, workspace)
         }
-        "activity" => {
-            super::activity_mutation::layout_activity_diagram(diagram_id, activity)
-        }
-        family => Err(format!("shared Clean Layout is not implemented for {family}")),
+        "activity" => super::activity_mutation::layout_activity_diagram(diagram_id, activity),
+        family => Err(format!(
+            "shared Clean Layout is not implemented for {family}"
+        )),
     }
 }
 
