@@ -494,7 +494,11 @@ pub fn rename_active_diagram_header(
                 .name = model_element_name.into();
             diagram.name = diagram_name.into();
         }
-        family => return Err(format!("diagram header editing is unavailable for {family}")),
+        family => {
+            return Err(format!(
+                "diagram header editing is unavailable for {family}"
+            ));
+        }
     }
     let mut updated = active;
     updated.name = diagram_name.into();
