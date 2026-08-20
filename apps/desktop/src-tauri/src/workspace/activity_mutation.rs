@@ -409,3 +409,43 @@ pub fn route_activity_diagram(
         .ok_or("Activity not found")?;
     reroute_diagram(diagram, activity)
 }
+
+pub fn layout_activity_diagram(
+    diagram_id: String,
+    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+) -> Result<(), String> {
+    let mut diagrams = activity_state
+        .diagrams
+        .lock()
+        .map_err(|_| "Activity diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("Activity diagram not found")?;
+    let edges: Vec<_> = diagram
+        .edges
+        .iter()
+        .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
+        .collect();
+    let positions = super::layout::hierarchical_positions(
+        diagram.nodes.iter().map(|node| node.id.clone()),
+        &edges,
+        systems_modeler_core::PreferredFlowDirection::TopToBottom,
+    );
+    for node in &mut diagram.nodes {
+        if let Some((x, y)) = positions.get(&node.id) {
+            node.x = *x;
+            node.y = *y;
+        }
+    }
+    let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+    let repository = activity_state
+        .repository
+        .lock()
+        .map_err(|_| "Activity repository lock poisoned")?;
+    let activity = repository
+        .activities
+        .get(&activity_id)
+        .ok_or("Activity not found")?;
+    reroute_diagram(diagram, activity)
+}
