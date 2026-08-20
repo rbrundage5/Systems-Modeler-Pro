@@ -233,6 +233,37 @@ pub fn active_diagram_command_manifest(
 }
 
 #[tauri::command]
+pub fn active_diagram_router(
+    diagram_id: String,
+    shared: tauri::State<'_, SharedWorkspaceState>,
+    workspace: tauri::State<'_, super::WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+) -> Result<(), String> {
+    let active = shared
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?
+        .clone()
+        .ok_or("no active diagram")?;
+    if active.diagram_id != diagram_id {
+        return Err("routing request does not match the active diagram".into());
+    }
+    match active.family.id.0.as_str() {
+        "bdd" => super::route_bdd(diagram_id, workspace),
+        "ibd" => super::ibd::route_ibd(diagram_id, workspace),
+        "state-machine" | "sequence" => {
+            super::behavior_workspace::route_behavior_diagram(diagram_id, workspace)
+        }
+        "activity" => {
+            super::activity_mutation::route_activity_diagram(diagram_id, activity)
+        }
+        family => Err(format!(
+            "shared routing geometry is not implemented for {family} yet"
+        )),
+    }
+}
+
+#[tauri::command]
 pub fn activate_diagram(
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
