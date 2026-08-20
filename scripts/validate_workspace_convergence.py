@@ -49,4 +49,14 @@ assert "typeof tool === 'object'" in workspace and "tool.relationship_kind" in w
 assert "ActiveWorkspaceSnapshot" in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
 assert "activated.context" in workspace and "applyCommands(activated.commands)" in workspace
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
+assert '.diagram-frame>.diagram-header{display:none!important}' in styles
+assert '.canvas .activity-svg{background:transparent!important}' in styles
+assert 'overflow:visible!important' in styles
+assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
+presentation = (root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs").read_text()
+assert 'data-semantic-kind=\\\"Lifeline\\\"]{background:transparent' in presentation
+assert 'ACTIVITY_CALL' in presentation and 'ACTIVITY_OBJECT' in presentation
+activity_ui = (frontend / "activity-ui.js").read_text()
+for kind in ["OpaqueAction", "CallBehaviorAction", "CallOperationAction", "SendSignalAction", "AcceptEventAction"]:
+    assert kind in activity_ui and f'("{kind}",' in presentation
 print("Shared workspace convergence contract passed")
