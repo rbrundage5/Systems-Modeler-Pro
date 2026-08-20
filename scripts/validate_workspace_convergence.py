@@ -15,6 +15,7 @@ ibd_ui = read(frontend / "ibd-ui.js")
 behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
+shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 
 assert 'data-shared-workspace="true"' in index
 assert 'shared-workspace.js' in index and 'shared-workspace.css' in index
@@ -32,11 +33,13 @@ assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
 assert "state.frameElement.style.transform=transform" in workspace
 assert "frame.dataset.diagramId=state.context.diagramId" in workspace
+assert "rename_active_diagram_header" in workspace and "editFrameHeader" in workspace
 assert "root?.getBBox" in workspace and "Math.max(320,bounds.width" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
 assert "active_diagram_router" in main
+assert "rename_active_diagram_header" in main and "pub fn rename_active_diagram_header" in shared_workspace
 assert "active_diagram_layout" in main
 assert "checkpoint_states" in read(root / "apps/desktop/src-tauri/src/workspace/history.rs")
 assert "hierarchical_positions" in read(root / "apps/desktop/src-tauri/src/workspace/layout.rs")
