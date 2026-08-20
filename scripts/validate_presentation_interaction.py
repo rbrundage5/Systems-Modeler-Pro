@@ -45,13 +45,19 @@ assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrat
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not constrained to boundaries"
 assert '<script src="diagram-interaction.js"></script>' in index
 
-# State Machine Fork/Join must resize the visible notation, not only an outer hitbox.
+# State Machine Fork/Join must resize the visible notation, persist through the
+# existing Rust geometry command, and never leave speculative frontend state.
 assert ".state-fork, #canvas .state-join" in state_bar_frontend
 assert "bar.style.width = '100%'" in state_bar_frontend
-assert "bar.style.height = '100%'" in state_bar_frontend
-assert "Math.max(8, Math.min(24" in state_bar_frontend
+assert "STORED_HEIGHT_OFFSET = 12" in state_bar_frontend
+assert "MIN_BAR_THICKNESS = 8" in state_bar_frontend
+assert "storedHeightForThickness" in state_bar_frontend
+assert "return clampThickness(thickness) + STORED_HEIGHT_OFFSET" in state_bar_frontend
 assert "update_state_presentation_geometry" in state_bar_frontend
 assert "updateIncidentTransitions" in state_bar_frontend
+assert "finally" in state_bar_frontend and "await refresh();" in state_bar_frontend
+assert "presentation.width = next.width" not in state_bar_frontend
+assert "presentation.height = next.height" not in state_bar_frontend
 assert '<script src="state-bar-resize.js"></script>' in index
 
 print("Shared presentation interaction contract passed")
