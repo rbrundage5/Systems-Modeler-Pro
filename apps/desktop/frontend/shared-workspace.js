@@ -45,8 +45,8 @@
       : 'Select a diagram from the repository';
     canvas.setAttribute('aria-label', context?.family.accessibilityName || 'Diagram canvas');
     canvas.dataset.family = context?.family.id || '';
+    document.getElementById('workspace-header').dataset.family = context?.family.id || '';
   }
-
   function mountSurface() {
     const root = [...canvas.children].find((node) => !node.classList.contains('workspace-transform-spacer'));
     if (!root || root === state.surface) { applyViewport(); return; }
