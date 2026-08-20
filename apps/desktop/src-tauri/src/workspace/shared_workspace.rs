@@ -1,5 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use systems_modeler_core::{
     DiagramFamilyDescriptor, DiagramFamilyId, GeometryRect, PanelPreference, ViewportPreference,
@@ -7,6 +8,14 @@ use systems_modeler_core::{
 };
 
 use super::presentation_theme::{ResolvedDiagramCommand, resolve_diagram_commands};
+use tauri::Manager;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedWorkspacePreferences {
+    viewports: BTreeMap<String, ViewportPreference>,
+    panels: PanelPreference,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +31,73 @@ pub struct SharedWorkspaceState {
     active: Mutex<Option<ActiveDiagramContext>>,
     viewports: Mutex<BTreeMap<String, ViewportPreference>>,
     panels: Mutex<PanelPreference>,
+    preferences_loaded: Mutex<bool>,
+}
+
+fn preference_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join("workspace-preferences.json"))
+        .map_err(|error| format!("workspace preference directory is unavailable: {error}"))
+}
+
+fn ensure_preferences_loaded(
+    app: &tauri::AppHandle,
+    state: &SharedWorkspaceState,
+) -> Result<(), String> {
+    let mut loaded = state
+        .preferences_loaded
+        .lock()
+        .map_err(|_| "workspace preference initialization lock poisoned")?;
+    if *loaded {
+        return Ok(());
+    }
+    let path = preference_path(app)?;
+    if path.exists() {
+        let bytes = std::fs::read(&path)
+            .map_err(|error| format!("failed to read workspace preferences: {error}"))?;
+        let preferences: PersistedWorkspacePreferences = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("workspace preferences are invalid: {error}"))?;
+        preferences.panels.validate()?;
+        for preference in preferences.viewports.values() {
+            preference.validate()?;
+        }
+        *state
+            .viewports
+            .lock()
+            .map_err(|_| "viewport preference lock poisoned")? = preferences.viewports;
+        *state
+            .panels
+            .lock()
+            .map_err(|_| "panel preference lock poisoned")? = preferences.panels;
+    }
+    *loaded = true;
+    Ok(())
+}
+
+fn save_preferences(app: &tauri::AppHandle, state: &SharedWorkspaceState) -> Result<(), String> {
+    let path = preference_path(app)?;
+    let directory = path
+        .parent()
+        .ok_or("workspace preference path has no parent directory")?;
+    std::fs::create_dir_all(directory)
+        .map_err(|error| format!("failed to create workspace preference directory: {error}"))?;
+    let preferences = PersistedWorkspacePreferences {
+        viewports: state
+            .viewports
+            .lock()
+            .map_err(|_| "viewport preference lock poisoned")?
+            .clone(),
+        panels: state
+            .panels
+            .lock()
+            .map_err(|_| "panel preference lock poisoned")?
+            .clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&preferences)
+        .map_err(|error| format!("failed to serialize workspace preferences: {error}"))?;
+    std::fs::write(path, bytes)
+        .map_err(|error| format!("failed to persist workspace preferences: {error}"))
 }
 
 #[tauri::command]
@@ -73,9 +149,11 @@ pub fn activate_diagram(
 
 #[tauri::command]
 pub fn get_viewport_preference(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
 ) -> Result<ViewportPreference, String> {
+    ensure_preferences_loaded(&app, &state)?;
     Ok(state
         .viewports
         .lock()
@@ -87,10 +165,12 @@ pub fn get_viewport_preference(
 
 #[tauri::command]
 pub fn set_viewport_preference(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
     preference: ViewportPreference,
 ) -> Result<(), String> {
+    ensure_preferences_loaded(&app, &state)?;
     if uuid::Uuid::parse_str(&diagram_id).is_err() {
         return Err("viewport diagram id is invalid".into());
     }
@@ -100,7 +180,7 @@ pub fn set_viewport_preference(
         .lock()
         .map_err(|_| "viewport preference lock poisoned")?
         .insert(diagram_id, preference);
-    Ok(())
+    save_preferences(&app, &state)
 }
 
 #[tauri::command]
@@ -126,8 +206,10 @@ pub fn zoom_diagram_viewport(
 
 #[tauri::command]
 pub fn get_panel_preferences(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SharedWorkspaceState>,
 ) -> Result<PanelPreference, String> {
+    ensure_preferences_loaded(&app, &state)?;
     Ok(state
         .panels
         .lock()
@@ -137,15 +219,17 @@ pub fn get_panel_preferences(
 
 #[tauri::command]
 pub fn set_panel_preferences(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SharedWorkspaceState>,
     preference: PanelPreference,
 ) -> Result<(), String> {
+    ensure_preferences_loaded(&app, &state)?;
     preference.validate()?;
     *state
         .panels
         .lock()
         .map_err(|_| "panel preference lock poisoned")? = preference;
-    Ok(())
+    save_preferences(&app, &state)
 }
 
 #[cfg(test)]
@@ -162,5 +246,29 @@ mod tests {
                 .iter()
                 .all(|family| !family.empty_message.is_empty())
         );
+    }
+
+    #[test]
+    fn workspace_preferences_round_trip_all_diagram_viewports_and_panels() {
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let mut preferences = PersistedWorkspacePreferences::default();
+        preferences.viewports.insert(
+            diagram_id.clone(),
+            ViewportPreference {
+                zoom: 1.5,
+                pan_x: 24.0,
+                pan_y: -18.0,
+                grid_visible: false,
+                snap_to_grid: true,
+            },
+        );
+        preferences.panels.repository_width = 310;
+        preferences.panels.properties_visible = false;
+        let json = serde_json::to_vec(&preferences).expect("preferences serialize");
+        let restored: PersistedWorkspacePreferences =
+            serde_json::from_slice(&json).expect("preferences deserialize");
+        assert_eq!(restored.viewports[&diagram_id].zoom, 1.5);
+        assert_eq!(restored.panels.repository_width, 310);
+        assert!(!restored.panels.properties_visible);
     }
 }

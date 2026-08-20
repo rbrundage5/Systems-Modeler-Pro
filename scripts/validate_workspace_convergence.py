@@ -25,6 +25,7 @@ assert "command.enabled" in workspace and "command.disabledReason" in workspace
 for category in ["structural", "interface", "activity", "state", "requirement", "constraint", "data", "event", "verification", "annotation", "frame"]:
     assert f'category: "{category}"' in theme
 assert "get_viewport_preference" in workspace and "get_panel_preferences" in workspace
+assert "workspace-preferences.json" in (root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs").read_text()
 assert "event.ctrlKey" in workspace and "event.clientX" in workspace
 assert "semantic_presentation_manifest" in main and "diagram_command_manifest" in main
 assert "min-width:0" in styles and "overflow:auto" in styles
