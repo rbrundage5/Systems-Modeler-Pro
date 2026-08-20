@@ -378,7 +378,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "route",
             label: "Route",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "Activity"],
+            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: Some("active_diagram_router"),
             unavailable_reason: Some("Routing is not applicable to this diagram type."),
             required_capability: Some(DiagramCapability::Routing),
