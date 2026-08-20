@@ -374,7 +374,7 @@
     for (const execution of inter.executions || []) {
       const x = lifelinePositions.get(String(execution.lifeline_id)) ?? 140;
       const bar = document.createElement('div');
-      bar.className = 'execution-spec';
+      bar.className = 'execution-spec';bar.dataset.semanticKind='ExecutionSpecification';
       bar.dataset.executionId = String(execution.id);
       bar.style.left = `${x - 7}px`;
       bar.style.top = `${110 + execution.start.order * 4}px`;
@@ -388,7 +388,7 @@
       const top = 110 + Math.min(...fragment.operands.map((operand) => operand.start_order)) * 4;
       const bottom = 110 + Math.max(...fragment.operands.map((operand) => operand.end_order)) * 4;
       const box = document.createElement('div');
-      box.className = 'combined-fragment';
+      box.className = 'combined-fragment';box.dataset.semanticKind='CombinedFragment';
       box.dataset.fragmentId = String(fragment.id);
       box.style.left = `${Math.min(...xs) - 85}px`;
       box.style.width = `${Math.max(180, Math.max(...xs) - Math.min(...xs) + 170)}px`;
@@ -401,7 +401,7 @@
     for (const invariant of inter.state_invariants || []) {
       const x = lifelinePositions.get(String(invariant.lifeline_id)) ?? 140;
       const box = document.createElement('button');
-      box.className = 'state-invariant-box';
+      box.className = 'state-invariant-box';box.dataset.semanticKind='StateInvariant';
       box.dataset.invariantId = String(invariant.id);
       box.style.left = `${x - 52}px`;
       box.style.top = `${110 + invariant.order * 4}px`;
