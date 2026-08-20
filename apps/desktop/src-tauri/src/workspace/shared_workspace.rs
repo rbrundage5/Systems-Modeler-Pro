@@ -238,6 +238,7 @@ pub fn active_diagram_router(
     shared: tauri::State<'_, SharedWorkspaceState>,
     workspace: tauri::State<'_, super::WorkspaceState>,
     activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<(), String> {
     let active = shared
         .active
@@ -248,6 +249,7 @@ pub fn active_diagram_router(
     if active.diagram_id != diagram_id {
         return Err("routing request does not match the active diagram".into());
     }
+    super::history::checkpoint_states(&workspace, &activity, &history)?;
     match active.family.id.0.as_str() {
         "bdd" => super::route_bdd(diagram_id, workspace),
         "ibd" => super::ibd::route_ibd(diagram_id, workspace),
@@ -258,6 +260,37 @@ pub fn active_diagram_router(
         family => Err(format!(
             "shared routing geometry is not implemented for {family} yet"
         )),
+    }
+}
+
+#[tauri::command]
+pub fn active_diagram_layout(
+    diagram_id: String,
+    shared: tauri::State<'_, SharedWorkspaceState>,
+    workspace: tauri::State<'_, super::WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
+) -> Result<(), String> {
+    let active = shared
+        .active
+        .lock()
+        .map_err(|_| "active diagram context lock poisoned")?
+        .clone()
+        .ok_or("no active diagram")?;
+    if active.diagram_id != diagram_id {
+        return Err("layout request does not match the active diagram".into());
+    }
+    super::history::checkpoint_states(&workspace, &activity, &history)?;
+    match active.family.id.0.as_str() {
+        "bdd" => super::layout_bdd(diagram_id, workspace),
+        "ibd" => super::ibd::layout_ibd(diagram_id, workspace),
+        "state-machine" | "sequence" => {
+            super::behavior_workspace::layout_behavior_diagram(diagram_id, workspace)
+        }
+        "activity" => {
+            super::activity_mutation::layout_activity_diagram(diagram_id, activity)
+        }
+        family => Err(format!("shared Clean Layout is not implemented for {family}")),
     }
 }
 
