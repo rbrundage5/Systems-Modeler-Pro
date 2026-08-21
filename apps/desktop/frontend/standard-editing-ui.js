@@ -365,20 +365,23 @@
         const copy = item.kind === 'BehaviorCopy'
           ? behaviorDiagram()?.presentation_copies?.find((value) => String(value.id) === String(item.id))
           : null;
-        await requireInvoke()('delete_behavior_item', {
+        await runCommand('Deleting Behavior item from model…', () => requireInvoke()('delete_behavior_item', {
           diagramId,
           itemType: copy?.kind || item.kind,
           itemId: copy?.semantic_id || item.id,
-        });
+        }));
       } else if (family === 'activity') {
         const activity = activityDiagram();
         const node = activity?.nodes?.find((value) => value.id === item.id || value.activity_node_id === item.id);
         const edge = activity?.edges?.find((value) => value.id === item.id || value.activity_edge_id === item.id);
-        await requireInvoke()('delete_activity_item', {
+        if (!node && !edge) {
+          throw new Error('The selected Activity presentation does not resolve to a semantic node or edge.');
+        }
+        await runCommand('Deleting Activity item from model…', () => requireInvoke()('delete_activity_item', {
           diagramId,
-          itemType: edge ? 'Edge' : 'Node',
-          itemId: edge?.activity_edge_id || node?.activity_node_id || item.id,
-        });
+          itemKind: edge ? 'edge' : 'node',
+          itemId: edge?.activity_edge_id || node?.activity_node_id,
+        }));
       } else {
         throw new Error('The selected presentation does not resolve to a deletable semantic item.');
       }
