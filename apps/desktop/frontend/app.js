@@ -488,6 +488,19 @@ function blockOptions(project, selectedId) {
     .map((e) => `<option value="${escapeAttr(e.id)}"${e.id === selectedId ? ' selected' : ''}>${escapeHtml(e.name)}</option>`)
     .join('');
 }
+const TRACEABILITY_KINDS = new Set(['DeriveRequirement','Satisfy','Verify','Refine','Trace','Copy']);
+function relationshipEndpointOptions(project, relationship, side) {
+  if(!TRACEABILITY_KINDS.has(relationship.kind))return blockOptions(project,side==='source'?relationship.source_id:relationship.target_id);
+  const selectedId=side==='source'?relationship.source_id:relationship.target_id;
+  const eligible=project.elements.filter((element)=>{
+    if(['Model','Package','Comment'].includes(element.kind))return false;
+    if(['DeriveRequirement','Copy'].includes(relationship.kind))return element.kind==='Requirement';
+    if(relationship.kind==='Satisfy')return side==='target'?element.kind==='Requirement':element.kind!=='Requirement';
+    if(relationship.kind==='Verify')return side==='target'?element.kind==='Requirement':element.kind==='TestCase';
+    return true;
+  });
+  return eligible.map((element)=>`<option value="${escapeAttr(element.id)}"${element.id===selectedId?' selected':''}>${escapeHtml(element.name)} (${escapeHtml(element.kind)})</option>`).join('');
+}
 function associationEndEditor(end, index) {
   return `<fieldset class="relationship-end"><legend>End ${index + 1}</legend>
     <label>Role name<input id="end-role-${index}" value="${escapeAttr(end.role_name || '')}"></label>
@@ -504,16 +517,18 @@ function associationEndEditor(end, index) {
 function renderRelationshipProperties(panel, project, relationship) {
   panel.innerHTML = `<div class="property-heading">Relationship</div>
     <label>Type<input value="${escapeAttr(relationship.kind)}" disabled></label>
+    <label>Owner<input value="${escapeAttr(project.elements.find((element)=>element.id===relationship.owner_id)?.name||'Model')}" disabled></label>
     <label>Stable ID<input value="${escapeAttr(relationship.external_id)}" disabled></label>
-    <label>Source<select id="relationship-source">${blockOptions(project, relationship.source_id)}</select></label>
+    <label>Source<select id="relationship-source">${relationshipEndpointOptions(project,relationship,'source')}</select></label>
     <button id="apply-source" class="primary">Reconnect source</button>
-    <label>Target<select id="relationship-target">${blockOptions(project, relationship.target_id)}</select></label>
+    <label>Target<select id="relationship-target">${relationshipEndpointOptions(project,relationship,'target')}</select></label>
     <button id="apply-target" class="primary">Reconnect target</button>
     ${(relationship.association_ends || []).map(associationEndEditor).join('')}
     <button id="delete-relationship" class="danger">Delete relationship</button>`;
   const reconnect = async (side) => {
     const elementId = $(`relationship-${side}`).value;
-    await runCommand(`Reconnecting ${side}…`, () => requireInvoke()('reconnect_bdd_relationship', {
+    const command=TRACEABILITY_KINDS.has(relationship.kind)?'reconnect_traceability_relationship':'reconnect_bdd_relationship';
+    await runCommand(`Reconnecting ${side}…`, () => requireInvoke()(command, {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
       side,
