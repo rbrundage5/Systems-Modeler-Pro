@@ -42,6 +42,9 @@ fn repository_reparenting_rejects_root_moves_and_cycles() {
             new_owner_id: child,
         })
     );
-    assert_eq!(project.element(parent).unwrap().owner_id, Some(project.root_id));
+    assert_eq!(
+        project.element(parent).unwrap().owner_id,
+        Some(project.root_id)
+    );
     assert_eq!(project.element(child).unwrap().owner_id, Some(parent));
 }
