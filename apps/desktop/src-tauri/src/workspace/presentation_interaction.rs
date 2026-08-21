@@ -82,10 +82,7 @@ pub fn update_bdd_presentation_geometry(
     }
 
     history::checkpoint_states(&state, &activity, &history)?;
-    *state
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")? = diagrams;
+    *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -149,10 +146,7 @@ pub fn update_ibd_property_geometry(
     }
 
     history::checkpoint_states(&state, &activity, &history)?;
-    *state
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")? = diagrams;
+    *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -300,10 +294,7 @@ pub fn update_ibd_port_geometry(
     }
 
     history::checkpoint_states(&state, &activity, &history)?;
-    *state
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")? = diagrams;
+    *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = diagrams;
     Ok(())
 }
 
