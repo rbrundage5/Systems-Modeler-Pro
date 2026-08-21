@@ -4,7 +4,18 @@
 //! geometry, routing, persistence, and history infrastructure.
 
 use super::*;
+use serde::Deserialize;
 use systems_modeler_core::{ElementKind, RelationshipKind};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementUpdateRequest {
+    element_id: String,
+    name: String,
+    requirement_id: String,
+    text: String,
+    documentation: String,
+}
 
 fn traceability_kind(value: &str) -> Result<RelationshipKind, String> {
     match value {
@@ -112,16 +123,12 @@ pub fn create_test_case(
 
 #[tauri::command]
 pub fn update_requirement(
-    element_id: String,
-    name: String,
-    requirement_id: String,
-    text: String,
-    documentation: String,
+    details: RequirementUpdateRequest,
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
-    let element_id = parse_element_id(&element_id)?;
+    let element_id = parse_element_id(&details.element_id)?;
     checkpoint(&workspace, &activity, &history)?;
     let mut project = workspace
         .project
@@ -129,13 +136,13 @@ pub fn update_requirement(
         .map_err(|_| "project lock poisoned")?;
     let project = project.as_mut().ok_or("no project open")?;
     project
-        .update_requirement(element_id, requirement_id, text)
+        .update_requirement(element_id, details.requirement_id, details.text)
         .map_err(|error| error.to_string())?;
     let requirement = project
         .element_mut(element_id)
         .map_err(|error| error.to_string())?;
-    requirement.name = name;
-    requirement.documentation = documentation;
+    requirement.name = details.name;
+    requirement.documentation = details.documentation;
     Ok(())
 }
 

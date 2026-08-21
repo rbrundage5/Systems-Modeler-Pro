@@ -539,7 +539,7 @@ function renderProperties() {
   if (element.kind === 'Requirement') {
     panel.innerHTML = `<div class="property-heading">Requirement</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Requirement ID<input id="requirement-id" value="${escapeAttr(element.requirement_id || '')}"></label><label>Text<textarea id="requirement-text" rows="7">${escapeHtml(element.requirement_text || '')}</textarea></label><label>Documentation<textarea id="requirement-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="update-requirement" class="primary">Apply Requirement</button>`;
     $('update-requirement').onclick = async () => {
-      await runCommand('Updating Requirement…', () => requireInvoke()('update_requirement', { elementId: element.id, name: $('property-name').value, requirementId: $('requirement-id').value, text: $('requirement-text').value, documentation: $('requirement-documentation').value })); await refresh();
+      await runCommand('Updating Requirement…', () => requireInvoke()('update_requirement', { details:{ elementId: element.id, name: $('property-name').value, requirementId: $('requirement-id').value, text: $('requirement-text').value, documentation: $('requirement-documentation').value } })); await refresh();
     };
     return;
   }
