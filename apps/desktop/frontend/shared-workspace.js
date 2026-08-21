@@ -7,7 +7,7 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const renderers = new Map();
   const commands = new Map();
-  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false }; const validFrame = (value) => value && ['x','y','width','height'].every((key) => Number.isFinite(value[key]));
+  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false, suppressPanClick:false }; const validFrame = (value) => value && ['x','y','width','height'].every((key) => Number.isFinite(value[key]));
 
   function notify(message, level = 'info') {
     window.smpDialogs?.notify(message, level);
@@ -72,10 +72,11 @@
     if (!root || !spacer) return;
     const bounds=contentBounds(),view=state.viewport;
     if (state.frame&&!state.frame.manuallySized) { Object.assign(state,{frame:automaticFrame()}); applyDiagramFrame(); }
-    const left=Math.max(0,view.panX),top=Math.max(0,view.panY),transform=`translate(${left}px,${top}px) scale(${view.zoom})`; root.style.transform=transform;if(state.frameElement){state.frameElement.style.transform=transform;state.frameElement.style.transformOrigin='0 0';}
+    const transform=`scale(${view.zoom})`; root.style.transform=transform;if(state.frameElement){state.frameElement.style.transform=transform;state.frameElement.style.transformOrigin='0 0';}
     const frameRight=state.frame?state.frame.x+state.frame.width:bounds.x+bounds.width, frameBottom=state.frame?state.frame.y+state.frame.height:bounds.y+bounds.height;
-    spacer.style.width = `${Math.ceil(left + Math.max(bounds.x + bounds.width, frameRight) * view.zoom + 56)}px`;
-    spacer.style.height = `${Math.ceil(top + Math.max(bounds.y + bounds.height, frameBottom) * view.zoom + 56)}px`;
+    spacer.style.width = `${Math.ceil(Math.max(bounds.x + bounds.width, frameRight) * view.zoom + 56)}px`;
+    spacer.style.height = `${Math.ceil(Math.max(bounds.y + bounds.height, frameBottom) * view.zoom + 56)}px`;
+    if(!state.panning)canvas.scrollTo(view.panX,view.panY);
     canvas.classList.toggle('grid-hidden',!view.gridVisible); canvas.dataset.zoom=String(view.zoom);
   }
 
@@ -105,8 +106,8 @@
   function setZoom(next, clientX, clientY, relative = false) {
     if (!state.viewport || !invoke) return Promise.resolve();
     const rect = canvas.getBoundingClientRect();
-    const x = (clientX ?? rect.left + canvas.clientWidth / 2) - rect.left + canvas.scrollLeft;
-    const y = (clientY ?? rect.top + canvas.clientHeight / 2) - rect.top + canvas.scrollTop;
+    const x = (clientX ?? rect.left + canvas.clientWidth / 2) - rect.left;
+    const y = (clientY ?? rect.top + canvas.clientHeight / 2) - rect.top;
     zoomRequest = zoomRequest.then(async () => {
       const requestedZoom = relative ? state.viewport.zoom * next : next;
       state.viewport = await invoke('zoom_diagram_viewport', {
@@ -123,7 +124,7 @@
       bounds: contentBounds(), viewportWidth: canvas.clientWidth, viewportHeight: canvas.clientHeight,
       padding: 28, current: state.viewport,
     });
-    applyViewport(); scheduleViewportPersistence(); canvas.scrollTo(0, 0);
+    applyViewport(); scheduleViewportPersistence();
   }
   function interactionPayload() {
     const adapter = renderer();
@@ -230,9 +231,9 @@
   }
 
   function startPan(event) {
-    if (!state.viewport || !(event.button === 1 || (event.button === 0 && (state.space || canvas.classList.contains('pan-active'))))) return false;
+    if (!state.viewport || !(event.button === 1 || (event.button === 0 && (state.space || event.ctrlKey || event.metaKey || canvas.classList.contains('pan-active'))))) return false;
     event.preventDefault(); event.stopImmediatePropagation(); canvas.setPointerCapture(event.pointerId); canvas.classList.add('is-panning');
-    state.panning = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, panX:state.viewport.panX, panY:state.viewport.panY };
+    state.panning = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, left:canvas.scrollLeft, top:canvas.scrollTop, moved:false };
     return true;
   }
   canvas.addEventListener('pointerdown', (event) => {
@@ -243,12 +244,11 @@
   canvas.addEventListener('pointermove', (event) => {
     if(state.frameDrag?.pointerId===event.pointerId){const dx=(event.clientX-state.frameDrag.x)/(state.viewport?.zoom||1),dy=(event.clientY-state.frameDrag.y)/(state.viewport?.zoom||1);Object.assign(state,{frame:state.frameDrag.resizing?{...state.frameDrag.start,width:Math.max(320,state.frameDrag.start.width+dx),height:Math.max(240,state.frameDrag.start.height+dy),manuallySized:true}:{...state.frameDrag.start,x:Math.max(0,state.frameDrag.start.x+dx),y:Math.max(0,state.frameDrag.start.y+dy),manuallySized:true}});applyDiagramFrame();return;}
     if (!state.panning || state.panning.pointerId !== event.pointerId) return;
-    state.viewport.panX = state.panning.panX + event.clientX - state.panning.x;
-    state.viewport.panY = state.panning.panY + event.clientY - state.panning.y;
-    applyViewport();
+    const dx=event.clientX-state.panning.x,dy=event.clientY-state.panning.y;canvas.scrollLeft=state.panning.left-dx;canvas.scrollTop=state.panning.top-dy;state.panning.moved||=Math.hypot(dx,dy)>3;
   });
-  function finishPan(event) { if(state.frameDrag?.pointerId===event.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();void renderer()?.refresh?.();return;} if(!state.panning||state.panning.pointerId!==event.pointerId)return;state.panning=null;canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
-  canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);
+  function finishPan(event) { if(state.frameDrag?.pointerId===event?.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();void renderer()?.refresh?.();return;} if(!state.panning||(event?.pointerId!==undefined&&state.panning.pointerId!==event.pointerId))return;Object.assign(state.viewport,{panX:canvas.scrollLeft,panY:canvas.scrollTop});Object.assign(state,{suppressPanClick:state.panning.moved,panning:null});canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
+  canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);canvas.addEventListener('lostpointercapture',finishPan);window.addEventListener('blur',()=>{state.space=false;canvas.classList.remove('space-pan');finishPan();});
+  canvas.addEventListener('click',(event)=>{if(!state.suppressPanClick)return;Object.assign(state,{suppressPanClick:false});event.preventDefault();event.stopImmediatePropagation();},true);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
   window.addEventListener('keydown', (event) => {
     const editable = event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="dialog"]');
