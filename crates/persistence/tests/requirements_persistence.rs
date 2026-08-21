@@ -23,6 +23,11 @@ fn requirements_and_traceability_round_trip_without_identity_changes() {
     let restored = database.load_project(project.id).unwrap();
 
     let restored_requirement = restored.element(requirement).unwrap();
+    assert_eq!(restored_requirement.owner_id, Some(package));
+    assert!(restored.children(package).any(|element| element.id == requirement));
+    assert_eq!(restored.relationship(relationship).unwrap().owner_id, Some(package));
+    assert_eq!(restored.relationship(relationship).unwrap().source_id, block);
+    assert_eq!(restored.relationship(relationship).unwrap().target_id, requirement);
     assert_eq!(restored_requirement.external_id, external_id);
     assert_eq!(
         restored_requirement.requirement_id.as_deref(),
