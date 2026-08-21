@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use systems_modeler_core::behavior::{
     ExecutionId, FragmentId, InteractionId, InvariantId, LifelineId, MessageId, OccurrenceId,
-    Region, TransitionId, Vertex, VertexId, VertexKind,
+    Region, TransitionId, VertexId, VertexKind,
 };
 use systems_modeler_core::{
     ActivityEdgeId, ActivityEndpoint, ActivityNodeId, ActivityNodeKind, ActivityRepository, ElementId,
@@ -74,7 +74,6 @@ enum ClipboardItem {
 #[derive(Debug, Clone)]
 struct ClipboardPayload {
     family: EditingFamily,
-    source_diagram_id: String,
     semantic_context_id: Option<String>,
     items: Vec<ClipboardItem>,
 }
@@ -617,7 +616,6 @@ fn collect_clipboard(
     }
     Ok(ClipboardPayload {
         family,
-        source_diagram_id: diagram_id.to_string(),
         semantic_context_id,
         items,
     })
@@ -1261,22 +1259,6 @@ fn duplicate_relationship(
     }
     project.relationships.insert(id, duplicate);
     Ok(id)
-}
-
-fn find_vertex_mut(regions: &mut [Region], wanted: VertexId) -> Option<&mut Vertex> {
-    for region in regions {
-        if let Some(index) = region.vertices.iter().position(|vertex| vertex.id == wanted) {
-            return region.vertices.get_mut(index);
-        }
-        for vertex in &mut region.vertices {
-            if let VertexKind::State(state) = &mut vertex.kind
-                && let Some(found) = find_vertex_mut(&mut state.regions, wanted)
-            {
-                return Some(found);
-            }
-        }
-    }
-    None
 }
 
 fn duplicate_vertex_in_regions(regions: &mut [Region], wanted: VertexId) -> Option<VertexId> {
@@ -2320,7 +2302,7 @@ mod tests {
             .create_element(ElementKind::Package, "Requirements", project.root_id)
             .expect("package");
         let requirement = project
-            .create_requirement(package, "Power", "REQ-1", "Provide power")
+            .create_requirement("Power", package, "REQ-1", "Provide power")
             .expect("requirement");
         let duplicate = duplicate_element(&mut project, requirement).expect("duplicate");
         let source = project.element(requirement).expect("source");
