@@ -38,6 +38,8 @@ require(
     "history_undo",
     "history_redo",
     "history_reset",
+    "isRustCheckpointedCommand",
+    "updating diagram presentation",
     "await refresh();",
     "window.smpUndo",
     "window.smpRedo",
@@ -49,9 +51,26 @@ require(
     "window.smpRendererHost?.execute(button.dataset.command)",
     "History",
 )
+require(
+    "apps/desktop/frontend/state-bar-resize.js",
+    "refreshBehaviorSnapshotPreservingSelection",
+    "window.smpRefreshBehaviorSnapshot",
+    "refresh = async function refreshWithAuthoritativeBehavior",
+    "state.selectedBehaviorDiagramId = selectedDiagramId",
+    "await refreshBehaviorSnapshotPreservingSelection();",
+)
+require(
+    "apps/desktop/src-tauri/src/workspace/presentation_interaction.rs",
+    "history::checkpoint_states",
+    "update_bdd_presentation_geometry",
+    "update_ibd_property_geometry",
+    "update_ibd_port_geometry",
+    "update_state_presentation_geometry",
+    "update_activity_presentation_geometry",
+)
 
 index = text("apps/desktop/frontend/index.html")
-behavior = index.find('<script src="behavior-refresh-authority.js"></script>')
+behavior = index.find('<script src="state-bar-resize.js"></script>')
 history = index.find('<script src="undo-redo-ui.js"></script>')
 if behavior < 0 or history < 0 or history < behavior:
     raise SystemExit(
@@ -75,4 +94,12 @@ if (root / "apps/desktop/frontend/authoritative-mutation-sync.js").exists():
         "authoritative-mutation-sync.js must not return; it caused the STM/SEQ regression"
     )
 
-print("PR13 history integration preserves qualified cross-diagram refresh authority and visible shell controls")
+if (root / "apps/desktop/frontend/behavior-refresh-authority.js").exists():
+    raise SystemExit(
+        "Behavior refresh authority must remain consolidated with state-bar-resize.js"
+    )
+
+print(
+    "PR13/PR22 history integration preserves qualified cross-diagram refresh, "
+    "single-checkpoint Rust geometry undo, and visible shell controls"
+)

@@ -1,4 +1,5 @@
 use super::activity_workspace::ActivityWorkspaceState;
+use super::history::{self, HistoryState};
 use super::{WorkspaceState, ibd, route_relationship};
 
 fn validate_geometry(
@@ -21,6 +22,7 @@ fn validate_geometry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_bdd_presentation_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -29,9 +31,15 @@ pub fn update_bdd_presentation_geometry(
     width: f64,
     height: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 48.0, 32.0)?;
-    let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut diagrams = state
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -73,10 +81,14 @@ pub fn update_bdd_presentation_geometry(
             edge.points = points;
         }
     }
+
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_ibd_property_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -85,9 +97,15 @@ pub fn update_ibd_property_geometry(
     width: f64,
     height: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
-    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let mut diagrams = state
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -128,10 +146,14 @@ pub fn update_ibd_property_geometry(
             edge.points = points;
         }
     }
+
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = diagrams;
     Ok(())
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_ibd_port_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -139,11 +161,17 @@ pub fn update_ibd_port_geometry(
     y: f64,
     size: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     if !x.is_finite() || !y.is_finite() || !size.is_finite() || size < 10.0 {
         return Err("port presentation geometry is invalid".into());
     }
-    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let mut diagrams = state
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -267,10 +295,14 @@ pub fn update_ibd_port_geometry(
             edge.points = points;
         }
     }
+
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = diagrams;
     Ok(())
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_state_presentation_geometry(
     diagram_id: String,
     state_vertex_id: String,
@@ -279,12 +311,15 @@ pub fn update_state_presentation_geometry(
     width: f64,
     height: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 20.0, 20.0)?;
     let mut diagrams = state
         .behavior_diagrams
         .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -298,10 +333,17 @@ pub fn update_state_presentation_geometry(
     presentation.y = y;
     presentation.width = width;
     presentation.height = height;
+
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_activity_presentation_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -309,13 +351,16 @@ pub fn update_activity_presentation_geometry(
     y: f64,
     width: f64,
     height: f64,
+    workspace: tauri::State<'_, WorkspaceState>,
     state: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 20.0, 20.0)?;
     let mut diagrams = state
         .diagrams
         .lock()
-        .map_err(|_| "activity diagram lock poisoned")?;
+        .map_err(|_| "activity diagram lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -384,5 +429,11 @@ pub fn update_activity_presentation_geometry(
             allow_shared_departure: false,
         });
     }
+
+    history::checkpoint_states(&workspace, &state, &history)?;
+    *state
+        .diagrams
+        .lock()
+        .map_err(|_| "activity diagram lock poisoned")? = diagrams;
     Ok(())
 }

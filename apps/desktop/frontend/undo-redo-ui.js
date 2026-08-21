@@ -16,8 +16,13 @@
       || isSessionResetCommand(label);
   }
 
+  function isRustCheckpointedCommand(label) {
+    const text = String(label || '').toLowerCase();
+    return text.startsWith('updating diagram presentation');
+  }
+
   async function checkpointIfNeeded(label) {
-    if (restoringHistory || isNonMutatingCommand(label)) return;
+    if (restoringHistory || isNonMutatingCommand(label) || isRustCheckpointedCommand(label)) return;
     await requireInvoke()('history_checkpoint');
   }
 
