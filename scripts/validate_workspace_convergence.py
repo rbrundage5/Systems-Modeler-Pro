@@ -32,6 +32,10 @@ assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_prefer
 assert "validFrame(storedFrame)?storedFrame:null" in workspace
 assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
+assert "canvas.scrollLeft=state.panning.left-dx" in workspace
+assert "panX:canvas.scrollLeft,panY:canvas.scrollTop" in workspace
+assert "suppressPanClick:state.panning.moved" in workspace
+assert "translate(${left}px" not in workspace
 assert ".canvas.space-pan .workspace-renderer-surface" in styles
 assert "state.frameElement.style.transform=transform" in workspace
 assert "frame.dataset.diagramId=state.context.diagramId" in workspace
