@@ -50,6 +50,8 @@ assert "diagram?.family === 'requirement' ? 'Requirement'" in ibd_ui
 assert "diagram.family === 'requirement' ? 'REQ' : 'BDD'" in bdd_completion
 assert "active?.family === 'requirement'" in bdd_completion
 assert "createStructuralPaletteElementAt(item, x, y)" in bdd_completion
+assert "renderStructuralCanvas" in bdd_completion and "renderStructuralProperties" in bdd_completion
+assert 'compartment-title">id' in frontend and 'compartment-title">text' in frontend
 assert "DeriveRequirement: 'R┄➤'" in palette_icons
 for semantic_kind in ["AssociationBlock", "InterfaceBlock", "ConstraintBlock", "ValueType", "DataType", "PrimitiveType", "Enumeration", "Signal", "Unit", "QuantityKind", "InstanceSpecification", "Comment"]:
     assert f'"{semantic_kind}"' in main, f"Requirement palette missing supported model element: {semantic_kind}"
