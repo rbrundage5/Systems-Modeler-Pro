@@ -12,18 +12,30 @@ fn requirement_project() -> (Project, systems_modeler_core::ElementId) {
 fn requirement_identity_id_and_text_are_distinct() {
     let (mut project, package) = requirement_project();
     let requirement = project
-        .create_requirement("Brake response", "REQ-BRK-001", "The vehicle shall stop.", package)
+        .create_requirement(
+            "Brake response",
+            "REQ-BRK-001",
+            "The vehicle shall stop.",
+            package,
+        )
         .unwrap();
     let semantic_uuid = requirement;
     let external_id = project.element(requirement).unwrap().external_id.clone();
     project
-        .update_requirement(requirement, "REQ-BRK-001A", "The vehicle shall stop safely.")
+        .update_requirement(
+            requirement,
+            "REQ-BRK-001A",
+            "The vehicle shall stop safely.",
+        )
         .unwrap();
     let updated = project.element(requirement).unwrap();
     assert_eq!(updated.id, semantic_uuid);
     assert_eq!(updated.external_id, external_id);
     assert_eq!(updated.requirement_id.as_deref(), Some("REQ-BRK-001A"));
-    assert_eq!(updated.requirement_text.as_deref(), Some("The vehicle shall stop safely."));
+    assert_eq!(
+        updated.requirement_text.as_deref(),
+        Some("The vehicle shall stop safely.")
+    );
 }
 
 #[test]
@@ -32,10 +44,27 @@ fn traceability_endpoint_rules_are_enforced() {
     let requirement = project
         .create_requirement("Stopping", "REQ-001", "Stop safely", package)
         .unwrap();
-    let block = project.create_element(ElementKind::Block, "Brake", package).unwrap();
-    let test_case = project.create_element(ElementKind::TestCase, "Brake test", package).unwrap();
-    assert!(project.create_relationship(RelationshipKind::Satisfy, block, requirement, Some(package)).is_ok());
-    assert!(project.create_relationship(RelationshipKind::Verify, test_case, requirement, Some(package)).is_ok());
+    let block = project
+        .create_element(ElementKind::Block, "Brake", package)
+        .unwrap();
+    let test_case = project
+        .create_element(ElementKind::TestCase, "Brake test", package)
+        .unwrap();
+    assert!(
+        project
+            .create_relationship(RelationshipKind::Satisfy, block, requirement, Some(package))
+            .is_ok()
+    );
+    assert!(
+        project
+            .create_relationship(
+                RelationshipKind::Verify,
+                test_case,
+                requirement,
+                Some(package)
+            )
+            .is_ok()
+    );
     assert!(matches!(
         project.create_relationship(RelationshipKind::Verify, block, requirement, Some(package)),
         Err(ModelError::InvalidTraceabilityEndpoints { .. })

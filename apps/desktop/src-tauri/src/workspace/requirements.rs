@@ -35,7 +35,10 @@ pub fn create_requirement_diagram(
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<String, String> {
     let owner_id = parse_element_id(&owner_id)?;
-    let project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     let owner = project
         .as_ref()
         .ok_or("no project open")?
@@ -74,7 +77,10 @@ pub fn create_requirement(
 ) -> Result<String, String> {
     let owner_id = parse_element_id(&owner_id)?;
     checkpoint(&workspace, &activity, &history)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     project
         .as_mut()
         .ok_or("no project open")?
@@ -117,7 +123,10 @@ pub fn update_requirement(
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
     checkpoint(&workspace, &activity, &history)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     let project = project.as_mut().ok_or("no project open")?;
     project
         .update_requirement(element_id, requirement_id, text)
@@ -144,7 +153,10 @@ pub fn place_on_requirement_diagram(
         return Err("Requirement placement coordinates must be finite".into());
     }
     let element_id = parse_element_id(&element_id)?;
-    let project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     project
         .as_ref()
         .ok_or("no project open")?
@@ -152,12 +164,19 @@ pub fn place_on_requirement_diagram(
         .map_err(|error| error.to_string())?;
     drop(project);
     checkpoint(&workspace, &activity, &history)?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
         .find(|candidate| candidate.id == diagram_id && candidate.family == "requirement")
         .ok_or("Requirement Diagram not found")?;
-    if diagram.nodes.iter().any(|node| node.element_id == element_id.to_string()) {
+    if diagram
+        .nodes
+        .iter()
+        .any(|node| node.element_id == element_id.to_string())
+    {
         return Err("element already has a presentation on this Requirement Diagram".into());
     }
     let id = uuid::Uuid::new_v4().to_string();
@@ -184,19 +203,36 @@ pub fn create_traceability_relationship(
 ) -> Result<String, String> {
     let kind = traceability_kind(&relationship_kind)?;
     checkpoint(&workspace, &activity, &history)?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
         .find(|candidate| candidate.id == diagram_id && candidate.family == "requirement")
         .ok_or("Requirement Diagram not found")?;
-    let source = diagram.nodes.iter().find(|node| node.id == source_node_id).ok_or("source node not found")?;
-    let target = diagram.nodes.iter().find(|node| node.id == target_node_id).ok_or("target node not found")?;
+    let source = diagram
+        .nodes
+        .iter()
+        .find(|node| node.id == source_node_id)
+        .ok_or("source node not found")?;
+    let target = diagram
+        .nodes
+        .iter()
+        .find(|node| node.id == target_node_id)
+        .ok_or("target node not found")?;
     let source_element = parse_element_id(&source.element_id)?;
     let target_element = parse_element_id(&target.element_id)?;
     let owner_id = parse_element_id(&diagram.owner_id)?;
     let points = vec![
-        DiagramPoint { x: source.x + source.width / 2.0, y: source.y + source.height },
-        DiagramPoint { x: target.x + target.width / 2.0, y: target.y },
+        DiagramPoint {
+            x: source.x + source.width / 2.0,
+            y: source.y + source.height,
+        },
+        DiagramPoint {
+            x: target.x + target.width / 2.0,
+            y: target.y,
+        },
     ];
     let relationship_id = workspace
         .project
