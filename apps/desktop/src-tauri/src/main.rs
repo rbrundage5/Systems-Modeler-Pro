@@ -73,7 +73,8 @@ mod workspace {
     };
     pub use requirements::{
         create_requirement, create_requirement_diagram, create_test_case,
-        create_traceability_relationship, place_on_requirement_diagram, update_requirement,
+        create_traceability_relationship, place_on_requirement_diagram,
+        reconnect_traceability_relationship, update_requirement,
     };
     pub use routing::route_diagram_geometry;
     pub use shared_workspace::{
@@ -436,6 +437,7 @@ fn main() {
             update_requirement,
             place_on_requirement_diagram,
             create_traceability_relationship,
+            reconnect_traceability_relationship,
             history_checkpoint,
             history_undo,
             history_redo,
