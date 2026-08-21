@@ -14,7 +14,8 @@ classifierStereotype = function classifierStereotypeExtended(kind) {
     Block: 'block', AssociationBlock: 'block', InterfaceBlock: 'interfaceBlock',
     ConstraintBlock: 'constraint', ValueType: 'valueType', DataType: 'dataType',
     PrimitiveType: 'primitive', Enumeration: 'enumeration', Signal: 'signal',
-    Unit: 'unit', QuantityKind: 'quantityKind',
+    Unit: 'unit', QuantityKind: 'quantityKind', Requirement: 'requirement',
+    TestCase: 'testCase',
   }[kind] || '';
 };
 
@@ -77,6 +78,9 @@ chooseTypeId = async function chooseTypeIdExtended(kind) {
 };
 
 function extendedElementMarkup(project, element) {
+  if (element.kind === 'Requirement') {
+    return `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`;
+  }
   if (element.kind === 'Comment') return `<div class="comment-body">${escapeHtml(element.documentation || element.name)}</div>`;
   const stereotype = classifierStereotype(element.kind);
   const stereotypeMarkup = stereotype ? `<div class="stereotype">«${escapeHtml(stereotype)}»</div>` : '';
@@ -92,14 +96,14 @@ const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCan
     canvas.innerHTML = '<div class="empty-state"><h1>Systems Modeler Pro</h1><div>Create or open a project to begin.</div></div>';
     return;
   }
-  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId); if (diagram?.family === 'requirement') return baseRenderCanvasExtended();
+  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId);
   if (!diagram) {
     canvas.innerHTML = '<div class="empty-state"><h1>Model ready</h1><div>Create or select a Block Definition Diagram.</div></div>';
     return;
   }
   const frame = document.createElement('div');
   frame.className = 'diagram-frame';
-  frame.innerHTML = `<div class="diagram-header">bdd [package] ${escapeHtml(diagram.name)}</div>`;
+  frame.innerHTML = `<div class="diagram-header">${diagram.family === 'requirement' ? 'req' : 'bdd'} [package] ${escapeHtml(diagram.name)}</div>`;
   canvas.appendChild(frame);
   createRelationshipLayer(frame, diagram, project);
   const elementsById = new Map(project.elements.map((element) => [element.id, element]));
@@ -108,6 +112,8 @@ const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCan
     if (!element) continue;
     const box = document.createElement('button');
     box.className = `bdd-block kind-${element.kind.toLowerCase()}`;
+    box.dataset.semanticKind = element.kind;
+    box.dataset.presentationId = node.id;
     if (state.selectedElementId === element.id) box.classList.add('selected');
     if (state.pendingRelationship?.sourceElementId === element.id) box.classList.add('relationship-source');
     box.style.left = `${node.x}px`; box.style.top = `${node.y}px`; box.style.width = `${node.width}px`; box.style.minHeight = `${node.height}px`; box.style.height = 'auto';
@@ -115,7 +121,7 @@ const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCan
     box.onclick = async (event) => {
       event.stopPropagation();
       if (state.pendingRelationship) {
-        if (!BDD_RELATIONSHIP_CLASSIFIER_KINDS.has(element.kind)) {
+        if (diagram.family !== 'requirement' && !BDD_RELATIONSHIP_CLASSIFIER_KINDS.has(element.kind)) {
           alert(`${element.kind} is not a classifier endpoint for this BDD relationship.`);
           return;
         }
@@ -128,10 +134,21 @@ const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCan
         if (state.pendingRelationship.sourceElementId !== element.id) {
           const pending = { ...state.pendingRelationship };
           state.pendingRelationship = null;
-          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship_complete', {
-            diagramId: state.selectedDiagramId, kind: pending.kind,
-            sourceElementId: pending.sourceElementId, targetElementId: element.id,
-          }));
+          if (diagram.family === 'requirement') {
+            const sourceNode = diagram.nodes.find((candidate) => candidate.element_id === pending.sourceElementId);
+            const targetNode = diagram.nodes.find((candidate) => candidate.element_id === element.id);
+            await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_traceability_relationship', {
+              diagramId: state.selectedDiagramId,
+              relationshipKind: pending.kind,
+              sourceNodeId: sourceNode?.id,
+              targetNodeId: targetNode?.id,
+            }));
+          } else {
+            await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship_complete', {
+              diagramId: state.selectedDiagramId, kind: pending.kind,
+              sourceElementId: pending.sourceElementId, targetElementId: element.id,
+            }));
+          }
           state.selectedElementId = element.id;
           await refresh();
           return;
