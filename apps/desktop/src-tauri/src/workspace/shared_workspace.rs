@@ -136,6 +136,44 @@ pub struct SharedWorkspaceState {
     preferences_loaded: Mutex<bool>,
 }
 
+impl SharedWorkspaceState {
+    pub(super) fn forget_diagram(&self, diagram_id: &str) -> Result<(), String> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| "active diagram context lock poisoned")?;
+        if active
+            .as_ref()
+            .is_some_and(|context| context.diagram_id == diagram_id)
+        {
+            *active = None;
+        }
+        drop(active);
+
+        let mut interaction = self
+            .interaction
+            .lock()
+            .map_err(|_| "workspace interaction lock poisoned")?;
+        if interaction.diagram_id.as_deref() == Some(diagram_id) {
+            interaction.diagram_id = None;
+            interaction.selections.clear();
+            interaction.active_tool = None;
+            interaction.revision = interaction.revision.saturating_add(1);
+        }
+        drop(interaction);
+
+        self.viewports
+            .lock()
+            .map_err(|_| "viewport preference lock poisoned")?
+            .remove(diagram_id);
+        self.frames
+            .lock()
+            .map_err(|_| "diagram frame preference lock poisoned")?
+            .remove(diagram_id);
+        Ok(())
+    }
+}
+
 fn preference_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()

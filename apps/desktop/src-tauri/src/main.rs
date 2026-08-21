@@ -15,6 +15,7 @@ mod workspace {
     mod presentation_interaction;
     mod presentation_theme;
     mod relationship_editing;
+    mod repository_editing;
     mod requirements;
     mod routing;
     mod shared_workspace;
@@ -71,6 +72,10 @@ mod workspace {
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
+    pub use repository_editing::{
+        delete_model_element, delete_repository_diagram, move_repository_diagram,
+        move_repository_element,
+    };
     pub use requirements::{
         create_requirement, create_requirement_diagram, create_test_case,
         create_traceability_relationship, place_on_requirement_diagram,
@@ -104,11 +109,13 @@ use workspace::{
     create_ibd_connector, create_package, create_requirement, create_requirement_diagram,
     create_sequence_diagram, create_sequence_diagram_staged, create_state_machine_diagram,
     create_state_machine_diagram_staged, create_test_case, create_traceability_relationship,
-    delete_activity_item, delete_bdd_relationship, delete_behavior_item, diagram_command_manifest,
-    diagram_family_registry, fit_diagram_viewport, get_diagram_frame_preference,
+    delete_activity_item, delete_bdd_relationship, delete_behavior_item, delete_model_element,
+    delete_repository_diagram, diagram_command_manifest, diagram_family_registry,
+    fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, load_activity_workspace,
-    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
+    move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
+    new_project, open_project_file,
     open_project_file_complete, place_bdd_element, place_element_on_bdd,
     place_on_requirement_diagram, populate_ibd_from_context, reconnect_activity_edge,
     reconnect_bdd_relationship, reconnect_sequence_message, reconnect_traceability_relationship,
@@ -442,6 +449,10 @@ fn main() {
             history_undo,
             history_redo,
             history_reset,
+            move_repository_element,
+            delete_model_element,
+            move_repository_diagram,
+            delete_repository_diagram,
             workspace_snapshot,
             workspace_snapshot_complete,
             activity_snapshot,

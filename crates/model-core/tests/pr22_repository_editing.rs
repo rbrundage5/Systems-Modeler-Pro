@@ -48,3 +48,14 @@ fn repository_reparenting_rejects_root_moves_and_cycles() {
     );
     assert_eq!(project.element(child).unwrap().owner_id, Some(parent));
 }
+
+#[test]
+fn repository_delete_protects_the_project_root() {
+    let mut project = Project::new("Repository Editing");
+
+    assert_eq!(
+        project.delete_element(project.root_id),
+        Err(ModelError::ProtectedProjectRoot(project.root_id))
+    );
+    assert!(project.element(project.root_id).is_ok());
+}

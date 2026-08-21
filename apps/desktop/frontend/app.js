@@ -42,6 +42,7 @@ function render() {
   renderDiagramTabs();
   renderCanvas();
   renderProperties();
+  window.smpRepositoryEditing?.renderProperties?.();
   renderContext();
   renderStatus();
 }

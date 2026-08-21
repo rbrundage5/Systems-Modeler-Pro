@@ -255,6 +255,7 @@
     if (event.code === 'Space' && !editable) { state.space = true; canvas.classList.add('space-pan'); event.preventDefault(); }
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); void cancelEverything(); }
     if (editable) return;
+    if (window.smpRepositoryEditing?.handleDelete?.(event)) return;
     const shortcuts = { Delete:'delete', Backspace:'delete' };
     if (shortcuts[event.key]) { event.preventDefault(); void execute(shortcuts[event.key]); }
     if (event.ctrlKey && event.key === '0') { event.preventDefault(); void execute('actualSize'); }

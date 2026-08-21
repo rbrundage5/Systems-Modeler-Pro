@@ -816,6 +816,9 @@ impl Project {
     }
 
     pub fn delete_element(&mut self, id: ElementId) -> Result<(), ModelError> {
+        if id == self.root_id {
+            return Err(ModelError::ProtectedProjectRoot(id));
+        }
         self.element(id)?;
         if self.children(id).next().is_some() {
             return Err(ModelError::OwnerHasChildren(id));
