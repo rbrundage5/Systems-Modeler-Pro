@@ -15,6 +15,8 @@ paletteSymbol = function paletteSymbolTechnical(item) {
     QuantityKind: '⊙',
     InstanceSpecification: '⧉',
     Comment: '▰',
+    Requirement: 'R',
+    TestCase: 'T',
 
     PartProperty: '▣',
     ReferenceProperty: '↗',
@@ -35,6 +37,12 @@ paletteSymbol = function paletteSymbolTechnical(item) {
     Generalization: '─▷',
     Dependency: '┄➤',
     Realization: '┄▷',
+    DeriveRequirement: 'R┄➤',
+    Satisfy: 'S┄➤',
+    Verify: 'V┄➤',
+    Refine: 'F┄➤',
+    Trace: 'T┄➤',
+    Copy: 'C┄➤',
   };
   return symbols[item.semantic_kind] || symbols[item.relationship_kind] || '·';
 };

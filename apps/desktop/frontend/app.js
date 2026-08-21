@@ -1,6 +1,5 @@
 const invoke = window.__TAURI__?.core?.invoke;
 const SVG_NS = 'http://www.w3.org/2000/svg';
-
 const state = {
   snapshot: null,
   paletteItems: [],
@@ -13,22 +12,19 @@ const state = {
   repositoryFilter: '',
 };
 window.smpState = state;
-
 const $ = (id) => document.getElementById(id);
-
 function requireInvoke() {
   if (!invoke) throw new Error('Tauri command bridge is unavailable. Run this UI through the desktop application.');
   return invoke;
 }
-
 async function loadPalette() {
   if (!state.selectedDiagramId) {
     state.paletteItems = [];
     return;
   }
-  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType: 'BDD' });
+  const diagram = state.snapshot?.diagrams?.find((item) => item.id === state.selectedDiagramId);
+  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType: diagram?.family === 'requirement' ? 'Requirement' : 'BDD' });
 }
-
 async function refresh() {
   state.snapshot = await requireInvoke()('workspace_snapshot');
   if (state.selectedRelationshipId && !state.snapshot?.project?.relationships?.some((r) => r.id === state.selectedRelationshipId)) {
@@ -40,7 +36,6 @@ async function refresh() {
   await loadPalette();
   render();
 }
-
 function render() {
   renderRepository();
   renderPalette();
@@ -50,7 +45,6 @@ function render() {
   renderContext();
   renderStatus();
 }
-
 function renderStatus(message) {
   const status = $('status');
   const counts = $('model-counts');
@@ -66,25 +60,22 @@ function renderStatus(message) {
     const file = state.snapshot.current_file ? ` · ${state.snapshot.current_file}` : ' · unsaved';
     status.textContent = `${state.snapshot.project.name} · Rust semantic model${file}`;
   }
-
   const project = state.snapshot?.project;
   const diagram = state.snapshot?.diagrams?.find((d) => d.id === state.selectedDiagramId);
   counts.textContent = project
     ? `Elements: ${project.elements.length}   Relationships: ${project.relationships.length}${diagram ? `   Diagram: ${diagram.name} (BDD)` : ''}`
     : '';
 }
-
 function renderContext() {
   const diagram = state.snapshot?.diagrams?.find((d) => d.id === state.selectedDiagramId);
-  $('active-diagram-summary').textContent = diagram ? `${diagram.name} · BDD` : 'No diagram selected';
-  $('palette-title').textContent = diagram ? 'Elements (BDD)' : 'Elements';
+  const label = diagram?.family === 'requirement' ? 'Requirement Diagram' : 'BDD';
+  $('active-diagram-summary').textContent = diagram ? `${diagram.name} · ${label}` : 'No diagram selected';
+  $('palette-title').textContent = diagram ? `Elements (${label})` : 'Elements';
 }
-
 function repositoryMatches(element) {
   const filter = state.repositoryFilter.trim().toLowerCase();
   return !filter || element.name.toLowerCase().includes(filter) || element.kind.toLowerCase().includes(filter);
 }
-
 function renderRepository() {
   const host = $('repository');
   host.innerHTML = '';
@@ -93,24 +84,20 @@ function renderRepository() {
     host.innerHTML = '<div class="muted">No project open.</div>';
     return;
   }
-
   const root = document.createElement('div');
   root.className = 'tree-root';
   root.textContent = project.name;
   host.appendChild(root);
-
   const byOwner = new Map();
   for (const element of project.elements) {
     if (!element.owner_id) continue;
     if (!byOwner.has(element.owner_id)) byOwner.set(element.owner_id, []);
     byOwner.get(element.owner_id).push(element);
   }
-
   function branchHasMatch(element) {
     if (repositoryMatches(element)) return true;
     return (byOwner.get(element.id) || []).some(branchHasMatch);
   }
-
   function appendChildren(ownerId, container, depth) {
     const children = (byOwner.get(ownerId) || []).sort((a, b) => a.name.localeCompare(b.name));
     for (const element of children) {
@@ -120,9 +107,9 @@ function renderRepository() {
       if (state.selectedElementId === element.id || state.selectedPackageId === element.id) row.classList.add('selected');
       row.style.paddingLeft = `${12 + depth * 16}px`;
       row.innerHTML = `<span class="kind">${element.kind === 'Package' ? '▣' : '◇'}</span><span>${escapeHtml(element.name)}</span><span class="type-tag">${escapeHtml(element.kind)}</span>`;
-      if (element.kind === 'Block') {
+      if (element.kind === 'Block' || element.kind === 'Requirement' || element.kind === 'TestCase') {
         row.draggable = true;
-        row.title = 'Drag onto a BDD to create another presentation of this existing Block.';
+        row.title = 'Drag onto a compatible diagram to create another presentation of this semantic element.';
         row.ondragstart = (event) => {
           event.dataTransfer.effectAllowed = 'copy';
           event.dataTransfer.setData('application/x-smp-element-id', element.id);
@@ -144,7 +131,6 @@ function renderRepository() {
     }
   }
   appendChildren(project.root_id, host, 0);
-
   if (state.snapshot.diagrams.length) {
     const heading = document.createElement('div');
     heading.className = 'tree-heading';
@@ -155,13 +141,12 @@ function renderRepository() {
       const row = document.createElement('button');
       row.className = 'tree-row diagram-row';
       if (state.selectedDiagramId === diagram.id) row.classList.add('selected');
-      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">BDD</span>`;
+      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'requirement' ? 'REQ' : 'BDD'}</span>`;
       row.onclick = () => selectDiagram(diagram.id);
       host.appendChild(row);
     }
   }
 }
-
 function paletteSymbol(item) {
   if (item.semantic_kind === 'Block') return '◇';
   const symbols = {
@@ -170,7 +155,6 @@ function paletteSymbol(item) {
   };
   return symbols[item.relationship_kind] || '·';
 }
-
 function renderPalette() {
   const host = $('palette');
   host.innerHTML = '';
@@ -178,7 +162,6 @@ function renderPalette() {
     host.innerHTML = '<div class="muted">Select a diagram to load its Rust-defined palette.</div>';
     return;
   }
-
   const groups = [
     ['element', 'Elements'],
     ['relationship', 'Relationships'],
@@ -215,7 +198,6 @@ function renderPalette() {
   hint.textContent = 'Palette tools come from Rust for the active diagram. Repository drag places an existing semantic element; palette placement creates a new semantic element.';
   host.appendChild(hint);
 }
-
 function activatePaletteItem(item) {
   state.selectedRelationshipId = null;
   if (item.category === 'relationship') {
@@ -227,24 +209,33 @@ function activatePaletteItem(item) {
   }
   render();
 }
-
 async function selectDiagram(diagramId) {
-  state.selectedDiagramId = diagramId;
-  state.selectedRelationshipId = null;
-  state.pendingRelationship = null;
-  state.paletteTool = null;
+  Object.assign(state, {
+    selectedDiagramId: diagramId,
+    selectedRelationshipId: null,
+    pendingRelationship: null,
+    paletteTool: null,
+    selectedBehaviorDiagramId: null,
+    selectedBehaviorItem: null,
+    behaviorTool: null,
+    behaviorPending: null,
+    selectedActivityDiagramId: null,
+    selectedActivityNodeId: null,
+    selectedActivityEdgeId: null,
+    activityTool: null,
+    activityPendingFlow: null,
+  });
   await loadPalette();
   const bdd = state.snapshot?.diagrams?.find((diagram) => diagram.id === diagramId);
   const ibd = state.snapshot?.ibd_diagrams?.find((diagram) => diagram.id === diagramId);
   await window.smpRendererHost?.activate({
     diagramId,
-    familyId: ibd ? 'ibd' : 'bdd',
+    familyId: ibd ? 'ibd' : (bdd?.family || 'bdd'),
     name: (ibd || bdd)?.name || 'Diagram',
     semanticContextId: ibd?.context_block_id || bdd?.owner_id || '',
   });
   render();
 }
-
 function renderDiagramTabs() {
   const host = $('diagram-tabs');
   host.innerHTML = '';
@@ -252,12 +243,11 @@ function renderDiagramTabs() {
     const tab = document.createElement('button');
     tab.className = 'diagram-tab';
     if (diagram.id === state.selectedDiagramId) tab.classList.add('active');
-    tab.textContent = `${diagram.name} · BDD`;
+    tab.textContent = `${diagram.name} · ${diagram.family === 'requirement' ? 'REQ' : 'BDD'}`;
     tab.onclick = () => selectDiagram(diagram.id);
     host.appendChild(tab);
   }
 }
-
 function marker(defs, id, path, options = {}) {
   const node = document.createElementNS(SVG_NS, 'marker');
   node.setAttribute('id', id);
@@ -275,7 +265,6 @@ function marker(defs, id, path, options = {}) {
   node.appendChild(shape);
   defs.appendChild(node);
 }
-
 function applyAssociationEndDecoration(polyline, relationship) {
   const decoratedEnd = (relationship.association_ends || []).find((end) => end.aggregation === 'shared' || end.aggregation === 'composite');
   if (!decoratedEnd) return;
@@ -283,12 +272,10 @@ function applyAssociationEndDecoration(polyline, relationship) {
   if (decoratedEnd.classifier_id === relationship.source_id) polyline.setAttribute('marker-start', `url(#${markerId})`);
   else if (decoratedEnd.classifier_id === relationship.target_id) polyline.setAttribute('marker-end', `url(#${markerId})`);
 }
-
 function endpointLabel(end) {
   if (!end) return '';
   return [end.role_name, end.multiplicity].filter(Boolean).join(' ');
 }
-
 function addEndpointLabel(svg, point, text, side) {
   if (!text) return;
   const label = document.createElementNS(SVG_NS, 'text');
@@ -299,21 +286,28 @@ function addEndpointLabel(svg, point, text, side) {
   label.textContent = text;
   svg.appendChild(label);
 }
-
+function traceabilityLabel(kind) {
+  return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy' }[kind] || '';
+}
+function addRelationshipStereotype(svg, points, kind) {
+  const stereotype=traceabilityLabel(kind); if(!stereotype||!points.length)return;
+  const middle=points[Math.floor((points.length-1)/2)],next=points[Math.min(points.length-1,Math.floor((points.length-1)/2)+1)];
+  const label=document.createElementNS(SVG_NS,'text'); label.classList.add('relationship-label','traceability-label');
+  label.setAttribute('x',String((middle.x+next.x)/2)); label.setAttribute('y',String((middle.y+next.y)/2-7));
+  label.setAttribute('text-anchor','middle'); label.textContent=`«${stereotype}»`; svg.appendChild(label);
+}
 function createRelationshipLayer(frame, diagram, project) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('relationship-layer');
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');
   svg.setAttribute('aria-label', 'BDD relationships');
-
   const defs = document.createElementNS(SVG_NS, 'defs');
   marker(defs, 'open-triangle', 'M 1 1 L 11 6 L 1 11 Z', { fill: '#f8f8f6', refX: '11' });
   marker(defs, 'open-arrow', 'M 1 1 L 11 6 L 1 11', { fill: 'none', refX: '11' });
   marker(defs, 'shared-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#f8f8f6', refX: '11' });
   marker(defs, 'composite-diamond', 'M 1 6 L 6 1 L 11 6 L 6 11 Z', { fill: '#111', refX: '11' });
   svg.appendChild(defs);
-
   const relationships = new Map((project.relationships || []).map((r) => [r.id, r]));
   for (const edge of diagram.edges || []) {
     const relationship = relationships.get(edge.relationship_id);
@@ -325,7 +319,7 @@ function createRelationshipLayer(frame, diagram, project) {
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
     applyAssociationEndDecoration(polyline, relationship);
     if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
-    if (relationship.kind === 'Dependency') polyline.setAttribute('marker-end', 'url(#open-arrow)');
+    if (['Dependency', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;
@@ -338,7 +332,7 @@ function createRelationshipLayer(frame, diagram, project) {
     title.textContent = relationship.kind;
     polyline.appendChild(title);
     svg.appendChild(polyline);
-
+    addRelationshipStereotype(svg, edge.points, relationship.kind);
     if (relationship.association_ends?.length === 2) {
       addEndpointLabel(svg, edge.points[0], endpointLabel(relationship.association_ends[0]), 'start');
       addEndpointLabel(svg, edge.points[edge.points.length - 1], endpointLabel(relationship.association_ends[1]), 'end');
@@ -346,7 +340,6 @@ function createRelationshipLayer(frame, diagram, project) {
   }
   frame.appendChild(svg);
 }
-
 function diagramCoordinates(frame, event) {
   const rect = frame.getBoundingClientRect();
   return {
@@ -354,18 +347,25 @@ function diagramCoordinates(frame, event) {
     y: Math.max(42, event.clientY - rect.top - 52),
   };
 }
-
 async function createPaletteElementAt(item, x, y) {
-  if (item.semantic_kind !== 'Block') throw new Error(`Palette item ${item.label} is not executable by the current Rust BDD engine.`);
   const diagram = state.snapshot.diagrams.find((d) => d.id === state.selectedDiagramId);
-  if (!diagram) throw new Error('Select a BDD first.');
+  if (!diagram) throw new Error('Select a diagram first.');
   const name = prompt(`${item.label} name`, `New ${item.label}`);
   if (!name) return;
-  const elementId = await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_block', {
-    ownerId: diagram.owner_id,
-    name,
-  }));
-  await runCommand(`Placing ${item.label}…`, () => requireInvoke()('place_element_on_bdd', {
+  let elementId;
+  if (diagram.family === 'requirement' && item.semantic_kind === 'Requirement') {
+    const definition = await window.smpDialogs?.edit({ title:'Create Requirement', fields:[{ id:'requirementId', label:'Requirement ID', value:'REQ-001', required:true }, { id:'text', label:'Requirement text', value:'The system shall ...', multiline:true, required:true }], confirmLabel:'Create' });
+    if (!definition) return;
+    elementId = await runCommand('Creating Requirement…', () => requireInvoke()('create_requirement', { ownerId: diagram.owner_id, name, requirementId:definition.values.requirementId, text:definition.values.text }));
+  } else if (diagram.family === 'requirement' && item.semantic_kind === 'TestCase') {
+    elementId = await runCommand('Creating Test Case…', () => requireInvoke()('create_test_case', { ownerId: diagram.owner_id, name }));
+  } else if (diagram.family === 'requirement') {
+    elementId = await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_bdd_element', { kind:item.semantic_kind, ownerId:diagram.owner_id, name }));
+  } else if (item.semantic_kind === 'Block') {
+    elementId = await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_block', { ownerId: diagram.owner_id, name }));
+  } else throw new Error(`Palette item ${item.label} is not executable by the active Rust diagram engine.`);
+  const placeCommand = diagram.family === 'requirement' ? 'place_on_requirement_diagram' : 'place_element_on_bdd';
+  await runCommand(`Placing ${item.label}…`, () => requireInvoke()(placeCommand, {
     diagramId: diagram.id,
     elementId,
     x,
@@ -375,18 +375,12 @@ async function createPaletteElementAt(item, x, y) {
   state.paletteTool = null;
   await refresh();
 }
-
 async function placeExistingElementAt(elementId, x, y) {
-  await runCommand('Placing existing Block…', () => requireInvoke()('place_element_on_bdd', {
-    diagramId: state.selectedDiagramId,
-    elementId,
-    x,
-    y,
-  }));
+  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId);
+  const command = diagram?.family === 'requirement' ? 'place_on_requirement_diagram' : 'place_element_on_bdd'; await runCommand('Placing existing element…', () => requireInvoke()(command, { diagramId: state.selectedDiagramId, elementId, x, y }));
   state.selectedElementId = elementId;
   await refresh();
 }
-
 function renderCanvas() {
   const canvas = $('canvas');
   canvas.innerHTML = '';
@@ -400,13 +394,11 @@ function renderCanvas() {
     canvas.innerHTML = '<div class="empty-state"><h1>Model ready</h1><div>Create or select a Block Definition Diagram. Diagram elements are created from the palette.</div></div>';
     return;
   }
-
   const frame = document.createElement('div');
   frame.className = 'diagram-frame';
-  frame.innerHTML = `<div class="diagram-header">bdd [package] ${escapeHtml(diagram.name)}</div>`;
+  frame.innerHTML = `<div class="diagram-header">${diagram.family === 'requirement' ? 'req' : 'bdd'} [package] ${escapeHtml(diagram.name)}</div>`;
   canvas.appendChild(frame);
   createRelationshipLayer(frame, diagram, project);
-
   frame.ondragover = (event) => {
     if (event.dataTransfer.types.includes('application/x-smp-palette-id') || event.dataTransfer.types.includes('application/x-smp-element-id')) {
       event.preventDefault();
@@ -429,7 +421,6 @@ function renderCanvas() {
       await placeExistingElementAt(elementId, point.x, point.y);
     }
   };
-
   const elementsById = new Map(project.elements.map((e) => [e.id, e]));
   for (const node of diagram.nodes) {
     const element = elementsById.get(node.element_id);
@@ -443,11 +434,13 @@ function renderCanvas() {
     box.style.top = `${node.y}px`;
     box.style.width = `${node.width}px`;
     box.style.height = `${node.height}px`;
-    box.innerHTML = `<div class="stereotype">«block»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment">values</div>`;
+    box.innerHTML = element.kind === 'Requirement'
+      ? `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`
+      : `<div class="stereotype">«${element.kind === 'TestCase' ? 'testCase' : 'block'}»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment">${element.kind === 'Block' ? 'values' : 'verification'}</div>`;
     box.onclick = async (event) => {
       event.stopPropagation();
       if (state.pendingRelationship) {
-        if (element.kind !== 'Block') return;
+        if (diagram.family !== 'requirement' && element.kind !== 'Block') return;
         if (!state.pendingRelationship.sourceElementId) {
           state.pendingRelationship.sourceElementId = element.id;
           state.selectedElementId = element.id;
@@ -457,12 +450,13 @@ function renderCanvas() {
         if (state.pendingRelationship.sourceElementId !== element.id) {
           const pending = { ...state.pendingRelationship };
           state.pendingRelationship = null;
-          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship', {
-            diagramId: state.selectedDiagramId,
-            kind: pending.kind,
-            sourceElementId: pending.sourceElementId,
-            targetElementId: element.id,
-          }));
+          const sourceNode = diagram.nodes.find((node) => node.element_id === pending.sourceElementId);
+          const targetNode = diagram.nodes.find((node) => node.element_id === element.id);
+          const command = diagram.family === 'requirement' ? 'create_traceability_relationship' : 'create_bdd_relationship';
+          const args = diagram.family === 'requirement'
+            ? { diagramId: state.selectedDiagramId, relationshipKind: pending.kind, sourceNodeId: sourceNode?.id, targetNodeId: targetNode?.id }
+            : { diagramId: state.selectedDiagramId, kind: pending.kind, sourceElementId: pending.sourceElementId, targetElementId: element.id };
+          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()(command, args));
           state.selectedElementId = element.id;
           await refresh();
           return;
@@ -475,7 +469,6 @@ function renderCanvas() {
     };
     frame.appendChild(box);
   }
-
   frame.onclick = async (event) => {
     if (state.paletteTool?.category === 'element') {
       const point = diagramCoordinates(frame, event);
@@ -489,14 +482,25 @@ function renderCanvas() {
     render();
   };
 }
-
 function blockOptions(project, selectedId) {
   return project.elements
     .filter((e) => e.kind === 'Block')
     .map((e) => `<option value="${escapeAttr(e.id)}"${e.id === selectedId ? ' selected' : ''}>${escapeHtml(e.name)}</option>`)
     .join('');
 }
-
+const TRACEABILITY_KINDS = new Set(['DeriveRequirement','Satisfy','Verify','Refine','Trace','Copy']);
+function relationshipEndpointOptions(project, relationship, side) {
+  if(!TRACEABILITY_KINDS.has(relationship.kind))return blockOptions(project,side==='source'?relationship.source_id:relationship.target_id);
+  const selectedId=side==='source'?relationship.source_id:relationship.target_id;
+  const eligible=project.elements.filter((element)=>{
+    if(['Model','Package','Comment'].includes(element.kind))return false;
+    if(['DeriveRequirement','Copy'].includes(relationship.kind))return element.kind==='Requirement';
+    if(relationship.kind==='Satisfy')return side==='target'?element.kind==='Requirement':element.kind!=='Requirement';
+    if(relationship.kind==='Verify')return side==='target'?element.kind==='Requirement':element.kind==='TestCase';
+    return true;
+  });
+  return eligible.map((element)=>`<option value="${escapeAttr(element.id)}"${element.id===selectedId?' selected':''}>${escapeHtml(element.name)} (${escapeHtml(element.kind)})</option>`).join('');
+}
 function associationEndEditor(end, index) {
   return `<fieldset class="relationship-end"><legend>End ${index + 1}</legend>
     <label>Role name<input id="end-role-${index}" value="${escapeAttr(end.role_name || '')}"></label>
@@ -510,21 +514,21 @@ function associationEndEditor(end, index) {
     <button class="primary" id="apply-end-${index}">Apply end</button>
   </fieldset>`;
 }
-
 function renderRelationshipProperties(panel, project, relationship) {
   panel.innerHTML = `<div class="property-heading">Relationship</div>
     <label>Type<input value="${escapeAttr(relationship.kind)}" disabled></label>
+    <label>Owner<input value="${escapeAttr(project.elements.find((element)=>element.id===relationship.owner_id)?.name||'Model')}" disabled></label>
     <label>Stable ID<input value="${escapeAttr(relationship.external_id)}" disabled></label>
-    <label>Source<select id="relationship-source">${blockOptions(project, relationship.source_id)}</select></label>
+    <label>Source<select id="relationship-source">${relationshipEndpointOptions(project,relationship,'source')}</select></label>
     <button id="apply-source" class="primary">Reconnect source</button>
-    <label>Target<select id="relationship-target">${blockOptions(project, relationship.target_id)}</select></label>
+    <label>Target<select id="relationship-target">${relationshipEndpointOptions(project,relationship,'target')}</select></label>
     <button id="apply-target" class="primary">Reconnect target</button>
     ${(relationship.association_ends || []).map(associationEndEditor).join('')}
     <button id="delete-relationship" class="danger">Delete relationship</button>`;
-
   const reconnect = async (side) => {
     const elementId = $(`relationship-${side}`).value;
-    await runCommand(`Reconnecting ${side}…`, () => requireInvoke()('reconnect_bdd_relationship', {
+    const command=TRACEABILITY_KINDS.has(relationship.kind)?'reconnect_traceability_relationship':'reconnect_bdd_relationship';
+    await runCommand(`Reconnecting ${side}…`, () => requireInvoke()(command, {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
       side,
@@ -534,7 +538,6 @@ function renderRelationshipProperties(panel, project, relationship) {
   };
   $('apply-source').onclick = () => reconnect('source');
   $('apply-target').onclick = () => reconnect('target');
-
   (relationship.association_ends || []).forEach((end, index) => {
     $(`apply-end-${index}`).onclick = async () => {
       await runCommand('Updating association end…', () => requireInvoke()('update_association_end', {
@@ -548,7 +551,6 @@ function renderRelationshipProperties(panel, project, relationship) {
       await refresh();
     };
   });
-
   $('delete-relationship').onclick = async () => {
     if (!confirm(`Delete ${relationship.kind} relationship?`)) return;
     await runCommand('Deleting relationship…', () => requireInvoke()('delete_bdd_relationship', {
@@ -559,7 +561,6 @@ function renderRelationshipProperties(panel, project, relationship) {
     await refresh();
   };
 }
-
 function renderProperties() {
   const panel = $('properties');
   const project = state.snapshot?.project;
@@ -567,13 +568,22 @@ function renderProperties() {
     panel.innerHTML = '<div class="muted">Create or open a project to inspect properties.</div>';
     return;
   }
-
   const relationship = project.relationships?.find((item) => item.id === state.selectedRelationshipId);
   if (relationship) return renderRelationshipProperties(panel, project, relationship);
-
   const element = project.elements.find((item) => item.id === state.selectedElementId);
   if (!element) {
     panel.innerHTML = '<div class="muted">Select an element or relationship. Create diagram elements from the Element Palette.</div>';
+    return;
+  }
+  if (element.kind === 'Requirement') {
+    const display=window.smpRequirementDisplay?.(element.id),checked=(label)=>display?.shown(label)!==false?'checked':'';
+    const links=(project.relationships||[]).filter((relationship)=>relationship.source_id===element.id||relationship.target_id===element.id);
+    const traceability=links.length?links.map((relationship)=>{const other=project.elements.find((candidate)=>candidate.id===(relationship.source_id===element.id?relationship.target_id:relationship.source_id));return `<div><b>«${escapeHtml(traceabilityLabel(relationship.kind)||relationship.kind)}»</b> ${escapeHtml(other?.name||'Unresolved endpoint')}</div>`;}).join(''):'<div class="muted">No traceability relationships.</div>';
+    panel.innerHTML = `<div class="property-heading">Requirement</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Requirement ID<input id="requirement-id" value="${escapeAttr(element.requirement_id || '')}"></label><label>Text<textarea id="requirement-text" rows="7">${escapeHtml(element.requirement_text || '')}</textarea></label><label>Documentation<textarea id="requirement-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><section class="bdd-compartment-controls"><div class="property-heading">Presentation Display</div><div class="muted">Controls this requirement on the active diagram only.</div><label class="compartment-visibility-toggle"><input id="show-requirement-id" type="checkbox" ${checked('id')}>Show ID</label><label class="compartment-visibility-toggle"><input id="show-requirement-text" type="checkbox" ${checked('text')}>Show Text</label><label class="compartment-visibility-toggle"><input id="show-requirement-documentation" type="checkbox" ${checked('documentation')}>Show Documentation</label></section><section class="requirement-traceability"><div class="property-heading">Traceability</div>${traceability}</section><label>Owner<input value="${escapeAttr(project.elements.find((candidate)=>candidate.id===element.owner_id)?.name||'Model')}" disabled></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="update-requirement" class="primary">Apply Requirement</button>`;
+    for(const [id,label] of [['show-requirement-id','id'],['show-requirement-text','text'],['show-requirement-documentation','documentation']])$(id).onchange=(event)=>display?.set(label,event.target.checked);
+    $('update-requirement').onclick = async () => {
+      await runCommand('Updating Requirement…', () => requireInvoke()('update_requirement', { details:{ elementId: element.id, name: $('property-name').value, requirementId: $('requirement-id').value, text: $('requirement-text').value, documentation: $('requirement-documentation').value } })); await refresh();
+    };
     return;
   }
   panel.innerHTML = `<div class="property-heading">${escapeHtml(element.kind)}</div>
@@ -587,7 +597,6 @@ function renderProperties() {
     await refresh();
   };
 }
-
 async function runCommand(progressMessage, action) {
   try {
     renderStatus(progressMessage);
@@ -601,7 +610,6 @@ async function runCommand(progressMessage, action) {
     throw error;
   }
 }
-
 async function createProject() {
   const name = prompt('Project name', 'Vehicle Model');
   if (!name) return;
@@ -612,7 +620,6 @@ async function createProject() {
   });
   await refresh();
 }
-
 async function openProject() {
   const suggested = state.snapshot?.current_file || 'Vehicle Model.smproj';
   const path = prompt('Project file path (.smproj)', suggested);
@@ -629,7 +636,6 @@ async function openProject() {
     render();
   }
 }
-
 async function saveProjectAs() {
   if (!state.snapshot?.project) return alert('Create or open a project first.');
   const suggested = state.snapshot.current_file || `${state.snapshot.project.name}.smproj`;
@@ -638,14 +644,12 @@ async function saveProjectAs() {
   await runCommand('Saving project…', () => requireInvoke()('save_project_file', { path }));
   await refresh();
 }
-
 async function saveProject() {
   if (!state.snapshot?.project) return alert('Create or open a project first.');
   if (!state.snapshot.current_file) return saveProjectAs();
   await runCommand('Saving project…', () => requireInvoke()('save_current_project'));
   await refresh();
 }
-
 async function createPackage() {
   if (!state.snapshot?.project) return alert('Create a project first.');
   const name = prompt('Package name', 'Structure');
@@ -657,7 +661,6 @@ async function createPackage() {
   state.selectedRelationshipId = null;
   await refresh();
 }
-
 async function createBdd() {
   if (!state.snapshot?.project) return alert('Create a project first.');
   const ownerId = state.selectedPackageId || state.snapshot.project.root_id;
@@ -669,20 +672,29 @@ async function createBdd() {
   state.paletteTool = null;
   await refresh();
 }
-
+async function createRequirementDiagram() {
+  if (!state.snapshot?.project) return window.smpDialogs?.notify('Create a project first.', 'warning');
+  const ownerId = state.selectedPackageId || state.snapshot.project.root_id;
+  const definition = await window.smpDialogs?.edit({ title:'Create Requirement Diagram', fields:[{ id:'name', label:'Diagram name', value:'System Requirements', required:true }], confirmLabel:'Create' });
+  if (!definition) return;
+  const selectedDiagramId = await runCommand('Creating Requirement Diagram…', () => requireInvoke()('create_requirement_diagram', { ownerId, name:definition.values.name }));
+  Object.assign(state, { selectedDiagramId, selectedRelationshipId:null, pendingRelationship:null, paletteTool:null });
+  await refresh();
+}
+window.smpCreateRequirementDiagram = createRequirementDiagram;
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);
 }
 function escapeAttr(value) { return escapeHtml(value); }
-
 $('new-project').onclick = createProject;
 $('open-project').onclick = openProject;
 $('save-project').onclick = saveProject;
 $('save-project-as').onclick = saveProjectAs;
 $('new-package').onclick = createPackage;
 $('new-bdd').onclick = createBdd;
+$('new-requirement-diagram').onclick = createRequirementDiagram;
 $('repository-search').oninput = (event) => {
   state.repositoryFilter = event.target.value;
   renderRepository();
@@ -693,5 +705,4 @@ $('collapse-palette').onclick = () => {
   document.querySelector('.workspace').classList.toggle('palette-collapsed');
   $('collapse-palette').textContent = panel.classList.contains('collapsed') ? '»' : '«';
 };
-
 refresh().catch((error) => renderStatus(error.message));

@@ -45,6 +45,16 @@
     saveVisibility(all);
   }
 
+  window.smpCompartmentDisplay = (elementId) => {
+    const diagram=activeBdd(),presentation=presentationForElement(elementId); if(!diagram||!presentation)return null;
+    const element=state.snapshot?.project?.elements?.find((candidate)=>String(candidate.id)===String(elementId));
+    const box=[...document.querySelectorAll('#canvas .bdd-block')].find((candidate)=>candidate.dataset.presentationId===presentation.id);
+    const labels=element?.kind==='Requirement'?['id','text',...(element.documentation?['documentation']:[])]:[...(box?.querySelectorAll('.compartment')||[])].map((compartment)=>compartment.querySelector('.compartment-title')?.textContent?.trim()).filter(Boolean);
+    const hidden=hiddenCompartments(diagram,presentation);
+    return { labels,shown:(label)=>!hidden.has(label),set:(label,shown)=>{setCompartmentHidden(diagram,presentation,label,!shown);applyCompartmentPresentation();} };
+  };
+  window.smpRequirementDisplay = window.smpCompartmentDisplay;
+
   function applyCompartmentPresentation() {
     const diagram = activeBdd();
     if (!diagram) return;
@@ -53,16 +63,18 @@
       const presentation = diagram.nodes?.[index];
       if (!presentation) return;
       box.dataset.presentationId = presentation.id;
-      box.style.height = `${presentation.height}px`;
-      box.style.minHeight = '0';
-      box.style.overflow = 'hidden';
-      box.style.boxSizing = 'border-box';
-
       const hidden = hiddenCompartments(diagram, presentation);
-      for (const compartment of box.querySelectorAll('.compartment')) {
+      const compartments = [...box.querySelectorAll('.compartment')];
+      for (const compartment of compartments) {
         const label = compartment.querySelector('.compartment-title')?.textContent?.trim() || '';
         compartment.hidden = hidden.has(label);
       }
+      const visibleCompartments = compartments.filter((compartment) => !compartment.hidden);
+      box.style.height = visibleCompartments.length ? `${presentation.height}px` : 'auto';
+      box.style.minHeight = visibleCompartments.length ? '0' : '52px';
+      box.style.overflow = 'hidden';
+      box.style.boxSizing = 'border-box';
+      box.classList.toggle('compartments-collapsed', !visibleCompartments.length);
 
       const header = box.querySelector('.stereotype');
       const name = box.querySelector('.block-name');
@@ -78,10 +90,10 @@
     if (!diagram || !panel || !elementId) return;
     const presentation = presentationForElement(elementId);
     if (!presentation) return;
+    const element = state.snapshot?.project?.elements?.find((candidate) => String(candidate.id) === String(elementId));
     const box = [...document.querySelectorAll('#canvas .bdd-block')]
       .find((candidate) => candidate.dataset.presentationId === presentation.id);
-    if (!box) return;
-    const compartments = [...box.querySelectorAll('.compartment')]
+    const compartments = element?.kind === 'Requirement' ? ['id', 'text', ...(element.documentation ? ['documentation'] : [])] : [...(box?.querySelectorAll('.compartment') || [])]
       .map((compartment) => compartment.querySelector('.compartment-title')?.textContent?.trim())
       .filter(Boolean);
     if (!compartments.length || panel.querySelector('.bdd-compartment-controls')) return;
@@ -89,7 +101,7 @@
     const hidden = hiddenCompartments(diagram, presentation);
     const section = document.createElement('section');
     section.className = 'bdd-compartment-controls';
-    section.innerHTML = '<div class="property-heading">Compartments</div><div class="muted">Visibility affects this diagram presentation only. Owned model features remain unchanged.</div>';
+    section.innerHTML = '<div class="property-heading">Presentation Display</div><div class="muted">Choose which semantic fields are visible on this requirement presentation. Hidden values remain in the model.</div>';
     for (const label of compartments) {
       const row = document.createElement('label');
       row.className = 'compartment-visibility-toggle';
@@ -114,13 +126,6 @@
     applyCompartmentPresentation();
     appendCompartmentControls();
   };
-
-  const observer = new MutationObserver(() => {
-    applyCompartmentPresentation();
-    appendCompartmentControls();
-  });
-  const canvas = $('canvas');
-  if (canvas) observer.observe(canvas, { childList: true, subtree: true });
 
   queueMicrotask(() => {
     applyCompartmentPresentation();

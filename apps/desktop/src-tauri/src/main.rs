@@ -15,6 +15,7 @@ mod workspace {
     mod presentation_interaction;
     mod presentation_theme;
     mod relationship_editing;
+    mod requirements;
     mod routing;
     mod shared_workspace;
     pub use activity_editing::{
@@ -70,6 +71,11 @@ mod workspace {
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
+    pub use requirements::{
+        create_requirement, create_requirement_diagram, create_test_case,
+        create_traceability_relationship, place_on_requirement_diagram,
+        reconnect_traceability_relationship, update_requirement,
+    };
     pub use routing::route_diagram_geometry;
     pub use shared_workspace::{
         SharedWorkspaceState, activate_diagram, active_diagram_command_manifest,
@@ -95,15 +101,17 @@ use workspace::{
     behavior_lifeline_candidates, behavior_snapshot, clear_workspace_interaction,
     create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
     create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
-    create_ibd_connector, create_package, create_sequence_diagram, create_sequence_diagram_staged,
-    create_state_machine_diagram, create_state_machine_diagram_staged, delete_activity_item,
-    delete_bdd_relationship, delete_behavior_item, diagram_command_manifest,
+    create_ibd_connector, create_package, create_requirement, create_requirement_diagram,
+    create_sequence_diagram, create_sequence_diagram_staged, create_state_machine_diagram,
+    create_state_machine_diagram_staged, create_test_case, create_traceability_relationship,
+    delete_activity_item, delete_bdd_relationship, delete_behavior_item, diagram_command_manifest,
     diagram_family_registry, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, load_activity_workspace,
     move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
-    open_project_file_complete, place_bdd_element, place_element_on_bdd, populate_ibd_from_context,
-    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message,
+    open_project_file_complete, place_bdd_element, place_element_on_bdd,
+    place_on_requirement_diagram, populate_ibd_from_context, reconnect_activity_edge,
+    reconnect_bdd_relationship, reconnect_sequence_message, reconnect_traceability_relationship,
     rename_active_diagram_header, rename_element, reset_activity_workspace,
     resize_sequence_lifeline_timeline, route_activity_diagram, route_behavior_diagram,
     route_diagram_geometry, route_ibd, save_activity_workspace, save_current_project,
@@ -113,10 +121,10 @@ use workspace::{
     update_activity_node_semantics, update_activity_presentation_geometry, update_association_end,
     update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
-    update_ibd_property_geometry, update_sequence_message, update_sequence_message_complete,
-    update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
-    update_state_transition, workspace_interaction_snapshot, workspace_snapshot,
-    workspace_snapshot_complete, zoom_diagram_viewport,
+    update_ibd_property_geometry, update_requirement, update_sequence_message,
+    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
+    update_state_presentation_geometry, update_state_transition, workspace_interaction_snapshot,
+    workspace_snapshot, workspace_snapshot_complete, zoom_diagram_viewport,
 };
 
 #[derive(Serialize)]
@@ -364,6 +372,33 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             relationship_item("ControlFlow", "Control Flow", "ControlFlow"),
             relationship_item("ObjectFlow", "Object Flow", "ObjectFlow"),
         ]),
+        "Requirement" => Ok(vec![
+            element_item("requirement", "Requirement", "Requirement"),
+            element_item("test-case", "Test Case", "TestCase"),
+            element_item("block", "Block", "Block"),
+            element_item("association-block", "Association Block", "AssociationBlock"),
+            element_item("interface-block", "Interface Block", "InterfaceBlock"),
+            element_item("constraint-block", "Constraint Block", "ConstraintBlock"),
+            element_item("value-type", "Value Type", "ValueType"),
+            element_item("data-type", "Data Type", "DataType"),
+            element_item("primitive-type", "Primitive Type", "PrimitiveType"),
+            element_item("enumeration", "Enumeration", "Enumeration"),
+            element_item("signal", "Signal", "Signal"),
+            element_item("unit", "Unit", "Unit"),
+            element_item("quantity-kind", "Quantity Kind", "QuantityKind"),
+            element_item(
+                "instance-specification",
+                "Instance Specification",
+                "InstanceSpecification",
+            ),
+            element_item("comment", "Comment", "Comment"),
+            relationship_item("derive-reqt", "Derive Requirement", "DeriveRequirement"),
+            relationship_item("satisfy", "Satisfy", "Satisfy"),
+            relationship_item("verify", "Verify", "Verify"),
+            relationship_item("refine", "Refine", "Refine"),
+            relationship_item("trace", "Trace", "Trace"),
+            relationship_item("copy", "Copy", "Copy"),
+        ]),
         _ => Err(format!("unsupported diagram palette: {diagram_type}")),
     }
 }
@@ -396,6 +431,13 @@ fn main() {
             get_panel_preferences,
             set_panel_preferences,
             diagram_palette,
+            create_requirement_diagram,
+            create_requirement,
+            create_test_case,
+            update_requirement,
+            place_on_requirement_diagram,
+            create_traceability_relationship,
+            reconnect_traceability_relationship,
             history_checkpoint,
             history_undo,
             history_redo,

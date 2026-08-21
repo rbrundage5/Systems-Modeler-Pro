@@ -19,6 +19,7 @@
     };
   }
 
+  const renderStructuralProperties = renderProperties;
   renderProperties = function renderPropertiesWithFeatureSemantics() {
     const panel = $('properties');
     const project = state.snapshot?.project;
@@ -29,6 +30,7 @@
     const relationship = project.relationships?.find((item) => item.id === state.selectedRelationshipId);
     if (relationship) return renderRelationshipProperties(panel, project, relationship);
     const element = project.elements.find((item) => item.id === state.selectedElementId);
+    if (element?.kind === 'Requirement' || element?.kind === 'TestCase') return renderStructuralProperties();
     if (!element) {
       panel.innerHTML = '<div class="muted">Select an element or relationship.</div>';
       return;
@@ -57,6 +59,13 @@
       ${isFlowProperty ? `<label>Flow Direction<select id="property-flow-direction"><option value="in">in</option><option value="out">out</option><option value="inout">inout</option></select></label>` : ''}
       <button id="apply-element" class="primary">Apply</button>`;
 
+    const compartmentDisplay=window.smpCompartmentDisplay?.(element.id);
+    if(compartmentDisplay?.labels?.length&&!panel.querySelector('.bdd-compartment-controls')){
+      const section=document.createElement('section'); section.className='bdd-compartment-controls';
+      section.innerHTML='<div class="property-heading">Presentation Display</div><div class="muted">Choose which compartments are visible on this diagram presentation.</div>';
+      for(const label of compartmentDisplay.labels){const row=document.createElement('label');row.className='compartment-visibility-toggle';const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=compartmentDisplay.shown(label);checkbox.onchange=()=>compartmentDisplay.set(label,checkbox.checked);const text=document.createElement('span');text.textContent='Show '+label;row.append(checkbox,text);section.appendChild(row);}
+      panel.insertBefore(section,$('apply-element'));
+    }
     if (supportsAggregation) $('property-aggregation').value = element.aggregation || 'none';
     if (isParameter) $('property-direction').value = element.parameter_direction || 'in';
     if (isFlowProperty) $('property-flow-direction').value = element.flow_direction || 'inout';

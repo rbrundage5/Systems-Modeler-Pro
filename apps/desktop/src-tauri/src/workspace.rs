@@ -17,6 +17,9 @@ pub struct ElementSnapshot {
     pub kind: String,
     pub name: String,
     pub owner_id: Option<String>,
+    pub documentation: String,
+    pub requirement_id: Option<String>,
+    pub requirement_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,9 +83,15 @@ pub struct BddDiagram {
     pub id: String,
     pub name: String,
     pub owner_id: String,
+    #[serde(default = "default_bdd_family")]
+    pub family: String,
     pub nodes: Vec<DiagramNode>,
     #[serde(default)]
     pub edges: Vec<DiagramEdge>,
+}
+
+fn default_bdd_family() -> String {
+    "bdd".into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -181,6 +190,12 @@ fn relationship_display_kind(relationship: &Relationship) -> &'static str {
         RelationshipKind::Realization => "Realization",
         RelationshipKind::Connector => "Connector",
         RelationshipKind::ItemFlow => "ItemFlow",
+        RelationshipKind::DeriveRequirement => "DeriveRequirement",
+        RelationshipKind::Satisfy => "Satisfy",
+        RelationshipKind::Verify => "Verify",
+        RelationshipKind::Refine => "Refine",
+        RelationshipKind::Trace => "Trace",
+        RelationshipKind::Copy => "Copy",
     }
 }
 
@@ -194,6 +209,9 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             kind: format!("{:?}", element.kind),
             name: element.name.clone(),
             owner_id: element.owner_id.map(|id| id.to_string()),
+            documentation: element.documentation.clone(),
+            requirement_id: element.requirement_id.clone(),
+            requirement_text: element.requirement_text.clone(),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));
@@ -405,7 +423,7 @@ pub fn create_bdd(owner_id: String, name: String, state: tauri::State<'_, Worksp
     }
     let id = DiagramId::new();
     state.diagrams.lock().map_err(|_| "diagram lock poisoned")?.push(BddDiagram {
-        id: id.to_string(), name, owner_id: owner_id.to_string(), nodes: Vec::new(), edges: Vec::new(),
+        id: id.to_string(), name, owner_id: owner_id.to_string(), family: "bdd".into(), nodes: Vec::new(), edges: Vec::new(),
     });
     Ok(id.to_string())
 }

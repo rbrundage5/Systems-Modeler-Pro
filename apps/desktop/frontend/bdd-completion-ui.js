@@ -113,7 +113,10 @@ activatePaletteItem = function activatePaletteItemComplete(item) {
   else { state.pendingRelationship = null; state.paletteTool = item; render(); }
 };
 
+const createStructuralPaletteElementAt = createPaletteElementAt;
 createPaletteElementAt = async function createPaletteElementAtComplete(item, x, y) {
+  const active = state.snapshot?.diagrams?.find((diagram) => diagram.id === state.selectedDiagramId);
+  if (active?.family === 'requirement') return createStructuralPaletteElementAt(item, x, y);
   if (!BDD_CLASSIFIER_KINDS.has(item.semantic_kind)) throw new Error(`${item.label} is not a top-level BDD classifier.`);
   const diagram = state.snapshot.diagrams.find((candidate) => candidate.id === state.selectedDiagramId); if (!diagram) throw new Error('Select a BDD first.');
   const name = prompt(`${item.label} name`, `New ${item.label}`); if (!name) return;
@@ -122,7 +125,10 @@ createPaletteElementAt = async function createPaletteElementAtComplete(item, x, 
   state.selectedElementId = elementId; state.paletteTool = null; await refresh();
 };
 
+const placeExistingStructuralElementAt = placeExistingElementAt;
 placeExistingElementAt = async function placeExistingElementAtComplete(elementId, x, y) {
+  const active = state.snapshot?.diagrams?.find((diagram) => diagram.id === state.selectedDiagramId);
+  if (active?.family === 'requirement') return placeExistingStructuralElementAt(elementId, x, y);
   await runCommand('Placing existing classifier…', () => requireInvoke()('place_bdd_element', { diagramId: state.selectedDiagramId, elementId, x, y }));
   state.selectedElementId = elementId; await refresh();
 };
@@ -167,15 +173,15 @@ renderRepository = function renderRepositoryComplete() {
     for (const diagram of state.snapshot.diagrams) {
       if (state.repositoryFilter && !diagram.name.toLowerCase().includes(state.repositoryFilter.toLowerCase())) continue;
       const row = document.createElement('button'); row.className = 'tree-row diagram-row'; if (state.selectedDiagramId === diagram.id) row.classList.add('selected');
-      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">BDD</span>`; row.onclick = () => selectDiagram(diagram.id); host.appendChild(row);
+      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'requirement' ? 'REQ' : 'BDD'}</span>`; row.onclick = () => selectDiagram(diagram.id); host.appendChild(row);
     }
   }
 };
 
-renderCanvas = function renderCanvasComplete() {
+const renderStructuralCanvas = renderCanvas; renderCanvas = function renderCanvasComplete() {
   const canvas = $('canvas'); canvas.innerHTML = ''; const project = state.snapshot?.project;
   if (!project) { canvas.innerHTML = '<div class="empty-state"><h1>Systems Modeler Pro</h1><div>Create or open a project to begin.</div></div>'; return; }
-  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId);
+  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId); if (diagram?.family === 'requirement') return renderStructuralCanvas();
   if (!diagram) { canvas.innerHTML = '<div class="empty-state"><h1>Model ready</h1><div>Create or select a Block Definition Diagram.</div></div>'; return; }
   const frame = document.createElement('div'); frame.className = 'diagram-frame'; frame.innerHTML = `<div class="diagram-header">bdd [package] ${escapeHtml(diagram.name)}</div>`; canvas.appendChild(frame);
   createRelationshipLayer(frame, diagram, project);
@@ -213,11 +219,11 @@ renderCanvas = function renderCanvasComplete() {
   };
 };
 
-renderProperties = function renderPropertiesComplete() {
+const renderStructuralProperties = renderProperties; renderProperties = function renderPropertiesComplete() {
   const panel = $('properties'); const project = state.snapshot?.project;
   if (!project) { panel.innerHTML = '<div class="muted">Create or open a project to inspect properties.</div>'; return; }
   const relationship = project.relationships?.find((item) => item.id === state.selectedRelationshipId); if (relationship) return renderRelationshipProperties(panel, project, relationship);
-  const element = project.elements.find((item) => item.id === state.selectedElementId);
+  const element = project.elements.find((item) => item.id === state.selectedElementId); if (element?.kind === 'Requirement' || element?.kind === 'TestCase') return renderStructuralProperties();
   if (!element) { panel.innerHTML = '<div class="muted">Select an element or relationship.</div>'; return; }
   panel.innerHTML = `<div class="property-heading">${escapeHtml(element.kind)}</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Documentation<textarea id="property-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label>${element.type_id ? `<label>Type<input value="${escapeAttr(typeName(project, element))}" disabled></label>` : ''}${element.multiplicity ? `<label>Multiplicity<input value="${escapeAttr(element.multiplicity)}" disabled></label>` : ''}${element.kind === 'ValueType' ? `<label>Quantity Kind ID<input id="property-quantity-kind" value="${escapeAttr(element.quantity_kind_external_id || '')}"></label><label>Unit ID<input id="property-unit" value="${escapeAttr(element.unit_external_id || '')}"></label>` : ''}${element.default_value !== null && element.default_value !== undefined ? `<label>Default Value<input id="property-default" value="${escapeAttr(element.default_value || '')}"></label>` : ''}<button id="apply-element" class="primary">Apply</button>`;
   $('apply-element').onclick = async () => {

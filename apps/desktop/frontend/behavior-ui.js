@@ -105,7 +105,7 @@
     const target = event.target.closest?.('.diagram-tab, .diagram-row');
     if (!target) return;
     const label = target.textContent || '';
-    if (/\bBDD\b/.test(label) || /\bIBD\b/.test(label)) {
+    if (/\b(?:BDD|IBD|REQ)\b/.test(label)) {
       state.selectedBehaviorDiagramId = null;
       clearBehaviorInteractionState();
     }

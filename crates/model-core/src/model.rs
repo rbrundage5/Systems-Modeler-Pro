@@ -65,6 +65,8 @@ pub enum ElementKind {
     Operation,
     Parameter,
     Reception,
+    Requirement,
+    TestCase,
     Comment,
 }
 
@@ -79,6 +81,12 @@ pub enum RelationshipKind {
     Realization,
     Connector,
     ItemFlow,
+    DeriveRequirement,
+    Satisfy,
+    Verify,
+    Refine,
+    Trace,
+    Copy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -163,6 +171,12 @@ pub struct Element {
     pub literal_value: Option<String>,
     #[serde(default)]
     pub flow_direction: Option<FlowDirection>,
+    /// Human-readable requirement identifier. This is deliberately separate
+    /// from both the immutable semantic UUID and the import-facing External ID.
+    #[serde(default)]
+    pub requirement_id: Option<String>,
+    #[serde(default)]
+    pub requirement_text: Option<String>,
 }
 
 impl Element {
@@ -188,6 +202,8 @@ impl Element {
             parameter_direction: None,
             literal_value: None,
             flow_direction: None,
+            requirement_id: None,
+            requirement_text: None,
         }
     }
 
@@ -207,6 +223,8 @@ impl Element {
                 | ElementKind::PrimitiveType
                 | ElementKind::Enumeration
                 | ElementKind::Signal
+                | ElementKind::Requirement
+                | ElementKind::TestCase
         )
     }
 
@@ -360,6 +378,32 @@ pub enum ModelError {
     RelationshipIsNotConnector(RelationshipId),
     #[error("item flow must realize an existing connector: {0}")]
     ItemFlowConnectorNotFound(RelationshipId),
+    #[error("invalid endpoint kinds for {relationship:?}: {source_kind:?} -> {target_kind:?}")]
+    InvalidTraceabilityEndpoints {
+        relationship: RelationshipKind,
+        source_kind: ElementKind,
+        target_kind: ElementKind,
+    },
+    #[error("requirement ID cannot be empty: {0}")]
+    EmptyRequirementId(ElementId),
+    #[error("requirement ID already exists in this project: {0}")]
+    DuplicateRequirementId(String),
+    #[error("copied Requirement text is read-only; edit its supplier Requirement: {0}")]
+    CopiedRequirementIsReadOnly(ElementId),
+    #[error("Requirement traceability relationships cannot connect an element to itself")]
+    SelfTraceabilityRelationship,
+    #[error(
+        "duplicate Requirement traceability relationship: {relationship:?} {source_id} -> {target_id}"
+    )]
+    DuplicateTraceabilityRelationship {
+        relationship: RelationshipKind,
+        source_id: ElementId,
+        target_id: ElementId,
+    },
+    #[error("Requirement traceability relationships require a Model or Package owner")]
+    MissingTraceabilityOwner,
+    #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
+    InvalidTraceabilityOwner(ElementId),
 }
 
 impl Project {
@@ -549,6 +593,25 @@ impl Project {
     ) -> Result<RelationshipId, ModelError> {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
+        let traceability = is_traceability_relationship(&kind);
+        if traceability && source_id == target_id {
+            return Err(ModelError::SelfTraceabilityRelationship);
+        }
+        validate_traceability_endpoints(&kind, &source.kind, &target.kind)?;
+        if traceability && self.relationships.values().any(|relationship| {
+            relationship.kind == kind
+                && relationship.source_id == source_id
+                && relationship.target_id == target_id
+        }) {
+            return Err(ModelError::DuplicateTraceabilityRelationship {
+                relationship: kind,
+                source_id,
+                target_id,
+            });
+        }
+        let copied_requirement_text = (kind == RelationshipKind::Copy)
+            .then(|| target.requirement_text.clone())
+            .flatten();
         if kind == RelationshipKind::Generalization {
             if !source.is_classifier() || !target.is_classifier() {
                 return Err(ModelError::GeneralizationRequiresClassifiers);
@@ -557,8 +620,14 @@ impl Project {
                 return Err(ModelError::GeneralizationCycle);
             }
         }
+        if traceability && owner_id.is_none() {
+            return Err(ModelError::MissingTraceabilityOwner);
+        }
         if let Some(owner_id) = owner_id {
             let owner = self.element(owner_id)?;
+            if traceability && !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
+                return Err(ModelError::InvalidTraceabilityOwner(owner_id));
+            }
             if !owner.is_namespace() && !owner.is_classifier() {
                 return Err(ModelError::InvalidOwner(owner_id));
             }
@@ -581,7 +650,66 @@ impl Project {
                 item_flow: None,
             },
         );
+        if let Some(text) = copied_requirement_text {
+            self.element_mut(source_id)?.requirement_text = Some(text);
+        }
         Ok(id)
+    }
+
+    pub fn create_requirement(
+        &mut self,
+        name: impl Into<String>,
+        requirement_id: impl Into<String>,
+        text: impl Into<String>,
+        owner_id: ElementId,
+    ) -> Result<ElementId, ModelError> {
+        let id = self.create_element(ElementKind::Requirement, name, owner_id)?;
+        if let Err(error) = self.update_requirement(id, requirement_id, text) {
+            self.elements.remove(&id);
+            return Err(error);
+        }
+        Ok(id)
+    }
+
+    pub fn update_requirement(
+        &mut self,
+        id: ElementId,
+        requirement_id: impl Into<String>,
+        text: impl Into<String>,
+    ) -> Result<(), ModelError> {
+        let requirement_id = requirement_id.into();
+        if requirement_id.trim().is_empty() {
+            return Err(ModelError::EmptyRequirementId(id));
+        }
+        if self.elements.values().any(|element| {
+            element.id != id
+                && element.kind == ElementKind::Requirement
+                && element.requirement_id.as_deref() == Some(requirement_id.as_str())
+        }) {
+            return Err(ModelError::DuplicateRequirementId(requirement_id));
+        }
+        if self.relationships.values().any(|relationship| {
+            relationship.kind == RelationshipKind::Copy && relationship.source_id == id
+        }) {
+            return Err(ModelError::CopiedRequirementIsReadOnly(id));
+        }
+        let text = text.into();
+        {
+            let requirement = self.element_mut(id)?;
+            if requirement.kind != ElementKind::Requirement {
+                return Err(ModelError::InvalidOwner(id));
+            }
+            requirement.requirement_id = Some(requirement_id);
+            requirement.requirement_text = Some(text.clone());
+        }
+        let copied_clients: Vec<_> = self.relationships.values()
+            .filter(|relationship| relationship.kind == RelationshipKind::Copy && relationship.target_id == id)
+            .map(|relationship| relationship.source_id)
+            .collect();
+        for client_id in copied_clients {
+            self.element_mut(client_id)?.requirement_text = Some(text.clone());
+        }
+        Ok(())
     }
 
     pub fn create_connector(&mut self, connector: Connector) -> Result<RelationshipId, ModelError> {
@@ -757,11 +885,22 @@ impl Project {
 
     pub fn validate(&self) -> Result<(), ModelError> {
         let mut external_ids = HashSet::new();
+        let mut requirement_ids = HashSet::new();
         for element in self.elements.values() {
             if !external_ids.insert(element.external_id.clone()) {
                 return Err(ModelError::DuplicateExternalId(element.external_id.clone()));
             }
             self.validate_element(element.id)?;
+            if element.kind == ElementKind::Requirement {
+                let requirement_id = element
+                    .requirement_id
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or(ModelError::EmptyRequirementId(element.id))?;
+                if !requirement_ids.insert(requirement_id.to_owned()) {
+                    return Err(ModelError::DuplicateRequirementId(requirement_id.to_owned()));
+                }
+            }
         }
         for relationship in self.relationships.values() {
             if !external_ids.insert(relationship.external_id.clone()) {
@@ -771,6 +910,39 @@ impl Project {
             }
             self.element(relationship.source_id)?;
             self.element(relationship.target_id)?;
+            if is_traceability_relationship(&relationship.kind) {
+                if relationship.owner_id.is_none() {
+                    return Err(ModelError::MissingTraceabilityOwner);
+                }
+                if relationship.source_id == relationship.target_id {
+                    return Err(ModelError::SelfTraceabilityRelationship);
+                }
+                if let Some(owner_id) = relationship.owner_id
+                    && !matches!(
+                        self.element(owner_id)?.kind,
+                        ElementKind::Model | ElementKind::Package
+                    )
+                {
+                    return Err(ModelError::InvalidTraceabilityOwner(owner_id));
+                }
+                if self.relationships.values().any(|candidate| {
+                    candidate.id != relationship.id
+                        && candidate.kind == relationship.kind
+                        && candidate.source_id == relationship.source_id
+                        && candidate.target_id == relationship.target_id
+                }) {
+                    return Err(ModelError::DuplicateTraceabilityRelationship {
+                        relationship: relationship.kind.clone(),
+                        source_id: relationship.source_id,
+                        target_id: relationship.target_id,
+                    });
+                }
+            }
+            validate_traceability_endpoints(
+                &relationship.kind,
+                &self.element(relationship.source_id)?.kind,
+                &self.element(relationship.target_id)?.kind,
+            )?;
             for end in &relationship.association_ends {
                 self.element(end.classifier_id)
                     .map_err(|_| ModelError::AssociationEndClassifierNotFound(end.classifier_id))?;
@@ -889,7 +1061,9 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         | ElementKind::Signal
         | ElementKind::Unit
         | ElementKind::QuantityKind
-        | ElementKind::InstanceSpecification => namespace_owned,
+        | ElementKind::InstanceSpecification
+        | ElementKind::Requirement
+        | ElementKind::TestCase => namespace_owned,
         ElementKind::Comment => namespace_owned || classifier_owner,
         ElementKind::EnumerationLiteral => matches!(owner, ElementKind::Enumeration),
         ElementKind::Slot => matches!(owner, ElementKind::InstanceSpecification),
@@ -924,6 +1098,44 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         Err(ModelError::InvalidOwnerKind {
             kind: kind.clone(),
             owner: owner.clone(),
+        })
+    }
+}
+
+fn is_traceability_relationship(relationship: &RelationshipKind) -> bool {
+    matches!(
+        relationship,
+        RelationshipKind::DeriveRequirement
+            | RelationshipKind::Satisfy
+            | RelationshipKind::Verify
+            | RelationshipKind::Refine
+            | RelationshipKind::Trace
+            | RelationshipKind::Copy
+    )
+}
+
+fn validate_traceability_endpoints(
+    relationship: &RelationshipKind,
+    source: &ElementKind,
+    target: &ElementKind,
+) -> Result<(), ModelError> {
+    use RelationshipKind as R;
+    let is_requirement = |kind: &ElementKind| *kind == ElementKind::Requirement;
+    let valid = match relationship {
+        R::DeriveRequirement | R::Copy => is_requirement(source) && is_requirement(target),
+        R::Satisfy => !is_requirement(source) && is_requirement(target),
+        R::Verify => *source == ElementKind::TestCase && is_requirement(target),
+        R::Refine => is_requirement(source) ^ is_requirement(target),
+        R::Trace => true,
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(ModelError::InvalidTraceabilityEndpoints {
+            relationship: relationship.clone(),
+            source_kind: source.clone(),
+            target_kind: target.clone(),
         })
     }
 }
@@ -1057,6 +1269,16 @@ pub mod notation {
                 target_decoration: EndDecoration::HollowTriangle,
             },
             RelationshipKind::Dependency => RelationshipNotation {
+                line: LineStyle::Dashed,
+                source_decoration: EndDecoration::None,
+                target_decoration: EndDecoration::OpenArrow,
+            },
+            RelationshipKind::DeriveRequirement
+            | RelationshipKind::Satisfy
+            | RelationshipKind::Verify
+            | RelationshipKind::Refine
+            | RelationshipKind::Trace
+            | RelationshipKind::Copy => RelationshipNotation {
                 line: LineStyle::Dashed,
                 source_decoration: EndDecoration::None,
                 target_decoration: EndDecoration::OpenArrow,
