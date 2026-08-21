@@ -71,6 +71,9 @@ assert "element?.kind === 'Requirement' || element?.kind === 'TestCase'" in bdd_
 assert "return renderStructuralProperties()" in bdd_feature_editing
 assert 'compartment-title">id' in frontend and 'compartment-title">text' in frontend
 assert "Presentation Display" in visibility and "['id', 'text'" in visibility
+assert "visibleCompartments.length" in visibility
+assert "compartments-collapsed" in visibility
+assert "box.querySelectorAll('.compartment')" in visibility
 assert "show-requirement-id" in frontend and "smpRequirementDisplay" in visibility
 assert "ElementKind::Requirement => (260.0, 180.0)" in desktop
 assert "DeriveRequirement: 'R┄➤'" in palette_icons
