@@ -15,6 +15,7 @@ ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
 bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
 palette_icons = read("apps/desktop/frontend/palette-icons.js")
+visibility = read("apps/desktop/frontend/bdd-compartment-visibility.js")
 families = read("crates/model-core/src/diagram_family.rs")
 
 for token in [
@@ -54,6 +55,8 @@ assert "createStructuralPaletteElementAt(item, x, y)" in bdd_completion
 assert "renderStructuralCanvas" in bdd_completion and "renderStructuralProperties" in bdd_completion
 assert "diagram?.family === 'requirement') return baseRenderCanvasExtended()" in bdd_extended
 assert 'compartment-title">id' in frontend and 'compartment-title">text' in frontend
+assert "Presentation Display" in visibility and "['id', 'text'" in visibility
+assert "ElementKind::Requirement => (260.0, 180.0)" in desktop
 assert "DeriveRequirement: 'R┄➤'" in palette_icons
 for semantic_kind in ["AssociationBlock", "InterfaceBlock", "ConstraintBlock", "ValueType", "DataType", "PrimitiveType", "Enumeration", "Signal", "Unit", "QuantityKind", "InstanceSpecification", "Comment"]:
     assert f'"{semantic_kind}"' in main, f"Requirement palette missing supported model element: {semantic_kind}"

@@ -78,10 +78,10 @@
     if (!diagram || !panel || !elementId) return;
     const presentation = presentationForElement(elementId);
     if (!presentation) return;
+    const element = state.snapshot?.project?.elements?.find((candidate) => String(candidate.id) === String(elementId));
     const box = [...document.querySelectorAll('#canvas .bdd-block')]
       .find((candidate) => candidate.dataset.presentationId === presentation.id);
-    if (!box) return;
-    const compartments = [...box.querySelectorAll('.compartment')]
+    const compartments = element?.kind === 'Requirement' ? ['id', 'text', ...(element.documentation ? ['documentation'] : [])] : [...(box?.querySelectorAll('.compartment') || [])]
       .map((compartment) => compartment.querySelector('.compartment-title')?.textContent?.trim())
       .filter(Boolean);
     if (!compartments.length || panel.querySelector('.bdd-compartment-controls')) return;
@@ -89,7 +89,7 @@
     const hidden = hiddenCompartments(diagram, presentation);
     const section = document.createElement('section');
     section.className = 'bdd-compartment-controls';
-    section.innerHTML = '<div class="property-heading">Compartments</div><div class="muted">Visibility affects this diagram presentation only. Owned model features remain unchanged.</div>';
+    section.innerHTML = '<div class="property-heading">Presentation Display</div><div class="muted">Choose which semantic fields are visible on this requirement presentation. Hidden values remain in the model.</div>';
     for (const label of compartments) {
       const row = document.createElement('label');
       row.className = 'compartment-visibility-toggle';

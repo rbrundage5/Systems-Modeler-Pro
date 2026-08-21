@@ -164,11 +164,16 @@ pub fn place_on_requirement_diagram(
         .project
         .lock()
         .map_err(|_| "project lock poisoned")?;
-    project
+    let element = project
         .as_ref()
         .ok_or("no project open")?
         .element(element_id)
         .map_err(|error| error.to_string())?;
+    let (width, height) = match element.kind {
+        ElementKind::Requirement => (260.0, 180.0),
+        ElementKind::TestCase => (220.0, 105.0),
+        _ => (220.0, 130.0),
+    };
     drop(project);
     checkpoint(&workspace, &activity, &history)?;
     let mut diagrams = workspace
@@ -192,8 +197,8 @@ pub fn place_on_requirement_diagram(
         element_id: element_id.to_string(),
         x,
         y,
-        width: 220.0,
-        height: 130.0,
+        width,
+        height,
     });
     Ok(id)
 }
