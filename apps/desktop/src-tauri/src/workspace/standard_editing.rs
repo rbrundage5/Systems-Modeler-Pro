@@ -2302,7 +2302,7 @@ mod tests {
             .create_element(ElementKind::Package, "Requirements", project.root_id)
             .expect("package");
         let requirement = project
-            .create_requirement("Power", package, "REQ-1", "Provide power")
+            .create_requirement("Power", "REQ-1", "Provide power", package)
             .expect("requirement");
         let duplicate = duplicate_element(&mut project, requirement).expect("duplicate");
         let source = project.element(requirement).expect("source");
