@@ -19,6 +19,7 @@
     };
   }
 
+  const renderStructuralProperties = renderProperties;
   renderProperties = function renderPropertiesWithFeatureSemantics() {
     const panel = $('properties');
     const project = state.snapshot?.project;
@@ -29,6 +30,7 @@
     const relationship = project.relationships?.find((item) => item.id === state.selectedRelationshipId);
     if (relationship) return renderRelationshipProperties(panel, project, relationship);
     const element = project.elements.find((item) => item.id === state.selectedElementId);
+    if (element?.kind === 'Requirement' || element?.kind === 'TestCase') return renderStructuralProperties();
     if (!element) {
       panel.innerHTML = '<div class="muted">Select an element or relationship.</div>';
       return;
