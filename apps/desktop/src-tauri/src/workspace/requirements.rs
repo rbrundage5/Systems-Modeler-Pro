@@ -164,12 +164,11 @@ pub fn place_on_requirement_diagram(
         .project
         .lock()
         .map_err(|_| "project lock poisoned")?;
-    let element = project
-        .as_ref()
-        .ok_or("no project open")?
+    let open_project = project.as_ref().ok_or("no project open")?;
+    let element = open_project
         .element(element_id)
         .map_err(|error| error.to_string())?;
-    let has_owned_content = project.children(element_id).next().is_some();
+    let has_owned_content = open_project.children(element_id).next().is_some();
     let (width, height) = match element.kind {
         ElementKind::Requirement => (260.0, 180.0),
         ElementKind::TestCase => (220.0, 72.0),
