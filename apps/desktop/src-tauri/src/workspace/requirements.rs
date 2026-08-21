@@ -205,6 +205,110 @@ pub fn place_on_requirement_diagram(
 }
 
 #[tauri::command]
+pub fn reconnect_traceability_relationship(
+    diagram_id: String,
+    relationship_id: String,
+    side: String,
+    element_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, history::HistoryState>,
+) -> Result<(), String> {
+    if side != "source" && side != "target" {
+        return Err("relationship side must be source or target".into());
+    }
+    let relationship_id = parse_relationship_id(&relationship_id)?;
+    let element_id = parse_element_id(&element_id)?;
+    checkpoint(&workspace, &activity, &history)?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|candidate| candidate.id == diagram_id && candidate.family == "requirement")
+        .ok_or("Requirement Diagram not found")?;
+    if !diagram
+        .nodes
+        .iter()
+        .any(|node| node.element_id == element_id.to_string())
+    {
+        return Err("replacement endpoint must be presented on this Requirement Diagram".into());
+    }
+
+    let mut project_guard = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_mut().ok_or("no project open")?;
+    let original = project
+        .relationship(relationship_id)
+        .map_err(|error| error.to_string())?
+        .clone();
+    if !matches!(
+        original.kind,
+        RelationshipKind::DeriveRequirement
+            | RelationshipKind::Satisfy
+            | RelationshipKind::Verify
+            | RelationshipKind::Refine
+            | RelationshipKind::Trace
+            | RelationshipKind::Copy
+    ) {
+        return Err("selected relationship is not Requirement traceability".into());
+    }
+    let (new_source, new_target) = if side == "source" {
+        (element_id, original.target_id)
+    } else {
+        (original.source_id, element_id)
+    };
+    {
+        let relationship = project
+            .relationships
+            .get_mut(&relationship_id)
+            .ok_or("relationship not found")?;
+        relationship.source_id = new_source;
+        relationship.target_id = new_target;
+    }
+    if let Err(error) = project.validate() {
+        project.relationships.insert(relationship_id, original.clone());
+        return Err(error.to_string());
+    }
+    if original.kind == RelationshipKind::Copy {
+        let master_text = project
+            .element(new_target)
+            .map_err(|error| error.to_string())?
+            .requirement_text
+            .clone();
+        project
+            .element_mut(new_source)
+            .map_err(|error| error.to_string())?
+            .requirement_text = master_text;
+    }
+
+    let source_node = diagram
+        .nodes
+        .iter()
+        .find(|node| node.element_id == new_source.to_string())
+        .cloned()
+        .ok_or("new source endpoint must be presented on the Requirement Diagram")?;
+    let target_node = diagram
+        .nodes
+        .iter()
+        .find(|node| node.element_id == new_target.to_string())
+        .cloned()
+        .ok_or("new target endpoint must be presented on the Requirement Diagram")?;
+    let edge = diagram
+        .edges
+        .iter_mut()
+        .find(|edge| edge.relationship_id == relationship_id.to_string())
+        .ok_or("Requirement relationship presentation not found")?;
+    edge.source_node_id = source_node.id.clone();
+    edge.target_node_id = target_node.id.clone();
+    edge.points = route_relationship(&source_node, &target_node, &diagram.nodes);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn create_traceability_relationship(
     diagram_id: String,
     relationship_kind: String,
