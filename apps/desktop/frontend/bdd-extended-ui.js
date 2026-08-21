@@ -121,34 +121,20 @@ const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCan
     box.onclick = async (event) => {
       event.stopPropagation();
       if (state.pendingRelationship) {
-        if (diagram.family !== 'requirement' && !BDD_RELATIONSHIP_CLASSIFIER_KINDS.has(element.kind)) {
-          alert(`${element.kind} is not a classifier endpoint for this BDD relationship.`);
-          return;
-        }
+        if (diagram.family !== 'requirement' && !BDD_RELATIONSHIP_CLASSIFIER_KINDS.has(element.kind)) { alert(`${element.kind} is not a classifier endpoint for this BDD relationship.`); return; }
         if (!state.pendingRelationship.sourceElementId) {
-          state.pendingRelationship.sourceElementId = element.id;
-          state.selectedElementId = element.id;
-          render();
-          return;
+          Object.assign(state, { selectedElementId:element.id });
+          state.pendingRelationship.sourceElementId = element.id; render(); return;
         }
         if (state.pendingRelationship.sourceElementId !== element.id) {
-          const pending = { ...state.pendingRelationship };
-          state.pendingRelationship = null;
-          if (diagram.family === 'requirement') {
-            const sourceNode = diagram.nodes.find((candidate) => candidate.element_id === pending.sourceElementId);
-            const targetNode = diagram.nodes.find((candidate) => candidate.element_id === element.id);
-            await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_traceability_relationship', {
-              diagramId: state.selectedDiagramId,
-              relationshipKind: pending.kind,
-              sourceNodeId: sourceNode?.id,
-              targetNodeId: targetNode?.id,
-            }));
-          } else {
-            await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship_complete', {
-              diagramId: state.selectedDiagramId, kind: pending.kind,
-              sourceElementId: pending.sourceElementId, targetElementId: element.id,
-            }));
-          }
+          const pending = { ...state.pendingRelationship }; state.pendingRelationship = null;
+          const sourceNode = diagram.nodes.find((candidate) => candidate.element_id === pending.sourceElementId);
+          const targetNode = diagram.nodes.find((candidate) => candidate.element_id === element.id);
+          const command = diagram.family === 'requirement' ? 'create_traceability_relationship' : 'create_bdd_relationship_complete';
+          const args = diagram.family === 'requirement'
+            ? { diagramId:state.selectedDiagramId, relationshipKind:pending.kind, sourceNodeId:sourceNode?.id, targetNodeId:targetNode?.id }
+            : { diagramId:state.selectedDiagramId, kind:pending.kind, sourceElementId:pending.sourceElementId, targetElementId:element.id };
+          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()(command, args));
           state.selectedElementId = element.id;
           await refresh();
           return;
