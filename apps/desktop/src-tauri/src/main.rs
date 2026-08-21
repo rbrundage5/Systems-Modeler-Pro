@@ -21,6 +21,7 @@ mod workspace {
     mod shared_workspace;
     #[rustfmt::skip]
     mod standard_editing;
+    mod standard_editing_bridge;
     pub use activity_editing::{
         add_activity_action, add_activity_parameter_node, add_activity_partition,
         add_structured_activity_node, assign_activity_node_partition,
@@ -92,9 +93,10 @@ mod workspace {
         set_diagram_frame_preference, set_panel_preferences, set_viewport_preference,
         set_workspace_interaction, workspace_interaction_snapshot, zoom_diagram_viewport,
     };
-    pub use standard_editing::{
-        StandardEditingState, copy_selection, delete_active_selection, duplicate_selection,
-        move_active_selection, paste_selection,
+    pub use standard_editing::StandardEditingState;
+    pub use standard_editing_bridge::{
+        copy_selection, delete_active_selection, duplicate_selection, move_active_selection,
+        paste_selection,
     };
 }
 
