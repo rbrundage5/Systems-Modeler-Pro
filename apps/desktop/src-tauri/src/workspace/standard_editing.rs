@@ -1380,7 +1380,7 @@ fn duplicate_behavior_items(
                 let source = diagram
                     .state_nodes
                     .iter()
-                    .find(|node| node.vertex_id == semantic_id);
+                    .find(|node| node.vertex_id == *semantic_id);
                 let (x, y, width, height) = source.map_or((80.0, 80.0, 150.0, 80.0), |node| {
                     (node.x, node.y, node.width, node.height)
                 });
@@ -1451,7 +1451,7 @@ fn duplicate_behavior_items(
                 let source_presentation = diagram
                     .lifelines
                     .iter()
-                    .find(|presentation| presentation.lifeline_id == semantic_id);
+                    .find(|presentation| presentation.lifeline_id == *semantic_id);
                 let mut presentation = source_presentation.cloned().unwrap_or(
                     behavior_workspace::LifelinePresentation {
                         lifeline_id: semantic_id.clone(),
@@ -2212,7 +2212,6 @@ fn move_selection_items(
     Ok(changed)
 }
 
-#[tauri::command]
 pub fn copy_selection(
     diagram_id: String,
     selections: Vec<WorkspaceSelection>,
@@ -2230,7 +2229,6 @@ pub fn copy_selection(
     Ok(StandardEditingResult { changed, selections })
 }
 
-#[tauri::command]
 pub fn paste_selection(
     diagram_id: String,
     selections: Vec<WorkspaceSelection>,
@@ -2257,7 +2255,6 @@ pub fn paste_selection(
     })
 }
 
-#[tauri::command]
 pub fn duplicate_selection(
     diagram_id: String,
     selections: Vec<WorkspaceSelection>,
@@ -2277,7 +2274,6 @@ pub fn duplicate_selection(
     })
 }
 
-#[tauri::command]
 pub fn delete_active_selection(
     diagram_id: String,
     selections: Vec<WorkspaceSelection>,
@@ -2296,7 +2292,6 @@ pub fn delete_active_selection(
     })
 }
 
-#[tauri::command]
 pub fn move_active_selection(
     diagram_id: String,
     selections: Vec<WorkspaceSelection>,
