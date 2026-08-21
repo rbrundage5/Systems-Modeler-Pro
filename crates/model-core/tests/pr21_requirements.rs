@@ -183,6 +183,10 @@ fn every_requirement_relationship_enforces_endpoints_and_package_ownership() {
         Err(ModelError::SelfTraceabilityRelationship)
     );
     assert_eq!(
+        project.create_relationship(RelationshipKind::Trace, test_case, block, None),
+        Err(ModelError::MissingTraceabilityOwner)
+    );
+    assert_eq!(
         project.create_relationship(RelationshipKind::Trace, test_case, block, Some(block)),
         Err(ModelError::InvalidTraceabilityOwner(block))
     );
