@@ -378,11 +378,11 @@ pub enum ModelError {
     RelationshipIsNotConnector(RelationshipId),
     #[error("item flow must realize an existing connector: {0}")]
     ItemFlowConnectorNotFound(RelationshipId),
-    #[error("invalid endpoint kinds for {relationship:?}: {source:?} -> {target:?}")]
+    #[error("invalid endpoint kinds for {relationship:?}: {source_kind:?} -> {target_kind:?}")]
     InvalidTraceabilityEndpoints {
         relationship: RelationshipKind,
-        source: ElementKind,
-        target: ElementKind,
+        source_kind: ElementKind,
+        target_kind: ElementKind,
     },
     #[error("requirement ID cannot be empty: {0}")]
     EmptyRequirementId(ElementId),
@@ -1036,8 +1036,8 @@ fn validate_traceability_endpoints(
     } else {
         Err(ModelError::InvalidTraceabilityEndpoints {
             relationship: relationship.clone(),
-            source: source.clone(),
-            target: target.clone(),
+            source_kind: source.clone(),
+            target_kind: target.clone(),
         })
     }
 }
