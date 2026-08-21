@@ -169,10 +169,12 @@ pub fn place_on_requirement_diagram(
         .ok_or("no project open")?
         .element(element_id)
         .map_err(|error| error.to_string())?;
+    let has_owned_content = project.children(element_id).next().is_some();
     let (width, height) = match element.kind {
         ElementKind::Requirement => (260.0, 180.0),
-        ElementKind::TestCase => (220.0, 105.0),
-        _ => (220.0, 130.0),
+        ElementKind::TestCase => (220.0, 72.0),
+        _ if has_owned_content => (220.0, 130.0),
+        _ => (220.0, 58.0),
     };
     drop(project);
     checkpoint(&workspace, &activity, &history)?;
