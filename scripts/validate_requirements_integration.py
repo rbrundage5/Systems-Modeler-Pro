@@ -42,12 +42,16 @@ for command in [
     "update_requirement",
     "place_on_requirement_diagram",
     "create_traceability_relationship",
+    "reconnect_traceability_relationship",
 ]:
     assert command in desktop, f"missing Rust Requirement command: {command}"
     assert command in main, f"Requirement command not registered: {command}"
 
 assert '"requirement"' in families and '("req", "Package")' in families
 assert "create_traceability_relationship" in frontend
+assert "reconnect_traceability_relationship" in frontend
+assert "relationshipEndpointOptions" in frontend
+assert "TRACEABILITY_KINDS" in frontend
 assert "update_requirement" in frontend
 assert "selectedBehaviorDiagramId: null" in frontend
 assert "selectedActivityDiagramId: null" in frontend
