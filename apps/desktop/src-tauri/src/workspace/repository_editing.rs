@@ -174,11 +174,7 @@ pub fn delete_model_element(
     project.validate().map_err(|error| error.to_string())?;
     validate_loaded_diagrams(&project, &diagrams)?;
     ibd::validate_ibd_diagrams(&project, &ibd_diagrams)?;
-    behavior_workspace::validate_behavior_workspace(
-        &project,
-        &behavior,
-        &behavior_diagrams,
-    )?;
+    behavior_workspace::validate_behavior_workspace(&project, &behavior, &behavior_diagrams)?;
     activity_repository
         .validate(&project)
         .map_err(|error| error.to_string())?;
