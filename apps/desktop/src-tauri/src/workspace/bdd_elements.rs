@@ -20,6 +20,8 @@ pub struct CompleteElementSnapshot {
     pub parameter_direction: Option<String>,
     pub literal_value: Option<String>,
     pub flow_direction: Option<String>,
+    pub requirement_id: Option<String>,
+    pub requirement_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +57,8 @@ fn bdd_presentable(kind: &ElementKind) -> bool {
             | ElementKind::QuantityKind
             | ElementKind::InstanceSpecification
             | ElementKind::Comment
+            | ElementKind::Requirement
+            | ElementKind::TestCase
     )
 }
 
@@ -85,6 +89,8 @@ fn parse_kind(value: &str) -> Result<ElementKind, String> {
         "Parameter" => Ok(ElementKind::Parameter),
         "Reception" => Ok(ElementKind::Reception),
         "Comment" => Ok(ElementKind::Comment),
+        "Requirement" => Ok(ElementKind::Requirement),
+        "TestCase" => Ok(ElementKind::TestCase),
         _ => Err(format!("unsupported BDD semantic kind: {value}")),
     }
 }
@@ -135,6 +141,8 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
                 .flow_direction
                 .map(flow_direction_name)
                 .map(str::to_string),
+            requirement_id: element.requirement_id.clone(),
+            requirement_text: element.requirement_text.clone(),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));

@@ -211,6 +211,26 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             ],
             PreferredFlowDirection::TopToBottom,
         ),
+        descriptor(
+            "requirement",
+            "Requirement Diagram",
+            ("req", "Package"),
+            "requirement",
+            &["Model", "Package"],
+            &[
+                C::NodePlacement,
+                C::Relationships,
+                C::Frames,
+                C::Move,
+                C::Resize,
+                C::Delete,
+                C::Clipboard,
+                C::Routing,
+                C::CleanLayout,
+                C::DrillDown,
+            ],
+            PreferredFlowDirection::TopToBottom,
+        ),
     ] {
         registry
             .register(descriptor)
@@ -473,12 +493,12 @@ mod tests {
     #[test]
     fn registry_is_extensible_and_rejects_duplicates() {
         let mut registry = supported_diagram_families();
-        assert_eq!(registry.descriptors().len(), 5);
+        assert_eq!(registry.descriptors().len(), 6);
         let future = descriptor(
-            "requirement",
-            "Requirement Diagram",
+            "parametric",
+            "Parametric Diagram",
             ("req", "Package"),
-            "requirement",
+            "constraint",
             &["Model", "Package"],
             &[DiagramCapability::NodePlacement],
             PreferredFlowDirection::TopToBottom,
@@ -495,6 +515,7 @@ mod tests {
             ("state-machine", "stm", "StateMachine"),
             ("sequence", "seq", "Interaction"),
             ("activity", "act", "Activity"),
+            ("requirement", "req", "Package"),
         ];
         for (id, abbreviation, context_kind) in expected {
             let family = registry.get(&DiagramFamilyId::new(id).unwrap()).unwrap();

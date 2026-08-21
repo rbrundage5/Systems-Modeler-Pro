@@ -226,7 +226,7 @@
       const ibd = application.snapshot?.ibd_diagrams?.find((item) => String(item.id) === String(structuralId));
       const bdd = application.snapshot?.diagrams?.find((item) => String(item.id) === String(structuralId));
       const diagram = ibd || bdd;
-      if (diagram) await activate({ diagramId:structuralId, familyId:ibd ? 'ibd' : 'bdd', name:diagram.name, semanticContextId:ibd?.context_block_id || bdd?.owner_id || '' });
+      if (diagram) await activate({ diagramId:structuralId, familyId:ibd ? 'ibd' : (bdd?.family || 'bdd'), name:diagram.name, semanticContextId:ibd?.context_block_id || bdd?.owner_id || '' });
     }
   }
 
@@ -353,6 +353,7 @@
   });
   registerRenderer('bdd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('ibd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
+  registerRenderer('requirement', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('state-machine', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending','behaviorTargetRegionId']));
   registerRenderer('sequence', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending']));
   registerRenderer('activity', selectionAdapter(['selectedActivityNodeId','selectedActivityEdgeId'], ['activityTool','activityPendingFlow']));

@@ -15,6 +15,7 @@ mod workspace {
     mod presentation_interaction;
     mod presentation_theme;
     mod relationship_editing;
+    mod requirements;
     mod routing;
     mod shared_workspace;
     pub use activity_editing::{
@@ -70,6 +71,10 @@ mod workspace {
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
+    pub use requirements::{
+        create_requirement, create_requirement_diagram, create_test_case,
+        create_traceability_relationship, place_on_requirement_diagram, update_requirement,
+    };
     pub use routing::route_diagram_geometry;
     pub use shared_workspace::{
         SharedWorkspaceState, activate_diagram, active_diagram_command_manifest,
@@ -117,6 +122,8 @@ use workspace::{
     update_state_behaviors, update_state_invariant, update_state_presentation_geometry,
     update_state_transition, workspace_interaction_snapshot, workspace_snapshot,
     workspace_snapshot_complete, zoom_diagram_viewport,
+    create_requirement, create_requirement_diagram, create_test_case,
+    create_traceability_relationship, place_on_requirement_diagram, update_requirement,
 };
 
 #[derive(Serialize)]
@@ -364,6 +371,18 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             relationship_item("ControlFlow", "Control Flow", "ControlFlow"),
             relationship_item("ObjectFlow", "Object Flow", "ObjectFlow"),
         ]),
+        "Requirement" => Ok(vec![
+            element_item("requirement", "Requirement", "Requirement"),
+            element_item("test-case", "Test Case", "TestCase"),
+            element_item("block", "Block", "Block"),
+            element_item("comment", "Comment", "Comment"),
+            relationship_item("derive-reqt", "Derive Requirement", "DeriveRequirement"),
+            relationship_item("satisfy", "Satisfy", "Satisfy"),
+            relationship_item("verify", "Verify", "Verify"),
+            relationship_item("refine", "Refine", "Refine"),
+            relationship_item("trace", "Trace", "Trace"),
+            relationship_item("copy", "Copy", "Copy"),
+        ]),
         _ => Err(format!("unsupported diagram palette: {diagram_type}")),
     }
 }
@@ -396,6 +415,12 @@ fn main() {
             get_panel_preferences,
             set_panel_preferences,
             diagram_palette,
+            create_requirement_diagram,
+            create_requirement,
+            create_test_case,
+            update_requirement,
+            place_on_requirement_diagram,
+            create_traceability_relationship,
             history_checkpoint,
             history_undo,
             history_redo,
