@@ -32,6 +32,7 @@ assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_prefer
 assert "validFrame(storedFrame)?storedFrame:null" in workspace
 assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
+assert ".canvas.space-pan .workspace-renderer-surface" in styles
 assert "state.frameElement.style.transform=transform" in workspace
 assert "frame.dataset.diagramId=state.context.diagramId" in workspace
 assert "rename_active_diagram_header" in workspace and "editFrameHeader" in workspace
@@ -95,6 +96,7 @@ assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
 assert 'storedRoute?.label_anchor||' in behavior_ui
 assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
 assert 'container-type:inline-size' in styles and 'font-size:clamp(' in styles
+assert 'sequence-message-hit' in behavior_ui and 'Moving Message occurrence' in behavior_ui
 for kind in ["PartProperty", "ReferenceProperty", "ProxyPort", "FullPort", "ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
     assert f'("{kind}",' in theme
 for kind in ["ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
