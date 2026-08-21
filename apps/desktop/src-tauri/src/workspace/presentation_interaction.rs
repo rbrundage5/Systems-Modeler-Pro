@@ -22,6 +22,7 @@ fn validate_geometry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_bdd_presentation_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -87,6 +88,7 @@ pub fn update_bdd_presentation_geometry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_ibd_property_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -151,6 +153,7 @@ pub fn update_ibd_property_geometry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_ibd_port_geometry(
     diagram_id: String,
     presentation_id: String,
@@ -299,6 +302,7 @@ pub fn update_ibd_port_geometry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_state_presentation_geometry(
     diagram_id: String,
     state_vertex_id: String,
@@ -339,6 +343,7 @@ pub fn update_state_presentation_geometry(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
 pub fn update_activity_presentation_geometry(
     diagram_id: String,
     presentation_id: String,
