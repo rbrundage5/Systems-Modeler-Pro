@@ -166,9 +166,11 @@ fn every_requirement_relationship_enforces_endpoints_and_package_ownership() {
             .create_relationship(RelationshipKind::Copy, copied, requirement, Some(package))
             .unwrap(),
     ];
-    assert!(relationships.iter().all(|id| {
-        project.relationship(*id).unwrap().owner_id == Some(package)
-    }));
+    assert!(
+        relationships
+            .iter()
+            .all(|id| { project.relationship(*id).unwrap().owner_id == Some(package) })
+    );
 
     assert_eq!(
         project.create_relationship(RelationshipKind::Satisfy, block, requirement, Some(package)),
@@ -179,7 +181,12 @@ fn every_requirement_relationship_enforces_endpoints_and_package_ownership() {
         })
     );
     assert_eq!(
-        project.create_relationship(RelationshipKind::Trace, requirement, requirement, Some(package)),
+        project.create_relationship(
+            RelationshipKind::Trace,
+            requirement,
+            requirement,
+            Some(package)
+        ),
         Err(ModelError::SelfTraceabilityRelationship)
     );
     assert_eq!(
