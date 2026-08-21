@@ -79,13 +79,13 @@ chooseTypeId = async function chooseTypeIdExtended(kind) {
 
 function extendedElementMarkup(project, element) {
   if (element.kind === 'Requirement') {
-    return `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`;
+    return `<div class="classifier-header"><div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div></div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`;
   }
   if (element.kind === 'Comment') return `<div class="comment-body">${escapeHtml(element.documentation || element.name)}</div>`;
   const stereotype = classifierStereotype(element.kind);
   const stereotypeMarkup = stereotype ? `<div class="stereotype">«${escapeHtml(stereotype)}»</div>` : '';
   const name = element.kind === 'InstanceSpecification' && element.type_id ? `${element.name} : ${typeName(project, element)}` : element.name;
-  return `${stereotypeMarkup}<div class="block-name">${escapeHtml(name)}</div>${classifierCompartments(project, element)}`;
+  return `<div class="classifier-header">${stereotypeMarkup}<div class="block-name">${escapeHtml(name)}</div></div>${classifierCompartments(project, element)}`;
 }
 
 const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCanvasExtended() {
