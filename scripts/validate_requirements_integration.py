@@ -14,6 +14,7 @@ frontend = read("apps/desktop/frontend/app.js")
 ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
 bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
+bdd_feature_editing = read("apps/desktop/frontend/bdd-feature-editing.js")
 palette_icons = read("apps/desktop/frontend/palette-icons.js")
 visibility = read("apps/desktop/frontend/bdd-compartment-visibility.js")
 families = read("crates/model-core/src/diagram_family.rs")
@@ -60,6 +61,9 @@ assert "box.dataset.presentationId = node.id" in bdd_extended
 assert "diagram.family === 'requirement' ? 'req' : 'bdd'" in bdd_extended
 assert "create_traceability_relationship" in bdd_extended
 assert "element.kind === 'Requirement'" in bdd_extended
+assert "const renderStructuralProperties = renderProperties" in bdd_feature_editing
+assert "element?.kind === 'Requirement' || element?.kind === 'TestCase'" in bdd_feature_editing
+assert "return renderStructuralProperties()" in bdd_feature_editing
 assert 'compartment-title">id' in frontend and 'compartment-title">text' in frontend
 assert "Presentation Display" in visibility and "['id', 'text'" in visibility
 assert "show-requirement-id" in frontend and "smpRequirementDisplay" in visibility
