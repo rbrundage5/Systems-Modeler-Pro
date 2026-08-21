@@ -903,6 +903,31 @@ impl Project {
             }
             self.element(relationship.source_id)?;
             self.element(relationship.target_id)?;
+            if is_traceability_relationship(&relationship.kind) {
+                if relationship.source_id == relationship.target_id {
+                    return Err(ModelError::SelfTraceabilityRelationship);
+                }
+                if let Some(owner_id) = relationship.owner_id
+                    && !matches!(
+                        self.element(owner_id)?.kind,
+                        ElementKind::Model | ElementKind::Package
+                    )
+                {
+                    return Err(ModelError::InvalidTraceabilityOwner(owner_id));
+                }
+                if self.relationships.values().any(|candidate| {
+                    candidate.id != relationship.id
+                        && candidate.kind == relationship.kind
+                        && candidate.source_id == relationship.source_id
+                        && candidate.target_id == relationship.target_id
+                }) {
+                    return Err(ModelError::DuplicateTraceabilityRelationship {
+                        relationship: relationship.kind.clone(),
+                        source: relationship.source_id,
+                        target: relationship.target_id,
+                    });
+                }
+            }
             validate_traceability_endpoints(
                 &relationship.kind,
                 &self.element(relationship.source_id)?.kind,
