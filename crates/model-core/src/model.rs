@@ -390,6 +390,16 @@ pub enum ModelError {
     DuplicateRequirementId(String),
     #[error("copied Requirement text is read-only; edit its supplier Requirement: {0}")]
     CopiedRequirementIsReadOnly(ElementId),
+    #[error("Requirement traceability relationships cannot connect an element to itself")]
+    SelfTraceabilityRelationship,
+    #[error("duplicate Requirement traceability relationship: {relationship:?} {source} -> {target}")]
+    DuplicateTraceabilityRelationship {
+        relationship: RelationshipKind,
+        source: ElementId,
+        target: ElementId,
+    },
+    #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
+    InvalidTraceabilityOwner(ElementId),
 }
 
 impl Project {
@@ -579,7 +589,22 @@ impl Project {
     ) -> Result<RelationshipId, ModelError> {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
+        let traceability = is_traceability_relationship(&kind);
+        if traceability && source_id == target_id {
+            return Err(ModelError::SelfTraceabilityRelationship);
+        }
         validate_traceability_endpoints(&kind, &source.kind, &target.kind)?;
+        if traceability && self.relationships.values().any(|relationship| {
+            relationship.kind == kind
+                && relationship.source_id == source_id
+                && relationship.target_id == target_id
+        }) {
+            return Err(ModelError::DuplicateTraceabilityRelationship {
+                relationship: kind,
+                source: source_id,
+                target: target_id,
+            });
+        }
         let copied_requirement_text = (kind == RelationshipKind::Copy)
             .then(|| target.requirement_text.clone())
             .flatten();
@@ -593,6 +618,9 @@ impl Project {
         }
         if let Some(owner_id) = owner_id {
             let owner = self.element(owner_id)?;
+            if traceability && !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
+                return Err(ModelError::InvalidTraceabilityOwner(owner_id));
+            }
             if !owner.is_namespace() && !owner.is_classifier() {
                 return Err(ModelError::InvalidOwner(owner_id));
             }
@@ -1039,6 +1067,18 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
     }
 }
 
+fn is_traceability_relationship(relationship: &RelationshipKind) -> bool {
+    matches!(
+        relationship,
+        RelationshipKind::DeriveRequirement
+            | RelationshipKind::Satisfy
+            | RelationshipKind::Verify
+            | RelationshipKind::Refine
+            | RelationshipKind::Trace
+            | RelationshipKind::Copy
+    )
+}
+
 fn validate_traceability_endpoints(
     relationship: &RelationshipKind,
     source: &ElementKind,
@@ -1050,7 +1090,7 @@ fn validate_traceability_endpoints(
         R::DeriveRequirement | R::Copy => is_requirement(source) && is_requirement(target),
         R::Satisfy => !is_requirement(source) && is_requirement(target),
         R::Verify => *source == ElementKind::TestCase && is_requirement(target),
-        R::Refine => !is_requirement(source) && is_requirement(target),
+        R::Refine => is_requirement(source) ^ is_requirement(target),
         R::Trace => true,
         _ => true,
     };
