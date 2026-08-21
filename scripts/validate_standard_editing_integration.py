@@ -91,9 +91,19 @@ require(
         "event.ctrlKey || event.metaKey || event.shiftKey",
         "window.smpRendererHost?.publishInteraction?.()",
         "window.smpStandardEditing",
+        "Deleting Behavior item from model",
+        "Deleting Activity item from model",
+        "itemKind: edge ? 'edge' : 'node'",
+        "The selected Activity presentation does not resolve to a semantic node or edge.",
     ],
     "cross-diagram editing UI",
 )
+
+if "itemType: edge ? 'Edge' : 'Node'" in ui:
+    raise SystemExit(
+        "standard-editing-ui.js: Activity model deletion must use the qualified "
+        "delete_activity_item itemKind contract with lowercase edge/node values"
+    )
 
 require(
     shared,
@@ -149,5 +159,6 @@ require(
 print(
     "PR22 standard editing integration contract passed: all six diagram families retain "
     "Rust-owned clipboard/remove/move authority, shared selection synchronization, "
-    "presentation persistence, and model-vs-diagram deletion separation"
+    "presentation persistence, model-vs-diagram deletion separation, and qualified "
+    "Behavior/Activity model-deletion history wiring"
 )
