@@ -392,11 +392,13 @@ pub enum ModelError {
     CopiedRequirementIsReadOnly(ElementId),
     #[error("Requirement traceability relationships cannot connect an element to itself")]
     SelfTraceabilityRelationship,
-    #[error("duplicate Requirement traceability relationship: {relationship:?} {source} -> {target}")]
+    #[error(
+        "duplicate Requirement traceability relationship: {relationship:?} {source_id} -> {target_id}"
+    )]
     DuplicateTraceabilityRelationship {
         relationship: RelationshipKind,
-        source: ElementId,
-        target: ElementId,
+        source_id: ElementId,
+        target_id: ElementId,
     },
     #[error("Requirement traceability relationships require a Model or Package owner")]
     MissingTraceabilityOwner,
@@ -603,8 +605,8 @@ impl Project {
         }) {
             return Err(ModelError::DuplicateTraceabilityRelationship {
                 relationship: kind,
-                source: source_id,
-                target: target_id,
+                source_id,
+                target_id,
             });
         }
         let copied_requirement_text = (kind == RelationshipKind::Copy)
@@ -931,8 +933,8 @@ impl Project {
                 }) {
                     return Err(ModelError::DuplicateTraceabilityRelationship {
                         relationship: relationship.kind.clone(),
-                        source: relationship.source_id,
-                        target: relationship.target_id,
+                        source_id: relationship.source_id,
+                        target_id: relationship.target_id,
                     });
                 }
             }
