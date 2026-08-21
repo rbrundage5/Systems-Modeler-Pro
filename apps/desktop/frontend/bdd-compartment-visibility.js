@@ -45,6 +45,8 @@
     saveVisibility(all);
   }
 
+  window.smpRequirementDisplay = (elementId) => { const diagram=activeBdd(),presentation=presentationForElement(elementId); if(!diagram||!presentation)return null; const hidden=hiddenCompartments(diagram,presentation); return { shown:(label)=>!hidden.has(label),set:(label,shown)=>{setCompartmentHidden(diagram,presentation,label,!shown);applyCompartmentPresentation();} }; };
+
   function applyCompartmentPresentation() {
     const diagram = activeBdd();
     if (!diagram) return;
@@ -114,13 +116,6 @@
     applyCompartmentPresentation();
     appendCompartmentControls();
   };
-
-  const observer = new MutationObserver(() => {
-    applyCompartmentPresentation();
-    appendCompartmentControls();
-  });
-  const canvas = $('canvas');
-  if (canvas) observer.observe(canvas, { childList: true, subtree: true });
 
   queueMicrotask(() => {
     applyCompartmentPresentation();

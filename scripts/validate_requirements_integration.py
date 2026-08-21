@@ -56,6 +56,7 @@ assert "renderStructuralCanvas" in bdd_completion and "renderStructuralPropertie
 assert "diagram?.family === 'requirement') return baseRenderCanvasExtended()" in bdd_extended
 assert 'compartment-title">id' in frontend and 'compartment-title">text' in frontend
 assert "Presentation Display" in visibility and "['id', 'text'" in visibility
+assert "show-requirement-id" in frontend and "smpRequirementDisplay" in visibility
 assert "ElementKind::Requirement => (260.0, 180.0)" in desktop
 assert "DeriveRequirement: 'R┄➤'" in palette_icons
 for semantic_kind in ["AssociationBlock", "InterfaceBlock", "ConstraintBlock", "ValueType", "DataType", "PrimitiveType", "Enumeration", "Signal", "Unit", "QuantityKind", "InstanceSpecification", "Comment"]:
