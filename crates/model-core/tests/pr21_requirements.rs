@@ -113,3 +113,82 @@ fn copy_relationship_synchronizes_and_protects_slave_text() {
         Some("Revised authoritative text")
     );
 }
+
+#[test]
+fn every_requirement_relationship_enforces_endpoints_and_package_ownership() {
+    let (mut project, package) = requirement_project();
+    let requirement = project
+        .create_requirement("Stopping", "REQ-001", "Stop safely", package)
+        .unwrap();
+    let derived = project
+        .create_requirement("Derived", "REQ-002", "Derived stopping rule", package)
+        .unwrap();
+    let copied = project
+        .create_requirement("Copy", "REQ-003", "Copy placeholder", package)
+        .unwrap();
+    let block = project
+        .create_element(ElementKind::Block, "Brake", package)
+        .unwrap();
+    let test_case = project
+        .create_element(ElementKind::TestCase, "Brake test", package)
+        .unwrap();
+
+    let relationships = [
+        project
+            .create_relationship(
+                RelationshipKind::DeriveRequirement,
+                derived,
+                requirement,
+                Some(package),
+            )
+            .unwrap(),
+        project
+            .create_relationship(RelationshipKind::Satisfy, block, requirement, Some(package))
+            .unwrap(),
+        project
+            .create_relationship(
+                RelationshipKind::Verify,
+                test_case,
+                requirement,
+                Some(package),
+            )
+            .unwrap(),
+        project
+            .create_relationship(RelationshipKind::Refine, block, requirement, Some(package))
+            .unwrap(),
+        project
+            .create_relationship(RelationshipKind::Refine, requirement, block, Some(package))
+            .unwrap(),
+        project
+            .create_relationship(RelationshipKind::Trace, block, test_case, Some(package))
+            .unwrap(),
+        project
+            .create_relationship(RelationshipKind::Copy, copied, requirement, Some(package))
+            .unwrap(),
+    ];
+    assert!(relationships.iter().all(|id| {
+        project.relationship(*id).unwrap().owner_id == Some(package)
+    }));
+
+    assert_eq!(
+        project.create_relationship(RelationshipKind::Satisfy, block, requirement, Some(package)),
+        Err(ModelError::DuplicateTraceabilityRelationship {
+            relationship: RelationshipKind::Satisfy,
+            source: block,
+            target: requirement,
+        })
+    );
+    assert_eq!(
+        project.create_relationship(RelationshipKind::Trace, requirement, requirement, Some(package)),
+        Err(ModelError::SelfTraceabilityRelationship)
+    );
+    assert_eq!(
+        project.create_relationship(RelationshipKind::Trace, test_case, block, Some(block)),
+        Err(ModelError::InvalidTraceabilityOwner(block))
+    );
+    assert!(matches!(
+        project.create_relationship(RelationshipKind::Verify, block, requirement, Some(package)),
+        Err(ModelError::InvalidTraceabilityEndpoints { .. })
+    ));
+    project.validate().unwrap();
+}
