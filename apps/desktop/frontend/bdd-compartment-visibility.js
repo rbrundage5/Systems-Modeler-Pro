@@ -55,16 +55,18 @@
       const presentation = diagram.nodes?.[index];
       if (!presentation) return;
       box.dataset.presentationId = presentation.id;
-      box.style.height = `${presentation.height}px`;
-      box.style.minHeight = '0';
-      box.style.overflow = 'hidden';
-      box.style.boxSizing = 'border-box';
-
       const hidden = hiddenCompartments(diagram, presentation);
-      for (const compartment of box.querySelectorAll('.compartment')) {
+      const compartments = [...box.querySelectorAll('.compartment')];
+      for (const compartment of compartments) {
         const label = compartment.querySelector('.compartment-title')?.textContent?.trim() || '';
         compartment.hidden = hidden.has(label);
       }
+      const visibleCompartments = compartments.filter((compartment) => !compartment.hidden);
+      box.style.height = visibleCompartments.length ? `${presentation.height}px` : 'auto';
+      box.style.minHeight = visibleCompartments.length ? '0' : '52px';
+      box.style.overflow = 'hidden';
+      box.style.boxSizing = 'border-box';
+      box.classList.toggle('compartments-collapsed', !visibleCompartments.length);
 
       const header = box.querySelector('.stereotype');
       const name = box.querySelector('.block-name');
