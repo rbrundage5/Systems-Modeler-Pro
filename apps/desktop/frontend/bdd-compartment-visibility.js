@@ -45,7 +45,15 @@
     saveVisibility(all);
   }
 
-  window.smpRequirementDisplay = (elementId) => { const diagram=activeBdd(),presentation=presentationForElement(elementId); if(!diagram||!presentation)return null; const hidden=hiddenCompartments(diagram,presentation); return { shown:(label)=>!hidden.has(label),set:(label,shown)=>{setCompartmentHidden(diagram,presentation,label,!shown);applyCompartmentPresentation();} }; };
+  window.smpCompartmentDisplay = (elementId) => {
+    const diagram=activeBdd(),presentation=presentationForElement(elementId); if(!diagram||!presentation)return null;
+    const element=state.snapshot?.project?.elements?.find((candidate)=>String(candidate.id)===String(elementId));
+    const box=[...document.querySelectorAll('#canvas .bdd-block')].find((candidate)=>candidate.dataset.presentationId===presentation.id);
+    const labels=element?.kind==='Requirement'?['id','text',...(element.documentation?['documentation']:[])]:[...(box?.querySelectorAll('.compartment')||[])].map((compartment)=>compartment.querySelector('.compartment-title')?.textContent?.trim()).filter(Boolean);
+    const hidden=hiddenCompartments(diagram,presentation);
+    return { labels,shown:(label)=>!hidden.has(label),set:(label,shown)=>{setCompartmentHidden(diagram,presentation,label,!shown);applyCompartmentPresentation();} };
+  };
+  window.smpRequirementDisplay = window.smpCompartmentDisplay;
 
   function applyCompartmentPresentation() {
     const diagram = activeBdd();
