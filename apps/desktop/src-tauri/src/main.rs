@@ -19,6 +19,7 @@ mod workspace {
     mod requirements;
     mod routing;
     mod shared_workspace;
+    #[rustfmt::skip]
     mod standard_editing;
     pub use activity_editing::{
         add_activity_action, add_activity_parameter_node, add_activity_partition,
@@ -102,18 +103,17 @@ use workspace::{
     ActivityWorkspaceState, HistoryState, SharedWorkspaceState, StandardEditingState,
     WorkspaceState, activate_diagram, active_diagram_command_manifest, active_diagram_layout,
     active_diagram_router, activity_snapshot, add_activity_action, add_activity_edge,
-    add_activity_node, add_activity_parameter_node, add_activity_partition,
-    add_combined_fragment, add_combined_fragment_operand, add_composite_state,
-    add_execution_specification, add_item_flow_to_connector, add_nested_port_to_ibd,
-    add_sequence_lifeline, add_sequence_message, add_state_invariant, add_state_region,
-    add_state_transition, add_state_transition_complete, add_state_vertex,
-    add_structured_activity_node, add_submachine_state, assign_activity_node_partition,
-    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
-    clear_workspace_interaction, copy_selection, create_activity_diagram, create_bdd,
-    create_bdd_element, create_bdd_feature, create_bdd_relationship,
-    create_bdd_relationship_complete, create_block, create_ibd, create_ibd_connector,
-    create_package, create_requirement, create_requirement_diagram, create_sequence_diagram,
-    create_sequence_diagram_staged, create_state_machine_diagram,
+    add_activity_node, add_activity_parameter_node, add_activity_partition, add_combined_fragment,
+    add_combined_fragment_operand, add_composite_state, add_execution_specification,
+    add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
+    add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
+    add_state_transition_complete, add_state_vertex, add_structured_activity_node,
+    add_submachine_state, assign_activity_node_partition, assign_activity_node_structured_parent,
+    behavior_lifeline_candidates, behavior_snapshot, clear_workspace_interaction, copy_selection,
+    create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
+    create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
+    create_ibd_connector, create_package, create_requirement, create_requirement_diagram,
+    create_sequence_diagram, create_sequence_diagram_staged, create_state_machine_diagram,
     create_state_machine_diagram_staged, create_test_case, create_traceability_relationship,
     delete_active_selection, delete_activity_item, delete_bdd_relationship, delete_behavior_item,
     delete_model_element, delete_repository_diagram, diagram_command_manifest,
@@ -270,7 +270,8 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             feature_item("part-property", "Part Property", "PartProperty"),
             feature_item(
                 "reference-property",
-                "Reference Property", "ReferenceProperty",
+                "Reference Property",
+                "ReferenceProperty",
             ),
             feature_item("proxy-port", "Proxy Port", "ProxyPort"),
             feature_item("full-port", "Full Port", "FullPort"),
