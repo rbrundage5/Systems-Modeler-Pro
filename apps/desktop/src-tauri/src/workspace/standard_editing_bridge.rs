@@ -1,8 +1,10 @@
+use super::WorkspaceState;
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::HistoryState;
-use super::shared_workspace::{SharedWorkspaceState, WorkspaceSelection, workspace_interaction_snapshot};
+use super::shared_workspace::{
+    SharedWorkspaceState, WorkspaceSelection, workspace_interaction_snapshot,
+};
 use super::standard_editing::{self, StandardEditingResult, StandardEditingState};
-use super::WorkspaceState;
 
 fn active_selections(
     shared: tauri::State<'_, SharedWorkspaceState>,
