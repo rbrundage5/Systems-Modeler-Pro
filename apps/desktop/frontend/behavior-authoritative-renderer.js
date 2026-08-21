@@ -354,11 +354,10 @@
         state.selectedBehaviorItem?.type === 'Message'
         && String(state.selectedBehaviorItem.id) === String(message.id)
       ) line.classList.add('selected');
-      line.onclick = (event) => {
-        event.stopPropagation();
-        state.selectedBehaviorItem = { type: 'Message', id: message.id, semantic: message };
-        render();
-      };
+      const hit=line.cloneNode(false);hit.className.baseVal='sequence-message-hit';hit.removeAttribute('marker-end');hit.removeAttribute('stroke-dasharray');
+      const selectMessage=(event)=>{event.stopPropagation();state.selectedBehaviorItem={type:'Message',id:message.id,semantic:message};render();};line.onclick=selectMessage;hit.onclick=selectMessage;
+      const dragMessage=(event)=>{if(state.behaviorTool||state.behaviorPending)return;event.preventDefault();const startY=event.clientY,original=messageOrder(message,index);event.currentTarget.setPointerCapture?.(event.pointerId);event.currentTarget.onpointerup=async(up)=>{const order=Math.max(1,original+Math.round((up.clientY-startY)/4));await runCommand('Moving Message occurrence…',()=>requireInvoke()('update_sequence_message',{diagramId:diagram.id,messageIdValue:message.id,sort:message.sort,name:message.name||'',signatureId:message.signature?.Operation||message.signature?.Signal||null,arguments:message.arguments||[],order}));await refresh();};};line.onpointerdown=dragMessage;hit.onpointerdown=dragMessage;
+      svg.appendChild(hit);
       svg.appendChild(line);
       const label = document.createElementNS(SVG_NS, 'text');
       label.classList.add('behavior-edge-label');
