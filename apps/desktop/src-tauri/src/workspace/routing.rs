@@ -235,15 +235,9 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
             // constrained diagram. The fallback also escapes perpendicular to
             // the primary relationship direction, so it cannot reproduce the
             // blocked-axis failure mode above.
-            let padding = 10.0 * (ROUTE_CLEARANCE + LANE_SPACING) + lane_offset;
+            let padding = ROUTE_CLEARANCE + 2.0 * LANE_SPACING + lane_offset.min(48.0);
             if horizontal {
-                let y = request.source.y.min(request.target.y).min(
-                    request
-                        .obstacles
-                        .iter()
-                        .map(|o| o.y)
-                        .fold(f64::INFINITY, f64::min),
-                ) - padding;
+                let y = request.source.y.min(request.target.y) - padding;
                 compact(vec![
                     start,
                     DiagramPoint { x: start.x, y },
@@ -251,13 +245,7 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                     end,
                 ])
             } else {
-                let x = request.source.x.min(request.target.x).min(
-                    request
-                        .obstacles
-                        .iter()
-                        .map(|o| o.x)
-                        .fold(f64::INFINITY, f64::min),
-                ) - padding;
+                let x = request.source.x.min(request.target.x) - padding;
                 compact(vec![
                     start,
                     DiagramPoint { x, y: start.y },
