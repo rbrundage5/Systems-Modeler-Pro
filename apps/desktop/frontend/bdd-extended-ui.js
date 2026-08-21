@@ -84,7 +84,7 @@ function extendedElementMarkup(project, element) {
   return `${stereotypeMarkup}<div class="block-name">${escapeHtml(name)}</div>${classifierCompartments(project, element)}`;
 }
 
-renderCanvas = function renderCanvasExtended() {
+const baseRenderCanvasExtended = renderCanvas; renderCanvas = function renderCanvasExtended() {
   const canvas = $('canvas');
   canvas.innerHTML = '';
   const project = state.snapshot?.project;
@@ -92,7 +92,7 @@ renderCanvas = function renderCanvasExtended() {
     canvas.innerHTML = '<div class="empty-state"><h1>Systems Modeler Pro</h1><div>Create or open a project to begin.</div></div>';
     return;
   }
-  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId);
+  const diagram = state.snapshot.diagrams.find((item) => item.id === state.selectedDiagramId); if (diagram?.family === 'requirement') return baseRenderCanvasExtended();
   if (!diagram) {
     canvas.innerHTML = '<div class="empty-state"><h1>Model ready</h1><div>Create or select a Block Definition Diagram.</div></div>';
     return;
