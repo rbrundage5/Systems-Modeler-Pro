@@ -11,8 +11,12 @@ workspace = read(frontend / "shared-workspace.js")
 dialogs = read(frontend / "shared-dialogs.js")
 styles = read(frontend / "shared-workspace.css")
 shell_styles = read(frontend / "workspace-polish.css")
+ibd_ui = read(frontend / "ibd-ui.js")
+behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
+activity_ui = read(frontend / "activity-ui.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
+shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 
 assert 'data-shared-workspace="true"' in index
 assert 'shared-workspace.js' in index and 'shared-workspace.css' in index
@@ -22,12 +26,38 @@ for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
     assert f'"{family}"' in family_contract
 for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
-assert "modelElementName" in workspace and "context?.frameLabel" in workspace
+assert "modelElementName" in workspace and "state.context.frameLabel" in workspace
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
 assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_preference" in workspace
+assert "validFrame(storedFrame)?storedFrame:null" in workspace
+assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
+assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
+assert "canvas.scrollLeft=state.panning.left-dx" in workspace
+assert "panX:canvas.scrollLeft,panY:canvas.scrollTop" in workspace
+assert "suppressPanClick:state.panning.moved" in workspace
+assert "translate(${left}px" not in workspace
+assert ".canvas.space-pan .workspace-renderer-surface" in styles
+assert "state.frameElement.style.transform=transform" in workspace
+assert "frame.dataset.diagramId=state.context.diagramId" in workspace
+assert "rename_active_diagram_header" in workspace and "editFrameHeader" in workspace
+assert "root?.getBBox" in workspace and "Math.max(320,bounds.width" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
 assert "active_diagram_router" in theme
+assert "active_diagram_router" in main
+assert "rename_active_diagram_header" in main and "pub fn rename_active_diagram_header" in shared_workspace
+assert "active_diagram_layout" in main
+assert "checkpoint_states" in read(root / "apps/desktop/src-tauri/src/workspace/history.rs")
+assert "hierarchical_positions" in read(root / "apps/desktop/src-tauri/src/workspace/layout.rs")
+assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
+assert "pub fn route_bdd" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
+assert "route_diagram_geometry" in main
+router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
+assert "route_diagram_geometry" in router
+for routing_contract in ["DiagramRouteEdge", "RouteRect", "reserved_routes", "allow_shared_departure"]:
+    assert routing_contract in router
+for family in ["bdd", "ibd", "state-machine", "sequence", "activity"]:
+    assert family in family_contract
 assert "resolve_diagram_commands" in theme
 assert "command.enabled" in workspace and "command.disabledReason" in workspace
 for category in ["structural", "interface", "activity", "state", "requirement", "constraint", "data", "event", "verification", "annotation", "frame"]:
@@ -62,12 +92,22 @@ assert "activated.context" in workspace and "applyCommands(activated.commands)" 
 assert "aria-modal" in dialogs and "cancelActive" in dialogs
 assert '.diagram-frame>.diagram-header{display:none!important}' in styles
 assert '.canvas .activity-svg{background:transparent!important}' in styles
+assert '.canvas .ibd-frame::after{display:none!important}' in styles
 assert 'overflow:visible!important' in styles
 assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
+assert 'frameGeometry:() => state.frame' in workspace and 'outerFramePoint' in ibd_ui
+assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
+assert 'storedRoute?.label_anchor||' in behavior_ui
+assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
+assert 'container-type:inline-size' in styles and 'font-size:clamp(' in styles
+assert 'sequence-message-hit' in behavior_ui and 'Moving Message occurrence' in behavior_ui
+for kind in ["PartProperty", "ReferenceProperty", "ProxyPort", "FullPort", "ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
+    assert f'("{kind}",' in theme
+for kind in ["ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
+    assert f"semanticKind='{kind}'" in behavior_ui
 presentation = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 assert 'data-semantic-kind=\\\"Lifeline\\\"]{background:transparent' in presentation
 assert 'ACTIVITY_CALL' in presentation and 'ACTIVITY_OBJECT' in presentation
-activity_ui = read(frontend / "activity-ui.js")
 for kind in ["OpaqueAction", "CallBehaviorAction", "CallOperationAction", "SendSignalAction", "AcceptEventAction"]:
     assert kind in activity_ui and f'("{kind}",' in presentation
 print("Shared workspace convergence contract passed")

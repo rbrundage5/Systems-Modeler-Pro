@@ -22,6 +22,19 @@ def forbid(path: str, *needles: str) -> None:
 
 
 require(
+    "apps/desktop/src-tauri/src/workspace/behavior_workspace.rs",
+    "BehaviorEdgePresentation",
+    "pub edge_routes: Vec<BehaviorEdgePresentation>",
+    "pub fn route_behavior_diagram",
+)
+require(
+    "apps/desktop/frontend/behavior-authoritative-renderer.js",
+    "diagram.edge_routes",
+    "document.createElementNS(SVG_NS, 'polyline')",
+)
+
+
+require(
     "apps/desktop/src-tauri/src/main.rs",
     "behavior_snapshot",
     "create_state_machine_diagram_staged",

@@ -542,6 +542,7 @@ pub fn create_bdd_relationship_complete(
         relationship_id: relationship_id.to_string(),
         source_node_id: source_node.id,
         target_node_id: target_node.id,
+        label_anchor: Some(routing::route_label_anchor(&points)),
         points,
     });
     Ok(relationship_id.to_string())

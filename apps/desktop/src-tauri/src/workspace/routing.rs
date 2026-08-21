@@ -27,6 +27,104 @@ pub struct RouteRequest<'a> {
     pub target: RouteRect,
     pub obstacles: &'a [RouteRect],
     pub lane_index: usize,
+    pub reserved_routes: &'a [Vec<DiagramPoint>],
+    pub allow_shared_departure: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiagramRouteEdge {
+    pub id: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub source: RouteRect,
+    pub target: RouteRect,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RoutedDiagramEdge {
+    pub id: String,
+    pub points: Vec<DiagramPoint>,
+    pub label_anchor: DiagramPoint,
+}
+
+pub fn route_label_anchor(points: &[DiagramPoint]) -> DiagramPoint {
+    let segment = points
+        .windows(2)
+        .max_by(|left, right| {
+            segment_length(left[0], left[1]).total_cmp(&segment_length(right[0], right[1]))
+        })
+        .unwrap_or(&[
+            DiagramPoint { x: 0.0, y: 0.0 },
+            DiagramPoint { x: 0.0, y: 0.0 },
+        ]);
+    let horizontal = (segment[0].y - segment[1].y).abs() < 0.001;
+    DiagramPoint {
+        x: (segment[0].x + segment[1].x) / 2.0 + if horizontal { 0.0 } else { 8.0 },
+        y: (segment[0].y + segment[1].y) / 2.0 - if horizontal { 8.0 } else { 0.0 },
+    }
+}
+
+fn segment_length(start: DiagramPoint, end: DiagramPoint) -> f64 {
+    (end.x - start.x).abs() + (end.y - start.y).abs()
+}
+
+/// Application-wide batch routing contract. Diagram families provide semantic
+/// endpoint identity and geometry; this service owns corridor reservation.
+pub fn route_diagram(
+    edges: &[DiagramRouteEdge],
+    obstacles: &[RouteRect],
+) -> Vec<RoutedDiagramEdge> {
+    let mut reserved_routes = Vec::new();
+    let mut routed = Vec::new();
+    for (index, edge) in edges.iter().enumerate() {
+        let same_source_count = edges[..index]
+            .iter()
+            .filter(|candidate| candidate.source_id == edge.source_id)
+            .count();
+        let points = orthogonal_route(RouteRequest {
+            source: edge.source,
+            target: edge.target,
+            obstacles,
+            lane_index: same_source_count,
+            reserved_routes: &reserved_routes,
+            allow_shared_departure: same_source_count > 0,
+        });
+        reserved_routes.push(points.clone());
+        routed.push(RoutedDiagramEdge {
+            id: edge.id.clone(),
+            label_anchor: route_label_anchor(&points),
+            points,
+        });
+    }
+    routed
+}
+
+#[tauri::command]
+pub fn route_diagram_geometry(
+    edges: Vec<DiagramRouteEdge>,
+    obstacles: Vec<RouteRect>,
+) -> Result<Vec<RoutedDiagramEdge>, String> {
+    if edges.iter().any(|edge| {
+        edge.id.trim().is_empty()
+            || edge.source_id.trim().is_empty()
+            || edge.target_id.trim().is_empty()
+    }) {
+        return Err("diagram routing requires stable edge and endpoint identifiers".into());
+    }
+    let invalid = obstacles
+        .iter()
+        .chain(edges.iter().flat_map(|edge| [&edge.source, &edge.target]))
+        .any(|rect| {
+            ![rect.x, rect.y, rect.width, rect.height]
+                .iter()
+                .all(|value| value.is_finite())
+                || rect.width <= 0.0
+                || rect.height <= 0.0
+        });
+    if invalid {
+        return Err("diagram routing contains invalid geometry".into());
+    }
+    Ok(route_diagram(&edges, &obstacles))
 }
 
 /// Shared deterministic orthogonal router for BDD and IBD presentations.
@@ -124,21 +222,22 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
 
     candidates
         .into_iter()
-        .find(|candidate| route_is_clear(candidate, request.obstacles))
+        .find(|candidate| {
+            route_is_clear(candidate, request.obstacles)
+                && route_avoids_reserved(
+                    candidate,
+                    request.reserved_routes,
+                    request.allow_shared_departure,
+                )
+        })
         .unwrap_or_else(|| {
             // Preserve endpoint attachment and orthogonality even in a severely
             // constrained diagram. The fallback also escapes perpendicular to
             // the primary relationship direction, so it cannot reproduce the
             // blocked-axis failure mode above.
-            let padding = 10.0 * (ROUTE_CLEARANCE + LANE_SPACING) + lane_offset;
+            let padding = ROUTE_CLEARANCE + 2.0 * LANE_SPACING + lane_offset.min(48.0);
             if horizontal {
-                let y = request.source.y.min(request.target.y).min(
-                    request
-                        .obstacles
-                        .iter()
-                        .map(|o| o.y)
-                        .fold(f64::INFINITY, f64::min),
-                ) - padding;
+                let y = request.source.y.min(request.target.y) - padding;
                 compact(vec![
                     start,
                     DiagramPoint { x: start.x, y },
@@ -146,13 +245,7 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                     end,
                 ])
             } else {
-                let x = request.source.x.min(request.target.x).min(
-                    request
-                        .obstacles
-                        .iter()
-                        .map(|o| o.x)
-                        .fold(f64::INFINITY, f64::min),
-                ) - padding;
+                let x = request.source.x.min(request.target.x) - padding;
                 compact(vec![
                     start,
                     DiagramPoint { x, y: start.y },
@@ -161,6 +254,60 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Vec<DiagramPoint> {
                 ])
             }
         })
+}
+
+pub fn route_avoids_reserved(
+    candidate: &[DiagramPoint],
+    reserved_routes: &[Vec<DiagramPoint>],
+    allow_shared_departure: bool,
+) -> bool {
+    reserved_routes.iter().all(|reserved| {
+        candidate
+            .windows(2)
+            .enumerate()
+            .all(|(candidate_index, candidate_segment)| {
+                reserved
+                    .windows(2)
+                    .enumerate()
+                    .all(|(reserved_index, reserved_segment)| {
+                        let shared_departure = allow_shared_departure
+                            && candidate_index == 0
+                            && reserved_index == 0
+                            && candidate_segment[0] == reserved_segment[0];
+                        shared_departure
+                            || !segments_overlap(
+                                candidate_segment[0],
+                                candidate_segment[1],
+                                reserved_segment[0],
+                                reserved_segment[1],
+                            )
+                    })
+            })
+    })
+}
+
+pub fn segments_overlap(
+    a1: DiagramPoint,
+    a2: DiagramPoint,
+    b1: DiagramPoint,
+    b2: DiagramPoint,
+) -> bool {
+    const EPSILON: f64 = 0.001;
+    let a_vertical = (a1.x - a2.x).abs() < EPSILON;
+    let b_vertical = (b1.x - b2.x).abs() < EPSILON;
+    if a_vertical && b_vertical && (a1.x - b1.x).abs() < EPSILON {
+        return ranges_overlap(a1.y, a2.y, b1.y, b2.y, EPSILON);
+    }
+    let a_horizontal = (a1.y - a2.y).abs() < EPSILON;
+    let b_horizontal = (b1.y - b2.y).abs() < EPSILON;
+    a_horizontal
+        && b_horizontal
+        && (a1.y - b1.y).abs() < EPSILON
+        && ranges_overlap(a1.x, a2.x, b1.x, b2.x, EPSILON)
+}
+
+fn ranges_overlap(a1: f64, a2: f64, b1: f64, b2: f64, epsilon: f64) -> bool {
+    a1.min(a2).max(b1.min(b2)) < a1.max(a2).min(b1.max(b2)) - epsilon
 }
 
 fn attached_endpoints(
@@ -279,6 +426,8 @@ mod tests {
             },
             obstacles: &[obstacle],
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         });
         assert!(route_is_clear(&points, &[obstacle]));
         assert!(
@@ -311,6 +460,8 @@ mod tests {
             },
             obstacles: &[obstacle],
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         });
         assert!(route_is_clear(&points, &[obstacle]));
         assert!(
@@ -337,6 +488,8 @@ mod tests {
             },
             obstacles: &[],
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         };
         let first = orthogonal_route(base);
         let second = orthogonal_route(RouteRequest {
@@ -344,5 +497,109 @@ mod tests {
             ..base
         });
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn unrelated_routes_cannot_overlap_reserved_segments() {
+        let reserved = vec![vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 240.0, y: 50.0 },
+        ]];
+        let route = orthogonal_route(RouteRequest {
+            source: RouteRect {
+                x: 20.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            target: RouteRect {
+                x: 240.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            obstacles: &[],
+            lane_index: 0,
+            reserved_routes: &reserved,
+            allow_shared_departure: false,
+        });
+        assert!(route_avoids_reserved(&route, &reserved, false));
+    }
+
+    #[test]
+    fn only_a_common_source_may_share_the_departure_segment() {
+        let reserved = vec![vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 180.0, y: 50.0 },
+        ]];
+        let candidate = vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 180.0, y: 50.0 },
+            DiagramPoint { x: 180.0, y: 120.0 },
+        ];
+        assert!(route_avoids_reserved(&candidate, &reserved, true));
+        assert!(!route_avoids_reserved(&candidate, &reserved, false));
+    }
+
+    #[test]
+    fn batch_router_applies_one_policy_to_every_diagram_family_adapter() {
+        let source = RouteRect {
+            x: 20.0,
+            y: 20.0,
+            width: 100.0,
+            height: 60.0,
+        };
+        let edges = vec![
+            DiagramRouteEdge {
+                id: "a".into(),
+                source_id: "source".into(),
+                target_id: "one".into(),
+                source,
+                target: RouteRect {
+                    x: 320.0,
+                    y: 20.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+            },
+            DiagramRouteEdge {
+                id: "b".into(),
+                source_id: "other".into(),
+                target_id: "two".into(),
+                source: RouteRect {
+                    x: 20.0,
+                    y: 120.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+                target: RouteRect {
+                    x: 320.0,
+                    y: 120.0,
+                    width: 100.0,
+                    height: 60.0,
+                },
+            },
+        ];
+        let routed = route_diagram(&edges, &[]);
+        assert_eq!(routed.len(), 2);
+        assert!(route_avoids_reserved(
+            &routed[1].points,
+            &[routed[0].points.clone()],
+            false
+        ));
+        assert_eq!(
+            routed[0].label_anchor,
+            route_label_anchor(&routed[0].points)
+        );
+    }
+
+    #[test]
+    fn label_anchor_uses_the_longest_clear_segment() {
+        let anchor = route_label_anchor(&[
+            DiagramPoint { x: 10.0, y: 10.0 },
+            DiagramPoint { x: 30.0, y: 10.0 },
+            DiagramPoint { x: 30.0, y: 110.0 },
+        ]);
+        assert_eq!(anchor, DiagramPoint { x: 38.0, y: 60.0 });
     }
 }

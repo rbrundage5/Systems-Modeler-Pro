@@ -380,6 +380,8 @@ pub fn update_activity_presentation_geometry(
             },
             obstacles: &edge_obstacles,
             lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
         });
     }
     Ok(())

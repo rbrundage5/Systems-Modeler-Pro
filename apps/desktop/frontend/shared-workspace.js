@@ -7,7 +7,7 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const renderers = new Map();
   const commands = new Map();
-  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false };
+  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false, suppressPanClick:false }; const validFrame = (value) => value && ['x','y','width','height'].every((key) => Number.isFinite(value[key]));
 
   function notify(message, level = 'info') {
     window.smpDialogs?.notify(message, level);
@@ -25,14 +25,14 @@
   function renderer() { return state.context ? renderers.get(state.context.family.id) : null; }
   async function activate(input) {
     if (!invoke || !input?.diagramId) return null;
-    await persistViewport();
+    await persistViewport(); clearTimeout(framePersistTimer);
     const activated = await invoke('activate_diagram', {
       diagramId: input.diagramId, familyId: input.familyId, name: input.name, modelElementName:input.modelElementName||input.name,
       semanticContextId: input.semanticContextId || '',
     });
     state.context = activated.context; interaction = activated.interaction; applyCommands(activated.commands);
     state.viewport = await invoke('get_viewport_preference', { diagramId: input.diagramId });
-    Object.assign(state, { frame:await invoke('get_diagram_frame_preference', { diagramId:input.diagramId }) });
+    const storedFrame=await invoke('get_diagram_frame_preference',{diagramId:input.diagramId}); Object.assign(state,{frame:validFrame(storedFrame)?storedFrame:null});
     updateHeader();
     queueMicrotask(mountSurface);
     return state.context;
@@ -40,31 +40,31 @@
 
   function updateHeader() {
     const context=state.context;
-    document.getElementById('workspace-diagram-title').textContent = context?.frameLabel || 'No diagram selected';
+    document.getElementById('workspace-diagram-title').textContent = context ? '' : 'No diagram selected';
     const contextLabel=document.getElementById('workspace-diagram-context');contextLabel.textContent=context?.family.displayName||'Select a diagram from the repository';contextLabel.title=context?.semanticContextId?`Semantic context: ${context.semanticContextId}`:'';
     canvas.setAttribute('aria-label',context?.family.accessibilityName||'Diagram canvas'); canvas.dataset.family=context?.family.id||''; document.getElementById('workspace-header').dataset.family=context?.family.id||'';
   }
   function mountSurface() {
     const root = [...canvas.children].find((node) => !node.classList.contains('workspace-transform-spacer'));
-    if (!root || root === state.surface) { applyViewport(); return; }
+    if (!root) return; if(root===state.surface){if(!state.frameElement?.isConnected||state.frameElement.dataset.diagramId!==state.context?.diagramId)mountDiagramFrame();applyViewport();return;}
     const spacer=document.createElement('div'); spacer.className='workspace-transform-spacer'; canvas.insertBefore(spacer,root); spacer.appendChild(root);
     state.surface = root; state.spacer = spacer;
     root.classList.add('workspace-renderer-surface'); root.dataset.renderer=state.context?.family.rendererId||'';
     mountDiagramFrame(); applyViewport();
   }
 
-  function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(720,bounds.width+padding*2), height:Math.max(520,bounds.height+padding*2), manuallySized:false }; }
+  function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(320,bounds.width+padding*2), height:Math.max(240,bounds.height+padding*2), manuallySized:false }; }
 
-  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; frame.querySelector('span').textContent=state.context.frameLabel; state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:state.frame||automaticFrame()}); applyDiagramFrame(); }
+  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.dataset.diagramId=state.context.diagramId; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label" tabindex="0" title="Double-click or press Enter to edit diagram names"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; const label=frame.querySelector('.sysml-frame-label');label.querySelector('span').textContent=state.context.frameLabel;label.ondblclick=()=>void editFrameHeader();label.onkeydown=(event)=>{if(event.key==='Enter'||event.key==='F2'){event.preventDefault();void editFrameHeader();}};state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:validFrame(state.frame)?state.frame:automaticFrame()}); applyDiagramFrame(); }
+  async function editFrameHeader(){if(!invoke||!state.context)return;const result=await window.smpDialogs?.edit({title:'Edit SysML diagram header',description:'The diagram kind and model-element type are controlled by the SysML family.',fields:[{id:'modelElementName',label:`${state.context.family.frameModelElementType} name`,value:state.context.modelElementName,required:true},{id:'diagramName',label:'Diagram name',value:state.context.name,required:true}],confirmLabel:'Apply'});if(!result)return;const context=await invoke('rename_active_diagram_header',{diagramId:state.context.diagramId,modelElementName:result.values.modelElementName,diagramName:result.values.diagramName});Object.assign(state,{context});mountDiagramFrame();await renderer()?.refresh?.();notify('Diagram header updated.','info');}
   function applyDiagramFrame() { const frame=state.frameElement,geometry=state.frame; if(frame&&geometry)Object.assign(frame.style,{left:`${geometry.x}px`,top:`${geometry.y}px`,width:`${geometry.width}px`,height:`${geometry.height}px`}); }
-
-  let framePersistTimer; function persistDiagramFrame() { if(!invoke||!state.context||!state.frame)return Promise.resolve(); clearTimeout(framePersistTimer); return invoke('set_diagram_frame_preference',{diagramId:state.context.diagramId,preference:state.frame}).catch((error)=>notify(String(error),'error')); }
-  function scheduleFramePersistence() { clearTimeout(framePersistTimer); framePersistTimer = setTimeout(persistDiagramFrame, 120); }
+  let framePersistTimer; function persistDiagramFrame(diagramId=state.context?.diagramId,preference=state.frame) { if(!invoke||!diagramId||!validFrame(preference))return Promise.resolve(); clearTimeout(framePersistTimer); return invoke('set_diagram_frame_preference',{diagramId,preference}).catch((error)=>notify(String(error),'error')); }
+  function scheduleFramePersistence() { clearTimeout(framePersistTimer); const diagramId=state.context?.diagramId,preference=state.frame?{...state.frame}:null; framePersistTimer=setTimeout(()=>persistDiagramFrame(diagramId,preference),120); }
 
   function contentBounds() {
     const supplied=renderer()?.contentBounds?.();
     if (supplied && Number.isFinite(supplied.width) && Number.isFinite(supplied.height)) return supplied;
-    const root=state.surface; return root?{x:0,y:0,width:Math.max(root.scrollWidth,root.offsetWidth,720),height:Math.max(root.scrollHeight,root.offsetHeight,520)}:{x:0,y:0,width:720,height:520};
+    const root=state.surface;if(root?.getBBox){try{const box=root.getBBox();if(box.width>0&&box.height>0)return{x:box.x,y:box.y,width:box.width,height:box.height};}catch{}} return root?{x:0,y:0,width:Math.max(root.scrollWidth,root.offsetWidth,320),height:Math.max(root.scrollHeight,root.offsetHeight,240)}:{x:0,y:0,width:320,height:240};
   }
 
   function applyViewport() {
@@ -72,10 +72,11 @@
     if (!root || !spacer) return;
     const bounds=contentBounds(),view=state.viewport;
     if (state.frame&&!state.frame.manuallySized) { Object.assign(state,{frame:automaticFrame()}); applyDiagramFrame(); }
-    const left=Math.max(0,view.panX),top=Math.max(0,view.panY); root.style.transform=`translate(${left}px,${top}px) scale(${view.zoom})`;
+    const transform=`scale(${view.zoom})`; root.style.transform=transform;if(state.frameElement){state.frameElement.style.transform=transform;state.frameElement.style.transformOrigin='0 0';}
     const frameRight=state.frame?state.frame.x+state.frame.width:bounds.x+bounds.width, frameBottom=state.frame?state.frame.y+state.frame.height:bounds.y+bounds.height;
-    spacer.style.width = `${Math.ceil(left + Math.max(bounds.x + bounds.width, frameRight) * view.zoom + 56)}px`;
-    spacer.style.height = `${Math.ceil(top + Math.max(bounds.y + bounds.height, frameBottom) * view.zoom + 56)}px`;
+    spacer.style.width = `${Math.ceil(Math.max(bounds.x + bounds.width, frameRight) * view.zoom + 56)}px`;
+    spacer.style.height = `${Math.ceil(Math.max(bounds.y + bounds.height, frameBottom) * view.zoom + 56)}px`;
+    if(!state.panning)canvas.scrollTo(view.panX,view.panY);
     canvas.classList.toggle('grid-hidden',!view.gridVisible); canvas.dataset.zoom=String(view.zoom);
   }
 
@@ -105,8 +106,8 @@
   function setZoom(next, clientX, clientY, relative = false) {
     if (!state.viewport || !invoke) return Promise.resolve();
     const rect = canvas.getBoundingClientRect();
-    const x = (clientX ?? rect.left + canvas.clientWidth / 2) - rect.left + canvas.scrollLeft;
-    const y = (clientY ?? rect.top + canvas.clientHeight / 2) - rect.top + canvas.scrollTop;
+    const x = (clientX ?? rect.left + canvas.clientWidth / 2) - rect.left;
+    const y = (clientY ?? rect.top + canvas.clientHeight / 2) - rect.top;
     zoomRequest = zoomRequest.then(async () => {
       const requestedZoom = relative ? state.viewport.zoom * next : next;
       state.viewport = await invoke('zoom_diagram_viewport', {
@@ -123,7 +124,7 @@
       bounds: contentBounds(), viewportWidth: canvas.clientWidth, viewportHeight: canvas.clientHeight,
       padding: 28, current: state.viewport,
     });
-    applyViewport(); scheduleViewportPersistence(); canvas.scrollTo(0, 0);
+    applyViewport(); scheduleViewportPersistence();
   }
   function interactionPayload() {
     const adapter = renderer();
@@ -230,25 +231,24 @@
   }
 
   function startPan(event) {
-    if (!state.viewport || !(event.button === 1 || (event.button === 0 && (state.space || canvas.classList.contains('pan-active'))))) return false;
-    event.preventDefault(); canvas.setPointerCapture(event.pointerId); canvas.classList.add('is-panning');
-    state.panning = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, panX:state.viewport.panX, panY:state.viewport.panY };
+    if (!state.viewport || !(event.button === 1 || (event.button === 0 && (state.space || event.ctrlKey || event.metaKey || canvas.classList.contains('pan-active'))))) return false;
+    event.preventDefault(); event.stopImmediatePropagation(); canvas.setPointerCapture(event.pointerId); canvas.classList.add('is-panning');
+    state.panning = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, left:canvas.scrollLeft, top:canvas.scrollTop, moved:false };
     return true;
   }
   canvas.addEventListener('pointerdown', (event) => {
     const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
     if (startPan(event)) return;
     if (event.target === canvas || event.target === state.spacer) clearSelection();
-  });
+  }, true);
   canvas.addEventListener('pointermove', (event) => {
     if(state.frameDrag?.pointerId===event.pointerId){const dx=(event.clientX-state.frameDrag.x)/(state.viewport?.zoom||1),dy=(event.clientY-state.frameDrag.y)/(state.viewport?.zoom||1);Object.assign(state,{frame:state.frameDrag.resizing?{...state.frameDrag.start,width:Math.max(320,state.frameDrag.start.width+dx),height:Math.max(240,state.frameDrag.start.height+dy),manuallySized:true}:{...state.frameDrag.start,x:Math.max(0,state.frameDrag.start.x+dx),y:Math.max(0,state.frameDrag.start.y+dy),manuallySized:true}});applyDiagramFrame();return;}
     if (!state.panning || state.panning.pointerId !== event.pointerId) return;
-    state.viewport.panX = state.panning.panX + event.clientX - state.panning.x;
-    state.viewport.panY = state.panning.panY + event.clientY - state.panning.y;
-    applyViewport();
+    const dx=event.clientX-state.panning.x,dy=event.clientY-state.panning.y;canvas.scrollLeft=state.panning.left-dx;canvas.scrollTop=state.panning.top-dy;state.panning.moved||=Math.hypot(dx,dy)>3;
   });
-  function finishPan(event) { if(state.frameDrag?.pointerId===event.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();return;} if(!state.panning||state.panning.pointerId!==event.pointerId)return;state.panning=null;canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
-  canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);
+  function finishPan(event) { if(state.frameDrag?.pointerId===event?.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();void renderer()?.refresh?.();return;} if(!state.panning||(event?.pointerId!==undefined&&state.panning.pointerId!==event.pointerId))return;Object.assign(state.viewport,{panX:canvas.scrollLeft,panY:canvas.scrollTop});Object.assign(state,{suppressPanClick:state.panning.moved,panning:null});canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
+  canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);canvas.addEventListener('lostpointercapture',finishPan);window.addEventListener('blur',()=>{state.space=false;canvas.classList.remove('space-pan');finishPan();});
+  canvas.addEventListener('click',(event)=>{if(!state.suppressPanClick)return;Object.assign(state,{suppressPanClick:false});event.preventDefault();event.stopImmediatePropagation();},true);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
   window.addEventListener('keydown', (event) => {
     const editable = event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="dialog"]');
@@ -343,7 +343,7 @@
     }
   }
 
-  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds });
+  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:() => state.frame&&{...state.frame} });
   const selectionAdapter = (selectionKeys, toolKeys) => ({
     selection: () => selectionKeys.map((key) => window.smpState?.[key]).filter(Boolean),
     clearSelection: () => { for (const key of selectionKeys) if (window.smpState) window.smpState[key] = null; },

@@ -93,7 +93,7 @@ assert "rect_overlaps_corridor" in mutation_rs, "Activity routing does not const
 assert "CORRIDOR_PADDING" in mutation_rs, "Activity routing corridor clearance is missing"
 assert "candidate.source_node_id == presentation.source_node_id" in mutation_rs, "Activity branch routing does not separate shared-source flows"
 assert "candidate.target_node_id == presentation.target_node_id" in mutation_rs, "Activity merge routing does not separate shared-target flows"
-assert "route_semantic_edge(&snapshot, activity, semantic, lane_index)?" in mutation_rs, "Activity shared-endpoint lane selection is not forwarded to the Rust router"
+assert "reserved_routes" in mutation_rs and "allow_shared_departure" in mutation_rs, "Activity routing does not protect unrelated relationship corridors"
 assert "route_semantic_edge(&snapshot, activity, semantic, index)?" not in mutation_rs, "Activity routing regressed to diagram-global monotonically increasing lanes"
 
 # Frontend may maintain selection/presentation state, but semantic Activity objects

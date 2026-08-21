@@ -81,6 +81,8 @@ fn route_semantic_edge(
     activity: &Activity,
     edge: &ActivityEdge,
     lane_index: usize,
+    reserved_routes: &[Vec<DiagramPoint>],
+    allow_shared_departure: bool,
 ) -> Result<Vec<DiagramPoint>, String> {
     let source_owner = endpoint_owner(activity, edge.source)?.to_string();
     let target_owner = endpoint_owner(activity, edge.target)?.to_string();
@@ -108,6 +110,8 @@ fn route_semantic_edge(
         target: target_rect,
         obstacles: &obstacles,
         lane_index,
+        reserved_routes,
+        allow_shared_departure,
     }))
 }
 
@@ -116,6 +120,7 @@ fn reroute_diagram(
     activity: &Activity,
 ) -> Result<(), String> {
     let snapshot = diagram.clone();
+    let mut reserved_routes = Vec::new();
     for (index, presentation) in diagram.edges.iter_mut().enumerate() {
         let semantic = activity
             .edges
@@ -135,7 +140,19 @@ fn reroute_diagram(
                     || candidate.target_node_id == presentation.source_node_id
             })
             .count();
-        presentation.points = route_semantic_edge(&snapshot, activity, semantic, lane_index)?;
+        let allow_shared_departure = snapshot.edges[..index]
+            .iter()
+            .any(|edge| edge.source_node_id == presentation.source_node_id);
+        presentation.points = route_semantic_edge(
+            &snapshot,
+            activity,
+            semantic,
+            lane_index,
+            &reserved_routes,
+            allow_shared_departure,
+        )?;
+        presentation.label_anchor = Some(routing::route_label_anchor(&presentation.points));
+        reserved_routes.push(presentation.points.clone());
     }
     Ok(())
 }
@@ -382,6 +399,46 @@ pub fn route_activity_diagram(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
+    let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+    let repository = activity_state
+        .repository
+        .lock()
+        .map_err(|_| "Activity repository lock poisoned")?;
+    let activity = repository
+        .activities
+        .get(&activity_id)
+        .ok_or("Activity not found")?;
+    reroute_diagram(diagram, activity)
+}
+
+pub fn layout_activity_diagram(
+    diagram_id: String,
+    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+) -> Result<(), String> {
+    let mut diagrams = activity_state
+        .diagrams
+        .lock()
+        .map_err(|_| "Activity diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("Activity diagram not found")?;
+    let edges: Vec<_> = diagram
+        .edges
+        .iter()
+        .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
+        .collect();
+    let positions = super::layout::hierarchical_positions(
+        diagram.nodes.iter().map(|node| node.id.clone()),
+        &edges,
+        systems_modeler_core::PreferredFlowDirection::TopToBottom,
+    );
+    for node in &mut diagram.nodes {
+        if let Some((x, y)) = positions.get(&node.id) {
+            node.x = *x;
+            node.y = *y;
+        }
+    }
     let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
     let repository = activity_state
         .repository

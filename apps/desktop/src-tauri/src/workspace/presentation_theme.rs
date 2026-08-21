@@ -29,12 +29,54 @@ const STRUCTURAL: PresentationStyle = PresentationStyle {
     border: "#59645c",
     text: "#17201b",
 };
+const STRUCTURAL_ASSOCIATION: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#e8dfc7",
+    header: "#d4c49f",
+    border: "#526058",
+    text: "#17201b",
+};
+const STRUCTURAL_INSTANCE: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#f7f1e3",
+    header: "#e7dbc0",
+    border: "#626b63",
+    text: "#1c241f",
+};
+const STRUCTURAL_PART: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#eadfbe",
+    header: "#d7c696",
+    border: "#536058",
+    text: "#17201b",
+};
+const STRUCTURAL_REFERENCE: PresentationStyle = PresentationStyle {
+    category: "structural",
+    fill: "#f8f2df",
+    header: "#e9ddba",
+    border: "#687168",
+    text: "#1c241f",
+};
+const INTERFACE_PORT: PresentationStyle = PresentationStyle {
+    category: "interface",
+    fill: "#d2e7d8",
+    header: "#acd0b5",
+    border: "#3f5e4b",
+    text: "#132019",
+};
 const INTERFACE: PresentationStyle = PresentationStyle {
     category: "interface",
     fill: "#e3f0e6",
     header: "#bed9c5",
     border: "#476454",
     text: "#152019",
+};
+const INTERFACE_FULL_PORT: PresentationStyle = PresentationStyle {
+    category: "interface",
+    fill: "#315443",
+    header: "#315443",
+    border: "#1f382c",
+    text: "#ffffff",
 };
 const ACTIVITY: PresentationStyle = PresentationStyle {
     category: "activity",
@@ -134,19 +176,33 @@ const FRAME: PresentationStyle = PresentationStyle {
     border: "#63717c",
     text: "#192128",
 };
+const SEQUENCE_EXECUTION: PresentationStyle = PresentationStyle {
+    category: "sequence",
+    fill: "#d7e5f0",
+    header: "#bfd3e3",
+    border: "#536a7a",
+    text: "#17232b",
+};
+const SEQUENCE_INVARIANT: PresentationStyle = PresentationStyle {
+    category: "sequence",
+    fill: "#f5efd7",
+    header: "#e7dcad",
+    border: "#6c664d",
+    text: "#272414",
+};
 
 const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("Model", FRAME),
     ("Package", FRAME),
     ("Block", STRUCTURAL),
-    ("AssociationBlock", STRUCTURAL),
-    ("InstanceSpecification", STRUCTURAL),
+    ("AssociationBlock", STRUCTURAL_ASSOCIATION),
+    ("InstanceSpecification", STRUCTURAL_INSTANCE),
     ("Slot", STRUCTURAL),
-    ("PartProperty", STRUCTURAL),
-    ("ReferenceProperty", STRUCTURAL),
+    ("PartProperty", STRUCTURAL_PART),
+    ("ReferenceProperty", STRUCTURAL_REFERENCE),
     ("InterfaceBlock", INTERFACE),
-    ("ProxyPort", INTERFACE),
-    ("FullPort", INTERFACE),
+    ("ProxyPort", INTERFACE_PORT),
+    ("FullPort", INTERFACE_FULL_PORT),
     ("FlowProperty", INTERFACE),
     ("Activity", ACTIVITY),
     ("OpaqueAction", ACTIVITY),
@@ -203,6 +259,8 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("CompositeState", FRAME),
     ("Lifeline", STRUCTURAL),
     ("CombinedFragment", FRAME),
+    ("ExecutionSpecification", SEQUENCE_EXECUTION),
+    ("StateInvariant", SEQUENCE_INVARIANT),
 ];
 
 #[tauri::command]
@@ -357,7 +415,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "route",
             label: "Route",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "Activity"],
+            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: Some("active_diagram_router"),
             unavailable_reason: Some("Routing is not applicable to this diagram type."),
             required_capability: Some(DiagramCapability::Routing),
@@ -366,7 +424,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "cleanLayout",
             label: "Clean Layout",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "Activity"],
+            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
             rust_adapter: Some("active_diagram_layout"),
             unavailable_reason: Some("Automatic layout is not available for this diagram type."),
             required_capability: Some(DiagramCapability::CleanLayout),
@@ -541,14 +599,18 @@ mod tests {
             .get(&systems_modeler_core::DiagramFamilyId("sequence".into()))
             .expect("sequence is registered");
         let commands = resolve_diagram_commands(Some(sequence));
-        for id in ["route", "cleanLayout"] {
-            let command = commands
-                .iter()
-                .find(|item| item.command.id == id)
-                .expect("global command is registered");
-            assert!(!command.enabled);
-            assert!(command.disabled_reason.is_some());
-        }
+        let route = commands
+            .iter()
+            .find(|item| item.command.id == "route")
+            .expect("Route is registered");
+        assert!(route.enabled);
+        assert!(route.disabled_reason.is_none());
+        let layout = commands
+            .iter()
+            .find(|item| item.command.id == "cleanLayout")
+            .expect("Clean Layout is registered");
+        assert!(layout.enabled);
+        assert!(layout.disabled_reason.is_none());
     }
 
     #[test]

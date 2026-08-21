@@ -177,11 +177,10 @@
       const y1 = source.y + source.height / 2;
       const x2 = target.x + target.width / 2;
       const y2 = target.y + target.height / 2;
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', x1);
-      line.setAttribute('y1', y1);
-      line.setAttribute('x2', x2);
-      line.setAttribute('y2', y2);
+      const storedRoute = (diagram.edge_routes || []).find((route) => String(route.semantic_id) === String(transition.id)); const routePoints = storedRoute?.points?.length >= 2 ? storedRoute.points : [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+      const line = document.createElementNS(SVG_NS, 'polyline');
+      line.setAttribute('points', routePoints.map((point) => `${point.x},${point.y}`).join(' '));
+      line.setAttribute('fill', 'none');
       line.setAttribute('marker-end', 'url(#authoritative-state-arrow)');
       line.classList.add('state-transition');
       line.dataset.transitionId = String(transition.id);
@@ -199,8 +198,9 @@
       if (labelText) {
         const label = document.createElementNS(SVG_NS, 'text');
         label.classList.add('behavior-edge-label');
-        label.setAttribute('x', (x1 + x2) / 2 + 6);
-        label.setAttribute('y', (y1 + y2) / 2 - 7);
+        const first=routePoints[0],last=routePoints[routePoints.length-1],labelPoint=storedRoute?.label_anchor||{x:(first.x+last.x)/2,y:(first.y+last.y)/2};
+        label.setAttribute('x', labelPoint.x + 6);
+        label.setAttribute('y', labelPoint.y - 7);
         label.textContent = labelText;
         svg.appendChild(label);
       }
@@ -341,11 +341,10 @@
       const sourceX = sourceId ? (lifelinePositions.get(String(sourceId)) ?? 70) : 70;
       const targetX = targetId ? (lifelinePositions.get(String(targetId)) ?? 1000) : 1000;
       const y = 110 + messageOrder(message, index) * 4;
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', sourceX);
-      line.setAttribute('y1', y);
-      line.setAttribute('x2', targetX);
-      line.setAttribute('y2', y);
+      const storedRoute = (diagram.edge_routes || []).find((route) => String(route.semantic_id) === String(message.id)); const routePoints = storedRoute?.points?.length >= 2 ? storedRoute.points : [{ x: sourceX, y }, { x: targetX, y }];
+      const line = document.createElementNS(SVG_NS, 'polyline');
+      line.setAttribute('points', routePoints.map((point) => `${point.x},${point.y}`).join(' '));
+      line.setAttribute('fill', 'none');
       line.classList.add('sequence-message', `message-${String(message.sort).toLowerCase()}`);
       line.dataset.messageId = String(message.id);
       const openArrow = ['Reply', 'AsynchCall', 'AsynchSignal'].includes(message.sort);
@@ -355,16 +354,16 @@
         state.selectedBehaviorItem?.type === 'Message'
         && String(state.selectedBehaviorItem.id) === String(message.id)
       ) line.classList.add('selected');
-      line.onclick = (event) => {
-        event.stopPropagation();
-        state.selectedBehaviorItem = { type: 'Message', id: message.id, semantic: message };
-        render();
-      };
+      const hit=line.cloneNode(false);hit.className.baseVal='sequence-message-hit';hit.removeAttribute('marker-end');hit.removeAttribute('stroke-dasharray');
+      const selectMessage=(event)=>{event.stopPropagation();state.selectedBehaviorItem={type:'Message',id:message.id,semantic:message};render();};line.onclick=selectMessage;hit.onclick=selectMessage;
+      const dragMessage=(event)=>{if(state.behaviorTool||state.behaviorPending)return;event.preventDefault();const startY=event.clientY,original=messageOrder(message,index);event.currentTarget.setPointerCapture?.(event.pointerId);event.currentTarget.onpointerup=async(up)=>{const order=Math.max(1,original+Math.round((up.clientY-startY)/4));await runCommand('Moving Message occurrence…',()=>requireInvoke()('update_sequence_message',{diagramId:diagram.id,messageIdValue:message.id,sort:message.sort,name:message.name||'',signatureId:message.signature?.Operation||message.signature?.Signal||null,arguments:message.arguments||[],order}));await refresh();};};line.onpointerdown=dragMessage;hit.onpointerdown=dragMessage;
+      svg.appendChild(hit);
       svg.appendChild(line);
       const label = document.createElementNS(SVG_NS, 'text');
       label.classList.add('behavior-edge-label');
-      label.setAttribute('x', Math.min(sourceX, targetX) + Math.abs(targetX - sourceX) / 2);
-      label.setAttribute('y', y - 6);
+      const labelPoint = storedRoute?.label_anchor || routePoints[Math.floor(routePoints.length / 2)];
+      label.setAttribute('x', labelPoint.x);
+      label.setAttribute('y', labelPoint.y - 6);
       const name = messageSignatureName(message);
       label.textContent = `${name}${message.arguments?.length ? `(${message.arguments.join(', ')})` : ''}`;
       svg.appendChild(label);
@@ -374,7 +373,7 @@
     for (const execution of inter.executions || []) {
       const x = lifelinePositions.get(String(execution.lifeline_id)) ?? 140;
       const bar = document.createElement('div');
-      bar.className = 'execution-spec';
+      bar.className = 'execution-spec';bar.dataset.semanticKind='ExecutionSpecification';
       bar.dataset.executionId = String(execution.id);
       bar.style.left = `${x - 7}px`;
       bar.style.top = `${110 + execution.start.order * 4}px`;
@@ -388,7 +387,7 @@
       const top = 110 + Math.min(...fragment.operands.map((operand) => operand.start_order)) * 4;
       const bottom = 110 + Math.max(...fragment.operands.map((operand) => operand.end_order)) * 4;
       const box = document.createElement('div');
-      box.className = 'combined-fragment';
+      box.className = 'combined-fragment';box.dataset.semanticKind='CombinedFragment';
       box.dataset.fragmentId = String(fragment.id);
       box.style.left = `${Math.min(...xs) - 85}px`;
       box.style.width = `${Math.max(180, Math.max(...xs) - Math.min(...xs) + 170)}px`;
@@ -401,7 +400,7 @@
     for (const invariant of inter.state_invariants || []) {
       const x = lifelinePositions.get(String(invariant.lifeline_id)) ?? 140;
       const box = document.createElement('button');
-      box.className = 'state-invariant-box';
+      box.className = 'state-invariant-box';box.dataset.semanticKind='StateInvariant';
       box.dataset.invariantId = String(invariant.id);
       box.style.left = `${x - 52}px`;
       box.style.top = `${110 + invariant.order * 4}px`;

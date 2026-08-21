@@ -27,6 +27,8 @@ pub struct ActivityDiagramEdge {
     pub source_node_id: String,
     pub target_node_id: String,
     pub points: Vec<DiagramPoint>,
+    #[serde(default)]
+    pub label_anchor: Option<DiagramPoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -534,12 +536,15 @@ pub fn add_activity_edge(
         target: node_rect(&target_presentation),
         obstacles: &obstacles,
         lane_index,
+        reserved_routes: &[],
+        allow_shared_departure: false,
     });
     diagram.edges.push(ActivityDiagramEdge {
         id: uuid::Uuid::new_v4().to_string(),
         activity_edge_id: edge_id.to_string(),
         source_node_id: source_presentation.id,
         target_node_id: target_presentation.id,
+        label_anchor: Some(routing::route_label_anchor(&points)),
         points,
     });
     Ok(edge_id.to_string())

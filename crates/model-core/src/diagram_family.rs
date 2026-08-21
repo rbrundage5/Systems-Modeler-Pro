@@ -165,6 +165,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
                 C::Resize,
                 C::Delete,
                 C::Clipboard,
+                C::Routing,
+                C::CleanLayout,
                 C::DrillDown,
             ],
             PreferredFlowDirection::TopToBottom,
@@ -183,6 +185,8 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
                 C::Resize,
                 C::Delete,
                 C::Clipboard,
+                C::Routing,
+                C::CleanLayout,
                 C::DrillDown,
             ],
             PreferredFlowDirection::LeftToRight,
@@ -392,8 +396,8 @@ pub fn fit_viewport(
         .clamp(0.25, 1.0);
     let preference = ViewportPreference {
         zoom,
-        pan_x: padding - bounds.x * zoom,
-        pan_y: padding - bounds.y * zoom,
+        pan_x: (bounds.x * zoom - padding).max(0.0),
+        pan_y: (bounds.y * zoom - padding).max(0.0),
         grid_visible: current.grid_visible,
         snap_to_grid: current.snap_to_grid,
     };
@@ -415,8 +419,8 @@ pub fn zoom_viewport_at(
     let ratio = zoom / current.zoom;
     let preference = ViewportPreference {
         zoom,
-        pan_x: pointer_x - (pointer_x - current.pan_x) * ratio,
-        pan_y: pointer_y - (pointer_y - current.pan_y) * ratio,
+        pan_x: ((current.pan_x + pointer_x) * ratio - pointer_x).max(0.0),
+        pan_y: ((current.pan_y + pointer_y) * ratio - pointer_y).max(0.0),
         grid_visible: current.grid_visible,
         snap_to_grid: current.snap_to_grid,
     };
@@ -505,8 +509,13 @@ mod tests {
             .get(&DiagramFamilyId::new("sequence").unwrap())
             .unwrap();
         assert!(sequence.supports(DiagramCapability::Relationships));
-        assert!(!sequence.supports(DiagramCapability::Routing));
-        assert!(!sequence.supports(DiagramCapability::CleanLayout));
+        assert!(sequence.supports(DiagramCapability::Routing));
+        assert!(sequence.supports(DiagramCapability::CleanLayout));
+        let state_machine = registry
+            .get(&DiagramFamilyId::new("state-machine").unwrap())
+            .unwrap();
+        assert!(state_machine.supports(DiagramCapability::Routing));
+        assert!(state_machine.supports(DiagramCapability::CleanLayout));
     }
     #[test]
     fn bounds_include_nodes_ports_frames_routes_and_labels() {
@@ -600,8 +609,8 @@ mod tests {
         )
         .expect("valid geometry fits");
         assert!((fitted.zoom - 0.744).abs() < f64::EPSILON);
-        assert!((fitted.pan_x + 46.4).abs() < 1e-9);
-        assert!((fitted.pan_y + 9.2).abs() < 1e-9);
+        assert!((fitted.pan_x - 46.4).abs() < 1e-9);
+        assert!((fitted.pan_y - 9.2).abs() < 1e-9);
         assert!(!fitted.grid_visible);
         assert!(!fitted.snap_to_grid);
     }
@@ -616,10 +625,10 @@ mod tests {
         };
         let zoomed = zoom_viewport_at(&current, 2.0, 220.0, 130.0).expect("zoom is valid");
         assert_eq!(zoomed.zoom, 2.0);
-        assert_eq!(zoomed.pan_x, -180.0);
-        assert_eq!(zoomed.pan_y, -70.0);
-        let model_x_before = (220.0 - current.pan_x) / current.zoom;
-        let model_x_after = (220.0 - zoomed.pan_x) / zoomed.zoom;
+        assert_eq!(zoomed.pan_x, 260.0);
+        assert_eq!(zoomed.pan_y, 190.0);
+        let model_x_before = (current.pan_x + 220.0) / current.zoom;
+        let model_x_after = (zoomed.pan_x + 220.0) / zoomed.zoom;
         assert_eq!(model_x_before, model_x_after);
     }
 }
