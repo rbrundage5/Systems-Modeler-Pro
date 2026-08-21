@@ -398,6 +398,8 @@ pub enum ModelError {
         source: ElementId,
         target: ElementId,
     },
+    #[error("Requirement traceability relationships require a Model or Package owner")]
+    MissingTraceabilityOwner,
     #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
     InvalidTraceabilityOwner(ElementId),
 }
@@ -615,6 +617,9 @@ impl Project {
             if self.would_create_generalization_cycle(source_id, target_id) {
                 return Err(ModelError::GeneralizationCycle);
             }
+        }
+        if traceability && owner_id.is_none() {
+            return Err(ModelError::MissingTraceabilityOwner);
         }
         if let Some(owner_id) = owner_id {
             let owner = self.element(owner_id)?;
@@ -904,6 +909,9 @@ impl Project {
             self.element(relationship.source_id)?;
             self.element(relationship.target_id)?;
             if is_traceability_relationship(&relationship.kind) {
+                if relationship.owner_id.is_none() {
+                    return Err(ModelError::MissingTraceabilityOwner);
+                }
                 if relationship.source_id == relationship.target_id {
                     return Err(ModelError::SelfTraceabilityRelationship);
                 }
