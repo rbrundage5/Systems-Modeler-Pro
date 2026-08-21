@@ -74,6 +74,10 @@ assert "Presentation Display" in visibility and "['id', 'text'" in visibility
 assert "visibleCompartments.length" in visibility
 assert "compartments-collapsed" in visibility
 assert "box.querySelectorAll('.compartment')" in visibility
+assert "smpCompartmentDisplay" in visibility
+assert "window.smpRequirementDisplay = window.smpCompartmentDisplay" in visibility
+assert "const compartmentDisplay=window.smpCompartmentDisplay?.(element.id)" in bdd_feature_editing
+assert "Choose which compartments are visible" in bdd_feature_editing
 assert "show-requirement-id" in frontend and "smpRequirementDisplay" in visibility
 assert "ElementKind::Requirement => (260.0, 180.0)" in desktop
 assert "DeriveRequirement: 'R┄➤'" in palette_icons
