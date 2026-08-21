@@ -38,6 +38,8 @@ require(
     "history_undo",
     "history_redo",
     "history_reset",
+    "isRustCheckpointedCommand",
+    "updating diagram presentation",
     "await refresh();",
     "window.smpUndo",
     "window.smpRedo",
@@ -56,6 +58,15 @@ require(
     "refresh = async function refreshWithAuthoritativeBehavior",
     "state.selectedBehaviorDiagramId = selectedDiagramId",
     "await refreshBehaviorSnapshotPreservingSelection();",
+)
+require(
+    "apps/desktop/src-tauri/src/workspace/presentation_interaction.rs",
+    "history::checkpoint_states",
+    "update_bdd_presentation_geometry",
+    "update_ibd_property_geometry",
+    "update_ibd_port_geometry",
+    "update_state_presentation_geometry",
+    "update_activity_presentation_geometry",
 )
 
 index = text("apps/desktop/frontend/index.html")
@@ -88,4 +99,7 @@ if (root / "apps/desktop/frontend/behavior-refresh-authority.js").exists():
         "Behavior refresh authority must remain consolidated with state-bar-resize.js"
     )
 
-print("PR13 history integration preserves qualified cross-diagram refresh authority and visible shell controls")
+print(
+    "PR13/PR22 history integration preserves qualified cross-diagram refresh, "
+    "single-checkpoint Rust geometry undo, and visible shell controls"
+)
