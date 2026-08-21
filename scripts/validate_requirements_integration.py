@@ -18,6 +18,8 @@ bdd_feature_editing = read("apps/desktop/frontend/bdd-feature-editing.js")
 palette_icons = read("apps/desktop/frontend/palette-icons.js")
 visibility = read("apps/desktop/frontend/bdd-compartment-visibility.js")
 families = read("crates/model-core/src/diagram_family.rs")
+theme = read("apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
+catia = read("apps/desktop/frontend/catia-light.css")
 
 for token in [
     "Requirement",
@@ -61,6 +63,9 @@ assert "box.dataset.presentationId = node.id" in bdd_extended
 assert "diagram.family === 'requirement' ? 'req' : 'bdd'" in bdd_extended
 assert "create_traceability_relationship" in bdd_extended
 assert "element.kind === 'Requirement'" in bdd_extended
+assert 'class="classifier-header"' in bdd_extended
+assert ".classifier-header .block-name{background:transparent!important}" in theme
+assert ".classifier-header{" in catia and ".bdd-block.kind-comment::after" in catia
 assert "const renderStructuralProperties = renderProperties" in bdd_feature_editing
 assert "element?.kind === 'Requirement' || element?.kind === 'TestCase'" in bdd_feature_editing
 assert "return renderStructuralProperties()" in bdd_feature_editing
