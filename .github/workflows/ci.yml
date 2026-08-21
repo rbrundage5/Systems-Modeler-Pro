@@ -52,7 +52,7 @@ jobs:
             apps/desktop/frontend/state-bar-resize.js \
             apps/desktop/frontend/bdd-compartment-visibility.js \
             apps/desktop/frontend/structural-interaction-rebind.js \
-            apps/desktop/frontend/behavior-refresh-authority.js \
+            apps/desktop/frontend/standard-editing-ui.js \
             apps/desktop/frontend/undo-redo-ui.js; do
             node --check "$file"
           done
