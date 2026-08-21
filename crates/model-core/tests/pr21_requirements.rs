@@ -176,8 +176,8 @@ fn every_requirement_relationship_enforces_endpoints_and_package_ownership() {
         project.create_relationship(RelationshipKind::Satisfy, block, requirement, Some(package)),
         Err(ModelError::DuplicateTraceabilityRelationship {
             relationship: RelationshipKind::Satisfy,
-            source: block,
-            target: requirement,
+            source_id: block,
+            target_id: requirement,
         })
     );
     assert_eq!(
