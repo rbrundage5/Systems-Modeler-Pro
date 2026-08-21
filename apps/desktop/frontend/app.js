@@ -286,6 +286,16 @@ function addEndpointLabel(svg, point, text, side) {
   label.textContent = text;
   svg.appendChild(label);
 }
+function traceabilityLabel(kind) {
+  return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy' }[kind] || '';
+}
+function addRelationshipStereotype(svg, points, kind) {
+  const stereotype=traceabilityLabel(kind); if(!stereotype||!points.length)return;
+  const middle=points[Math.floor((points.length-1)/2)],next=points[Math.min(points.length-1,Math.floor((points.length-1)/2)+1)];
+  const label=document.createElementNS(SVG_NS,'text'); label.classList.add('relationship-label','traceability-label');
+  label.setAttribute('x',String((middle.x+next.x)/2)); label.setAttribute('y',String((middle.y+next.y)/2-7));
+  label.setAttribute('text-anchor','middle'); label.textContent=`«${stereotype}»`; svg.appendChild(label);
+}
 function createRelationshipLayer(frame, diagram, project) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('relationship-layer');
@@ -322,6 +332,7 @@ function createRelationshipLayer(frame, diagram, project) {
     title.textContent = relationship.kind;
     polyline.appendChild(title);
     svg.appendChild(polyline);
+    addRelationshipStereotype(svg, edge.points, relationship.kind);
     if (relationship.association_ends?.length === 2) {
       addEndpointLabel(svg, edge.points[0], endpointLabel(relationship.association_ends[0]), 'start');
       addEndpointLabel(svg, edge.points[edge.points.length - 1], endpointLabel(relationship.association_ends[1]), 'end');
@@ -551,7 +562,9 @@ function renderProperties() {
   }
   if (element.kind === 'Requirement') {
     const display=window.smpRequirementDisplay?.(element.id),checked=(label)=>display?.shown(label)!==false?'checked':'';
-    panel.innerHTML = `<div class="property-heading">Requirement</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Requirement ID<input id="requirement-id" value="${escapeAttr(element.requirement_id || '')}"></label><label>Text<textarea id="requirement-text" rows="7">${escapeHtml(element.requirement_text || '')}</textarea></label><label>Documentation<textarea id="requirement-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><section class="bdd-compartment-controls"><div class="property-heading">Presentation Display</div><div class="muted">Controls this requirement on the active diagram only.</div><label class="compartment-visibility-toggle"><input id="show-requirement-id" type="checkbox" ${checked('id')}>Show ID</label><label class="compartment-visibility-toggle"><input id="show-requirement-text" type="checkbox" ${checked('text')}>Show Text</label><label class="compartment-visibility-toggle"><input id="show-requirement-documentation" type="checkbox" ${checked('documentation')}>Show Documentation</label></section><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="update-requirement" class="primary">Apply Requirement</button>`;
+    const links=(project.relationships||[]).filter((relationship)=>relationship.source_id===element.id||relationship.target_id===element.id);
+    const traceability=links.length?links.map((relationship)=>{const other=project.elements.find((candidate)=>candidate.id===(relationship.source_id===element.id?relationship.target_id:relationship.source_id));return `<div><b>«${escapeHtml(traceabilityLabel(relationship.kind)||relationship.kind)}»</b> ${escapeHtml(other?.name||'Unresolved endpoint')}</div>`;}).join(''):'<div class="muted">No traceability relationships.</div>';
+    panel.innerHTML = `<div class="property-heading">Requirement</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Requirement ID<input id="requirement-id" value="${escapeAttr(element.requirement_id || '')}"></label><label>Text<textarea id="requirement-text" rows="7">${escapeHtml(element.requirement_text || '')}</textarea></label><label>Documentation<textarea id="requirement-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><section class="bdd-compartment-controls"><div class="property-heading">Presentation Display</div><div class="muted">Controls this requirement on the active diagram only.</div><label class="compartment-visibility-toggle"><input id="show-requirement-id" type="checkbox" ${checked('id')}>Show ID</label><label class="compartment-visibility-toggle"><input id="show-requirement-text" type="checkbox" ${checked('text')}>Show Text</label><label class="compartment-visibility-toggle"><input id="show-requirement-documentation" type="checkbox" ${checked('documentation')}>Show Documentation</label></section><section class="requirement-traceability"><div class="property-heading">Traceability</div>${traceability}</section><label>Owner<input value="${escapeAttr(project.elements.find((candidate)=>candidate.id===element.owner_id)?.name||'Model')}" disabled></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="update-requirement" class="primary">Apply Requirement</button>`;
     for(const [id,label] of [['show-requirement-id','id'],['show-requirement-text','text'],['show-requirement-documentation','documentation']])$(id).onchange=(event)=>display?.set(label,event.target.checked);
     $('update-requirement').onclick = async () => {
       await runCommand('Updating Requirement…', () => requireInvoke()('update_requirement', { details:{ elementId: element.id, name: $('property-name').value, requirementId: $('requirement-id').value, text: $('requirement-text').value, documentation: $('requirement-documentation').value } })); await refresh();
