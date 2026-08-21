@@ -74,7 +74,9 @@ fn traceability_endpoint_rules_are_enforced() {
 #[test]
 fn duplicate_human_readable_requirement_ids_are_rejected() {
     let (mut project, package) = requirement_project();
-    project.create_requirement("First", "REQ-001", "One", package).unwrap();
+    project
+        .create_requirement("First", "REQ-001", "One", package)
+        .unwrap();
     assert_eq!(
         project.create_requirement("Second", "REQ-001", "Two", package),
         Err(ModelError::DuplicateRequirementId("REQ-001".into()))
