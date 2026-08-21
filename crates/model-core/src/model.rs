@@ -388,6 +388,8 @@ pub enum ModelError {
     EmptyRequirementId(ElementId),
     #[error("requirement ID already exists in this project: {0}")]
     DuplicateRequirementId(String),
+    #[error("copied Requirement text is read-only; edit its supplier Requirement: {0}")]
+    CopiedRequirementIsReadOnly(ElementId),
 }
 
 impl Project {
@@ -578,6 +580,9 @@ impl Project {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
         validate_traceability_endpoints(&kind, &source.kind, &target.kind)?;
+        let copied_requirement_text = (kind == RelationshipKind::Copy)
+            .then(|| target.requirement_text.clone())
+            .flatten();
         if kind == RelationshipKind::Generalization {
             if !source.is_classifier() || !target.is_classifier() {
                 return Err(ModelError::GeneralizationRequiresClassifiers);
@@ -610,6 +615,9 @@ impl Project {
                 item_flow: None,
             },
         );
+        if let Some(text) = copied_requirement_text {
+            self.element_mut(source_id)?.requirement_text = Some(text);
+        }
         Ok(id)
     }
 
@@ -645,12 +653,27 @@ impl Project {
         }) {
             return Err(ModelError::DuplicateRequirementId(requirement_id));
         }
-        let requirement = self.element_mut(id)?;
-        if requirement.kind != ElementKind::Requirement {
-            return Err(ModelError::InvalidOwner(id));
+        if self.relationships.values().any(|relationship| {
+            relationship.kind == RelationshipKind::Copy && relationship.source_id == id
+        }) {
+            return Err(ModelError::CopiedRequirementIsReadOnly(id));
         }
-        requirement.requirement_id = Some(requirement_id);
-        requirement.requirement_text = Some(text.into());
+        let text = text.into();
+        {
+            let requirement = self.element_mut(id)?;
+            if requirement.kind != ElementKind::Requirement {
+                return Err(ModelError::InvalidOwner(id));
+            }
+            requirement.requirement_id = Some(requirement_id);
+            requirement.requirement_text = Some(text.clone());
+        }
+        let copied_clients: Vec<_> = self.relationships.values()
+            .filter(|relationship| relationship.kind == RelationshipKind::Copy && relationship.target_id == id)
+            .map(|relationship| relationship.source_id)
+            .collect();
+        for client_id in copied_clients {
+            self.element_mut(client_id)?.requirement_text = Some(text.clone());
+        }
         Ok(())
     }
 
