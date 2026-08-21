@@ -11,6 +11,8 @@ model = read("crates/model-core/src/model.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/requirements.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
 frontend = read("apps/desktop/frontend/app.js")
+ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
+bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
 families = read("crates/model-core/src/diagram_family.rs")
 
 for token in [
@@ -41,6 +43,10 @@ for command in [
 assert '"requirement"' in families and '("req", "Package")' in families
 assert "create_traceability_relationship" in frontend
 assert "update_requirement" in frontend
+assert "selectedBehaviorDiagramId: null" in frontend
+assert "selectedActivityDiagramId: null" in frontend
+assert "diagram?.family === 'requirement' ? 'Requirement'" in ibd_ui
+assert "diagram.family === 'requirement' ? 'REQ' : 'BDD'" in bdd_completion
 assert "localStorage" not in frontend, "Requirement integration must not create browser semantic persistence"
 
 print("Requirements integration contract passed")

@@ -210,10 +210,21 @@ function activatePaletteItem(item) {
   render();
 }
 async function selectDiagram(diagramId) {
-  state.selectedDiagramId = diagramId;
-  state.selectedRelationshipId = null;
-  state.pendingRelationship = null;
-  state.paletteTool = null;
+  Object.assign(state, {
+    selectedDiagramId: diagramId,
+    selectedRelationshipId: null,
+    pendingRelationship: null,
+    paletteTool: null,
+    selectedBehaviorDiagramId: null,
+    selectedBehaviorItem: null,
+    behaviorTool: null,
+    behaviorPending: null,
+    selectedActivityDiagramId: null,
+    selectedActivityNodeId: null,
+    selectedActivityEdgeId: null,
+    activityTool: null,
+    activityPendingFlow: null,
+  });
   await loadPalette();
   const bdd = state.snapshot?.diagrams?.find((diagram) => diagram.id === diagramId);
   const ibd = state.snapshot?.ibd_diagrams?.find((diagram) => diagram.id === diagramId);

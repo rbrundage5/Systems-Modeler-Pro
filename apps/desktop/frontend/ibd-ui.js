@@ -1,7 +1,9 @@
 loadPalette = async function loadPalettePr11() {
   if (!state.selectedDiagramId) { state.paletteItems = []; return; }
   const isIbd = (state.snapshot?.ibd_diagrams || []).some((d) => d.id === state.selectedDiagramId);
-  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType: isIbd ? 'IBD' : 'BDD' });
+  const diagram = (state.snapshot?.diagrams || []).find((d) => d.id === state.selectedDiagramId);
+  const diagramType = isIbd ? 'IBD' : diagram?.family === 'requirement' ? 'Requirement' : 'BDD';
+  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType });
 };
 
 function selectedIbd() {
