@@ -113,7 +113,10 @@ activatePaletteItem = function activatePaletteItemComplete(item) {
   else { state.pendingRelationship = null; state.paletteTool = item; render(); }
 };
 
+const createStructuralPaletteElementAt = createPaletteElementAt;
 createPaletteElementAt = async function createPaletteElementAtComplete(item, x, y) {
+  const active = state.snapshot?.diagrams?.find((diagram) => diagram.id === state.selectedDiagramId);
+  if (active?.family === 'requirement') return createStructuralPaletteElementAt(item, x, y);
   if (!BDD_CLASSIFIER_KINDS.has(item.semantic_kind)) throw new Error(`${item.label} is not a top-level BDD classifier.`);
   const diagram = state.snapshot.diagrams.find((candidate) => candidate.id === state.selectedDiagramId); if (!diagram) throw new Error('Select a BDD first.');
   const name = prompt(`${item.label} name`, `New ${item.label}`); if (!name) return;
@@ -122,7 +125,10 @@ createPaletteElementAt = async function createPaletteElementAtComplete(item, x, 
   state.selectedElementId = elementId; state.paletteTool = null; await refresh();
 };
 
+const placeExistingStructuralElementAt = placeExistingElementAt;
 placeExistingElementAt = async function placeExistingElementAtComplete(elementId, x, y) {
+  const active = state.snapshot?.diagrams?.find((diagram) => diagram.id === state.selectedDiagramId);
+  if (active?.family === 'requirement') return placeExistingStructuralElementAt(elementId, x, y);
   await runCommand('Placing existing classifier…', () => requireInvoke()('place_bdd_element', { diagramId: state.selectedDiagramId, elementId, x, y }));
   state.selectedElementId = elementId; await refresh();
 };

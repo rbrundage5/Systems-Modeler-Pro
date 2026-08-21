@@ -13,6 +13,7 @@ main = read("apps/desktop/src-tauri/src/main.rs")
 frontend = read("apps/desktop/frontend/app.js")
 ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
+palette_icons = read("apps/desktop/frontend/palette-icons.js")
 families = read("crates/model-core/src/diagram_family.rs")
 
 for token in [
@@ -47,6 +48,11 @@ assert "selectedBehaviorDiagramId: null" in frontend
 assert "selectedActivityDiagramId: null" in frontend
 assert "diagram?.family === 'requirement' ? 'Requirement'" in ibd_ui
 assert "diagram.family === 'requirement' ? 'REQ' : 'BDD'" in bdd_completion
+assert "active?.family === 'requirement'" in bdd_completion
+assert "createStructuralPaletteElementAt(item, x, y)" in bdd_completion
+assert "DeriveRequirement: 'R┄➤'" in palette_icons
+for semantic_kind in ["AssociationBlock", "InterfaceBlock", "ConstraintBlock", "ValueType", "DataType", "PrimitiveType", "Enumeration", "Signal", "Unit", "QuantityKind", "InstanceSpecification", "Comment"]:
+    assert f'"{semantic_kind}"' in main, f"Requirement palette missing supported model element: {semantic_kind}"
 assert "localStorage" not in frontend, "Requirement integration must not create browser semantic persistence"
 
 print("Requirements integration contract passed")

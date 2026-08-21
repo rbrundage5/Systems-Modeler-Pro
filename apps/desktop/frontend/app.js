@@ -348,6 +348,8 @@ async function createPaletteElementAt(item, x, y) {
     elementId = await runCommand('Creating Requirement…', () => requireInvoke()('create_requirement', { ownerId: diagram.owner_id, name, requirementId:definition.values.requirementId, text:definition.values.text }));
   } else if (diagram.family === 'requirement' && item.semantic_kind === 'TestCase') {
     elementId = await runCommand('Creating Test Case…', () => requireInvoke()('create_test_case', { ownerId: diagram.owner_id, name }));
+  } else if (diagram.family === 'requirement') {
+    elementId = await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_bdd_element', { kind:item.semantic_kind, ownerId:diagram.owner_id, name }));
   } else if (item.semantic_kind === 'Block') {
     elementId = await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_block', { ownerId: diagram.owner_id, name }));
   } else throw new Error(`Palette item ${item.label} is not executable by the active Rust diagram engine.`);
