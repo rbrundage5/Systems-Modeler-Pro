@@ -49,9 +49,17 @@ require(
     "window.smpRendererHost?.execute(button.dataset.command)",
     "History",
 )
+require(
+    "apps/desktop/frontend/state-bar-resize.js",
+    "refreshBehaviorSnapshotPreservingSelection",
+    "window.smpRefreshBehaviorSnapshot",
+    "refresh = async function refreshWithAuthoritativeBehavior",
+    "state.selectedBehaviorDiagramId = selectedDiagramId",
+    "await refreshBehaviorSnapshotPreservingSelection();",
+)
 
 index = text("apps/desktop/frontend/index.html")
-behavior = index.find('<script src="behavior-refresh-authority.js"></script>')
+behavior = index.find('<script src="state-bar-resize.js"></script>')
 history = index.find('<script src="undo-redo-ui.js"></script>')
 if behavior < 0 or history < 0 or history < behavior:
     raise SystemExit(
@@ -73,6 +81,11 @@ for forbidden in (
 if (root / "apps/desktop/frontend/authoritative-mutation-sync.js").exists():
     raise SystemExit(
         "authoritative-mutation-sync.js must not return; it caused the STM/SEQ regression"
+    )
+
+if (root / "apps/desktop/frontend/behavior-refresh-authority.js").exists():
+    raise SystemExit(
+        "Behavior refresh authority must remain consolidated with state-bar-resize.js"
     )
 
 print("PR13 history integration preserves qualified cross-diagram refresh authority and visible shell controls")
