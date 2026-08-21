@@ -38,9 +38,10 @@ fn selected_relationship_id(
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .and_then(|diagram| {
-            diagram.edges.iter().find(|edge| {
-                edge.id == selection.id || edge.relationship_id == selection.id
-            })
+            diagram
+                .edges
+                .iter()
+                .find(|edge| edge.id == selection.id || edge.relationship_id == selection.id)
         })
     {
         return parse_relationship_id(&edge.relationship_id);
@@ -53,9 +54,10 @@ fn selected_relationship_id(
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .and_then(|diagram| {
-            diagram.connectors.iter().find(|edge| {
-                edge.id == selection.id || edge.relationship_id == selection.id
-            })
+            diagram
+                .connectors
+                .iter()
+                .find(|edge| edge.id == selection.id || edge.relationship_id == selection.id)
         })
     {
         return parse_relationship_id(&edge.relationship_id);
@@ -143,7 +145,10 @@ fn delete_selected_relationship_from_model(
     activity_repository
         .validate(&project)
         .map_err(|error| error.to_string())?;
-    for owner_id in activity_diagrams.iter().map(|diagram| diagram.owner_id.as_str()) {
+    for owner_id in activity_diagrams
+        .iter()
+        .map(|diagram| diagram.owner_id.as_str())
+    {
         project
             .element(super::parse_element_id(owner_id)?)
             .map_err(|error| error.to_string())?;
