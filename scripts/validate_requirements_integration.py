@@ -53,7 +53,13 @@ assert "diagram.family === 'requirement' ? 'REQ' : 'BDD'" in bdd_completion
 assert "active?.family === 'requirement'" in bdd_completion
 assert "createStructuralPaletteElementAt(item, x, y)" in bdd_completion
 assert "renderStructuralCanvas" in bdd_completion and "renderStructuralProperties" in bdd_completion
-assert "diagram?.family === 'requirement') return baseRenderCanvasExtended()" in bdd_extended
+assert "diagram?.family === 'requirement') return baseRenderCanvasExtended()" not in bdd_extended
+assert "box.innerHTML = extendedElementMarkup(project, element)" in bdd_extended
+assert "box.dataset.semanticKind = element.kind" in bdd_extended
+assert "box.dataset.presentationId = node.id" in bdd_extended
+assert "diagram.family === 'requirement' ? 'req' : 'bdd'" in bdd_extended
+assert "create_traceability_relationship" in bdd_extended
+assert "element.kind === 'Requirement'" in bdd_extended
 assert 'compartment-title">id' in frontend and 'compartment-title">text' in frontend
 assert "Presentation Display" in visibility and "['id', 'text'" in visibility
 assert "show-requirement-id" in frontend and "smpRequirementDisplay" in visibility
