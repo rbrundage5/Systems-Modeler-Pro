@@ -720,7 +720,13 @@ mod tests {
     #[test]
     fn registry_exposes_renderer_contract_for_every_current_family() {
         let families = diagram_family_registry();
-        assert_eq!(families.len(), 5);
+        assert_eq!(families.len(), 6);
+        let requirement = families
+            .iter()
+            .find(|family| family.id.0 == "requirement")
+            .expect("Requirement Diagram must be registered in the shared workspace");
+        assert_eq!(requirement.renderer_id, "requirement");
+        assert_eq!(requirement.frame_abbreviation, "req");
         assert!(families.iter().all(|family| !family.renderer_id.is_empty()));
         assert!(
             families
