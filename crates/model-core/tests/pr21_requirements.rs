@@ -82,3 +82,34 @@ fn duplicate_human_readable_requirement_ids_are_rejected() {
         Err(ModelError::DuplicateRequirementId("REQ-001".into()))
     );
 }
+
+#[test]
+fn copy_relationship_synchronizes_and_protects_slave_text() {
+    let (mut project, package) = requirement_project();
+    let master = project
+        .create_requirement("Master", "REQ-MASTER", "Authoritative text", package)
+        .unwrap();
+    let slave = project
+        .create_requirement("Copy", "REQ-COPY", "Stale text", package)
+        .unwrap();
+
+    project
+        .create_relationship(RelationshipKind::Copy, slave, master, Some(package))
+        .unwrap();
+    assert_eq!(
+        project.element(slave).unwrap().requirement_text.as_deref(),
+        Some("Authoritative text")
+    );
+    assert_eq!(
+        project.update_requirement(slave, "REQ-COPY", "Unauthorized edit"),
+        Err(ModelError::CopiedRequirementIsReadOnly(slave))
+    );
+
+    project
+        .update_requirement(master, "REQ-MASTER", "Revised authoritative text")
+        .unwrap();
+    assert_eq!(
+        project.element(slave).unwrap().requirement_text.as_deref(),
+        Some("Revised authoritative text")
+    );
+}
