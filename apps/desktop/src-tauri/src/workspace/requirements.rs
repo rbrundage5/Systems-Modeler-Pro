@@ -270,7 +270,9 @@ pub fn reconnect_traceability_relationship(
         relationship.target_id = new_target;
     }
     if let Err(error) = project.validate() {
-        project.relationships.insert(relationship_id, original.clone());
+        project
+            .relationships
+            .insert(relationship_id, original.clone());
         return Err(error.to_string());
     }
     if original.kind == RelationshipKind::Copy {
