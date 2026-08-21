@@ -277,7 +277,7 @@ pub fn semantic_presentation_manifest() -> Vec<SemanticPresentation> {
 #[tauri::command]
 pub fn semantic_presentation_stylesheet() -> String {
     let mut stylesheet = String::from(
-        "/* Rust-generated semantic presentation tokens. */\n[data-semantic-kind]:not([data-semantic-kind=\"Lifeline\"]){background:var(--semantic-fill)!important;border-color:var(--semantic-border)!important;color:var(--semantic-text)!important}\n[data-semantic-kind=\"Lifeline\"]{background:transparent!important}\n[data-semantic-kind] :is(.diagram-header,.lifeline-head,.block-name){background:var(--semantic-header)!important;color:var(--semantic-text)!important}\nsvg [data-semantic-kind] :is(rect,polygon,ellipse){fill:var(--semantic-fill)!important;stroke:var(--semantic-border)!important}\nsvg [data-semantic-kind] text{fill:var(--semantic-text)!important}\n",
+        "/* Rust-generated semantic presentation tokens. */\n[data-semantic-kind]:not([data-semantic-kind=\"Lifeline\"]){background:var(--semantic-fill)!important;border-color:var(--semantic-border)!important;color:var(--semantic-text)!important}\n[data-semantic-kind=\"Lifeline\"]{background:transparent!important}\n[data-semantic-kind] :is(.diagram-header,.lifeline-head,.classifier-header,.block-name){background:var(--semantic-header)!important;color:var(--semantic-text)!important}\n[data-semantic-kind] .classifier-header .block-name{background:transparent!important}\nsvg [data-semantic-kind] :is(rect,polygon,ellipse){fill:var(--semantic-fill)!important;stroke:var(--semantic-border)!important}\nsvg [data-semantic-kind] text{fill:var(--semantic-text)!important}\n",
     );
     for (kind, style) in PRESENTATIONS {
         stylesheet.push_str(&format!(
