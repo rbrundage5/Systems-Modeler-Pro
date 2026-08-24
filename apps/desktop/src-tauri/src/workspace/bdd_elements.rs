@@ -406,7 +406,9 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
             }
         }
         if diagram.family == "package" && !diagram.edges.is_empty() {
-            return Err("Package Diagram relationships are not part of the PR26A foundation".into());
+            return Err(
+                "Package Diagram relationships are not part of the PR26A foundation".into(),
+            );
         }
         for edge in &diagram.edges {
             if uuid::Uuid::parse_str(&edge.id).is_err() {
