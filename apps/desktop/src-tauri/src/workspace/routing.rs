@@ -104,33 +104,37 @@ pub fn route_label_anchor_avoiding(
     });
     for segment in segments {
         let horizontal = (segment[0].y - segment[1].y).abs() < 0.001;
-        for side in [-1.0, 1.0] {
-            let anchor = DiagramPoint {
-                x: (segment[0].x + segment[1].x) / 2.0
-                    + if horizontal {
-                        0.0
-                    } else {
-                        side * (LABEL_WIDTH / 2.0 + LABEL_GAP)
-                    },
-                y: (segment[0].y + segment[1].y) / 2.0
-                    + if horizontal {
-                        side * (LABEL_HEIGHT + LABEL_GAP)
-                    } else {
-                        0.0
-                    },
-            };
-            let rect = label_rect(anchor);
-            let inside_bounds = bounds.is_none_or(|frame| rect_inside(rect, frame));
-            let clears_obstacles = obstacles
-                .iter()
-                .all(|obstacle| !rects_overlap(rect, *obstacle));
-            let clears_routes = reserved_routes.iter().all(|route| {
-                route
-                    .windows(2)
-                    .all(|reserved| !segment_intersects_rect_exact(reserved[0], reserved[1], rect))
-            });
-            if inside_bounds && clears_obstacles && clears_routes {
-                return Ok(anchor);
+        for ratio in [0.5, 0.25, 0.75, 0.125, 0.875] {
+            for side in [-1.0, 1.0] {
+                let anchor = DiagramPoint {
+                    x: segment[0].x
+                        + (segment[1].x - segment[0].x) * ratio
+                        + if horizontal {
+                            0.0
+                        } else {
+                            side * (LABEL_WIDTH / 2.0 + LABEL_GAP)
+                        },
+                    y: segment[0].y
+                        + (segment[1].y - segment[0].y) * ratio
+                        + if horizontal {
+                            side * (LABEL_HEIGHT + LABEL_GAP)
+                        } else {
+                            0.0
+                        },
+                };
+                let rect = label_rect(anchor);
+                let inside_bounds = bounds.is_none_or(|frame| rect_inside(rect, frame));
+                let clears_obstacles = obstacles
+                    .iter()
+                    .all(|obstacle| !rects_overlap(rect, *obstacle));
+                let clears_routes = reserved_routes.iter().all(|route| {
+                    route.windows(2).all(|reserved| {
+                        !segment_intersects_rect_exact(reserved[0], reserved[1], rect)
+                    })
+                });
+                if inside_bounds && clears_obstacles && clears_routes {
+                    return Ok(anchor);
+                }
             }
         }
     }
@@ -230,6 +234,10 @@ pub fn route_diagram_geometry(
 /// order. Horizontal relationships detour above/below obstacles; vertical
 /// relationships detour left/right.
 pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, String> {
+    if request.source == request.target {
+        return self_transition_route(&request);
+    }
+
     let source_center = request.source.center();
     let target_center = request.target.center();
     let dx = target_center.x - source_center.x;
@@ -371,9 +379,115 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
     candidates
         .into_iter()
         .find(|candidate| route_is_valid(candidate, &request))
-        .ok_or_else(|| {
-            "no validated obstacle-clear route is available inside the diagram frame; existing geometry was preserved".into()
-        })
+        .ok_or_else(|| route_failure(&request))
+}
+
+fn self_transition_route(request: &RouteRequest<'_>) -> Result<Vec<DiagramPoint>, String> {
+    let rect = request.source;
+    let center = rect.center();
+    let clearance = ROUTE_CLEARANCE + (request.lane_index + 1) as f64 * LANE_SPACING;
+    let top = DiagramPoint {
+        x: center.x,
+        y: rect.y,
+    };
+    let right = DiagramPoint {
+        x: rect.x + rect.width,
+        y: center.y,
+    };
+    let bottom = DiagramPoint {
+        x: center.x,
+        y: rect.y + rect.height,
+    };
+    let left = DiagramPoint {
+        x: rect.x,
+        y: center.y,
+    };
+    let outer_top = rect.y - clearance;
+    let outer_right = rect.x + rect.width + clearance;
+    let outer_bottom = rect.y + rect.height + clearance;
+    let outer_left = rect.x - clearance;
+    let mut candidates = vec![
+        vec![
+            top,
+            DiagramPoint {
+                x: top.x,
+                y: outer_top,
+            },
+            DiagramPoint {
+                x: outer_right,
+                y: outer_top,
+            },
+            DiagramPoint {
+                x: outer_right,
+                y: right.y,
+            },
+            right,
+        ],
+        vec![
+            right,
+            DiagramPoint {
+                x: outer_right,
+                y: right.y,
+            },
+            DiagramPoint {
+                x: outer_right,
+                y: outer_bottom,
+            },
+            DiagramPoint {
+                x: bottom.x,
+                y: outer_bottom,
+            },
+            bottom,
+        ],
+        vec![
+            bottom,
+            DiagramPoint {
+                x: bottom.x,
+                y: outer_bottom,
+            },
+            DiagramPoint {
+                x: outer_left,
+                y: outer_bottom,
+            },
+            DiagramPoint {
+                x: outer_left,
+                y: left.y,
+            },
+            left,
+        ],
+        vec![
+            left,
+            DiagramPoint {
+                x: outer_left,
+                y: left.y,
+            },
+            DiagramPoint {
+                x: outer_left,
+                y: outer_top,
+            },
+            DiagramPoint {
+                x: top.x,
+                y: outer_top,
+            },
+            top,
+        ],
+    ];
+    candidates.sort_by(|left, right| route_cost(left).total_cmp(&route_cost(right)));
+    candidates
+        .into_iter()
+        .find(|candidate| route_is_valid(candidate, request))
+        .ok_or_else(|| route_failure(request))
+}
+
+fn route_failure(request: &RouteRequest<'_>) -> String {
+    let scope = if request.bounds.is_some() {
+        " inside the diagram frame"
+    } else {
+        ""
+    };
+    format!(
+        "no validated obstacle-clear route is available{scope}; existing geometry was preserved"
+    )
 }
 
 fn routing_ring_limit(request: &RouteRequest<'_>) -> usize {
@@ -529,6 +643,8 @@ pub fn route_avoids_reserved(
     allow_shared_departure: bool,
 ) -> bool {
     reserved_routes.iter().all(|reserved| {
+        let candidate_last = candidate.len().saturating_sub(2);
+        let reserved_last = reserved.len().saturating_sub(2);
         candidate
             .windows(2)
             .enumerate()
@@ -541,7 +657,11 @@ pub fn route_avoids_reserved(
                             && candidate_index == 0
                             && reserved_index == 0
                             && candidate_segment[0] == reserved_segment[0];
+                        let shared_arrival = candidate_index == candidate_last
+                            && reserved_index == reserved_last
+                            && candidate_segment[1] == reserved_segment[1];
                         shared_departure
+                            || shared_arrival
                             || !segments_overlap(
                                 candidate_segment[0],
                                 candidate_segment[1],
@@ -832,6 +952,78 @@ mod tests {
         ];
         assert!(route_avoids_reserved(&candidate, &reserved, true));
         assert!(!route_avoids_reserved(&candidate, &reserved, false));
+    }
+
+    #[test]
+    fn a_common_target_may_share_only_the_final_arrival_segment() {
+        let reserved = vec![vec![
+            DiagramPoint { x: 120.0, y: 120.0 },
+            DiagramPoint { x: 180.0, y: 120.0 },
+            DiagramPoint { x: 180.0, y: 50.0 },
+        ]];
+        let candidate = vec![
+            DiagramPoint { x: 240.0, y: 120.0 },
+            DiagramPoint { x: 180.0, y: 120.0 },
+            DiagramPoint { x: 180.0, y: 50.0 },
+        ];
+        assert!(route_avoids_reserved(&candidate, &reserved, false));
+
+        let unrelated_overlap = vec![
+            DiagramPoint { x: 240.0, y: 120.0 },
+            DiagramPoint { x: 180.0, y: 120.0 },
+            DiagramPoint { x: 180.0, y: 80.0 },
+        ];
+        assert!(!route_avoids_reserved(
+            &unrelated_overlap,
+            &reserved,
+            false
+        ));
+    }
+
+    #[test]
+    fn label_search_uses_clear_positions_away_from_a_blocked_midpoint() {
+        let points = vec![
+            DiagramPoint { x: 0.0, y: 50.0 },
+            DiagramPoint { x: 300.0, y: 50.0 },
+        ];
+        let midpoint_obstacle = RouteRect {
+            x: 135.0,
+            y: -20.0,
+            width: 30.0,
+            height: 140.0,
+        };
+        let anchor = route_label_anchor_avoiding(&points, &[midpoint_obstacle], &[], None)
+            .expect("clear quarter-segment label position");
+        assert_eq!(anchor.x, 75.0);
+        assert!(!rects_overlap(label_rect(anchor), midpoint_obstacle));
+    }
+
+    #[test]
+    fn self_transition_uses_a_valid_external_loop() {
+        let state = RouteRect {
+            x: 100.0,
+            y: 100.0,
+            width: 120.0,
+            height: 80.0,
+        };
+        let route = orthogonal_route(RouteRequest {
+            source: state,
+            target: state,
+            obstacles: &[],
+            lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
+            bounds: None,
+        })
+        .expect("validated self-transition loop");
+        assert_eq!(route.len(), 5);
+        assert_ne!(route.first(), route.last());
+        assert!(route.iter().any(|point| {
+            point.x < state.x
+                || point.x > state.x + state.width
+                || point.y < state.y
+                || point.y > state.y + state.height
+        }));
     }
 
     #[test]
