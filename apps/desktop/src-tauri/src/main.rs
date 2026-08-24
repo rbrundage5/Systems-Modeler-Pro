@@ -12,6 +12,7 @@ mod workspace {
     mod ibd;
     mod item_flow_notation;
     mod layout;
+    mod package_diagrams;
     mod parametrics;
     mod presentation_interaction;
     mod presentation_theme;
@@ -67,6 +68,7 @@ mod workspace {
         populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
+    pub use package_diagrams::{create_package_diagram, place_on_package_diagram};
     pub use parametrics::{
         create_binding_connector, create_constraint_parameter,
         create_parametric_constraint_property, create_parametric_diagram,
@@ -134,7 +136,7 @@ use workspace::{
     create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
     create_bdd_relationship, create_bdd_relationship_complete, create_binding_connector,
     create_block, create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
-    create_parametric_constraint_property, create_parametric_diagram,
+    create_package_diagram, create_parametric_constraint_property, create_parametric_diagram,
     create_parametric_value_property, create_requirement, create_requirement_diagram,
     create_sequence_diagram, create_sequence_diagram_staged, create_state_machine_diagram,
     create_state_machine_diagram_staged, create_test_case, create_traceability_relationship,
@@ -148,10 +150,10 @@ use workspace::{
     load_activity_workspace, move_active_selection, move_repository_diagram,
     move_repository_element, move_sequence_lifeline, move_state_vertex, new_project,
     open_project_file, open_project_file_complete, paste_selection, place_bdd_element,
-    place_element_on_bdd, place_on_parametric_diagram, place_on_requirement_diagram,
-    place_on_use_case_diagram, populate_ibd_from_context, reconnect_activity_edge,
-    reconnect_bdd_relationship, reconnect_binding_connector, reconnect_sequence_message,
-    reconnect_traceability_relationship, reconnect_use_case_relationship,
+    place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
+    place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
+    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_binding_connector,
+    reconnect_sequence_message, reconnect_traceability_relationship, reconnect_use_case_relationship,
     rename_active_diagram_header, rename_element, reset_activity_workspace,
     resize_sequence_lifeline_timeline, route_activity_diagram, route_behavior_diagram,
     route_diagram_geometry, route_ibd, save_activity_workspace, save_current_project,
@@ -506,6 +508,8 @@ fn main() {
             delete_active_selection,
             move_active_selection,
             diagram_palette,
+            create_package_diagram,
+            place_on_package_diagram,
             create_parametric_diagram,
             place_on_parametric_diagram,
             create_parametric_constraint_property,
