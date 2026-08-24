@@ -182,10 +182,20 @@
     const local = transientHandlers[id];
     if (local) { await local(args); return true; }
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
-    await publishInteraction();
-    const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
-    await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
-    await renderer()?.refresh?.(); return true;
+    try {
+      await publishInteraction();
+      const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
+      await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
+      if (state.context.family.id === 'state-machine' && typeof window.smpRefreshBehaviorSnapshot === 'function') {
+        await window.smpRefreshBehaviorSnapshot();
+        if (typeof window.render === 'function') window.render();
+      } else await renderer()?.refresh?.();
+      if (id === 'route' || id === 'cleanLayout') notify(`${command.label} completed.`, 'info');
+      return true;
+    } catch (error) {
+      notify(`${command.label} failed: ${String(error)}`, 'error');
+      return false;
+    }
   }
 
   async function loadCommands() {
