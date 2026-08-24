@@ -8,7 +8,10 @@ pub mod ibd;
 pub mod parametrics;
 pub use behavior::*;
 pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
-pub use parametrics::{BindingConnector, BindingEndpoint};
+pub use parametrics::{
+    BindingConnector, BindingEndpoint, ParametricEvaluationReport, ParametricEvaluationScope,
+    ParametricValueUpdate, evaluate_parametrics,
+};
 
 macro_rules! id_type {
     ($name:ident) => {
