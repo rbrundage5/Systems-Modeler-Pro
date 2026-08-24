@@ -220,7 +220,9 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 && (!context.is_classifier()
                     || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase))
             {
-                return Err("Use Case diagram context is not a represented system classifier".into());
+                return Err(
+                    "Use Case diagram context is not a represented system classifier".into(),
+                );
             }
         }
         for node in &diagram.nodes {

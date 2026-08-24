@@ -691,12 +691,11 @@ impl Project {
             if self.would_create_generalization_cycle(source_id, target_id) {
                 return Err(ModelError::GeneralizationCycle);
             }
-            if matches!(source.kind, ElementKind::Actor | ElementKind::UseCase)
-                || matches!(target.kind, ElementKind::Actor | ElementKind::UseCase)
+            if (matches!(source.kind, ElementKind::Actor | ElementKind::UseCase)
+                || matches!(target.kind, ElementKind::Actor | ElementKind::UseCase))
+                && source.kind != target.kind
             {
-                if source.kind != target.kind {
-                    return Err(ModelError::InvalidUseCaseGeneralization);
-                }
+                return Err(ModelError::InvalidUseCaseGeneralization);
             }
         }
         if traceability && owner_id.is_none() {

@@ -53,7 +53,9 @@ pub fn create_use_case_diagram(
         .lock()
         .map_err(|_| "project lock poisoned")?;
     let project = project.as_ref().ok_or("no project open")?;
-    let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+    let owner = project
+        .element(owner_id)
+        .map_err(|error| error.to_string())?;
     if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
         return Err("Use Case Diagram owner must be a Model or Package".into());
     }

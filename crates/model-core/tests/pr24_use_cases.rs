@@ -1,6 +1,4 @@
-use systems_modeler_core::notation::{
-    EndDecoration, LineStyle, relationship_notation,
-};
+use systems_modeler_core::notation::{EndDecoration, LineStyle, relationship_notation};
 use systems_modeler_core::{
     AggregationKind, ElementKind, ModelError, Multiplicity, Project, RelationshipKind,
 };
@@ -78,13 +76,7 @@ fn association_include_extend_and_generalization_enforce_sysml_endpoints_and_dir
                     false,
                     AggregationKind::None,
                 ),
-                Project::association_end(
-                    base,
-                    "",
-                    Multiplicity::ONE,
-                    false,
-                    AggregationKind::None,
-                ),
+                Project::association_end(base, "", Multiplicity::ONE, false, AggregationKind::None),
             ],
         )
         .unwrap();
@@ -178,9 +170,11 @@ fn extend_location_must_resolve_on_the_extended_target_use_case() {
         ),
         Err(ModelError::ExtensionPointNotFound { .. })
     ));
-    assert!(project
-        .relationship(relationship)
-        .unwrap()
-        .extension_location
-        .is_none());
+    assert!(
+        project
+            .relationship(relationship)
+            .unwrap()
+            .extension_location
+            .is_none()
+    );
 }

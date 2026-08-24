@@ -44,11 +44,17 @@ fn use_case_semantics_round_trip_with_stable_identity_and_direction() {
     let restored_base = restored.element(base).unwrap();
     assert_eq!(restored_base.represented_classifier_id, Some(system));
     assert_eq!(restored_base.extension_points, ["discount"]);
-    assert_eq!(restored_base.use_case_specification, "Book a valid itinerary");
+    assert_eq!(
+        restored_base.use_case_specification,
+        "Book a valid itinerary"
+    );
     let restored_extend = restored.relationship(extend).unwrap();
     assert_eq!(restored_extend.source_id, extension);
     assert_eq!(restored_extend.target_id, base);
-    assert_eq!(restored_extend.extension_location.as_deref(), Some("discount"));
+    assert_eq!(
+        restored_extend.extension_location.as_deref(),
+        Some("discount")
+    );
     assert_eq!(
         restored_extend.extension_condition.as_deref(),
         Some("traveler is eligible")

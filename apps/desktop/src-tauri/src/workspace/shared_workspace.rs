@@ -994,7 +994,11 @@ mod tests {
             )
             .unwrap();
         let actor = project
-            .create_element(systems_modeler_core::ElementKind::Actor, "Operator", package)
+            .create_element(
+                systems_modeler_core::ElementKind::Actor,
+                "Operator",
+                package,
+            )
             .unwrap();
         let use_case = project
             .create_element(
