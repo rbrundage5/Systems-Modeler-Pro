@@ -28,7 +28,7 @@
     const handle = ensureHandle(node);
 
     node.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0 || event.target.closest?.('.smp-resize-handle') || config.disabled()) return;
+      if (event.button !== 0 || event.target.closest?.('.smp-resize-handle, .constraint-parameter') || config.disabled()) return;
       event.preventDefault();
       event.stopPropagation();
       config.select();
@@ -100,7 +100,10 @@
         geometry: () => ({ ...presentation }),
         disabled: () => !!state.pendingRelationship || !!state.paletteTool,
         select: () => { state.selectedElementId = presentation.element_id; state.selectedRelationshipId = null; },
-        commit: (next) => invokeCommit('update_bdd_presentation_geometry', {
+        commit: (next) => invokeCommit(
+          diagram.family === 'parametric'
+            ? 'update_parametric_presentation_geometry'
+            : 'update_bdd_presentation_geometry', {
           diagramId: diagram.id,
           presentationId: presentation.id,
           x: next.x, y: next.y, width: next.width, height: next.height,

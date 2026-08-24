@@ -246,6 +246,7 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("UseCase", USE_CASE),
     ("ConstraintBlock", CONSTRAINT),
     ("ConstraintProperty", CONSTRAINT),
+    ("ConstraintParameter", DATA),
     ("ValueType", DATA),
     ("DataType", DATA),
     ("PrimitiveType", DATA),
@@ -326,6 +327,7 @@ const ALL_DIAGRAMS: &[&str] = &[
     "StateMachine",
     "Sequence",
     "Activity",
+    "Parametric",
 ];
 
 pub fn resolve_diagram_commands(
@@ -441,6 +443,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
                 "StateMachine",
                 "Sequence",
                 "Activity",
+                "Parametric",
             ],
             rust_adapter: Some("active_diagram_router"),
             unavailable_reason: Some("Routing is not applicable to this diagram type."),
@@ -458,10 +461,22 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
                 "StateMachine",
                 "Sequence",
                 "Activity",
+                "Parametric",
             ],
             rust_adapter: Some("active_diagram_layout"),
             unavailable_reason: Some("Automatic layout is not available for this diagram type."),
             required_capability: Some(DiagramCapability::CleanLayout),
+        },
+        DiagramCommandCapability {
+            id: "evaluateParametrics",
+            label: "Evaluate Parametrics",
+            shortcut: None,
+            supported_diagrams: &["Parametric"],
+            rust_adapter: Some("evaluate_parametric_diagram"),
+            unavailable_reason: Some(
+                "Parametric evaluation is only available on a Parametric Diagram.",
+            ),
+            required_capability: Some(DiagramCapability::Evaluation),
         },
     ]);
     commands
@@ -589,6 +604,7 @@ mod tests {
             "ValueProperty",
             "FlowProperty",
             "ConstraintProperty",
+            "ConstraintParameter",
             "ProxyPort",
             "FullPort",
             "Operation",
@@ -613,7 +629,7 @@ mod tests {
                 "zoomIn" | "zoomOut" | "actualSize" | "fitDiagram" | "pan"
             )
         }) {
-            assert_eq!(command.supported_diagrams.len(), 7);
+            assert_eq!(command.supported_diagrams.len(), 8);
         }
     }
 
@@ -647,6 +663,22 @@ mod tests {
             .expect("Clean Layout is registered");
         assert!(layout.enabled);
         assert!(layout.disabled_reason.is_none());
+        let evaluation = commands
+            .iter()
+            .find(|item| item.command.id == "evaluateParametrics")
+            .expect("Evaluate Parametrics is registered");
+        assert!(!evaluation.enabled);
+
+        let parametric = registry
+            .get(&systems_modeler_core::DiagramFamilyId("parametric".into()))
+            .expect("parametric is registered");
+        let commands = resolve_diagram_commands(Some(parametric));
+        let evaluation = commands
+            .iter()
+            .find(|item| item.command.id == "evaluateParametrics")
+            .expect("Evaluate Parametrics is registered");
+        assert!(evaluation.enabled);
+        assert_eq!(evaluation.command.rust_adapter, Some("evaluate_parametric_diagram"));
     }
 
     #[test]

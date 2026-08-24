@@ -625,6 +625,7 @@ pub fn place_on_use_case_diagram(
         width,
         height,
         actor_notation: actor.then(|| "stick".into()),
+        parameter_presentations: Vec::new(),
     });
     fit_use_case_subject_boundary(diagram, &project, false);
     checkpoint(&workspace, &activity, &history)?;
@@ -952,6 +953,7 @@ mod tests {
                 width: 110.0,
                 height: 150.0,
                 actor_notation: Some("rectangle".into()),
+                parameter_presentations: Vec::new(),
             }],
             edges: Vec::new(),
         };
@@ -989,6 +991,7 @@ mod tests {
             width: 110.0,
             height: 150.0,
             actor_notation: Some("stick".into()),
+            parameter_presentations: Vec::new(),
         };
         let use_case_node = DiagramNode {
             id: uuid::Uuid::new_v4().to_string(),
@@ -998,6 +1001,7 @@ mod tests {
             width: 210.0,
             height: 115.0,
             actor_notation: None,
+            parameter_presentations: Vec::new(),
         };
         let mut diagram = BddDiagram {
             id: uuid::Uuid::new_v4().to_string(),

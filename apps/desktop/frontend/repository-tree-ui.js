@@ -26,6 +26,7 @@
     if (diagram.family === 'requirement') return 'REQ';
     if (diagram.family === 'bdd') return 'BDD';
     if (diagram.family === 'use-case') return 'UC';
+    if (diagram.family === 'parametric') return 'PAR';
     if (diagram.context_block_id) return 'IBD';
     if (diagram.kind === 'StateMachine') return 'STM';
     if (diagram.kind === 'Sequence') return 'SEQ';

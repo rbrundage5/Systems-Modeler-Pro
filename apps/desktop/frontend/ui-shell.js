@@ -24,6 +24,7 @@
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>BDD</span></button>
         <button class="ribbon-command" data-action="new-requirement"><span class="command-icon">R</span><span>Requirement</span></button>
         <button class="ribbon-command" data-action="new-use-case"><span class="command-icon">UC</span><span>Use Case</span></button>
+        <button class="ribbon-command" data-action="new-parametric"><span class="command-icon">PAR</span><span>Parametric</span></button>
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>Sequence</span></button>
@@ -35,6 +36,7 @@
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>New BDD</span></button>
         <button class="ribbon-command" data-action="new-requirement"><span class="command-icon">R</span><span>New Requirement</span></button>
         <button class="ribbon-command" data-action="new-use-case"><span class="command-icon">UC</span><span>New Use Case</span></button>
+        <button class="ribbon-command" data-action="new-parametric"><span class="command-icon">PAR</span><span>New Parametric</span></button>
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>New IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>New State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>New Sequence</span></button>
@@ -42,7 +44,7 @@
         <button class="ribbon-command" data-command="route"><span class="command-icon">⌁</span><span>Route</span></button>
       </div><div class="ribbon-label">Diagram</div></section>${historyGroup}
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Rust-owned diagram commands</div><div class="ribbon-label">Context</div></section>`,
-    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-command="route"><span class="command-icon">⌁</span><span>Route</span></button><button class="ribbon-command" data-command="cleanLayout"><span class="command-icon">⌁</span><span>Clean Layout</span></button></div><div class="ribbon-label">Routing and Layout</div></section>${historyGroup}<section class="ribbon-group ribbon-context"><div class="context-title">Shared geometry</div><div class="context-value">Rust-owned routing and layout</div><div class="context-subtitle">Availability follows the active diagram capabilities.</div><div class="ribbon-label">Layout</div></section>`,
+    Arrange: `<section class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-command" data-command="route"><span class="command-icon">⌁</span><span>Route</span></button><button class="ribbon-command" data-command="cleanLayout"><span class="command-icon">⌁</span><span>Clean Layout</span></button><button class="ribbon-command" data-command="evaluateParametrics"><span class="command-icon">=</span><span>Evaluate Parametrics</span></button></div><div class="ribbon-label">Routing, Layout, and Analysis</div></section>${historyGroup}<section class="ribbon-group ribbon-context"><div class="context-title">Shared geometry and analysis</div><div class="context-value">Rust-owned routing, layout, and evaluation</div><div class="context-subtitle">Availability follows the active diagram capabilities.</div><div class="ribbon-label">Diagram</div></section>`,
     View: `
       <section class="ribbon-group"><div class="ribbon-actions compact-actions">
         <button class="ribbon-command panel-toggle" data-panel="repository-panel" data-command="showRepository"><span class="command-icon">▥</span><span>Repository</span></button>
@@ -74,6 +76,7 @@
     });
     ribbon.querySelectorAll('[data-action="new-requirement"]').forEach((button) => button.addEventListener('click', () => window.smpCreateRequirementDiagram?.()));
     ribbon.querySelectorAll('[data-action="new-use-case"]').forEach((button) => button.addEventListener('click', () => window.smpCreateUseCaseDiagram?.()));
+    ribbon.querySelectorAll('[data-action="new-parametric"]').forEach((button) => button.addEventListener('click', () => window.smpCreateParametricDiagram?.()));
     ribbon.querySelectorAll('[data-action="new-state-machine"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateStateMachineForSelectedBlock?.());
     });

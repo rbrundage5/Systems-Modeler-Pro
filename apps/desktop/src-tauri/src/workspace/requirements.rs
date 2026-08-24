@@ -203,6 +203,7 @@ pub fn place_on_requirement_diagram(
         width,
         height,
         actor_notation: None,
+        parameter_presentations: Vec::new(),
     });
     Ok(id)
 }

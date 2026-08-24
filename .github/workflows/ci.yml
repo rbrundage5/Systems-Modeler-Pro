@@ -52,6 +52,7 @@ jobs:
             apps/desktop/frontend/state-bar-resize.js \
             apps/desktop/frontend/bdd-compartment-visibility.js \
             apps/desktop/frontend/use-case-ui.js \
+            apps/desktop/frontend/parametric-ui.js \
             apps/desktop/frontend/structural-interaction-rebind.js \
             apps/desktop/frontend/standard-editing-ui.js \
             apps/desktop/frontend/undo-redo-ui.js; do
@@ -67,6 +68,8 @@ jobs:
         run: python scripts/validate_requirements_integration.py
       - name: Use Case desktop integration contract
         run: python scripts/validate_use_case_integration.py
+      - name: Parametric desktop integration contract
+        run: python scripts/validate_parametric_integration.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
@@ -101,6 +104,8 @@ jobs:
         run: python scripts/validate_requirements_integration.py
       - name: Use Case desktop integration contract
         run: python scripts/validate_use_case_integration.py
+      - name: Parametric desktop integration contract
+        run: python scripts/validate_parametric_integration.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract

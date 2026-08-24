@@ -109,7 +109,7 @@ function renderRepository() {
       if (state.selectedElementId === element.id || state.selectedPackageId === element.id) row.classList.add('selected');
       row.style.paddingLeft = `${12 + depth * 16}px`;
       row.innerHTML = `<span class="kind">${element.kind === 'Package' ? '▣' : '◇'}</span><span>${escapeHtml(element.name)}</span><span class="type-tag">${escapeHtml(element.kind)}</span>`;
-      if (element.kind === 'Block' || element.kind === 'Requirement' || element.kind === 'TestCase') {
+      if (['Block', 'Requirement', 'TestCase', 'ConstraintProperty', 'ValueProperty'].includes(element.kind)) {
         row.draggable = true;
         row.title = 'Drag onto a compatible diagram to create another presentation of this semantic element.';
         row.ondragstart = (event) => {
@@ -143,7 +143,7 @@ function renderRepository() {
       const row = document.createElement('button');
       row.className = 'tree-row diagram-row';
       if (state.selectedDiagramId === diagram.id) row.classList.add('selected');
-      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'requirement' ? 'REQ' : 'BDD'}</span>`;
+      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : diagram.family === 'parametric' ? 'PAR' : 'BDD'}</span>`;
       row.onclick = () => selectDiagram(diagram.id);
       host.appendChild(row);
     }
@@ -246,7 +246,7 @@ function renderDiagramTabs() {
     const tab = document.createElement('button');
     tab.className = 'diagram-tab';
     if (diagram.id === state.selectedDiagramId) tab.classList.add('active');
-    tab.textContent = `${diagram.name} · ${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : 'BDD'}`;
+    tab.textContent = `${diagram.name} · ${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : diagram.family === 'parametric' ? 'PAR' : 'BDD'}`;
     tab.onclick = () => selectDiagram(diagram.id);
     host.appendChild(tab);
   }

@@ -61,6 +61,7 @@ pub fn update_bdd_feature_semantics(
                 | ElementKind::ValueProperty
                 | ElementKind::FlowProperty
                 | ElementKind::ConstraintProperty
+                | ElementKind::ConstraintParameter
                 | ElementKind::ProxyPort
                 | ElementKind::FullPort
                 | ElementKind::Parameter

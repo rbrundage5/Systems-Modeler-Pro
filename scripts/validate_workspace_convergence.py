@@ -21,10 +21,10 @@ shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_work
 assert 'data-shared-workspace="true"' in index
 assert 'shared-workspace.js' in index and 'shared-workspace.css' in index
 family_contract = read(root / "crates/model-core/src/diagram_family.rs")
-for family in ["bdd", "ibd", "requirement", "use-case", "state-machine", "sequence", "activity"]:
+for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "state-machine", "sequence", "activity"]:
     assert f'registerRenderer(\'{family}\'' in workspace
     assert f'"{family}"' in family_contract
-for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("req", "Package"), ("uc", "Package"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
+for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("req", "Package"), ("uc", "Package"), ("par", "Block"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
 assert "modelElementName" in workspace and "state.context.frameLabel" in workspace
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
@@ -59,7 +59,7 @@ router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
 assert "route_diagram_geometry" in router
 for routing_contract in ["DiagramRouteEdge", "RouteRect", "reserved_routes", "allow_shared_departure"]:
     assert routing_contract in router
-for family in ["bdd", "ibd", "requirement", "use-case", "state-machine", "sequence", "activity"]:
+for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "state-machine", "sequence", "activity"]:
     assert family in family_contract
 assert "resolve_diagram_commands" in theme
 assert "command.enabled" in workspace and "command.disabledReason" in workspace
