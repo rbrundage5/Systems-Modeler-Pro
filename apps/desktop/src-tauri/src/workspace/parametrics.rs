@@ -638,7 +638,7 @@ pub fn update_parametric_constraint_property(
 pub fn create_parametric_value_property(
     diagram_id: String,
     name: String,
-    value_type_id: String,
+    value_type_id: Option<String>,
     value: Option<String>,
     multiplicity: String,
     is_derived: bool,
@@ -649,7 +649,6 @@ pub fn create_parametric_value_property(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<String, String> {
-    let value_type_id = parse_element_id(&value_type_id)?;
     let mut project = workspace
         .project
         .lock()
@@ -666,6 +665,8 @@ pub fn create_parametric_value_property(
         .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
         .ok_or("Parametric Diagram not found")?;
     let context_id = diagram_context(diagram)?;
+    let value_type_id =
+        resolve_parametric_value_type(&mut project, context_id, value_type_id.as_deref())?;
     let element_id = project
         .create_typed_feature(
             ElementKind::ValueProperty,
@@ -831,9 +832,22 @@ fn resolve_constraint_parameter_type(
     if constraint_block.kind != ElementKind::ConstraintBlock {
         return Err("constraint parameters require a ConstraintBlock owner".into());
     }
-    let namespace_id = constraint_block
+    resolve_parametric_value_type(project, constraint_block_id, None)
+}
+
+fn resolve_parametric_value_type(
+    project: &mut Project,
+    owner_id: ElementId,
+    type_id: Option<&str>,
+) -> Result<ElementId, String> {
+    if let Some(type_id) = type_id {
+        return parse_element_id(type_id);
+    }
+    let namespace_id = project
+        .element(owner_id)
+        .map_err(|error| error.to_string())?
         .owner_id
-        .ok_or("ConstraintBlock has no owning Model or Package")?;
+        .ok_or("parametric element has no owning Model or Package")?;
     if let Some(existing) = project
         .children(namespace_id)
         .find(|element| element.name == "Real" && element.kind == ElementKind::PrimitiveType)
@@ -1527,11 +1541,16 @@ mod tests {
         let block = project
             .create_element(ElementKind::ConstraintBlock, "Equation", package)
             .unwrap();
+        let context = project
+            .create_element(ElementKind::Block, "System", package)
+            .unwrap();
 
         let first = resolve_constraint_parameter_type(&mut project, block, None).unwrap();
         let second = resolve_constraint_parameter_type(&mut project, block, None).unwrap();
+        let value_type = resolve_parametric_value_type(&mut project, context, None).unwrap();
 
         assert_eq!(first, second);
+        assert_eq!(first, value_type);
         let real = project.element(first).unwrap();
         assert_eq!(real.kind, ElementKind::PrimitiveType);
         assert_eq!(real.name, "Real");
@@ -1542,6 +1561,15 @@ mod tests {
                 "input",
                 block,
                 first,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        project
+            .create_typed_feature(
+                ElementKind::ValueProperty,
+                "inputValue",
+                context,
+                value_type,
                 Multiplicity::ONE,
             )
             .unwrap();

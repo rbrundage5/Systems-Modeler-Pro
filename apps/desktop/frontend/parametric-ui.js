@@ -267,6 +267,10 @@
       const candidates = state.snapshot.project.elements
         .filter((element) => VALUE_TYPE_KINDS.has(element.kind))
         .map((element) => ({ id: element.id, label: `${element.name} (${element.kind})` }));
+      if (!candidates.length) candidates.push({
+        id: '__create_real__',
+        label: 'Create reusable Real (PrimitiveType)',
+      });
       const definition = await window.smpDialogs?.choose({
         title: 'Create Value Property',
         description: 'Select the semantic value type. Values are not copied into the diagram.',
@@ -282,7 +286,7 @@
       await runCommand('Creating Value Property…', () => requireInvoke()('create_parametric_value_property', {
         diagramId: diagram.id,
         name: definition.values.name,
-        valueTypeId: definition.selectedId,
+        valueTypeId: definition.selectedId === '__create_real__' ? null : definition.selectedId,
         value: definition.values.value || null,
         multiplicity: definition.values.multiplicity,
         isDerived: false,
@@ -361,15 +365,18 @@
   const baseRenderProperties = renderProperties;
   renderProperties = function renderParametricProperties() {
     const diagram = selectedParametricDiagram();
-    if (!diagram) return baseRenderProperties();
     const panel = $('properties');
-    const project = state.snapshot.project;
+    const project = state.snapshot?.project;
+    if (!project) return baseRenderProperties();
     const relationship = project.relationships.find((candidate) => candidate.id === state.selectedRelationshipId);
-    if (relationship?.kind === 'BindingConnector') {
+    if (diagram && relationship?.kind === 'BindingConnector') {
       return renderBindingProperties(panel, project, diagram, relationship);
     }
     const element = project.elements.find((candidate) => candidate.id === state.selectedElementId);
-    if (!element) return renderDiagramProperties(panel, project, diagram);
+    if (!element) {
+      if (diagram) return renderDiagramProperties(panel, project, diagram);
+      return baseRenderProperties();
+    }
 
     if (element.kind === 'ConstraintBlock') {
       panel.innerHTML = `<div class="property-heading">ConstraintBlock</div>
@@ -415,6 +422,9 @@
       return;
     }
 
+    // Parametric definitions and typed values are semantic elements. Their
+    // complete editors are available from BDDs, the repository, and any
+    // compatible diagram presentation—not only from Parametric Diagrams.
     if (element.kind === 'ConstraintParameter') {
       panel.innerHTML = `<div class="property-heading">Constraint Parameter</div>
         <label>Name<input id="par-name" value="${escapeAttr(element.name)}"></label>
@@ -543,6 +553,7 @@
       return;
     }
 
+    if (!diagram) return baseRenderProperties();
     baseRenderProperties();
   };
 

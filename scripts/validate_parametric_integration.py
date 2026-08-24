@@ -82,6 +82,11 @@ assert "kind === 'ConstraintParameter'" in bdd_extended
 assert "typeId === '__create_real__' ? null" in bdd_frontend
 assert 'create_element(ElementKind::PrimitiveType, "Real", namespace_id)' in commands
 assert "definition.selectedId === '__create_real__' ? null" in frontend
+assert "valueTypeId: definition.selectedId === '__create_real__' ? null" in frontend
+assert "Parametric definitions and typed values are semantic elements" in frontend
+assert "fn resolve_parametric_value_type" in commands
+assert "value_type_id: Option<String>" in commands
+assert frontend.index("if (!diagram) return baseRenderProperties();") > frontend.index("if (element.kind === 'Unit')")
 for notation in [
     "constraint-property",
     "constraint-parameter",
