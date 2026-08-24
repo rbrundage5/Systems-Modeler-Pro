@@ -1,5 +1,5 @@
 const BDD_CLASSIFIER_KINDS = new Set(['Block', 'InterfaceBlock', 'ValueType', 'DataType', 'Enumeration', 'ConstraintBlock']);
-const BDD_TYPED_FEATURE_KINDS = new Set(['PartProperty', 'ReferenceProperty', 'ValueProperty', 'ConstraintProperty', 'ProxyPort', 'FullPort', 'Parameter']);
+const BDD_TYPED_FEATURE_KINDS = new Set(['PartProperty', 'ReferenceProperty', 'ValueProperty', 'ConstraintProperty', 'ConstraintParameter', 'ProxyPort', 'FullPort', 'Parameter']);
 
 function typeName(project, element) {
   if (!element?.type_id) return '';
@@ -28,7 +28,7 @@ function classifierCompartments(project, element) {
   const groups = [
     ['literals', ['EnumerationLiteral']], ['parts', ['PartProperty']], ['references', ['ReferenceProperty']],
     ['values', ['ValueProperty']], ['constraints', ['ConstraintProperty']], ['ports', ['ProxyPort', 'FullPort']],
-    ['operations', ['Operation']], ['receptions', ['Reception']], ['parameters', ['Parameter']],
+    ['operations', ['Operation']], ['receptions', ['Reception']], ['parameters', ['Parameter', 'ConstraintParameter']],
   ];
   return groups.map(([label, kinds]) => {
     const items = children.filter((child) => kinds.includes(child.kind));
@@ -41,7 +41,7 @@ paletteSymbol = function paletteSymbolComplete(item) {
   const symbols = {
     Block: '▭', InterfaceBlock: '◫', ValueType: 'V', DataType: 'D', Enumeration: 'E', ConstraintBlock: 'C',
     PartProperty: '◆', ReferenceProperty: '◇', ValueProperty: 'v', ConstraintProperty: 'c', ProxyPort: '□', FullPort: '■',
-    Operation: 'ƒ', Reception: '⇥', Parameter: 'p', EnumerationLiteral: '•', Association: '──', Aggregation: '◇─',
+    Operation: 'ƒ', Reception: '⇥', Parameter: 'p', ConstraintParameter: 'p=', EnumerationLiteral: '•', Association: '──', Aggregation: '◇─',
     Composition: '◆─', Generalization: '▷─', Dependency: '⇢', Realization: '⇢▷',
   };
   return symbols[item.semantic_kind] || symbols[item.relationship_kind] || '·';
@@ -76,8 +76,13 @@ async function chooseTypeId(kind) {
     ValueProperty: ['ValueType', 'DataType', 'Enumeration'], ConstraintProperty: ['ConstraintBlock'],
     ProxyPort: ['InterfaceBlock', 'Block', 'DataType'], FullPort: ['InterfaceBlock', 'Block', 'DataType'],
     Parameter: ['Block', 'InterfaceBlock', 'ValueType', 'DataType', 'Enumeration'],
+    ConstraintParameter: ['ValueType', 'DataType', 'PrimitiveType', 'Enumeration'],
   }[kind] || [];
   const choices = project.elements.filter((element) => compatible.includes(element.kind));
+  // The Rust ConstraintParameter command can atomically provision a reusable
+  // PrimitiveType named Real for a fresh model. Other typed features still
+  // require the engineer to select an existing compatible semantic type.
+  if (!choices.length && kind === 'ConstraintParameter') return '__create_real__';
   if (!choices.length) throw new Error(`${kind} requires a compatible type, but none exists in the model.`);
   const menu = choices.map((element, index) => `${index + 1}. ${element.name} (${element.kind})`).join('\n');
   const answer = prompt(`Choose a type for ${kind}:\n${menu}`, '1'); if (!answer) return null;
@@ -89,20 +94,34 @@ async function createFeatureFromPalette(item) {
   const project = state.snapshot?.project;
   const owner = project?.elements.find((element) => element.id === state.selectedElementId);
   if (!owner) throw new Error(`Select the semantic owner before creating ${item.label}.`);
+  // A ConstraintBlock owns ConstraintParameters, never behavioral Parameters.
+  // Preserve the ordinary Parameter tool for Operations while making the
+  // existing BDD workflow do the semantically correct thing for ConstraintBlocks.
+  const semanticKind = item.semantic_kind === 'Parameter' && owner.kind === 'ConstraintBlock'
+    ? 'ConstraintParameter'
+    : item.semantic_kind;
   const name = prompt(`${item.label} name`, `New ${item.label}`); if (!name) return;
-  const typeId = BDD_TYPED_FEATURE_KINDS.has(item.semantic_kind) ? await chooseTypeId(item.semantic_kind) : null;
-  if (BDD_TYPED_FEATURE_KINDS.has(item.semantic_kind) && !typeId) return;
+  const typeId = BDD_TYPED_FEATURE_KINDS.has(semanticKind) ? await chooseTypeId(semanticKind) : null;
+  if (BDD_TYPED_FEATURE_KINDS.has(semanticKind) && !typeId) return;
   let lower = null, upper = null;
-  if (BDD_TYPED_FEATURE_KINDS.has(item.semantic_kind)) {
-    const notation = prompt('Multiplicity', '1'); if (!notation) return;
+  let notation = null;
+  if (BDD_TYPED_FEATURE_KINDS.has(semanticKind)) {
+    notation = prompt('Multiplicity', '1'); if (!notation) return;
     if (notation === '*') { lower = 0; upper = null; }
     else if (notation.includes('..')) { const [lo, hi] = notation.split('..'); lower = Number(lo); upper = hi === '*' ? null : Number(hi); }
     else { lower = Number(notation); upper = Number(notation); }
     if (!Number.isInteger(lower) || (upper !== null && !Number.isInteger(upper))) throw new Error('Multiplicity must be 1, 0..1, 1..*, *, etc.');
   }
-  const featureId = await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_bdd_feature', {
-    kind: item.semantic_kind, ownerId: owner.id, name, typeId, lower, upper, defaultValue: null,
-  }));
+  const featureId = semanticKind === 'ConstraintParameter'
+    ? await runCommand('Creating Constraint Parameter…', () => requireInvoke()('create_constraint_parameter', {
+        constraintBlockId: owner.id,
+        name,
+        typeId: typeId === '__create_real__' ? null : typeId,
+        multiplicity: notation,
+      }))
+    : await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_bdd_feature', {
+        kind: semanticKind, ownerId: owner.id, name, typeId, lower, upper, defaultValue: null,
+      }));
   state.selectedElementId = featureId; await refresh();
 }
 

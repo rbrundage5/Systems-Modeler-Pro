@@ -191,7 +191,7 @@
       // common path also refreshes command bindings, frame bounds, and pointer
       // interactions after Route or Clean Layout changes node geometry.
       await renderer()?.refresh?.();
-      if (id === 'route' || id === 'cleanLayout') notify(`${command.label} completed.`, 'info');
+      if (id === 'route' || id === 'cleanLayout' || id === 'evaluateParametrics') notify(`${command.label} completed.`, 'info');
       return true;
     } catch (error) {
       notify(`${command.label} failed: ${String(error)}`, 'error');
@@ -377,6 +377,7 @@
   registerRenderer('ibd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('requirement', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('use-case', selectionAdapter(['selectedElementId','selectedRelationshipId','selectedUseCaseSubjectBoundaryId'], ['paletteTool','pendingRelationship']));
+  registerRenderer('parametric', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('state-machine', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending','behaviorTargetRegionId']));
   registerRenderer('sequence', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending']));
   registerRenderer('activity', selectionAdapter(['selectedActivityNodeId','selectedActivityEdgeId'], ['activityTool','activityPendingFlow']));

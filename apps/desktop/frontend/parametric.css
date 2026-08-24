@@ -1,0 +1,97 @@
+.parametric-diagram .diagram-header {
+  background: #eee8f5;
+  border-color: #625873;
+}
+
+.parametric-presentation {
+  position: absolute;
+  z-index: 3;
+  color: #211b29;
+  border: 1.5px solid #625873;
+  background: #fbf9fd;
+  box-shadow: 0 1px 2px rgb(33 27 41 / 18%);
+  text-align: left;
+  overflow: visible;
+}
+
+.parametric-presentation.constraint-property {
+  border-radius: 18px;
+}
+
+.parametric-presentation.value-property {
+  border-radius: 2px;
+  border-color: #6b6547;
+  background: #fffdf0;
+}
+
+.parametric-stereotype,
+.parametric-type,
+.parametric-value {
+  display: block;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.parametric-stereotype {
+  padding-top: 10px;
+  font-size: 11px;
+}
+
+.parametric-type {
+  font-weight: 650;
+}
+
+.parametric-expression {
+  margin: 10px 16px 0;
+  padding-top: 8px;
+  border-top: 1px solid #bcb2c9;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.constraint-parameter {
+  position: absolute;
+  z-index: 5;
+  display: block;
+  padding: 0;
+  border: 1.5px solid #302a38;
+  background: #fff;
+  cursor: crosshair;
+}
+
+.constraint-parameter.selected,
+.constraint-parameter.relationship-source {
+  outline: 3px solid #2d73b9;
+  outline-offset: 2px;
+}
+
+.constraint-parameter-label {
+  position: absolute;
+  left: 18px;
+  top: -4px;
+  min-width: max-content;
+  padding: 1px 3px;
+  color: #211b29;
+  background: rgb(255 255 255 / 88%);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.relationship-bindingconnector {
+  stroke: #28212f;
+  stroke-width: 1.7;
+  pointer-events: stroke;
+}
+
+.relationship-bindingconnector.selected {
+  stroke: #0b67b2;
+  stroke-width: 3;
+}
+
+.parametric-evaluation-summary {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid #c8bdd5;
+  background: #f6f2fa;
+}

@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    AggregationKind, BehaviorRepository, DiagramId, ElementId, ElementKind, Multiplicity, Project,
-    Relationship, RelationshipId, RelationshipKind,
+    AggregationKind, BehaviorRepository, BindingEndpoint, DiagramId, ElementId, ElementKind,
+    Multiplicity, Project, Relationship, RelationshipId, RelationshipKind,
 };
 use systems_modeler_persistence::ProjectDatabase;
 
@@ -23,6 +23,17 @@ pub struct ElementSnapshot {
     pub extension_points: Vec<String>,
     pub use_case_specification: String,
     pub represented_classifier_id: Option<String>,
+    pub constraint_expression: String,
+    pub quantity_dimension: Option<String>,
+    pub unit_symbol: Option<String>,
+    pub unit_scale_to_base: f64,
+    pub type_id: Option<String>,
+    pub multiplicity: Option<String>,
+    pub default_value: Option<String>,
+    pub is_derived: bool,
+    pub is_read_only: bool,
+    pub quantity_kind_external_id: Option<String>,
+    pub unit_external_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -45,6 +56,19 @@ pub struct RelationshipSnapshot {
     pub association_ends: Vec<AssociationEndSnapshot>,
     pub extension_condition: Option<String>,
     pub extension_location: Option<String>,
+    pub binding: Option<BindingConnectorSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BindingEndpointSnapshot {
+    pub role_id: String,
+    pub parameter_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BindingConnectorSnapshot {
+    pub source: BindingEndpointSnapshot,
+    pub target: BindingEndpointSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -73,6 +97,18 @@ pub struct DiagramNode {
     /// Presentation-only Actor notation. Semantic Actor identity is unchanged.
     #[serde(default)]
     pub actor_notation: Option<String>,
+    /// Diagram positions for definition-owned ConstraintParameters on this usage.
+    #[serde(default)]
+    pub parameter_presentations: Vec<ConstraintParameterPresentation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstraintParameterPresentation {
+    pub id: String,
+    pub parameter_id: String,
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub size: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -115,6 +151,25 @@ pub struct BddDiagram {
 
 fn default_bdd_family() -> String {
     "bdd".into()
+}
+
+fn parametric_endpoint_matches(
+    diagram: &BddDiagram,
+    presentation_id: &str,
+    endpoint: &BindingEndpoint,
+) -> bool {
+    diagram.nodes.iter().any(|node| {
+        if node.id == presentation_id {
+            return endpoint.parameter_id.is_none()
+                && node.element_id == endpoint.role_id.to_string();
+        }
+        node.element_id == endpoint.role_id.to_string()
+            && node.parameter_presentations.iter().any(|parameter| {
+                parameter.id == presentation_id
+                    && endpoint.parameter_id.map(|id| id.to_string())
+                        == Some(parameter.parameter_id.clone())
+            })
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +276,7 @@ fn relationship_display_kind(relationship: &Relationship) -> &'static str {
         RelationshipKind::Copy => "Copy",
         RelationshipKind::Include => "Include",
         RelationshipKind::Extend => "Extend",
+        RelationshipKind::BindingConnector => "BindingConnector",
     }
 }
 
@@ -240,6 +296,17 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             extension_points: element.extension_points.clone(),
             use_case_specification: element.use_case_specification.clone(),
             represented_classifier_id: element.represented_classifier_id.map(|id| id.to_string()),
+            constraint_expression: element.constraint_expression.clone(),
+            quantity_dimension: element.quantity_dimension.clone(),
+            unit_symbol: element.unit_symbol.clone(),
+            unit_scale_to_base: element.unit_scale_to_base,
+            type_id: element.type_id.map(|id| id.to_string()),
+            multiplicity: element.multiplicity.map(|value| value.notation()),
+            default_value: element.default_value.clone(),
+            is_derived: element.is_derived,
+            is_read_only: element.is_read_only,
+            quantity_kind_external_id: element.quantity_kind_external_id.clone(),
+            unit_external_id: element.unit_external_id.clone(),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));
@@ -267,6 +334,16 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
                 .collect(),
             extension_condition: relationship.extension_condition.clone(),
             extension_location: relationship.extension_location.clone(),
+            binding: relationship.binding.as_ref().map(|binding| BindingConnectorSnapshot {
+                source: BindingEndpointSnapshot {
+                    role_id: binding.source.role_id.to_string(),
+                    parameter_id: binding.source.parameter_id.map(|id| id.to_string()),
+                },
+                target: BindingEndpointSnapshot {
+                    role_id: binding.target.role_id.to_string(),
+                    parameter_id: binding.target.parameter_id.map(|id| id.to_string()),
+                },
+            }),
         })
         .collect();
     relationships.sort_by(|a, b| a.id.cmp(&b.id));
@@ -304,6 +381,18 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
             {
                 return Err("Use Case diagram context is not a represented system classifier".into());
             }
+            if diagram.family == "parametric"
+                && !matches!(
+                    context.kind,
+                    ElementKind::Block
+                        | ElementKind::AssociationBlock
+                        | ElementKind::ConstraintBlock
+                )
+            {
+                return Err("Parametric diagram context must be a Block or ConstraintBlock".into());
+            }
+        } else if diagram.family == "parametric" {
+            return Err("Parametric Diagram requires a semantic context".into());
         }
         if diagram.family != "use-case" && diagram.subject_boundary.is_some() {
             return Err("subject boundaries are only valid on Use Case Diagrams".into());
@@ -347,6 +436,71 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                     element.kind
                 ));
             }
+            if diagram.family == "parametric" {
+                if !matches!(
+                    element.kind,
+                    ElementKind::ConstraintProperty | ElementKind::ValueProperty
+                ) {
+                    return Err(format!(
+                        "element kind {:?} is not valid on a Parametric Diagram",
+                        element.kind
+                    ));
+                }
+                if element.owner_id.map(|id| id.to_string()) != diagram.semantic_context_id {
+                    return Err("Parametric presentation is outside the diagram context".into());
+                }
+                if element.kind == ElementKind::ValueProperty
+                    && !node.parameter_presentations.is_empty()
+                {
+                    return Err("ValueProperty presentations cannot own parameter endpoints".into());
+                }
+                if element.kind == ElementKind::ConstraintProperty {
+                    let constraint_block_id = element.type_id.ok_or("ConstraintProperty has no type")?;
+                    let expected_parameters: HashSet<_> = project
+                        .children(constraint_block_id)
+                        .filter(|parameter| parameter.kind == ElementKind::ConstraintParameter)
+                        .map(|parameter| parameter.id.to_string())
+                        .collect();
+                    let presented_parameters: HashSet<_> = node
+                        .parameter_presentations
+                        .iter()
+                        .map(|parameter| parameter.parameter_id.clone())
+                        .collect();
+                    if presented_parameters != expected_parameters {
+                        return Err("ConstraintProperty presentation must expose every definition-owned parameter exactly once".into());
+                    }
+                    for parameter in &node.parameter_presentations {
+                        let max_x = (node.width - parameter.size).max(0.0);
+                        let max_y = (node.height - parameter.size).max(0.0);
+                        let on_boundary = parameter.offset_x.abs() < f64::EPSILON
+                            || (parameter.offset_x - max_x).abs() < f64::EPSILON
+                            || parameter.offset_y.abs() < f64::EPSILON
+                            || (parameter.offset_y - max_y).abs() < f64::EPSILON;
+                        if uuid::Uuid::parse_str(&parameter.id).is_err()
+                            || !node_ids.insert(&parameter.id)
+                            || !parameter.offset_x.is_finite()
+                            || !parameter.offset_y.is_finite()
+                            || !parameter.size.is_finite()
+                            || parameter.size < 10.0
+                            || parameter.offset_x < 0.0
+                            || parameter.offset_x > max_x
+                            || parameter.offset_y < 0.0
+                            || parameter.offset_y > max_y
+                            || !on_boundary
+                        {
+                            return Err("invalid ConstraintParameter presentation geometry".into());
+                        }
+                        let semantic = project
+                            .element(parse_element_id(&parameter.parameter_id)?)
+                            .map_err(|error| error.to_string())?;
+                        if semantic.kind != ElementKind::ConstraintParameter
+                            || semantic.owner_id != Some(constraint_block_id)
+                        {
+                            return Err("ConstraintParameter presentation does not match its reusable definition".into());
+                        }
+                    }
+                }
+            }
             if let Some(notation) = node.actor_notation.as_deref()
                 && (element.kind != ElementKind::Actor
                     || !matches!(notation, "stick" | "rectangle"))
@@ -381,6 +535,16 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
             if matches!(relationship.kind, RelationshipKind::Connector | RelationshipKind::ItemFlow) {
                 return Err("Connector and ItemFlow presentations belong on an IBD, not a BDD".into());
             }
+            if diagram.family == "parametric"
+                && relationship.kind != RelationshipKind::BindingConnector
+            {
+                return Err("only BindingConnectors are valid on a Parametric Diagram".into());
+            }
+            if diagram.family != "parametric"
+                && relationship.kind == RelationshipKind::BindingConnector
+            {
+                return Err("BindingConnector presentations belong on a Parametric Diagram".into());
+            }
             if diagram.family == "use-case"
                 && !matches!(
                     relationship.kind,
@@ -395,10 +559,22 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                     relationship.kind
                 ));
             }
-            let source = diagram.nodes.iter().find(|node| node.id == edge.source_node_id).ok_or_else(|| format!("edge source node not found: {}", edge.source_node_id))?;
-            let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id).ok_or_else(|| format!("edge target node not found: {}", edge.target_node_id))?;
-            if source.element_id != relationship.source_id.to_string() || target.element_id != relationship.target_id.to_string() {
-                return Err(format!("diagram edge endpoints do not match semantic relationship: {}", edge.relationship_id));
+            if diagram.family == "parametric" {
+                let binding = relationship
+                    .binding
+                    .as_ref()
+                    .ok_or("BindingConnector has no semantic endpoint details")?;
+                if !parametric_endpoint_matches(diagram, &edge.source_node_id, &binding.source)
+                    || !parametric_endpoint_matches(diagram, &edge.target_node_id, &binding.target)
+                {
+                    return Err(format!("diagram binding endpoints do not match semantic relationship: {}", edge.relationship_id));
+                }
+            } else {
+                let source = diagram.nodes.iter().find(|node| node.id == edge.source_node_id).ok_or_else(|| format!("edge source node not found: {}", edge.source_node_id))?;
+                let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id).ok_or_else(|| format!("edge target node not found: {}", edge.target_node_id))?;
+                if source.element_id != relationship.source_id.to_string() || target.element_id != relationship.target_id.to_string() {
+                    return Err(format!("diagram edge endpoints do not match semantic relationship: {}", edge.relationship_id));
+                }
             }
             if edge.points.len() < 2 {
                 return Err(format!("diagram edge has no usable route: {}", edge.id));
@@ -554,7 +730,7 @@ pub fn place_element_on_bdd(diagram_id: String, element_id: String, x: f64, y: f
         return Err("this Block is already presented on the BDD".into());
     }
     let node_id = uuid::Uuid::new_v4().to_string();
-    diagram.nodes.push(DiagramNode { id: node_id.clone(), element_id: element_id.to_string(), x, y, width: 180.0, height: 105.0, actor_notation: None });
+    diagram.nodes.push(DiagramNode { id: node_id.clone(), element_id: element_id.to_string(), x, y, width: 180.0, height: 105.0, actor_notation: None, parameter_presentations: Vec::new() });
     Ok(node_id)
 }
 

@@ -41,12 +41,13 @@ metrics = {
     ),
 }
 
-# Controller-debt ceilings retain the PR15 behavior, with one explicitly
-# bounded renderer file/adapter added for PR24's seventh diagram family.
+# Controller-debt ceilings retain the PR15 behavior, with one bounded renderer
+# adapter per newly registered PR24/PR25 diagram family. Parametric semantics,
+# validation, evaluation, routing, layout, history, and persistence remain Rust-owned.
 maximums = {
-    "frontend JavaScript files": 40,
-    "direct frontend state assignments": 332,
-    "renderer wrapper assignments": 33,
+    "frontend JavaScript files": 41,
+    "direct frontend state assignments": 333,
+    "renderer wrapper assignments": 35,
     "blocking browser dialogs": 73,
     "frontend keydown controllers": 7,
 }

@@ -1,7 +1,7 @@
 (() => {
   const FEATURE_KINDS = new Set([
     'PartProperty', 'ReferenceProperty', 'ValueProperty', 'FlowProperty',
-    'ConstraintProperty', 'ProxyPort', 'FullPort', 'Parameter',
+    'ConstraintProperty', 'ConstraintParameter', 'ProxyPort', 'FullPort', 'Parameter',
   ]);
 
   function parseMultiplicity(text) {

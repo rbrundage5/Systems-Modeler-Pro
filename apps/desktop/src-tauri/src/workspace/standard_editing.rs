@@ -22,6 +22,7 @@ enum EditingFamily {
     Bdd,
     Requirement,
     UseCase,
+    Parametric,
     Ibd,
     StateMachine,
     Sequence,
@@ -229,6 +230,7 @@ fn family_for(diagram_id: &str, snapshot: &EditingSnapshot) -> Result<EditingFam
         return Ok(match diagram.family.as_str() {
             "requirement" => EditingFamily::Requirement,
             "use-case" => EditingFamily::UseCase,
+            "parametric" => EditingFamily::Parametric,
             _ => EditingFamily::Bdd,
         });
     }
@@ -267,6 +269,24 @@ fn kind_is(selection: &WorkspaceSelection, values: &[&str]) -> bool {
     values
         .iter()
         .any(|value| selection.kind.eq_ignore_ascii_case(value))
+}
+
+fn bdd_endpoint_node<'a>(diagram: &'a BddDiagram, presentation_id: &str) -> Option<&'a DiagramNode> {
+    diagram.nodes.iter().find(|node| {
+        node.id == presentation_id
+            || node
+                .parameter_presentations
+                .iter()
+                .any(|parameter| parameter.id == presentation_id)
+    })
+}
+
+fn node_owns_presentation(node: &DiagramNode, presentation_id: &str) -> bool {
+    node.id == presentation_id
+        || node
+            .parameter_presentations
+            .iter()
+            .any(|parameter| parameter.id == presentation_id)
 }
 
 fn split_index(value: &str) -> (&str, usize) {
@@ -381,7 +401,10 @@ fn collect_clipboard(
     let family = family_for(diagram_id, snapshot)?;
     let mut items = Vec::new();
     let semantic_context_id = match family {
-        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => None,
+        EditingFamily::Bdd
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => None,
         EditingFamily::Ibd => snapshot
             .ibd_diagrams
             .iter()
@@ -400,7 +423,10 @@ fn collect_clipboard(
     };
 
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+        EditingFamily::Bdd
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
             let diagram = snapshot
                 .diagrams
                 .iter()
@@ -416,15 +442,9 @@ fn collect_clipboard(
                         edge.id == selection.id || edge.relationship_id == selection.id
                     })
                 {
-                    let source = diagram
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == edge.source_node_id)
+                    let source = bdd_endpoint_node(diagram, &edge.source_node_id)
                         .ok_or("relationship source presentation not found")?;
-                    let target = diagram
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == edge.target_node_id)
+                    let target = bdd_endpoint_node(diagram, &edge.target_node_id)
                         .ok_or("relationship target presentation not found")?;
                     items.push(ClipboardItem::BddEdge {
                         edge: edge.clone(),
@@ -442,15 +462,9 @@ fn collect_clipboard(
                 if let Some(edge) = diagram.edges.iter().find(|edge| {
                     edge.id == selection.id || edge.relationship_id == selection.id
                 }) {
-                    let source = diagram
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == edge.source_node_id)
+                    let source = bdd_endpoint_node(diagram, &edge.source_node_id)
                         .ok_or("relationship source presentation not found")?;
-                    let target = diagram
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == edge.target_node_id)
+                    let target = bdd_endpoint_node(diagram, &edge.target_node_id)
                         .ok_or("relationship target presentation not found")?;
                     items.push(ClipboardItem::BddEdge {
                         edge: edge.clone(),
@@ -641,7 +655,10 @@ fn remove_presentations(
     let family = family_for(diagram_id, snapshot)?;
     let mut changed = 0;
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+        EditingFamily::Bdd
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
             let diagram = snapshot
                 .diagrams
                 .iter_mut()
@@ -660,7 +677,8 @@ fn remove_presentations(
                 }) {
                     let removed = diagram.nodes.remove(index);
                     diagram.edges.retain(|edge| {
-                        edge.source_node_id != removed.id && edge.target_node_id != removed.id
+                        !node_owns_presentation(&removed, &edge.source_node_id)
+                            && !node_owns_presentation(&removed, &edge.target_node_id)
                     });
                     changed += 1;
                 }
@@ -795,12 +813,20 @@ fn paste_clipboard(
     let target_family = family_for(target_diagram_id, snapshot)?;
     let mut selections = Vec::new();
     match target_family {
-        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+        EditingFamily::Bdd
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
             let use_case_compatible = target_family == EditingFamily::UseCase
                 && payload.family == EditingFamily::UseCase;
-            let structural_compatible = target_family != EditingFamily::UseCase
+            let parametric_compatible = target_family == EditingFamily::Parametric
+                && payload.family == EditingFamily::Parametric;
+            let structural_compatible = !matches!(
+                target_family,
+                EditingFamily::UseCase | EditingFamily::Parametric
+            )
                 && matches!(payload.family, EditingFamily::Bdd | EditingFamily::Requirement);
-            if !use_case_compatible && !structural_compatible {
+            if !use_case_compatible && !parametric_compatible && !structural_compatible {
                 return Err("clipboard selection is not compatible with the active diagram family".into());
             }
             let diagram = snapshot
@@ -818,6 +844,11 @@ fn paste_clipboard(
                     let mut copy = node.clone();
                     let old_id = copy.id.clone();
                     copy.id = uuid::Uuid::new_v4().to_string();
+                    for parameter in &mut copy.parameter_presentations {
+                        let old_parameter_id = parameter.id.clone();
+                        parameter.id = uuid::Uuid::new_v4().to_string();
+                        presentation_map.insert(old_parameter_id, parameter.id.clone());
+                    }
                     copy.x += PASTE_OFFSET;
                     copy.y += PASTE_OFFSET;
                     presentation_map.insert(old_id, copy.id.clone());
@@ -861,26 +892,25 @@ fn paste_clipboard(
                                 .map(|node| node.id.clone())
                         })
                         .ok_or("paste requires the relationship target element to be presented")?;
-                    let source = diagram
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == source_id)
-                        .cloned()
-                        .ok_or("source presentation not found")?;
-                    let target = diagram
-                        .nodes
-                        .iter()
-                        .find(|node| node.id == target_id)
-                        .cloned()
-                        .ok_or("target presentation not found")?;
                     let id = uuid::Uuid::new_v4().to_string();
-                    let points = route_relationship(&source, &target, &diagram.nodes)?;
+                    let points = if target_family == EditingFamily::Parametric {
+                        Vec::new()
+                    } else {
+                        let source = bdd_endpoint_node(diagram, &source_id)
+                            .cloned()
+                            .ok_or("source presentation not found")?;
+                        let target = bdd_endpoint_node(diagram, &target_id)
+                            .cloned()
+                            .ok_or("target presentation not found")?;
+                        route_relationship(&source, &target, &diagram.nodes)?
+                    };
                     diagram.edges.push(DiagramEdge {
                         id: id.clone(),
                         relationship_id: edge.relationship_id.clone(),
                         source_node_id: source_id,
                         target_node_id: target_id,
-                        label_anchor: Some(routing::route_label_anchor(&points)),
+                        label_anchor: (target_family != EditingFamily::Parametric)
+                            .then(|| routing::route_label_anchor(&points)),
                         points,
                     });
                     selections.push(WorkspaceSelection {
@@ -888,6 +918,9 @@ fn paste_clipboard(
                         id,
                     });
                 }
+            }
+            if target_family == EditingFamily::Parametric {
+                diagram.edges = super::parametrics::routed_edges(diagram, None)?;
             }
         }
         EditingFamily::Ibd => {
@@ -1262,6 +1295,17 @@ fn duplicate_relationship(
             .iter()
             .map(|id| element_map.get(id).copied().unwrap_or(*id))
             .collect();
+    }
+    if let Some(binding) = &mut duplicate.binding {
+        for endpoint in [&mut binding.source, &mut binding.target] {
+            endpoint.role_id = element_map
+                .get(&endpoint.role_id)
+                .copied()
+                .unwrap_or(endpoint.role_id);
+            endpoint.parameter_id = endpoint
+                .parameter_id
+                .map(|parameter| element_map.get(&parameter).copied().unwrap_or(parameter));
+        }
     }
     project.relationships.insert(id, duplicate);
     Ok(id)
@@ -1727,7 +1771,10 @@ fn duplicate_selection_items(
     }
     let mut selections = Vec::new();
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+        EditingFamily::Bdd
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
             let diagram_index = snapshot
                 .diagrams
                 .iter()
@@ -1747,6 +1794,11 @@ fn duplicate_selection_items(
                 let old_presentation = presentation.id.clone();
                 presentation.id = uuid::Uuid::new_v4().to_string();
                 presentation.element_id = new.to_string();
+                for parameter in &mut presentation.parameter_presentations {
+                    let old_parameter_id = parameter.id.clone();
+                    parameter.id = uuid::Uuid::new_v4().to_string();
+                    presentation_map.insert(old_parameter_id, parameter.id.clone());
+                }
                 presentation.x += PASTE_OFFSET;
                 presentation.y += PASTE_OFFSET;
                 presentation_map.insert(old_presentation, presentation.id.clone());
@@ -1781,15 +1833,9 @@ fn duplicate_selection_items(
                     &relationship_map,
                 )?;
                 relationship_map.insert(old, new);
-                let source_old = source_diagram
-                    .nodes
-                    .iter()
-                    .find(|node| node.id == edge.source_node_id)
+                let source_old = bdd_endpoint_node(&source_diagram, &edge.source_node_id)
                     .ok_or("relationship source presentation not found")?;
-                let target_old = source_diagram
-                    .nodes
-                    .iter()
-                    .find(|node| node.id == edge.target_node_id)
+                let target_old = bdd_endpoint_node(&source_diagram, &edge.target_node_id)
                     .ok_or("relationship target presentation not found")?;
                 let source_element = element_map
                     .get(&parse_element_id(&source_old.element_id)?)
@@ -1821,36 +1867,48 @@ fn duplicate_selection_items(
                             .map(|node| node.id.clone())
                     })
                     .ok_or("duplicate relationship target must be presented")?;
-                let source = snapshot.diagrams[diagram_index]
-                    .nodes
-                    .iter()
-                    .find(|node| node.id == source_id)
+                let id = uuid::Uuid::new_v4().to_string();
+                let points = if family == EditingFamily::Parametric {
+                    Vec::new()
+                } else {
+                    let source = bdd_endpoint_node(
+                        &snapshot.diagrams[diagram_index],
+                        &source_id,
+                    )
                     .cloned()
                     .ok_or("source presentation missing")?;
-                let target = snapshot.diagrams[diagram_index]
-                    .nodes
-                    .iter()
-                    .find(|node| node.id == target_id)
+                    let target = bdd_endpoint_node(
+                        &snapshot.diagrams[diagram_index],
+                        &target_id,
+                    )
                     .cloned()
                     .ok_or("target presentation missing")?;
-                let id = uuid::Uuid::new_v4().to_string();
-                let points = route_relationship(
-                    &source,
-                    &target,
-                    &snapshot.diagrams[diagram_index].nodes,
-                )?;
+                    route_relationship(
+                        &source,
+                        &target,
+                        &snapshot.diagrams[diagram_index].nodes,
+                    )?
+                };
                 snapshot.diagrams[diagram_index].edges.push(DiagramEdge {
                     id: id.clone(),
                     relationship_id: new.to_string(),
                     source_node_id: source_id,
                     target_node_id: target_id,
-                    label_anchor: Some(routing::route_label_anchor(&points)),
+                    label_anchor: (family != EditingFamily::Parametric)
+                        .then(|| routing::route_label_anchor(&points)),
                     points,
                 });
                 selections.push(WorkspaceSelection {
                     kind: "BddEdge".into(),
                     id,
                 });
+            }
+            if family == EditingFamily::Parametric {
+                let routed = super::parametrics::routed_edges(
+                    &snapshot.diagrams[diagram_index],
+                    None,
+                )?;
+                snapshot.diagrams[diagram_index].edges = routed;
             }
         }
         EditingFamily::Ibd => {
@@ -2002,7 +2060,10 @@ fn move_selection_items(
     let family = family_for(diagram_id, snapshot)?;
     let mut changed = 0;
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+        EditingFamily::Bdd
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
             let project = &snapshot.project;
             let diagram = snapshot
                 .diagrams
@@ -2062,6 +2123,10 @@ fn move_selection_items(
                 }
             }
             super::use_cases::fit_use_case_subject_boundary(diagram, project, false);
+            if family == EditingFamily::Parametric {
+                diagram.edges = super::parametrics::routed_edges(diagram, None)?;
+                return Ok(changed);
+            }
             let routes: Vec<_> = diagram
                 .edges
                 .iter()
@@ -2432,6 +2497,7 @@ mod tests {
                         width: 110.0,
                         height: 150.0,
                         actor_notation: Some("rectangle".into()),
+                        parameter_presentations: Vec::new(),
                     },
                     DiagramNode {
                         id: use_case_presentation_id.clone(),
@@ -2441,6 +2507,7 @@ mod tests {
                         width: 210.0,
                         height: 115.0,
                         actor_notation: None,
+                        parameter_presentations: Vec::new(),
                     },
                 ],
                 edges: Vec::new(),

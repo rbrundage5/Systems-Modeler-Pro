@@ -5,8 +5,13 @@ use uuid::Uuid;
 
 pub mod behavior;
 pub mod ibd;
+pub mod parametrics;
 pub use behavior::*;
 pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
+pub use parametrics::{
+    BindingConnector, BindingEndpoint, ParametricEvaluationReport, ParametricEvaluationScope,
+    ParametricValueUpdate, evaluate_parametrics,
+};
 
 macro_rules! id_type {
     ($name:ident) => {
@@ -60,6 +65,7 @@ pub enum ElementKind {
     ValueProperty,
     FlowProperty,
     ConstraintProperty,
+    ConstraintParameter,
     ProxyPort,
     FullPort,
     Operation,
@@ -93,6 +99,8 @@ pub enum RelationshipKind {
     Include,
     /// Optional behavior from the extending Use Case (source) to the extended Use Case (target).
     Extend,
+    /// Equality binding between compatible value/constraint endpoints.
+    BindingConnector,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -192,6 +200,22 @@ pub struct Element {
     /// Optional classifier represented as the system/subject for this Use Case.
     #[serde(default)]
     pub represented_classifier_id: Option<ElementId>,
+    /// Reusable equation owned by a ConstraintBlock.
+    #[serde(default)]
+    pub constraint_expression: String,
+    /// Canonical dimension signature owned by a QuantityKind (for example `M*L^2*T^-2`).
+    #[serde(default)]
+    pub quantity_dimension: Option<String>,
+    /// Display symbol owned by a Unit.
+    #[serde(default)]
+    pub unit_symbol: Option<String>,
+    /// Multiplicative conversion from this Unit to the QuantityKind canonical unit.
+    #[serde(default = "default_unit_scale")]
+    pub unit_scale_to_base: f64,
+}
+
+fn default_unit_scale() -> f64 {
+    1.0
 }
 
 impl Element {
@@ -222,6 +246,10 @@ impl Element {
             extension_points: Vec::new(),
             use_case_specification: String::new(),
             represented_classifier_id: None,
+            constraint_expression: String::new(),
+            quantity_dimension: None,
+            unit_symbol: None,
+            unit_scale_to_base: 1.0,
         }
     }
 
@@ -256,6 +284,7 @@ impl Element {
                 | ElementKind::ValueProperty
                 | ElementKind::FlowProperty
                 | ElementKind::ConstraintProperty
+                | ElementKind::ConstraintParameter
         )
     }
 
@@ -270,6 +299,7 @@ impl Element {
                 self.kind,
                 ElementKind::Operation
                     | ElementKind::Parameter
+                    | ElementKind::ConstraintParameter
                     | ElementKind::Reception
                     | ElementKind::Slot
             )
@@ -308,6 +338,9 @@ pub struct Relationship {
     /// Optional named extension point on the extended (target) Use Case.
     #[serde(default)]
     pub extension_location: Option<String>,
+    /// Typed semantic ends for a SysML Binding Connector.
+    #[serde(default)]
+    pub binding: Option<BindingConnector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -391,6 +424,30 @@ pub enum ModelError {
     InvalidQuantityKindReference(String),
     #[error("value type unit does not resolve to Unit: {0}")]
     InvalidUnitReference(String),
+    #[error("ConstraintBlock expression is invalid for {element_id}: {reason}")]
+    InvalidConstraintExpression {
+        element_id: ElementId,
+        reason: String,
+    },
+    #[error("QuantityKind dimension is invalid for {0}")]
+    InvalidQuantityDimension(ElementId),
+    #[error("Unit scale must be finite and greater than zero: {0}")]
+    InvalidUnitScale(ElementId),
+    #[error("binding endpoint is invalid: {0}")]
+    InvalidBindingEndpoint(String),
+    #[error("binding endpoint types are incompatible: {source_id} vs {target_id}")]
+    IncompatibleBindingTypes {
+        source_id: ElementId,
+        target_id: ElementId,
+    },
+    #[error("binding connector cannot connect an endpoint to itself")]
+    BindingSelfConnection,
+    #[error("an equivalent BindingConnector already exists")]
+    DuplicateBindingConnector,
+    #[error("relationship is not a BindingConnector: {0}")]
+    RelationshipIsNotBindingConnector(RelationshipId),
+    #[error("parametric evaluation failed: {0}")]
+    ParametricEvaluation(String),
     #[error("IBD context must be a Block or AssociationBlock: {0}")]
     InvalidIbdContext(ElementId),
     #[error(
@@ -534,6 +591,7 @@ impl Project {
                 | ElementKind::ValueProperty
                 | ElementKind::FlowProperty
                 | ElementKind::ConstraintProperty
+                | ElementKind::ConstraintParameter
                 | ElementKind::ProxyPort
                 | ElementKind::FullPort
                 | ElementKind::Parameter
@@ -728,6 +786,7 @@ impl Project {
                 item_flow: None,
                 extension_condition: None,
                 extension_location: None,
+                binding: None,
             },
         );
         if let Some(text) = copied_requirement_text {
@@ -965,6 +1024,12 @@ impl Project {
                         || flow.target.role_id == id
                         || flow.target.port_id == Some(id)
                 })
+                || relationship.binding.as_ref().is_some_and(|binding| {
+                    binding.source.role_id == id
+                        || binding.source.parameter_id == Some(id)
+                        || binding.target.role_id == id
+                        || binding.target.parameter_id == Some(id)
+                })
         }) || self
             .elements
             .values()
@@ -1007,7 +1072,13 @@ impl Project {
         if element.kind == ElementKind::FullPort && element.is_conjugated {
             return Err(ModelError::FullPortCannotBeConjugated(id));
         }
-        if element.kind == ElementKind::ValueType {
+        if matches!(
+            element.kind,
+            ElementKind::ValueType
+                | ElementKind::ValueProperty
+                | ElementKind::ConstraintParameter
+                | ElementKind::Unit
+        ) {
             if let Some(quantity_kind) = &element.quantity_kind_external_id
                 && !self.elements.values().any(|candidate| {
                     candidate.external_id == *quantity_kind
@@ -1025,6 +1096,20 @@ impl Project {
             {
                 return Err(ModelError::InvalidUnitReference(unit.clone()));
             }
+        }
+        if element.kind == ElementKind::ConstraintBlock {
+            parametrics::validate_constraint_block(self, element)?;
+        }
+        if element.kind == ElementKind::QuantityKind
+            && let Some(dimension) = element.quantity_dimension.as_deref()
+            && !parametrics::validate_dimension(dimension)
+        {
+            return Err(ModelError::InvalidQuantityDimension(element.id));
+        }
+        if element.kind == ElementKind::Unit
+            && (!element.unit_scale_to_base.is_finite() || element.unit_scale_to_base <= 0.0)
+        {
+            return Err(ModelError::InvalidUnitScale(element.id));
         }
         if element.kind == ElementKind::UseCase {
             if let Some(subject_id) = element.represented_classifier_id {
@@ -1163,6 +1248,9 @@ impl Project {
                         .ok_or(ModelError::ItemFlowRequiresConveyedItem)?;
                     self.validate_item_flow(flow)?;
                 }
+                RelationshipKind::BindingConnector => {
+                    self.validate_binding_connector(relationship)?;
+                }
                 _ => {}
             }
         }
@@ -1270,7 +1358,6 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
             owner,
             ElementKind::Block
                 | ElementKind::AssociationBlock
-                | ElementKind::ConstraintBlock
                 | ElementKind::DataType
                 | ElementKind::ValueType
         ),
@@ -1281,6 +1368,7 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
             owner,
             ElementKind::Block | ElementKind::AssociationBlock | ElementKind::ConstraintBlock
         ),
+        ElementKind::ConstraintParameter => matches!(owner, ElementKind::ConstraintBlock),
         ElementKind::ProxyPort | ElementKind::FullPort => matches!(
             owner,
             ElementKind::Block | ElementKind::AssociationBlock | ElementKind::InterfaceBlock
@@ -1394,6 +1482,13 @@ fn validate_type_kind(kind: &ElementKind, type_kind: &ElementKind) -> Result<(),
                 | ElementKind::PrimitiveType
                 | ElementKind::Enumeration
         ),
+        ElementKind::ConstraintParameter => matches!(
+            type_kind,
+            ElementKind::ValueType
+                | ElementKind::DataType
+                | ElementKind::PrimitiveType
+                | ElementKind::Enumeration
+        ),
         ElementKind::FlowProperty => any_classifier,
         ElementKind::ConstraintProperty => matches!(type_kind, ElementKind::ConstraintBlock),
         ElementKind::ProxyPort | ElementKind::FullPort => matches!(
@@ -1461,6 +1556,7 @@ pub mod notation {
             ElementKind::ValueProperty => Some("values"),
             ElementKind::FlowProperty => Some("flowProperties"),
             ElementKind::ConstraintProperty => Some("constraints"),
+            ElementKind::ConstraintParameter => Some("parameters"),
             ElementKind::ProxyPort | ElementKind::FullPort => Some("ports"),
             ElementKind::Operation => Some("operations"),
             ElementKind::Reception => Some("receptions"),
@@ -1551,7 +1647,9 @@ pub mod notation {
                     target_decoration,
                 }
             }
-            RelationshipKind::Connector | RelationshipKind::ItemFlow => RelationshipNotation {
+            RelationshipKind::Connector
+            | RelationshipKind::ItemFlow
+            | RelationshipKind::BindingConnector => RelationshipNotation {
                 line: LineStyle::Solid,
                 source_decoration: EndDecoration::None,
                 target_decoration: EndDecoration::None,

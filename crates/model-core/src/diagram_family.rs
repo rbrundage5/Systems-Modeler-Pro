@@ -37,6 +37,7 @@ pub enum DiagramCapability {
     Routing,
     CleanLayout,
     DrillDown,
+    Evaluation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +249,27 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
                 C::Routing,
                 C::CleanLayout,
                 C::DrillDown,
+            ],
+            PreferredFlowDirection::LeftToRight,
+        ),
+        descriptor(
+            "parametric",
+            "Parametric Diagram",
+            ("par", "Block"),
+            "parametric",
+            &["Block", "AssociationBlock", "ConstraintBlock"],
+            &[
+                C::NodePlacement,
+                C::Relationships,
+                C::Frames,
+                C::Move,
+                C::Resize,
+                C::Delete,
+                C::Clipboard,
+                C::Routing,
+                C::CleanLayout,
+                C::DrillDown,
+                C::Evaluation,
             ],
             PreferredFlowDirection::LeftToRight,
         ),
@@ -513,18 +535,18 @@ mod tests {
     #[test]
     fn registry_is_extensible_and_rejects_duplicates() {
         let mut registry = supported_diagram_families();
-        assert_eq!(registry.descriptors().len(), 7);
+        assert_eq!(registry.descriptors().len(), 8);
         let future = descriptor(
-            "parametric",
-            "Parametric Diagram",
-            ("req", "Package"),
-            "constraint",
+            "package",
+            "Package Diagram",
+            ("pkg", "Package"),
+            "package",
             &["Model", "Package"],
             &[DiagramCapability::NodePlacement],
             PreferredFlowDirection::TopToBottom,
         );
         assert!(registry.register(future.clone()).is_ok());
-        assert_eq!(registry.descriptors().len(), 8);
+        assert_eq!(registry.descriptors().len(), 9);
         assert!(registry.register(future).is_err());
     }
     #[test]
@@ -538,6 +560,7 @@ mod tests {
             ("activity", "act", "Activity"),
             ("requirement", "req", "Package"),
             ("use-case", "uc", "Package"),
+            ("parametric", "par", "Block"),
         ];
         for (id, abbreviation, context_kind) in expected {
             let family = registry.get(&DiagramFamilyId::new(id).unwrap()).unwrap();
@@ -559,6 +582,13 @@ mod tests {
             .unwrap();
         assert!(state_machine.supports(DiagramCapability::Routing));
         assert!(state_machine.supports(DiagramCapability::CleanLayout));
+        let parametric = registry
+            .get(&DiagramFamilyId::new("parametric").unwrap())
+            .unwrap();
+        assert!(parametric.supports(DiagramCapability::Routing));
+        assert!(parametric.supports(DiagramCapability::CleanLayout));
+        assert!(parametric.supports(DiagramCapability::Evaluation));
+        assert!(!sequence.supports(DiagramCapability::Evaluation));
     }
     #[test]
     fn bounds_include_nodes_ports_frames_routes_and_labels() {

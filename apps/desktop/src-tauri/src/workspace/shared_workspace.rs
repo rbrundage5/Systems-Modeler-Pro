@@ -310,6 +310,9 @@ fn dispatch_route(
         "bdd" | "requirement" | "use-case" => {
             super::route_bdd_with_bounds(diagram_id, workspace, bounds)
         }
+        "parametric" => {
+            super::parametrics::route_parametric_with_bounds(diagram_id, workspace, bounds)
+        }
         "ibd" => super::ibd::route_ibd_with_bounds(diagram_id, workspace, bounds),
         "state-machine" | "sequence" => {
             super::behavior_workspace::route_behavior_with_bounds(diagram_id, workspace, bounds)
@@ -333,6 +336,9 @@ fn dispatch_layout(
     match family {
         "bdd" | "requirement" | "use-case" => {
             super::layout_bdd_with_bounds(diagram_id, workspace, bounds)
+        }
+        "parametric" => {
+            super::parametrics::layout_parametric_with_bounds(diagram_id, workspace, bounds)
         }
         "ibd" => super::ibd::layout_ibd_with_bounds(diagram_id, workspace, bounds),
         "state-machine" | "sequence" => {
@@ -543,14 +549,14 @@ pub fn rename_active_diagram_header(
                 .ok_or("BDD not found")?
                 .name = diagram_name.into();
         }
-        "use-case" => {
+        "use-case" | "parametric" => {
             let context_id = workspace
                 .diagrams
                 .lock()
                 .map_err(|_| "diagram lock poisoned")?
                 .iter()
                 .find(|diagram| diagram.id == diagram_id)
-                .ok_or("Use Case Diagram not found")?
+                .ok_or("context-owned diagram not found")?
                 .semantic_context_id
                 .clone();
             if let Some(context_id) = context_id {
@@ -569,7 +575,7 @@ pub fn rename_active_diagram_header(
                 .map_err(|_| "diagram lock poisoned")?
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
-                .ok_or("Use Case Diagram not found")?
+                .ok_or("context-owned diagram not found")?
                 .name = diagram_name.into();
         }
         "ibd" => {
@@ -875,7 +881,7 @@ mod tests {
     #[test]
     fn registry_exposes_renderer_contract_for_every_current_family() {
         let families = diagram_family_registry();
-        assert_eq!(families.len(), 7);
+        assert_eq!(families.len(), 8);
         let requirement = families
             .iter()
             .find(|family| family.id.0 == "requirement")
@@ -888,6 +894,12 @@ mod tests {
             .expect("Use Case Diagram must be registered in the shared workspace");
         assert_eq!(use_case.renderer_id, "use-case");
         assert_eq!(use_case.frame_abbreviation, "uc");
+        let parametric = families
+            .iter()
+            .find(|family| family.id.0 == "parametric")
+            .expect("Parametric Diagram must be registered in the shared workspace");
+        assert_eq!(parametric.renderer_id, "parametric");
+        assert_eq!(parametric.frame_abbreviation, "par");
         assert!(families.iter().all(|family| !family.renderer_id.is_empty()));
         assert!(
             families
@@ -920,6 +932,7 @@ mod tests {
             width,
             height,
             actor_notation: None,
+            parameter_presentations: Vec::new(),
         };
         workspace
             .diagrams
@@ -1040,6 +1053,7 @@ mod tests {
                         width: 110.0,
                         height: 150.0,
                         actor_notation: None,
+                        parameter_presentations: Vec::new(),
                     },
                     super::super::DiagramNode {
                         id: "use-case".into(),
@@ -1049,6 +1063,7 @@ mod tests {
                         width: 210.0,
                         height: 115.0,
                         actor_notation: None,
+                        parameter_presentations: Vec::new(),
                     },
                 ],
                 edges: vec![super::super::DiagramEdge {

@@ -14,18 +14,36 @@ fn namespace_owner(project: &Project, owner_id: ElementId) -> Result<(), String>
 fn remove_bdd_presentations(diagrams: &mut [BddDiagram], element_id: ElementId) {
     let element_id = element_id.to_string();
     for diagram in diagrams {
-        let removed_node_ids: HashSet<_> = diagram
+        let removed_nodes: Vec<_> = diagram
             .nodes
             .iter()
             .filter(|node| node.element_id == element_id)
-            .map(|node| node.id.clone())
+            .cloned()
             .collect();
+        let mut removed_presentation_ids: HashSet<_> =
+            removed_nodes.iter().map(|node| node.id.clone()).collect();
+        removed_presentation_ids.extend(
+            removed_nodes
+                .iter()
+                .flat_map(|node| node.parameter_presentations.iter())
+                .map(|parameter| parameter.id.clone()),
+        );
+        for node in &mut diagram.nodes {
+            node.parameter_presentations.retain(|parameter| {
+                if parameter.parameter_id == element_id {
+                    removed_presentation_ids.insert(parameter.id.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         diagram
             .nodes
-            .retain(|node| !removed_node_ids.contains(&node.id));
+            .retain(|node| !removed_presentation_ids.contains(&node.id));
         diagram.edges.retain(|edge| {
-            !removed_node_ids.contains(&edge.source_node_id)
-                && !removed_node_ids.contains(&edge.target_node_id)
+            !removed_presentation_ids.contains(&edge.source_node_id)
+                && !removed_presentation_ids.contains(&edge.target_node_id)
         });
     }
 }
@@ -111,12 +129,50 @@ pub fn move_repository_element(
         .move_element(element_id, new_owner_id)
         .map_err(|error| error.to_string())?;
     project.validate().map_err(|error| error.to_string())?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    let moved_kind = project
+        .element(element_id)
+        .map_err(|error| error.to_string())?
+        .kind
+        .clone();
+    if matches!(
+        moved_kind.clone(),
+        ElementKind::ConstraintProperty | ElementKind::ValueProperty
+    ) {
+        let new_owner = new_owner_id.to_string();
+        for diagram in diagrams.iter_mut().filter(|diagram| {
+            diagram.family == "parametric"
+                && diagram.semantic_context_id.as_deref() != Some(new_owner.as_str())
+        }) {
+            remove_bdd_presentations(std::slice::from_mut(diagram), element_id);
+        }
+    }
+    if moved_kind == ElementKind::ConstraintParameter {
+        for diagram in diagrams
+            .iter_mut()
+            .filter(|diagram| diagram.family == "parametric")
+        {
+            for node in &mut diagram.nodes {
+                super::parametrics::sync_parameter_presentations(node, &project)?;
+            }
+            diagram.edges = super::parametrics::routed_edges(diagram, None)?;
+        }
+    }
+    validate_loaded_diagrams(&project, &diagrams)?;
 
     history::checkpoint_states(&workspace, &activity, &history)?;
     *workspace
         .project
         .lock()
         .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -176,6 +232,9 @@ pub fn delete_model_element(
             diagram.subject_boundary = None;
         }
     }
+    diagrams.retain(|diagram| {
+        !(diagram.family == "parametric" && diagram.semantic_context_id.is_none())
+    });
     remove_ibd_presentations(&mut ibd_diagrams, element_id);
 
     project.validate().map_err(|error| error.to_string())?;
@@ -416,6 +475,7 @@ mod tests {
                     width: 100.0,
                     height: 50.0,
                     actor_notation: None,
+                    parameter_presentations: Vec::new(),
                 },
                 DiagramNode {
                     id: "retained".into(),
@@ -425,6 +485,7 @@ mod tests {
                     width: 100.0,
                     height: 50.0,
                     actor_notation: None,
+                    parameter_presentations: Vec::new(),
                 },
             ],
             edges: vec![DiagramEdge {
