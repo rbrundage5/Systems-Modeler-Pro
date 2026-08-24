@@ -770,11 +770,8 @@ pub fn create_constraint_parameter(
         .map_err(|_| "project lock poisoned")?
         .clone()
         .ok_or("no project open")?;
-    let type_id = resolve_constraint_parameter_type(
-        &mut project,
-        constraint_block_id,
-        type_id.as_deref(),
-    )?;
+    let type_id =
+        resolve_constraint_parameter_type(&mut project, constraint_block_id, type_id.as_deref())?;
     let parameter_id = project
         .create_typed_feature(
             ElementKind::ConstraintParameter,
@@ -837,9 +834,10 @@ fn resolve_constraint_parameter_type(
     let namespace_id = constraint_block
         .owner_id
         .ok_or("ConstraintBlock has no owning Model or Package")?;
-    if let Some(existing) = project.children(namespace_id).find(|element| {
-        element.name == "Real" && element.kind == ElementKind::PrimitiveType
-    }) {
+    if let Some(existing) = project
+        .children(namespace_id)
+        .find(|element| element.name == "Real" && element.kind == ElementKind::PrimitiveType)
+    {
         return Ok(existing.id);
     }
     project
