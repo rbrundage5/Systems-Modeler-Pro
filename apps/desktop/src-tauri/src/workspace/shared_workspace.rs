@@ -919,6 +919,7 @@ mod tests {
             y,
             width,
             height,
+            actor_notation: None,
         };
         workspace
             .diagrams
@@ -930,6 +931,7 @@ mod tests {
                 owner_id: uuid::Uuid::new_v4().to_string(),
                 family: "requirement".into(),
                 semantic_context_id: None,
+                subject_boundary: None,
                 nodes: vec![
                     node("source", 80.0, 140.0, 150.0, 80.0),
                     node("obstacle", 340.0, 120.0, 150.0, 120.0),
@@ -1000,6 +1002,13 @@ mod tests {
                 package,
             )
             .unwrap();
+        let subject = project
+            .create_element(
+                systems_modeler_core::ElementKind::Block,
+                "System",
+                package,
+            )
+            .unwrap();
         let use_case = project
             .create_element(
                 systems_modeler_core::ElementKind::UseCase,
@@ -1018,7 +1027,14 @@ mod tests {
                 name: "Operations".into(),
                 owner_id: package.to_string(),
                 family: "use-case".into(),
-                semantic_context_id: None,
+                semantic_context_id: Some(subject.to_string()),
+                subject_boundary: Some(super::super::UseCaseSubjectBoundary {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    x: 300.0,
+                    y: 84.0,
+                    width: 580.0,
+                    height: 500.0,
+                }),
                 nodes: vec![
                     super::super::DiagramNode {
                         id: "actor".into(),
@@ -1027,6 +1043,7 @@ mod tests {
                         y: 420.0,
                         width: 110.0,
                         height: 150.0,
+                        actor_notation: None,
                     },
                     super::super::DiagramNode {
                         id: "use-case".into(),
@@ -1035,6 +1052,7 @@ mod tests {
                         y: 100.0,
                         width: 210.0,
                         height: 115.0,
+                        actor_notation: None,
                     },
                 ],
                 edges: vec![super::super::DiagramEdge {
@@ -1067,6 +1085,12 @@ mod tests {
             .unwrap();
         assert!(actor.x < use_case.x);
         assert!(diagrams[0].edges[0].points.len() >= 2);
+        let boundary = diagrams[0].subject_boundary.as_ref().unwrap();
+        assert!(use_case.x >= boundary.x);
+        assert!(use_case.y >= boundary.y);
+        assert!(use_case.x + use_case.width <= boundary.x + boundary.width);
+        assert!(use_case.y + use_case.height <= boundary.y + boundary.height);
+        assert!(actor.x + actor.width <= boundary.x);
     }
 
     #[test]

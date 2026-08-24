@@ -169,9 +169,11 @@ pub fn delete_model_element(
         .delete_element(element_id)
         .map_err(|error| error.to_string())?;
     remove_bdd_presentations(&mut diagrams, element_id);
+    let deleted_id = element_id.to_string();
     for diagram in &mut diagrams {
-        if diagram.semantic_context_id.as_deref() == Some(element_id.to_string().as_str()) {
+        if diagram.semantic_context_id.as_deref() == Some(deleted_id.as_str()) {
             diagram.semantic_context_id = None;
+            diagram.subject_boundary = None;
         }
     }
     remove_ibd_presentations(&mut ibd_diagrams, element_id);
@@ -404,6 +406,7 @@ mod tests {
             owner_id: ElementId::new().to_string(),
             family: "bdd".into(),
             semantic_context_id: None,
+            subject_boundary: None,
             nodes: vec![
                 DiagramNode {
                     id: "removed".into(),
@@ -412,6 +415,7 @@ mod tests {
                     y: 0.0,
                     width: 100.0,
                     height: 50.0,
+                    actor_notation: None,
                 },
                 DiagramNode {
                     id: "retained".into(),
@@ -420,6 +424,7 @@ mod tests {
                     y: 0.0,
                     width: 100.0,
                     height: 50.0,
+                    actor_notation: None,
                 },
             ],
             edges: vec![DiagramEdge {

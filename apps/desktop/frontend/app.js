@@ -8,6 +8,7 @@ const state = {
   selectedPackageId: null,
   selectedDiagramId: null,
   selectedRelationshipId: null,
+  selectedUseCaseSubjectBoundaryId: null,
   pendingRelationship: null,
   repositoryFilter: '',
 };
@@ -214,6 +215,7 @@ async function selectDiagram(diagramId) {
   Object.assign(state, {
     selectedDiagramId: diagramId,
     selectedRelationshipId: null,
+    selectedUseCaseSubjectBoundaryId: null,
     pendingRelationship: null,
     paletteTool: null,
     selectedBehaviorDiagramId: null,
@@ -618,7 +620,8 @@ async function createProject() {
   await runCommand('Creating project…', () => requireInvoke()('new_project', { name }));
   Object.assign(state, {
     paletteItems: [], paletteTool: null, selectedElementId: null, selectedPackageId: null,
-    selectedDiagramId: null, selectedRelationshipId: null, pendingRelationship: null,
+    selectedDiagramId: null, selectedRelationshipId: null,
+    selectedUseCaseSubjectBoundaryId: null, pendingRelationship: null,
   });
   await refresh();
 }
@@ -629,7 +632,8 @@ async function openProject() {
   await runCommand('Opening project…', () => requireInvoke()('open_project_file', { path }));
   Object.assign(state, {
     paletteItems: [], paletteTool: null, selectedElementId: null, selectedPackageId: null,
-    selectedDiagramId: null, selectedRelationshipId: null, pendingRelationship: null,
+    selectedDiagramId: null, selectedRelationshipId: null,
+    selectedUseCaseSubjectBoundaryId: null, pendingRelationship: null,
   });
   await refresh();
   if (!state.selectedDiagramId && state.snapshot?.diagrams?.length) {

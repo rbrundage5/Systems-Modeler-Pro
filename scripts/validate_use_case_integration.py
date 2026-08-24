@@ -42,6 +42,9 @@ for command in [
     "create_use_case_element",
     "update_actor_details",
     "update_use_case_specification",
+    "update_use_case_diagram_subject",
+    "update_use_case_subject_boundary_geometry",
+    "update_use_case_actor_notation",
     "place_on_use_case_diagram",
     "create_use_case_relationship",
     "reconnect_use_case_relationship",
@@ -64,6 +67,7 @@ assert "registerRenderer('use-case'" in read("apps/desktop/frontend/shared-works
 
 for notation in [
     "actor-figure",
+    "actor-rectangle",
     "use-case-presentation",
     "use-case-subject-boundary",
     "extension-point-compartment",
@@ -79,12 +83,18 @@ for behavior in [
     "createRelationshipLayer",
     "application/x-smp-repository-element-id",
     "extensionLocation",
+    "subject_boundary",
+    "update_use_case_subject_boundary_geometry",
+    "update_association_end",
 ]:
     assert behavior in frontend or behavior in read(
         "apps/desktop/frontend/structural-interaction-rebind.js"
     ), f"missing Use Case workspace behavior: {behavior}"
 
 assert "use-case.css" in index and "use-case-ui.js" in index
+assert "UseCaseSubjectBoundary" in standard
+assert "actor_notation" in workspace and "actor_notation" in frontend
+assert "subject_boundary" in workspace and "subject_boundary" in frontend
 assert "localStorage" not in frontend, "Use Case semantics must not use browser persistence"
 assert "new Map" not in desktop, "Use Case adapter must reuse existing workspace stores"
 

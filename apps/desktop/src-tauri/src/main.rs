@@ -102,7 +102,9 @@ mod workspace {
     pub use use_cases::{
         create_use_case_diagram, create_use_case_element, create_use_case_relationship,
         delete_use_case_relationship, place_on_use_case_diagram, reconnect_use_case_relationship,
-        update_actor_details, update_extend_specification, update_use_case_specification,
+        update_actor_details, update_extend_specification, update_use_case_actor_notation,
+        update_use_case_diagram_subject, update_use_case_specification,
+        update_use_case_subject_boundary_geometry,
     };
 }
 
@@ -148,8 +150,9 @@ use workspace::{
     update_ibd_port_geometry, update_ibd_property_geometry, update_requirement,
     update_sequence_message, update_sequence_message_complete, update_state_behaviors,
     update_state_invariant, update_state_presentation_geometry, update_state_transition,
-    update_use_case_specification, workspace_interaction_snapshot, workspace_snapshot,
-    workspace_snapshot_complete, zoom_diagram_viewport,
+    update_use_case_actor_notation, update_use_case_diagram_subject, update_use_case_specification,
+    update_use_case_subject_boundary_geometry, workspace_interaction_snapshot,
+    workspace_snapshot, workspace_snapshot_complete, zoom_diagram_viewport,
 };
 
 #[derive(Serialize)]
@@ -473,6 +476,9 @@ fn main() {
             create_use_case_diagram,
             create_use_case_element,
             update_use_case_specification,
+            update_use_case_diagram_subject,
+            update_use_case_subject_boundary_geometry,
+            update_use_case_actor_notation,
             place_on_use_case_diagram,
             create_use_case_relationship,
             update_extend_specification,

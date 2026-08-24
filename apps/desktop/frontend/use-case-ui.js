@@ -17,7 +17,10 @@
     Object.assign(state, { paletteItems: await requireInvoke()('diagram_palette', { diagramType: 'UseCase' }) });
   };
 
-  function actorMarkup(element) {
+  function actorMarkup(element, node) {
+    if (node.actor_notation === 'rectangle') {
+      return `<div class="actor-rectangle"><div class="actor-stereotype">«actor»</div><div class="actor-name">${escapeHtml(element.name)}</div></div>`;
+    }
     return `<svg class="actor-figure" viewBox="0 0 80 105" aria-hidden="true">
       <circle cx="40" cy="17" r="13"></circle>
       <path d="M40 30 V66 M16 43 H64 M40 66 L19 94 M40 66 L61 94"></path>
@@ -30,23 +33,30 @@
   }
 
   function subjectBoundary(frame, diagram, project) {
-    const useCaseNodes = (diagram.nodes || []).filter((node) => project.elements.find(
-      (element) => element.id === node.element_id && element.kind === 'UseCase',
-    ));
-    if (!useCaseNodes.length) return;
-    const padding = 42;
-    const left = Math.max(35, Math.min(...useCaseNodes.map((node) => node.x)) - padding);
-    const top = Math.max(58, Math.min(...useCaseNodes.map((node) => node.y)) - padding);
-    const right = Math.max(...useCaseNodes.map((node) => node.x + node.width)) + padding;
-    const bottom = Math.max(...useCaseNodes.map((node) => node.y + node.height)) + padding;
+    const geometry = diagram.subject_boundary;
+    if (!geometry) return;
     const context = project.elements.find((element) => element.id === diagram.semantic_context_id);
     const boundary = document.createElement('section');
     boundary.className = 'use-case-subject-boundary';
-    boundary.style.left = `${left}px`;
-    boundary.style.top = `${top}px`;
-    boundary.style.width = `${Math.max(280, right - left)}px`;
-    boundary.style.height = `${Math.max(220, bottom - top)}px`;
+    if (state.selectedUseCaseSubjectBoundaryId === geometry.id
+      && !state.selectedElementId && !state.selectedRelationshipId) boundary.classList.add('selected');
+    boundary.dataset.subjectBoundaryId = geometry.id;
+    Object.assign(boundary.style, {
+      left: `${geometry.x}px`, top: `${geometry.y}px`,
+      width: `${geometry.width}px`, height: `${geometry.height}px`,
+    });
     boundary.innerHTML = `<header>${escapeHtml(context?.name || diagram.name)}</header>`;
+    boundary.onclick = (event) => {
+      event.stopPropagation();
+      Object.assign(state, {
+        selectedUseCaseSubjectBoundaryId: geometry.id,
+        selectedElementId: null,
+        selectedRelationshipId: null,
+        pendingRelationship: null,
+        paletteTool: null,
+      });
+      render();
+    };
     frame.appendChild(boundary);
   }
 
@@ -54,7 +64,10 @@
     const pending = { ...state.pendingRelationship };
     if (!pending.sourceElementId) {
       state.pendingRelationship.sourceElementId = targetElement.id;
-      Object.assign(state, { selectedElementId: targetElement.id });
+      Object.assign(state, {
+        selectedElementId: targetElement.id,
+        selectedUseCaseSubjectBoundaryId: null,
+      });
       render();
       return;
     }
@@ -68,7 +81,10 @@
       condition: null,
       extensionLocation: null,
     }));
-    Object.assign(state, { selectedElementId: targetElement.id });
+    Object.assign(state, {
+      selectedElementId: targetElement.id,
+      selectedUseCaseSubjectBoundaryId: null,
+    });
     await refresh();
   }
 
@@ -108,6 +124,11 @@
     canvas.appendChild(frame);
     subjectBoundary(frame, diagram, project);
     createRelationshipLayer(frame, diagram, project);
+    frame.querySelector('.relationship-layer')?.addEventListener('click', (event) => {
+      if (event.target.closest?.('.bdd-relationship')) {
+        Object.assign(state, { selectedUseCaseSubjectBoundaryId: null });
+      }
+    }, true);
     renderExtendDetails(frame, diagram, project);
 
     frame.ondragover = (event) => {
@@ -141,6 +162,9 @@
       const presentation = document.createElement('button');
       presentation.type = 'button';
       presentation.className = `bdd-block ${element.kind === 'Actor' ? 'actor-presentation' : 'use-case-presentation'}`;
+      if (element.kind === 'Actor' && node.actor_notation === 'rectangle') {
+        presentation.classList.add('actor-rectangle-notation');
+      }
       presentation.dataset.semanticKind = element.kind;
       presentation.dataset.presentationId = node.id;
       if (state.selectedElementId === element.id) presentation.classList.add('selected');
@@ -148,13 +172,14 @@
       Object.assign(presentation.style, {
         left: `${node.x}px`, top: `${node.y}px`, width: `${node.width}px`, height: `${node.height}px`,
       });
-      presentation.innerHTML = element.kind === 'Actor' ? actorMarkup(element) : useCaseMarkup(element);
+      presentation.innerHTML = element.kind === 'Actor' ? actorMarkup(element, node) : useCaseMarkup(element);
       presentation.onclick = async (event) => {
         event.stopPropagation();
         if (state.pendingRelationship) return completeRelationship(diagram, element);
         Object.assign(state, {
           selectedElementId: element.id,
           selectedRelationshipId: null,
+          selectedUseCaseSubjectBoundaryId: null,
           paletteTool: null,
         });
         render();
@@ -170,6 +195,7 @@
       Object.assign(state, {
         selectedElementId: null,
         selectedRelationshipId: null,
+        selectedUseCaseSubjectBoundaryId: null,
         pendingRelationship: null,
         paletteTool: null,
       });
@@ -196,7 +222,11 @@
     await runCommand(`Placing ${item.label}…`, () => requireInvoke()('place_on_use_case_diagram', {
       diagramId: diagram.id, elementId, x, y,
     }));
-    Object.assign(state, { selectedElementId: elementId, paletteTool: null });
+    Object.assign(state, {
+      selectedElementId: elementId,
+      selectedUseCaseSubjectBoundaryId: null,
+      paletteTool: null,
+    });
     await refresh();
   };
 
@@ -207,7 +237,7 @@
     await runCommand('Placing existing Actor or Use Case…', () => requireInvoke()('place_on_use_case_diagram', {
       diagramId: diagram.id, elementId, x, y,
     }));
-    Object.assign(state, { selectedElementId: elementId });
+    Object.assign(state, { selectedElementId: elementId, selectedUseCaseSubjectBoundaryId: null });
     await refresh();
   };
 
@@ -223,6 +253,14 @@
     }).map((element) => `<option value="${escapeAttr(element.id)}"${element.id === selected ? ' selected' : ''}>${escapeHtml(element.name)} (${element.kind})</option>`).join('');
   }
 
+  function useCaseAssociationEndEditor(end, index) {
+    return `<fieldset class="relationship-end"><legend>${index === 0 ? 'Source' : 'Target'} end</legend>
+      <label>Role name<input id="uc-end-role-${index}" value="${escapeAttr(end.role_name || '')}"></label>
+      <label>Multiplicity<input id="uc-end-multiplicity-${index}" value="${escapeAttr(end.multiplicity || '1')}" placeholder="1, 0..1, 1..*, *"></label>
+      <button class="primary" id="apply-uc-end-${index}">Apply end</button>
+    </fieldset>`;
+  }
+
   function renderUseCaseRelationshipProperties(panel, project, relationship) {
     const extended = project.elements.find((element) => element.id === relationship.target_id);
     const extensionPoints = (extended?.extension_points || []).map(
@@ -233,6 +271,7 @@
       <button id="apply-uc-source" class="primary">Reconnect source</button>
       <label>Target<select id="uc-relationship-target">${endpointOptions(project, relationship, 'target')}</select></label>
       <button id="apply-uc-target" class="primary">Reconnect target</button>
+      ${relationship.kind === 'Association' ? (relationship.association_ends || []).map(useCaseAssociationEndEditor).join('') : ''}
       ${relationship.kind === 'Extend' ? `<label>Condition<input id="extend-condition" value="${escapeAttr(relationship.extension_condition || '')}"></label><label>Extension point<select id="extend-location"><option value="">None</option>${extensionPoints}</select></label><button id="apply-extend" class="primary">Apply Extend</button>` : ''}
       <label>Stable ID<input value="${escapeAttr(relationship.external_id)}" disabled></label>
       <button id="delete-uc-relationship" class="danger">Delete relationship</button>`;
@@ -246,6 +285,21 @@
         }));
         await refresh();
       };
+    }
+    if (relationship.kind === 'Association') {
+      (relationship.association_ends || []).forEach((end, index) => {
+        $(`apply-uc-end-${index}`).onclick = async () => {
+          await runCommand('Updating Use Case association end…', () => requireInvoke()('update_association_end', {
+            relationshipId: relationship.id,
+            endId: end.id,
+            roleName: $(`uc-end-role-${index}`).value,
+            multiplicity: $(`uc-end-multiplicity-${index}`).value,
+            navigable: !!end.navigable,
+            aggregation: 'none',
+          }));
+          await refresh();
+        };
+      });
     }
     if (relationship.kind === 'Extend') {
       $('apply-extend').onclick = async () => {
@@ -267,6 +321,33 @@
     };
   }
 
+  function subjectOptions(project, selectedId) {
+    return project.elements.filter((candidate) => [
+      'Block', 'AssociationBlock', 'InterfaceBlock', 'ConstraintBlock',
+    ].includes(candidate.kind)).map((candidate) => `<option value="${escapeAttr(candidate.id)}"${candidate.id === selectedId ? ' selected' : ''}>${escapeHtml(candidate.name)} (${candidate.kind})</option>`).join('');
+  }
+
+  function renderUseCaseDiagramProperties(panel, project, diagram) {
+    const boundary = diagram.subject_boundary;
+    const boundarySelected = boundary?.id === state.selectedUseCaseSubjectBoundaryId;
+    panel.innerHTML = `<div class="property-heading">${boundarySelected ? 'System / Subject Boundary' : 'Use Case Diagram'}</div>
+      <label>Represented system subject<select id="uc-diagram-subject"><option value="">None</option>${subjectOptions(project, diagram.semantic_context_id)}</select></label>
+      <button id="apply-uc-diagram-subject" class="primary">Apply Subject</button>
+      ${boundary ? `<div class="muted">Drag the boundary to move it with its contained Use Cases. Use the lower-right handle to resize it.</div>
+        <label>X<input value="${boundary.x}" disabled></label>
+        <label>Y<input value="${boundary.y}" disabled></label>
+        <label>Width<input value="${boundary.width}" disabled></label>
+        <label>Height<input value="${boundary.height}" disabled></label>` : '<div class="muted">Choose a subject to create its system boundary.</div>'}`;
+    $('apply-uc-diagram-subject').onclick = async () => {
+      await runCommand('Updating Use Case diagram subject…', () => requireInvoke()('update_use_case_diagram_subject', {
+        diagramId: diagram.id,
+        semanticContextId: $('uc-diagram-subject').value || null,
+      }));
+      Object.assign(state, { selectedUseCaseSubjectBoundaryId: null });
+      await refresh();
+    };
+  }
+
   const baseRenderProperties = renderProperties;
   renderProperties = function renderUseCaseProperties() {
     const diagram = selectedUseCaseDiagram();
@@ -279,30 +360,39 @@
     }
     const element = project.elements.find((candidate) => candidate.id === state.selectedElementId);
     if (!element || !USE_CASE_KINDS.has(element.kind)) {
-      panel.innerHTML = '<div class="muted">Select an Actor, Use Case, or relationship.</div>';
-      return;
+      return renderUseCaseDiagramProperties(panel, project, diagram);
     }
     if (element.kind === 'Actor') {
-      panel.innerHTML = `<div class="property-heading">Actor</div><label>Name<input id="uc-element-name" value="${escapeAttr(element.name)}"></label><label>Documentation<textarea id="uc-documentation" rows="7">${escapeHtml(element.documentation || '')}</textarea></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="apply-actor" class="primary">Apply Actor</button>`;
+      const presentation = (diagram.nodes || []).find((node) => node.element_id === element.id);
+      panel.innerHTML = `<div class="property-heading">Actor</div>
+        <label>Name<input id="uc-element-name" value="${escapeAttr(element.name)}"></label>
+        <label>Documentation<textarea id="uc-documentation" rows="7">${escapeHtml(element.documentation || '')}</textarea></label>
+        <label>Notation<select id="uc-actor-notation"><option value="stick"${presentation?.actor_notation !== 'rectangle' ? ' selected' : ''}>Stick figure</option><option value="rectangle"${presentation?.actor_notation === 'rectangle' ? ' selected' : ''}>Rectangle «actor»</option></select></label>
+        <label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label>
+        <button id="apply-actor" class="primary">Apply Actor</button>`;
       $('apply-actor').onclick = async () => {
         await runCommand('Updating Actor…', () => requireInvoke()('update_actor_details', {
           elementId: element.id,
           name: $('uc-element-name').value,
           documentation: $('uc-documentation').value,
         }));
+        if (presentation && $('uc-actor-notation').value !== (presentation.actor_notation || 'stick')) {
+          await runCommand('Updating Actor notation…', () => requireInvoke()('update_use_case_actor_notation', {
+            diagramId: diagram.id,
+            presentationId: presentation.id,
+            notation: $('uc-actor-notation').value,
+          }));
+        }
         await refresh();
       };
       return;
     }
-    const subjects = project.elements.filter((candidate) => [
-      'Block', 'AssociationBlock', 'InterfaceBlock', 'ConstraintBlock',
-    ].includes(candidate.kind)).map((candidate) => `<option value="${escapeAttr(candidate.id)}"${candidate.id === element.represented_classifier_id ? ' selected' : ''}>${escapeHtml(candidate.name)} (${candidate.kind})</option>`).join('');
     panel.innerHTML = `<div class="property-heading">Use Case</div>
       <label>Name<input id="uc-element-name" value="${escapeAttr(element.name)}"></label>
       <label>Documentation<textarea id="uc-documentation" rows="4">${escapeHtml(element.documentation || '')}</textarea></label>
       <label>Specification<textarea id="uc-specification" rows="8">${escapeHtml(element.use_case_specification || '')}</textarea></label>
       <label>Extension points<textarea id="uc-extension-points" rows="5" placeholder="One named extension point per line">${escapeHtml((element.extension_points || []).join('\n'))}</textarea></label>
-      <label>Represented subject<select id="uc-subject"><option value="">None</option>${subjects}</select></label>
+      <label>Represented subject<select id="uc-subject"><option value="">None</option>${subjectOptions(project, element.represented_classifier_id)}</select></label>
       <label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label>
       <button id="apply-use-case" class="primary">Apply Use Case</button>`;
     $('apply-use-case').onclick = async () => {
@@ -360,6 +450,7 @@
     Object.assign(state, {
       selectedDiagramId,
       selectedRelationshipId: null,
+      selectedUseCaseSubjectBoundaryId: null,
       pendingRelationship: null,
       paletteTool: null,
     });

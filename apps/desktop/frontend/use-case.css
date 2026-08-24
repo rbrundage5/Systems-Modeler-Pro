@@ -9,8 +9,15 @@
   border: 1.5px solid #343434;
   background: rgba(252, 251, 246, .72);
   box-sizing: border-box;
-  pointer-events: none;
+  cursor: move;
+  pointer-events: auto;
   z-index: 0;
+}
+
+.use-case-subject-boundary.selected,
+.use-case-subject-boundary.smp-standard-selected {
+  outline: 2px solid #2f6fad;
+  outline-offset: 3px;
 }
 
 .use-case-subject-boundary > header {
@@ -30,6 +37,19 @@
   padding: 3px 8px !important;
   overflow: visible !important;
 }
+
+.use-case-diagram .actor-presentation.actor-rectangle-notation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #343434 !important;
+  background: #fbfaf5 !important;
+  padding: 10px !important;
+  overflow: hidden !important;
+}
+
+.actor-rectangle { width: 100%; text-align: center; }
+.actor-stereotype { margin-bottom: 5px; font-size: 11px; font-weight: 650; }
 
 .actor-figure {
   display: block;

@@ -70,6 +70,18 @@ pub struct DiagramNode {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// Presentation-only Actor notation. Semantic Actor identity is unchanged.
+    #[serde(default)]
+    pub actor_notation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UseCaseSubjectBoundary {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +105,9 @@ pub struct BddDiagram {
     /// Presentation context is intentionally independent of repository ownership.
     #[serde(default)]
     pub semantic_context_id: Option<String>,
+    /// Movable/resizable presentation of the represented Use Case subject.
+    #[serde(default)]
+    pub subject_boundary: Option<UseCaseSubjectBoundary>,
     pub nodes: Vec<DiagramNode>,
     #[serde(default)]
     pub edges: Vec<DiagramEdge>,
@@ -290,6 +305,31 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                 return Err("Use Case diagram context is not a represented system classifier".into());
             }
         }
+        if diagram.family != "use-case" && diagram.subject_boundary.is_some() {
+            return Err("subject boundaries are only valid on Use Case Diagrams".into());
+        }
+        if diagram.semantic_context_id.is_none() && diagram.subject_boundary.is_some() {
+            return Err("Use Case subject boundary requires a semantic context".into());
+        }
+        if let Some(boundary) = diagram.subject_boundary.as_ref() {
+            if uuid::Uuid::parse_str(&boundary.id).is_err() || !node_ids.insert(&boundary.id) {
+                return Err(format!(
+                    "invalid or duplicate Use Case subject-boundary id: {}",
+                    boundary.id
+                ));
+            }
+            if !boundary.x.is_finite()
+                || !boundary.y.is_finite()
+                || !boundary.width.is_finite()
+                || !boundary.height.is_finite()
+                || boundary.x < 0.0
+                || boundary.y < 42.0
+                || boundary.width < 280.0
+                || boundary.height < 220.0
+            {
+                return Err("invalid Use Case subject-boundary geometry".into());
+            }
+        }
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() {
                 return Err(format!("invalid diagram node id: {}", node.id));
@@ -305,6 +345,28 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                 return Err(format!(
                     "element kind {:?} is not valid on a Use Case Diagram",
                     element.kind
+                ));
+            }
+            if let Some(notation) = node.actor_notation.as_deref() {
+                if element.kind != ElementKind::Actor
+                    || !matches!(notation, "stick" | "rectangle")
+                {
+                    return Err(format!(
+                        "invalid Actor notation for presentation {}",
+                        node.id
+                    ));
+                }
+            }
+            if element.kind == ElementKind::UseCase
+                && let Some(boundary) = diagram.subject_boundary.as_ref()
+                && (node.x < boundary.x
+                    || node.y < boundary.y
+                    || node.x + node.width > boundary.x + boundary.width
+                    || node.y + node.height > boundary.y + boundary.height)
+            {
+                return Err(format!(
+                    "Use Case presentation {} is outside its subject boundary",
+                    node.id
                 ));
             }
         }
@@ -471,7 +533,7 @@ pub fn create_bdd(owner_id: String, name: String, state: tauri::State<'_, Worksp
     }
     let id = DiagramId::new();
     state.diagrams.lock().map_err(|_| "diagram lock poisoned")?.push(BddDiagram {
-        id: id.to_string(), name, owner_id: owner_id.to_string(), family: "bdd".into(), semantic_context_id: None, nodes: Vec::new(), edges: Vec::new(),
+        id: id.to_string(), name, owner_id: owner_id.to_string(), family: "bdd".into(), semantic_context_id: None, subject_boundary: None, nodes: Vec::new(), edges: Vec::new(),
     });
     Ok(id.to_string())
 }
@@ -493,7 +555,7 @@ pub fn place_element_on_bdd(diagram_id: String, element_id: String, x: f64, y: f
         return Err("this Block is already presented on the BDD".into());
     }
     let node_id = uuid::Uuid::new_v4().to_string();
-    diagram.nodes.push(DiagramNode { id: node_id.clone(), element_id: element_id.to_string(), x, y, width: 180.0, height: 105.0 });
+    diagram.nodes.push(DiagramNode { id: node_id.clone(), element_id: element_id.to_string(), x, y, width: 180.0, height: 105.0, actor_notation: None });
     Ok(node_id)
 }
 
@@ -630,12 +692,14 @@ fn bdd_presentation_changed(left: &BddDiagram, right: &BddDiagram) -> bool {
                 || left.y != right.y
                 || left.width != right.width
                 || left.height != right.height
+                || left.actor_notation != right.actor_notation
         })
         || left.edges.iter().zip(&right.edges).any(|(left, right)| {
             left.id != right.id
                 || left.points != right.points
                 || left.label_anchor != right.label_anchor
         })
+        || left.subject_boundary != right.subject_boundary
 }
 
 pub(super) fn route_bdd_with_bounds(
@@ -727,6 +791,9 @@ pub(super) fn layout_bdd_with_bounds(
             node.x = *x;
             node.y = *y;
         }
+    }
+    if let Some(project) = project.as_ref() {
+        use_cases::fit_use_case_subject_boundary(&mut candidate, project, true);
     }
     candidate.edges = routed_bdd_edges(&candidate, bounds)?;
     let changed = bdd_presentation_changed(&original, &candidate);

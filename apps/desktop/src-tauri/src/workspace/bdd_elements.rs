@@ -225,6 +225,31 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 );
             }
         }
+        if diagram.family != "use-case" && diagram.subject_boundary.is_some() {
+            return Err("subject boundaries are only valid on Use Case Diagrams".into());
+        }
+        if diagram.semantic_context_id.is_none() && diagram.subject_boundary.is_some() {
+            return Err("Use Case subject boundary requires a semantic context".into());
+        }
+        if let Some(boundary) = diagram.subject_boundary.as_ref() {
+            if uuid::Uuid::parse_str(&boundary.id).is_err() || !node_ids.insert(&boundary.id) {
+                return Err(format!(
+                    "invalid or duplicate Use Case subject-boundary id: {}",
+                    boundary.id
+                ));
+            }
+            if !boundary.x.is_finite()
+                || !boundary.y.is_finite()
+                || !boundary.width.is_finite()
+                || !boundary.height.is_finite()
+                || boundary.x < 0.0
+                || boundary.y < 42.0
+                || boundary.width < 280.0
+                || boundary.height < 220.0
+            {
+                return Err("invalid Use Case subject-boundary geometry".into());
+            }
+        }
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() {
                 return Err(format!("invalid diagram node id: {}", node.id));
@@ -247,6 +272,27 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 return Err(format!(
                     "element kind {:?} is not valid on a Use Case Diagram",
                     element.kind
+                ));
+            }
+            if let Some(notation) = node.actor_notation.as_deref()
+                && (element.kind != ElementKind::Actor
+                    || !matches!(notation, "stick" | "rectangle"))
+            {
+                return Err(format!(
+                    "invalid Actor notation for presentation {}",
+                    node.id
+                ));
+            }
+            if element.kind == ElementKind::UseCase
+                && let Some(boundary) = diagram.subject_boundary.as_ref()
+                && (node.x < boundary.x
+                    || node.y < boundary.y
+                    || node.x + node.width > boundary.x + boundary.width
+                    || node.y + node.height > boundary.y + boundary.height)
+            {
+                return Err(format!(
+                    "Use Case presentation {} is outside its subject boundary",
+                    node.id
                 ));
             }
         }
@@ -491,6 +537,7 @@ pub fn place_bdd_element(
         y,
         width,
         height,
+        actor_notation: None,
     });
     Ok(node_id)
 }
