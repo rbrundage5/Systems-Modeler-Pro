@@ -19,8 +19,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Generate formatting patch
+        run: |
+          cargo fmt --all
+          git diff --binary > rustfmt.patch
+      - name: Upload formatting patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-patch
+          path: rustfmt.patch
       - name: Format
-        run: cargo fmt --all --check
+        run: test ! -s rustfmt.patch
       - name: Core and persistence tests
         run: cargo test --workspace --exclude systems-modeler-desktop
       - name: Core and persistence lint
