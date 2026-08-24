@@ -973,11 +973,7 @@ mod tests {
             DiagramPoint { x: 180.0, y: 120.0 },
             DiagramPoint { x: 180.0, y: 80.0 },
         ];
-        assert!(!route_avoids_reserved(
-            &unrelated_overlap,
-            &reserved,
-            false
-        ));
+        assert!(!route_avoids_reserved(&unrelated_overlap, &reserved, false));
     }
 
     #[test]
