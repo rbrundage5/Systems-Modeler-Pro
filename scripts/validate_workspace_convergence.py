@@ -30,6 +30,7 @@ assert "modelElementName" in workspace and "state.context.frameLabel" in workspa
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
 assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_preference" in workspace
 assert "validFrame(storedFrame)?storedFrame:null" in workspace
+assert "smpRefreshBehaviorSnapshot" in workspace and "command.label} failed" in workspace
 assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
 assert "canvas.scrollLeft=state.panning.left-dx" in workspace
@@ -97,6 +98,7 @@ assert '.canvas .ibd-frame::after{display:none!important}' in styles
 assert 'overflow:visible!important' in styles
 assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
 assert 'frameGeometry:() => state.frame' in workspace and 'outerFramePoint' in ibd_ui
+assert "filter(|frame| frame.manually_sized)" in shared_workspace
 assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
 assert 'storedRoute?.label_anchor||' in behavior_ui
 assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
