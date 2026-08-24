@@ -87,10 +87,13 @@ assert '<script src="activity-navigation-ui.js"></script>' in index, "Activity n
 assert '<script src="activity-mutation-ui.js"></script>' in index, "Activity mutation frontend is not loaded"
 assert '<link rel="stylesheet" href="activity.css" />' in index, "Activity notation stylesheet is not loaded"
 
-# Activity routing keeps branch/merge/fork/join flows separated without using a
-# monotonically growing diagram-global lane index that creates excessive detours.
-assert "rect_overlaps_corridor" in mutation_rs, "Activity routing does not constrain obstacle search to the local endpoint corridor"
-assert "CORRIDOR_PADDING" in mutation_rs, "Activity routing corridor clearance is missing"
+# Activity routing keeps branch/merge/fork/join flows separated, qualifies every
+# unrelated presentation and region as an obstacle, and only commits a complete
+# validated reroute. A local-corridor filter can hide a later obstacle crossing.
+assert "rect_overlaps_corridor" not in mutation_rs, "Activity routing still uses the unchecked local-corridor obstacle shortcut"
+assert ".filter(|node| node.id != source.id && node.id != target.id)" in mutation_rs, "Activity routing does not qualify every unrelated node"
+assert "activity_region_obstacles" in mutation_rs, "Activity routing does not qualify partition and structured-region frames"
+assert "let snapshot = diagram.clone()" in mutation_rs and "let mut routed = Vec::new()" in mutation_rs, "Activity reroute is not transactional"
 assert "candidate.source_node_id == presentation.source_node_id" in mutation_rs, "Activity branch routing does not separate shared-source flows"
 assert "candidate.target_node_id == presentation.target_node_id" in mutation_rs, "Activity merge routing does not separate shared-target flows"
 assert "reserved_routes" in mutation_rs and "allow_shared_departure" in mutation_rs, "Activity routing does not protect unrelated relationship corridors"

@@ -30,6 +30,8 @@ assert "modelElementName" in workspace and "state.context.frameLabel" in workspa
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
 assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_preference" in workspace
 assert "validFrame(storedFrame)?storedFrame:null" in workspace
+assert "await renderer()?.refresh?.()" in workspace and "command.label} failed" in workspace
+assert "state.context.family.id === 'state-machine'" not in workspace
 assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
 assert "canvas.scrollLeft=state.panning.left-dx" in workspace
@@ -50,7 +52,8 @@ assert "active_diagram_layout" in main
 assert "checkpoint_states" in read(root / "apps/desktop/src-tauri/src/workspace/history.rs")
 assert "hierarchical_positions" in read(root / "apps/desktop/src-tauri/src/workspace/layout.rs")
 assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
-assert "pub fn route_bdd" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
+assert "fn route_bdd_with_bounds" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
+assert '"bdd" | "requirement" => super::route_bdd_with_bounds' in shared_workspace
 assert "route_diagram_geometry" in main
 router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
 assert "route_diagram_geometry" in router
@@ -96,6 +99,7 @@ assert '.canvas .ibd-frame::after{display:none!important}' in styles
 assert 'overflow:visible!important' in styles
 assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
 assert 'frameGeometry:() => state.frame' in workspace and 'outerFramePoint' in ibd_ui
+assert "filter(|frame| frame.manually_sized)" in shared_workspace
 assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
 assert 'storedRoute?.label_anchor||' in behavior_ui
 assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui

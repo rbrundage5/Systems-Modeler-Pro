@@ -5,7 +5,7 @@ use systems_modeler_core::{ActivityRepository, BehaviorRepository, Project};
 const HISTORY_LIMIT: usize = 100;
 
 #[derive(Clone)]
-struct HistorySnapshot {
+pub(super) struct HistorySnapshot {
     project: Option<Project>,
     diagrams: Vec<BddDiagram>,
     ibd_diagrams: Vec<ibd::IbdDiagram>,
@@ -29,7 +29,7 @@ impl Default for HistoryState {
     }
 }
 
-fn capture(
+pub(super) fn capture_states(
     workspace: &WorkspaceState,
     activity: &activity_workspace::ActivityWorkspaceState,
 ) -> Result<HistorySnapshot, String> {
@@ -77,7 +77,14 @@ pub(super) fn checkpoint_states(
     activity: &activity_workspace::ActivityWorkspaceState,
     history: &HistoryState,
 ) -> Result<(), String> {
-    let snapshot = capture(workspace, activity)?;
+    let snapshot = capture_states(workspace, activity)?;
+    commit_snapshot(snapshot, history)
+}
+
+pub(super) fn commit_snapshot(
+    snapshot: HistorySnapshot,
+    history: &HistoryState,
+) -> Result<(), String> {
     let mut undo = history
         .undo
         .lock()
@@ -92,6 +99,11 @@ pub(super) fn checkpoint_states(
         .map_err(|_| "redo history lock poisoned")?
         .clear();
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn undo_len(history: &HistoryState) -> usize {
+    history.undo.lock().expect("undo history lock").len()
 }
 
 fn restore(
@@ -155,7 +167,7 @@ pub fn history_undo(
     let Some(target) = target else {
         return Ok(false);
     };
-    let current = capture(&workspace, &activity)?;
+    let current = capture_states(&workspace, &activity)?;
     restore(target, &workspace, &activity)?;
     let mut redo = history
         .redo
@@ -184,7 +196,7 @@ pub fn history_redo(
     let Some(target) = target else {
         return Ok(false);
     };
-    let current = capture(&workspace, &activity)?;
+    let current = capture_states(&workspace, &activity)?;
     restore(target, &workspace, &activity)?;
     let mut undo = history
         .undo

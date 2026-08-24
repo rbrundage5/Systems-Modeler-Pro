@@ -182,9 +182,21 @@
     const local = transientHandlers[id];
     if (local) { await local(args); return true; }
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
-    await publishInteraction();
-    await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...args });
-    await renderer()?.refresh?.(); return true;
+    try {
+      await publishInteraction();
+      const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
+      await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
+      // Use the same authoritative refresh path for every family. The Behavior
+      // refresh wrapper hydrates STM/Sequence state before render, while the
+      // common path also refreshes command bindings, frame bounds, and pointer
+      // interactions after Route or Clean Layout changes node geometry.
+      await renderer()?.refresh?.();
+      if (id === 'route' || id === 'cleanLayout') notify(`${command.label} completed.`, 'info');
+      return true;
+    } catch (error) {
+      notify(`${command.label} failed: ${String(error)}`, 'error');
+      return false;
+    }
   }
 
   async function loadCommands() {

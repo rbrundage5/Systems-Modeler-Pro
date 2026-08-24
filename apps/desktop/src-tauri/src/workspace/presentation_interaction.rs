@@ -1,6 +1,6 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
-use super::{WorkspaceState, ibd, route_relationship};
+use super::{WorkspaceState, behavior_workspace, ibd, route_relationship};
 
 fn validate_geometry(
     x: f64,
@@ -72,7 +72,7 @@ pub fn update_bdd_presentation_geometry(
                 .ok_or("BDD edge target presentation not found")?;
             Ok((
                 edge.id.clone(),
-                route_relationship(&source, &target, &diagram.nodes),
+                route_relationship(&source, &target, &diagram.nodes)?,
             ))
         })
         .collect::<Result<_, String>>()?;
@@ -334,6 +334,13 @@ pub fn update_state_presentation_geometry(
     presentation.width = width;
     presentation.height = height;
 
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    behavior_workspace::reroute_behavior_presentation(diagram, &repository, None)?;
+    drop(repository);
+
     history::checkpoint_states(&state, &activity, &history)?;
     *state
         .behavior_diagrams
@@ -427,7 +434,8 @@ pub fn update_activity_presentation_geometry(
             lane_index: 0,
             reserved_routes: &[],
             allow_shared_departure: false,
-        });
+            bounds: None,
+        })?;
     }
 
     history::checkpoint_states(&workspace, &state, &history)?;

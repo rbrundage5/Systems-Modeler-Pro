@@ -544,7 +544,7 @@ pub fn create_bdd_relationship_complete(
             .map_err(|error| error.to_string())?,
         _ => unreachable!(),
     };
-    let points = route_relationship(&source_node, &target_node, &diagram.nodes);
+    let points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
     diagram.edges.push(DiagramEdge {
         id: uuid::Uuid::new_v4().to_string(),
         relationship_id: relationship_id.to_string(),

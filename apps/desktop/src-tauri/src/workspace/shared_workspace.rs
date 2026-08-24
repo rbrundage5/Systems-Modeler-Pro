@@ -270,9 +270,96 @@ pub fn active_diagram_command_manifest(
     ))
 }
 
+fn routing_bounds(
+    shared: &SharedWorkspaceState,
+    diagram_id: &str,
+    supplied: Option<DiagramFramePreference>,
+) -> Result<Option<super::routing::RouteRect>, String> {
+    let preference = if let Some(preference) = supplied {
+        preference.validate()?;
+        Some(preference)
+    } else {
+        shared
+            .frames
+            .lock()
+            .map_err(|_| "diagram frame preference lock poisoned")?
+            .get(diagram_id)
+            .cloned()
+    };
+    // An automatic frame follows content and is recalculated after rendering, so it
+    // must not act as a hard routing boundary. Only a frame the user explicitly
+    // sized represents a committed boundary that Route/Clean Layout must respect.
+    Ok(preference
+        .filter(|frame| frame.manually_sized)
+        .map(|frame| super::routing::RouteRect {
+            x: frame.x,
+            y: frame.y + 42.0,
+            width: frame.width,
+            height: (frame.height - 42.0).max(1.0),
+        }))
+}
+
+fn dispatch_route(
+    family: &str,
+    diagram_id: &str,
+    workspace: &super::WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<bool, String> {
+    match family {
+        "bdd" | "requirement" => super::route_bdd_with_bounds(diagram_id, workspace, bounds),
+        "ibd" => super::ibd::route_ibd_with_bounds(diagram_id, workspace, bounds),
+        "state-machine" | "sequence" => {
+            super::behavior_workspace::route_behavior_with_bounds(diagram_id, workspace, bounds)
+        }
+        "activity" => {
+            super::activity_mutation::route_activity_with_bounds(diagram_id, activity, bounds)
+        }
+        family => Err(format!(
+            "shared routing geometry is not implemented for {family} yet"
+        )),
+    }
+}
+
+fn dispatch_layout(
+    family: &str,
+    diagram_id: &str,
+    workspace: &super::WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<bool, String> {
+    match family {
+        "bdd" | "requirement" => super::layout_bdd_with_bounds(diagram_id, workspace, bounds),
+        "ibd" => super::ibd::layout_ibd_with_bounds(diagram_id, workspace, bounds),
+        "state-machine" | "sequence" => {
+            super::behavior_workspace::layout_behavior_with_bounds(diagram_id, workspace, bounds)
+        }
+        "activity" => {
+            super::activity_mutation::layout_activity_with_bounds(diagram_id, activity, bounds)
+        }
+        family => Err(format!(
+            "shared Clean Layout is not implemented for {family}"
+        )),
+    }
+}
+
+fn record_presentation_change(
+    workspace: &super::WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    history: &super::history::HistoryState,
+    operation: impl FnOnce() -> Result<bool, String>,
+) -> Result<(), String> {
+    let before = super::history::capture_states(workspace, activity)?;
+    if operation()? {
+        super::history::commit_snapshot(before, history)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn active_diagram_router(
     diagram_id: String,
+    frame_preference: Option<DiagramFramePreference>,
     shared: tauri::State<'_, SharedWorkspaceState>,
     workspace: tauri::State<'_, super::WorkspaceState>,
     activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
@@ -287,23 +374,22 @@ pub fn active_diagram_router(
     if active.diagram_id != diagram_id {
         return Err("routing request does not match the active diagram".into());
     }
-    super::history::checkpoint_states(&workspace, &activity, &history)?;
-    match active.family.id.0.as_str() {
-        "bdd" => super::route_bdd(diagram_id, workspace),
-        "ibd" => super::ibd::route_ibd(diagram_id, workspace),
-        "state-machine" | "sequence" => {
-            super::behavior_workspace::route_behavior_diagram(diagram_id, workspace)
-        }
-        "activity" => super::activity_mutation::route_activity_diagram(diagram_id, activity),
-        family => Err(format!(
-            "shared routing geometry is not implemented for {family} yet"
-        )),
-    }
+    let bounds = routing_bounds(&shared, &diagram_id, frame_preference)?;
+    record_presentation_change(&workspace, &activity, &history, || {
+        dispatch_route(
+            active.family.id.0.as_str(),
+            &diagram_id,
+            &workspace,
+            &activity,
+            bounds,
+        )
+    })
 }
 
 #[tauri::command]
 pub fn active_diagram_layout(
     diagram_id: String,
+    frame_preference: Option<DiagramFramePreference>,
     shared: tauri::State<'_, SharedWorkspaceState>,
     workspace: tauri::State<'_, super::WorkspaceState>,
     activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
@@ -318,18 +404,16 @@ pub fn active_diagram_layout(
     if active.diagram_id != diagram_id {
         return Err("layout request does not match the active diagram".into());
     }
-    super::history::checkpoint_states(&workspace, &activity, &history)?;
-    match active.family.id.0.as_str() {
-        "bdd" => super::layout_bdd(diagram_id, workspace),
-        "ibd" => super::ibd::layout_ibd(diagram_id, workspace),
-        "state-machine" | "sequence" => {
-            super::behavior_workspace::layout_behavior_diagram(diagram_id, workspace)
-        }
-        "activity" => super::activity_mutation::layout_activity_diagram(diagram_id, activity),
-        family => Err(format!(
-            "shared Clean Layout is not implemented for {family}"
-        )),
-    }
+    let bounds = routing_bounds(&shared, &diagram_id, frame_preference)?;
+    record_presentation_change(&workspace, &activity, &history, || {
+        dispatch_layout(
+            active.family.id.0.as_str(),
+            &diagram_id,
+            &workspace,
+            &activity,
+            bounds,
+        )
+    })
 }
 
 #[tauri::command]
@@ -770,6 +854,139 @@ mod tests {
             families
                 .iter()
                 .all(|family| !family.empty_message.is_empty())
+        );
+        let commands = resolve_diagram_commands(Some(requirement));
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.command.id == "route" && command.enabled)
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.command.id == "cleanLayout" && command.enabled)
+        );
+    }
+
+    #[test]
+    fn requirement_dispatcher_routes_and_lays_out_real_geometry() {
+        let workspace = super::super::WorkspaceState::default();
+        let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let node = |id: &str, x: f64, y: f64, width: f64, height: f64| super::super::DiagramNode {
+            id: id.into(),
+            element_id: uuid::Uuid::new_v4().to_string(),
+            x,
+            y,
+            width,
+            height,
+        };
+        workspace
+            .diagrams
+            .lock()
+            .expect("diagram lock")
+            .push(super::super::BddDiagram {
+                id: diagram_id.clone(),
+                name: "Traceability".into(),
+                owner_id: uuid::Uuid::new_v4().to_string(),
+                family: "requirement".into(),
+                nodes: vec![
+                    node("source", 80.0, 140.0, 150.0, 80.0),
+                    node("obstacle", 340.0, 120.0, 150.0, 120.0),
+                    node("target", 620.0, 140.0, 150.0, 80.0),
+                ],
+                edges: vec![super::super::DiagramEdge {
+                    id: "presentation-edge".into(),
+                    relationship_id: uuid::Uuid::new_v4().to_string(),
+                    source_node_id: "source".into(),
+                    target_node_id: "target".into(),
+                    points: vec![
+                        super::super::DiagramPoint { x: 230.0, y: 180.0 },
+                        super::super::DiagramPoint { x: 620.0, y: 180.0 },
+                    ],
+                    label_anchor: None,
+                }],
+            });
+        let bounds = Some(super::super::routing::RouteRect {
+            x: 0.0,
+            y: 42.0,
+            width: 960.0,
+            height: 640.0,
+        });
+
+        assert!(
+            dispatch_route("requirement", &diagram_id, &workspace, &activity, bounds)
+                .expect("Requirement Route must dispatch")
+        );
+        {
+            let diagrams = workspace.diagrams.lock().expect("diagram lock");
+            let route = &diagrams[0].edges[0].points;
+            assert!(super::super::routing::route_is_clear(
+                route,
+                &[super::super::routing::RouteRect {
+                    x: 340.0,
+                    y: 120.0,
+                    width: 150.0,
+                    height: 120.0,
+                }]
+            ));
+            assert!(diagrams[0].edges[0].label_anchor.is_some());
+        }
+        assert!(
+            dispatch_layout("requirement", &diagram_id, &workspace, &activity, bounds)
+                .expect("Requirement Clean Layout must dispatch")
+        );
+        let diagrams = workspace.diagrams.lock().expect("diagram lock");
+        assert_eq!(diagrams[0].family, "requirement");
+        assert_eq!(diagrams[0].edges[0].relationship_id.len(), 36);
+    }
+
+    #[test]
+    fn failed_or_noop_presentation_commands_do_not_checkpoint_history() {
+        let workspace = super::super::WorkspaceState::default();
+        let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
+        let history = super::super::history::HistoryState::default();
+        let error = record_presentation_change(&workspace, &activity, &history, || {
+            Err::<bool, String>("qualification failure".into())
+        });
+        assert!(error.is_err());
+        assert_eq!(super::super::history::undo_len(&history), 0);
+        record_presentation_change(&workspace, &activity, &history, || Ok(false))
+            .expect("no-op command succeeds");
+        assert_eq!(super::super::history::undo_len(&history), 0);
+    }
+
+    #[test]
+    fn only_manually_sized_frames_constrain_routing_and_layout() {
+        let shared = SharedWorkspaceState::default();
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let automatic = DiagramFramePreference {
+            x: 480.0,
+            y: 320.0,
+            width: 720.0,
+            height: 520.0,
+            manually_sized: false,
+        };
+        assert_eq!(
+            routing_bounds(&shared, &diagram_id, Some(automatic)),
+            Ok(None)
+        );
+
+        let manual = DiagramFramePreference {
+            x: 480.0,
+            y: 320.0,
+            width: 720.0,
+            height: 520.0,
+            manually_sized: true,
+        };
+        assert_eq!(
+            routing_bounds(&shared, &diagram_id, Some(manual)),
+            Ok(Some(super::super::routing::RouteRect {
+                x: 480.0,
+                y: 362.0,
+                width: 720.0,
+                height: 478.0,
+            }))
         );
     }
 

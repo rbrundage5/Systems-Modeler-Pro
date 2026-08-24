@@ -60,32 +60,107 @@ fn route_rect(node: &activity_workspace::ActivityDiagramNode) -> routing::RouteR
     }
 }
 
-fn rect_overlaps_corridor(
-    rect: routing::RouteRect,
-    source: routing::RouteRect,
-    target: routing::RouteRect,
-) -> bool {
-    const CORRIDOR_PADDING: f64 = 72.0;
-    let left = source.x.min(target.x) - CORRIDOR_PADDING;
-    let right = (source.x + source.width).max(target.x + target.width) + CORRIDOR_PADDING;
-    let top = source.y.min(target.y) - CORRIDOR_PADDING;
-    let bottom = (source.y + source.height).max(target.y + target.height) + CORRIDOR_PADDING;
-    rect.x + rect.width >= left
-        && rect.x <= right
-        && rect.y + rect.height >= top
-        && rect.y <= bottom
+fn member_bounds(
+    diagram: &activity_workspace::ActivityDiagram,
+    member_ids: &HashSet<String>,
+    fallback_index: usize,
+) -> routing::RouteRect {
+    let members: Vec<_> = diagram
+        .nodes
+        .iter()
+        .filter(|node| member_ids.contains(&node.activity_node_id))
+        .collect();
+    if members.is_empty() {
+        return routing::RouteRect {
+            x: 70.0 + fallback_index as f64 * 34.0,
+            y: 70.0 + fallback_index as f64 * 28.0,
+            width: 360.0,
+            height: 220.0,
+        };
+    }
+    let left = members
+        .iter()
+        .map(|node| node.x)
+        .fold(f64::INFINITY, f64::min)
+        - 36.0;
+    let top = members
+        .iter()
+        .map(|node| node.y)
+        .fold(f64::INFINITY, f64::min)
+        - 54.0;
+    let right = members
+        .iter()
+        .map(|node| node.x + node.width)
+        .fold(f64::NEG_INFINITY, f64::max)
+        + 36.0;
+    let bottom = members
+        .iter()
+        .map(|node| node.y + node.height)
+        .fold(f64::NEG_INFINITY, f64::max)
+        + 36.0;
+    routing::RouteRect {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    }
+}
+
+fn activity_region_obstacles(
+    diagram: &activity_workspace::ActivityDiagram,
+    activity: &Activity,
+    source_owner: Option<ActivityNodeId>,
+    target_owner: Option<ActivityNodeId>,
+) -> Vec<routing::RouteRect> {
+    let mut obstacles = Vec::new();
+    for (index, partition) in activity.partitions.iter().enumerate() {
+        let members: HashSet<_> = activity
+            .nodes
+            .iter()
+            .filter(|node| node.partition_id == Some(partition.id))
+            .map(|node| node.id.to_string())
+            .collect();
+        let related = source_owner.is_some_and(|id| members.contains(&id.to_string()))
+            || target_owner.is_some_and(|id| members.contains(&id.to_string()));
+        if !related {
+            obstacles.push(member_bounds(diagram, &members, index));
+        }
+    }
+    let offset = activity.partitions.len();
+    for (index, structured) in activity.structured_nodes.iter().enumerate() {
+        let members: HashSet<_> = activity
+            .nodes
+            .iter()
+            .filter(|node| node.structured_node_id == Some(structured.id))
+            .map(|node| node.id.to_string())
+            .collect();
+        let related = source_owner.is_some_and(|id| members.contains(&id.to_string()))
+            || target_owner.is_some_and(|id| members.contains(&id.to_string()));
+        if !related {
+            obstacles.push(member_bounds(diagram, &members, offset + index));
+        }
+    }
+    obstacles
+}
+
+struct ActivityRouteContext<'a> {
+    lane_index: usize,
+    reserved_routes: &'a [Vec<DiagramPoint>],
+    allow_shared_departure: bool,
+    additional_obstacles: &'a [routing::RouteRect],
+    bounds: Option<routing::RouteRect>,
 }
 
 fn route_semantic_edge(
     diagram: &activity_workspace::ActivityDiagram,
     activity: &Activity,
     edge: &ActivityEdge,
-    lane_index: usize,
-    reserved_routes: &[Vec<DiagramPoint>],
-    allow_shared_departure: bool,
+    context: ActivityRouteContext<'_>,
 ) -> Result<Vec<DiagramPoint>, String> {
-    let source_owner = endpoint_owner(activity, edge.source)?.to_string();
-    let target_owner = endpoint_owner(activity, edge.target)?.to_string();
+    let source_owner_id = endpoint_owner(activity, edge.source)?;
+    let target_owner_id = endpoint_owner(activity, edge.target)?;
+    let source_owner = source_owner_id.to_string();
+    let target_owner = target_owner_id.to_string();
     let source = diagram
         .nodes
         .iter()
@@ -103,25 +178,42 @@ fn route_semantic_edge(
         .iter()
         .filter(|node| node.id != source.id && node.id != target.id)
         .map(route_rect)
-        .filter(|rect| rect_overlaps_corridor(*rect, source_rect, target_rect))
+        .chain(activity_region_obstacles(
+            diagram,
+            activity,
+            Some(source_owner_id),
+            Some(target_owner_id),
+        ))
+        .chain(context.additional_obstacles.iter().copied())
         .collect();
-    Ok(routing::orthogonal_route(routing::RouteRequest {
+    routing::orthogonal_route(routing::RouteRequest {
         source: source_rect,
         target: target_rect,
         obstacles: &obstacles,
-        lane_index,
-        reserved_routes,
-        allow_shared_departure,
-    }))
+        lane_index: context.lane_index,
+        reserved_routes: context.reserved_routes,
+        allow_shared_departure: context.allow_shared_departure,
+        bounds: context.bounds,
+    })
 }
 
 fn reroute_diagram(
     diagram: &mut activity_workspace::ActivityDiagram,
     activity: &Activity,
+    bounds: Option<routing::RouteRect>,
 ) -> Result<(), String> {
     let snapshot = diagram.clone();
     let mut reserved_routes = Vec::new();
-    for (index, presentation) in diagram.edges.iter_mut().enumerate() {
+    let mut reserved_labels = Vec::new();
+    let all_regions = activity_region_obstacles(&snapshot, activity, None, None);
+    let all_obstacles: Vec<_> = snapshot
+        .nodes
+        .iter()
+        .map(route_rect)
+        .chain(all_regions)
+        .collect();
+    let mut routed = Vec::new();
+    for (index, presentation) in snapshot.edges.iter().enumerate() {
         let semantic = activity
             .edges
             .iter()
@@ -143,16 +235,41 @@ fn reroute_diagram(
         let allow_shared_departure = snapshot.edges[..index]
             .iter()
             .any(|edge| edge.source_node_id == presentation.source_node_id);
-        presentation.points = route_semantic_edge(
+        let points = route_semantic_edge(
             &snapshot,
             activity,
             semantic,
-            lane_index,
-            &reserved_routes,
-            allow_shared_departure,
+            ActivityRouteContext {
+                lane_index,
+                reserved_routes: &reserved_routes,
+                allow_shared_departure,
+                additional_obstacles: &reserved_labels,
+                bounds,
+            },
         )?;
-        presentation.label_anchor = Some(routing::route_label_anchor(&presentation.points));
-        reserved_routes.push(presentation.points.clone());
+        let label_obstacles: Vec<_> = all_obstacles
+            .iter()
+            .copied()
+            .chain(reserved_labels.iter().copied())
+            .collect();
+        let label_anchor = routing::route_label_anchor_avoiding(
+            &points,
+            &label_obstacles,
+            &reserved_routes,
+            bounds,
+        )?;
+        reserved_routes.push(points.clone());
+        reserved_labels.push(routing::label_rect(label_anchor));
+        routed.push((presentation.id.clone(), points, label_anchor));
+    }
+    for (id, points, label_anchor) in routed {
+        let presentation = diagram
+            .edges
+            .iter_mut()
+            .find(|edge| edge.id == id)
+            .ok_or("Activity edge presentation not found")?;
+        presentation.points = points;
+        presentation.label_anchor = Some(label_anchor);
     }
     Ok(())
 }
@@ -282,7 +399,7 @@ pub fn delete_activity_item(
         .activities
         .get(&activity_id)
         .ok_or("Activity not found")?;
-    reroute_diagram(diagram, activity)
+    reroute_diagram(diagram, activity, None)
 }
 
 #[tauri::command]
@@ -383,7 +500,7 @@ pub fn reconnect_activity_edge(
         .ok_or("Activity edge is not presented on this diagram")?;
     presentation.source_node_id = source_presentation_id;
     presentation.target_node_id = target_presentation_id;
-    reroute_diagram(diagram, activity)
+    reroute_diagram(diagram, activity, None)
 }
 
 #[tauri::command]
@@ -391,15 +508,46 @@ pub fn route_activity_diagram(
     diagram_id: String,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<(), String> {
+    route_activity_with_bounds(&diagram_id, &activity_state, None)?;
+    Ok(())
+}
+
+fn activity_presentation_changed(
+    left: &activity_workspace::ActivityDiagram,
+    right: &activity_workspace::ActivityDiagram,
+) -> bool {
+    left.nodes.len() != right.nodes.len()
+        || left.edges.len() != right.edges.len()
+        || left.nodes.iter().zip(&right.nodes).any(|(left, right)| {
+            left.id != right.id
+                || left.x != right.x
+                || left.y != right.y
+                || left.width != right.width
+                || left.height != right.height
+        })
+        || left.edges.iter().zip(&right.edges).any(|(left, right)| {
+            left.id != right.id
+                || left.points != right.points
+                || left.label_anchor != right.label_anchor
+        })
+}
+
+pub(super) fn route_activity_with_bounds(
+    diagram_id: &str,
+    activity_state: &activity_workspace::ActivityWorkspaceState,
+    bounds: Option<routing::RouteRect>,
+) -> Result<bool, String> {
     let mut diagrams = activity_state
         .diagrams
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
-    let diagram = diagrams
-        .iter_mut()
-        .find(|diagram| diagram.id == diagram_id)
+    let index = diagrams
+        .iter()
+        .position(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+    let original = diagrams[index].clone();
+    let mut candidate = original.clone();
+    let activity_id = activity_workspace::parse_activity_id(&candidate.activity_id)?;
     let repository = activity_state
         .repository
         .lock()
@@ -408,38 +556,53 @@ pub fn route_activity_diagram(
         .activities
         .get(&activity_id)
         .ok_or("Activity not found")?;
-    reroute_diagram(diagram, activity)
+    reroute_diagram(&mut candidate, activity, bounds)?;
+    let changed = activity_presentation_changed(&original, &candidate);
+    if changed {
+        diagrams[index] = candidate;
+    }
+    Ok(changed)
 }
 
-pub fn layout_activity_diagram(
-    diagram_id: String,
-    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
-) -> Result<(), String> {
+pub(super) fn layout_activity_with_bounds(
+    diagram_id: &str,
+    activity_state: &activity_workspace::ActivityWorkspaceState,
+    bounds: Option<routing::RouteRect>,
+) -> Result<bool, String> {
     let mut diagrams = activity_state
         .diagrams
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
-    let diagram = diagrams
-        .iter_mut()
-        .find(|diagram| diagram.id == diagram_id)
+    let index = diagrams
+        .iter()
+        .position(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let edges: Vec<_> = diagram
+    let original = diagrams[index].clone();
+    let mut candidate = original.clone();
+    let edges: Vec<_> = candidate
         .edges
         .iter()
         .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
         .collect();
-    let positions = super::layout::hierarchical_positions(
-        diagram.nodes.iter().map(|node| node.id.clone()),
+    let positions = super::layout::hierarchical_positions_sized(
+        candidate
+            .nodes
+            .iter()
+            .map(|node| super::layout::LayoutNode {
+                id: node.id.clone(),
+                width: node.width,
+                height: node.height,
+            }),
         &edges,
         systems_modeler_core::PreferredFlowDirection::TopToBottom,
     );
-    for node in &mut diagram.nodes {
+    for node in &mut candidate.nodes {
         if let Some((x, y)) = positions.get(&node.id) {
             node.x = *x;
             node.y = *y;
         }
     }
-    let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+    let activity_id = activity_workspace::parse_activity_id(&candidate.activity_id)?;
     let repository = activity_state
         .repository
         .lock()
@@ -448,5 +611,10 @@ pub fn layout_activity_diagram(
         .activities
         .get(&activity_id)
         .ok_or("Activity not found")?;
-    reroute_diagram(diagram, activity)
+    reroute_diagram(&mut candidate, activity, bounds)?;
+    let changed = activity_presentation_changed(&original, &candidate);
+    if changed {
+        diagrams[index] = candidate;
+    }
+    Ok(changed)
 }
