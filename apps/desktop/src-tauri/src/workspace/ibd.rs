@@ -132,7 +132,11 @@ fn ibd_end_for_presentation(
 fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> Vec<RouteRect> {
     let mut obstacles = Vec::new();
     for property in &diagram.properties {
-        if property.id != source_id && property.id != target_id {
+        let owns_source = property.id == source_id
+            || property.ports.iter().any(|port| port.id == source_id);
+        let owns_target = property.id == target_id
+            || property.ports.iter().any(|port| port.id == target_id);
+        if !owns_source && !owns_target {
             obstacles.push(property_rect(property));
         }
         for port in &property.ports {
@@ -146,6 +150,16 @@ fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> 
             obstacles.push(port_rect(port));
         }
     }
+    obstacles
+}
+
+fn all_routing_obstacles(diagram: &IbdDiagram) -> Vec<RouteRect> {
+    let mut obstacles = Vec::new();
+    for property in &diagram.properties {
+        obstacles.push(property_rect(property));
+        obstacles.extend(property.ports.iter().map(port_rect));
+    }
+    obstacles.extend(diagram.boundary_ports.iter().map(port_rect));
     obstacles
 }
 
@@ -166,27 +180,43 @@ pub fn route_ibd_edge(
     source_id: &str,
     target_id: &str,
 ) -> Result<Vec<DiagramPoint>, String> {
-    route_ibd_edge_avoiding(diagram, source_id, target_id, &[], false)
+    route_ibd_edge_avoiding(
+        diagram,
+        source_id,
+        target_id,
+        lane_index(diagram, source_id, target_id),
+        &[],
+        false,
+        &[],
+        None,
+    )
 }
 
 fn route_ibd_edge_avoiding(
     diagram: &IbdDiagram,
     source_id: &str,
     target_id: &str,
+    lane_index: usize,
     reserved_routes: &[Vec<DiagramPoint>],
     allow_shared_departure: bool,
+    additional_obstacles: &[RouteRect],
+    bounds: Option<RouteRect>,
 ) -> Result<Vec<DiagramPoint>, String> {
     let (_, source_rect) = ibd_end_for_presentation(diagram, source_id)?;
     let (_, target_rect) = ibd_end_for_presentation(diagram, target_id)?;
-    let obstacles = routing_obstacles(diagram, source_id, target_id);
-    Ok(orthogonal_route(RouteRequest {
+    let obstacles: Vec<_> = routing_obstacles(diagram, source_id, target_id)
+        .into_iter()
+        .chain(additional_obstacles.iter().copied())
+        .collect();
+    orthogonal_route(RouteRequest {
         source: source_rect,
         target: target_rect,
         obstacles: &obstacles,
-        lane_index: lane_index(diagram, source_id, target_id),
+        lane_index,
         reserved_routes,
         allow_shared_departure,
-    }))
+        bounds,
+    })
 }
 
 pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Result<(), String> {
@@ -579,84 +609,174 @@ pub fn route_ibd(
     diagram_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
-    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
-    let diagram = diagrams
-        .iter_mut()
-        .find(|d| d.id == diagram_id)
-        .ok_or("IBD not found")?;
+    route_ibd_with_bounds(&diagram_id, &state, None)?;
+    Ok(())
+}
 
+fn routed_ibd_connectors(
+    diagram: &IbdDiagram,
+    bounds: Option<RouteRect>,
+) -> Result<Vec<IbdConnectorPresentation>, String> {
     let snapshot = diagram.clone();
+    let all_obstacles = all_routing_obstacles(&snapshot);
     let mut routes = Vec::new();
+    let mut label_obstacles = Vec::new();
+    let mut connectors = snapshot.connectors.clone();
     for (index, edge) in snapshot.connectors.iter().enumerate() {
-        let allow_shared_departure = snapshot.connectors[..index]
+        let same_source_count = snapshot.connectors[..index]
             .iter()
-            .any(|candidate| candidate.source_presentation_id == edge.source_presentation_id);
-        routes.push(route_ibd_edge_avoiding(
+            .filter(|candidate| {
+                candidate.source_presentation_id == edge.source_presentation_id
+            })
+            .count();
+        let points = route_ibd_edge_avoiding(
             &snapshot,
             &edge.source_presentation_id,
             &edge.target_presentation_id,
+            same_source_count,
             &routes,
-            allow_shared_departure,
-        )?);
+            same_source_count > 0,
+            &label_obstacles,
+            bounds,
+        )?;
+        let obstacles: Vec<_> = all_obstacles
+            .iter()
+            .copied()
+            .chain(label_obstacles.iter().copied())
+            .collect();
+        let label_anchor = super::routing::route_label_anchor_avoiding(
+            &points,
+            &obstacles,
+            &routes,
+            bounds,
+        )?;
+        let connector = connectors
+            .iter_mut()
+            .find(|candidate| candidate.id == edge.id)
+            .ok_or("IBD connector presentation not found")?;
+        connector.points = points.clone();
+        connector.label_anchor = Some(label_anchor);
+        routes.push(points);
+        label_obstacles.push(super::routing::label_rect(label_anchor));
     }
+    Ok(connectors)
+}
 
-    for (edge, points) in diagram.connectors.iter_mut().zip(routes) {
-        edge.label_anchor = Some(super::routing::route_label_anchor(&points));
-        edge.points = points;
+fn ibd_presentation_changed(left: &IbdDiagram, right: &IbdDiagram) -> bool {
+    left.properties.len() != right.properties.len()
+        || left.connectors.len() != right.connectors.len()
+        || left.properties.iter().zip(&right.properties).any(|(left, right)| {
+            left.id != right.id
+                || left.x != right.x
+                || left.y != right.y
+                || left.width != right.width
+                || left.height != right.height
+                || left.ports.iter().zip(&right.ports).any(|(left, right)| {
+                    left.id != right.id || left.x != right.x || left.y != right.y
+                })
+        })
+        || left
+            .connectors
+            .iter()
+            .zip(&right.connectors)
+            .any(|(left, right)| {
+                left.id != right.id
+                    || left.points != right.points
+                    || left.label_anchor != right.label_anchor
+            })
+}
+
+pub(super) fn route_ibd_with_bounds(
+    diagram_id: &str,
+    state: &WorkspaceState,
+    bounds: Option<RouteRect>,
+) -> Result<bool, String> {
+    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
+    let connectors = routed_ibd_connectors(diagram, bounds)?;
+    let changed = diagram
+        .connectors
+        .iter()
+        .zip(&connectors)
+        .any(|(left, right)| {
+            left.points != right.points || left.label_anchor != right.label_anchor
+        });
+    if changed {
+        diagram.connectors = connectors;
     }
-
-    Ok(())
+    Ok(changed)
 }
 
 pub fn layout_ibd(
     diagram_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
-    {
-        let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
-        let diagram = diagrams
-            .iter_mut()
-            .find(|diagram| diagram.id == diagram_id)
-            .ok_or("IBD not found")?;
-        let owner = |presentation_id: &str| {
-            diagram.properties.iter().find_map(|property| {
-                (property.id == presentation_id
-                    || property.ports.iter().any(|port| port.id == presentation_id))
-                .then(|| property.id.clone())
-            })
-        };
-        let edges: Vec<_> = diagram
-            .connectors
+    layout_ibd_with_bounds(&diagram_id, &state, None)?;
+    Ok(())
+}
+
+pub(super) fn layout_ibd_with_bounds(
+    diagram_id: &str,
+    state: &WorkspaceState,
+    bounds: Option<RouteRect>,
+) -> Result<bool, String> {
+    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let index = diagrams
+        .iter()
+        .position(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
+    let original = diagrams[index].clone();
+    let mut candidate = original.clone();
+    let owner = |presentation_id: &str| {
+        candidate.properties.iter().find_map(|property| {
+            (property.id == presentation_id
+                || property.ports.iter().any(|port| port.id == presentation_id))
+            .then(|| property.id.clone())
+        })
+    };
+    let edges: Vec<_> = candidate
+        .connectors
+        .iter()
+        .filter_map(|edge| {
+            Some((
+                owner(&edge.source_presentation_id)?,
+                owner(&edge.target_presentation_id)?,
+            ))
+        })
+        .collect();
+    let positions = super::layout::hierarchical_positions_sized(
+        candidate
+            .properties
             .iter()
-            .filter_map(|edge| {
-                Some((
-                    owner(&edge.source_presentation_id)?,
-                    owner(&edge.target_presentation_id)?,
-                ))
-            })
-            .collect();
-        let positions = super::layout::hierarchical_positions(
-            diagram
-                .properties
-                .iter()
-                .map(|property| property.id.clone()),
-            &edges,
-            systems_modeler_core::PreferredFlowDirection::LeftToRight,
-        );
-        for property in &mut diagram.properties {
-            if let Some((x, y)) = positions.get(&property.id) {
-                let dx = *x - property.x;
-                let dy = *y - property.y;
-                property.x = *x;
-                property.y = *y;
-                for port in &mut property.ports {
-                    port.x += dx;
-                    port.y += dy;
-                }
+            .map(|property| super::layout::LayoutNode {
+                id: property.id.clone(),
+                width: property.width,
+                height: property.height,
+            }),
+        &edges,
+        systems_modeler_core::PreferredFlowDirection::LeftToRight,
+    );
+    for property in &mut candidate.properties {
+        if let Some((x, y)) = positions.get(&property.id) {
+            let dx = *x - property.x;
+            let dy = *y - property.y;
+            property.x = *x;
+            property.y = *y;
+            for port in &mut property.ports {
+                port.x += dx;
+                port.y += dy;
             }
         }
     }
-    route_ibd(diagram_id, state)
+    candidate.connectors = routed_ibd_connectors(&candidate, bounds)?;
+    let changed = ibd_presentation_changed(&original, &candidate);
+    if changed {
+        diagrams[index] = candidate;
+    }
+    Ok(changed)
 }
 
 pub fn save_ibd_metadata(

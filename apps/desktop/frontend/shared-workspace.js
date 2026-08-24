@@ -183,7 +183,8 @@
     if (local) { await local(args); return true; }
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
     await publishInteraction();
-    await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...args });
+    const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
+    await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
     await renderer()?.refresh?.(); return true;
   }
 

@@ -493,7 +493,7 @@ pub fn create_bdd_relationship(diagram_id: String, kind: String, source_element_
         "Realization" => project.create_relationship(RelationshipKind::Realization, source_id, target_id, owner_id).map_err(|error| error.to_string())?,
         _ => unreachable!(),
     };
-    let points = route_relationship(&source_node, &target_node, &diagram.nodes);
+    let points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
     let edge_id = uuid::Uuid::new_v4().to_string();
     diagram.edges.push(DiagramEdge {
         id: edge_id,
@@ -506,7 +506,11 @@ pub fn create_bdd_relationship(diagram_id: String, kind: String, source_element_
     Ok(relationship_id.to_string())
 }
 
-fn route_relationship(source: &DiagramNode, target: &DiagramNode, nodes: &[DiagramNode]) -> Vec<DiagramPoint> {
+fn route_relationship(
+    source: &DiagramNode,
+    target: &DiagramNode,
+    nodes: &[DiagramNode],
+) -> Result<Vec<DiagramPoint>, String> {
     let obstacles: Vec<routing::RouteRect> = nodes.iter().filter(|node| node.id != source.id && node.id != target.id).map(|node| routing::RouteRect { x: node.x, y: node.y, width: node.width, height: node.height }).collect();
     routing::orthogonal_route(routing::RouteRequest {
         source: routing::RouteRect { x: source.x, y: source.y, width: source.width, height: source.height },
@@ -515,14 +519,82 @@ fn route_relationship(source: &DiagramNode, target: &DiagramNode, nodes: &[Diagr
         lane_index: 0,
         reserved_routes: &[],
         allow_shared_departure: false,
+        bounds: None,
     })
 }
 
-#[tauri::command]
-pub fn route_bdd(
-    diagram_id: String,
-    state: tauri::State<'_, WorkspaceState>,
-) -> Result<(), String> {
+fn node_route_rect(node: &DiagramNode) -> routing::RouteRect {
+    routing::RouteRect {
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+    }
+}
+
+fn routed_bdd_edges(
+    diagram: &BddDiagram,
+    bounds: Option<routing::RouteRect>,
+) -> Result<Vec<DiagramEdge>, String> {
+    let obstacles: Vec<_> = diagram.nodes.iter().map(node_route_rect).collect();
+    let route_edges = diagram
+        .edges
+        .iter()
+        .map(|edge| {
+            let source = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.source_node_id)
+                .ok_or("diagram edge source presentation not found")?;
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.target_node_id)
+                .ok_or("diagram edge target presentation not found")?;
+            Ok(routing::DiagramRouteEdge {
+                id: edge.id.clone(),
+                source_id: edge.source_node_id.clone(),
+                target_id: edge.target_node_id.clone(),
+                source: node_route_rect(source),
+                target: node_route_rect(target),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let routed = routing::route_diagram_with_bounds(&route_edges, &obstacles, bounds)?;
+    let mut edges = diagram.edges.clone();
+    for route in routed {
+        let edge = edges
+            .iter_mut()
+            .find(|edge| edge.id == route.id)
+            .ok_or("routed diagram edge presentation not found")?;
+        edge.points = route.points;
+        edge.label_anchor = Some(route.label_anchor);
+    }
+    Ok(edges)
+}
+
+fn bdd_presentation_changed(left: &BddDiagram, right: &BddDiagram) -> bool {
+    left.nodes.len() != right.nodes.len()
+        || left.edges.len() != right.edges.len()
+        || left.nodes.iter().zip(&right.nodes).any(|(left, right)| {
+            left.id != right.id
+                || left.x != right.x
+                || left.y != right.y
+                || left.width != right.width
+                || left.height != right.height
+        })
+        || left.edges.iter().zip(&right.edges).any(|(left, right)| {
+            left.id != right.id
+                || left.points != right.points
+                || left.label_anchor != right.label_anchor
+        })
+}
+
+pub(super) fn route_bdd_with_bounds(
+    diagram_id: &str,
+    state: &WorkspaceState,
+    bounds: Option<routing::RouteRect>,
+) -> Result<bool, String> {
     let mut diagrams = state
         .diagrams
         .lock()
@@ -530,92 +602,73 @@ pub fn route_bdd(
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
-        .ok_or("BDD not found")?;
-    let snapshot = diagram.clone();
-    let mut routes = Vec::with_capacity(snapshot.edges.len());
-
-    for (index, edge) in snapshot.edges.iter().enumerate() {
-        let source = snapshot
-            .nodes
-            .iter()
-            .find(|node| node.id == edge.source_node_id)
-            .ok_or("BDD edge source presentation not found")?;
-        let target = snapshot
-            .nodes
-            .iter()
-            .find(|node| node.id == edge.target_node_id)
-            .ok_or("BDD edge target presentation not found")?;
-        let obstacles: Vec<_> = snapshot
-            .nodes
-            .iter()
-            .filter(|node| node.id != source.id && node.id != target.id)
-            .map(|node| routing::RouteRect {
-                x: node.x,
-                y: node.y,
-                width: node.width,
-                height: node.height,
-            })
-            .collect();
-        let same_source_count = snapshot.edges[..index]
-            .iter()
-            .filter(|candidate| candidate.source_node_id == edge.source_node_id)
-            .count();
-        routes.push(routing::orthogonal_route(routing::RouteRequest {
-            source: routing::RouteRect {
-                x: source.x,
-                y: source.y,
-                width: source.width,
-                height: source.height,
-            },
-            target: routing::RouteRect {
-                x: target.x,
-                y: target.y,
-                width: target.width,
-                height: target.height,
-            },
-            obstacles: &obstacles,
-            lane_index: same_source_count,
-            reserved_routes: &routes,
-            allow_shared_departure: same_source_count > 0,
-        }));
+        .ok_or("BDD or Requirement Diagram not found")?;
+    let routed = routed_bdd_edges(diagram, bounds)?;
+    let changed = diagram.edges.iter().zip(&routed).any(|(left, right)| {
+        left.points != right.points || left.label_anchor != right.label_anchor
+    });
+    if changed {
+        diagram.edges = routed;
     }
+    Ok(changed)
+}
 
-    for (edge, points) in diagram.edges.iter_mut().zip(routes) {
-        edge.label_anchor = Some(routing::route_label_anchor(&points));
-        edge.points = points;
-    }
+#[tauri::command]
+pub fn route_bdd(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    route_bdd_with_bounds(&diagram_id, &state, None)?;
     Ok(())
+}
+
+pub(super) fn layout_bdd_with_bounds(
+    diagram_id: &str,
+    state: &WorkspaceState,
+    bounds: Option<routing::RouteRect>,
+) -> Result<bool, String> {
+    let mut diagrams = state
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?;
+    let index = diagrams
+        .iter()
+        .position(|diagram| diagram.id == diagram_id)
+        .ok_or("BDD or Requirement Diagram not found")?;
+    let original = diagrams[index].clone();
+    let mut candidate = original.clone();
+    let edges: Vec<_> = candidate
+        .edges
+        .iter()
+        .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
+        .collect();
+    let positions = layout::hierarchical_positions_sized(
+        candidate.nodes.iter().map(|node| layout::LayoutNode {
+            id: node.id.clone(),
+            width: node.width,
+            height: node.height,
+        }),
+        &edges,
+        systems_modeler_core::PreferredFlowDirection::TopToBottom,
+    );
+    for node in &mut candidate.nodes {
+        if let Some((x, y)) = positions.get(&node.id) {
+            node.x = *x;
+            node.y = *y;
+        }
+    }
+    candidate.edges = routed_bdd_edges(&candidate, bounds)?;
+    let changed = bdd_presentation_changed(&original, &candidate);
+    if changed {
+        diagrams[index] = candidate;
+    }
+    Ok(changed)
 }
 
 pub fn layout_bdd(
     diagram_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
-    {
-        let mut diagrams = state
-            .diagrams
-            .lock()
-            .map_err(|_| "diagram lock poisoned")?;
-        let diagram = diagrams
-            .iter_mut()
-            .find(|diagram| diagram.id == diagram_id)
-            .ok_or("BDD not found")?;
-        let edges: Vec<_> = diagram
-            .edges
-            .iter()
-            .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
-            .collect();
-        let positions = layout::hierarchical_positions(
-            diagram.nodes.iter().map(|node| node.id.clone()),
-            &edges,
-            systems_modeler_core::PreferredFlowDirection::TopToBottom,
-        );
-        for node in &mut diagram.nodes {
-            if let Some((x, y)) = positions.get(&node.id) {
-                node.x = *x;
-                node.y = *y;
-            }
-        }
-    }
-    route_bdd(diagram_id, state)
+    layout_bdd_with_bounds(&diagram_id, &state, None)?;
+    Ok(())
 }

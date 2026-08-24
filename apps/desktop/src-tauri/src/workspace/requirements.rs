@@ -306,7 +306,7 @@ pub fn reconnect_traceability_relationship(
         .ok_or("Requirement relationship presentation not found")?;
     edge.source_node_id = source_node.id.clone();
     edge.target_node_id = target_node.id.clone();
-    edge.points = route_relationship(&source_node, &target_node, &diagram.nodes);
+    edge.points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
     Ok(())
 }
 

@@ -231,7 +231,7 @@ pub fn reconnect_bdd_relationship(
         .find(|node| node.element_id == new_target.to_string())
         .cloned()
         .ok_or("new target Block must be presented on the BDD")?;
-    let points = route_relationship(&source_node, &target_node, &diagram.nodes);
+    let points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
     let edge = diagram
         .edges
         .iter_mut()

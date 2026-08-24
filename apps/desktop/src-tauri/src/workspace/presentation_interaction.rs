@@ -72,7 +72,7 @@ pub fn update_bdd_presentation_geometry(
                 .ok_or("BDD edge target presentation not found")?;
             Ok((
                 edge.id.clone(),
-                route_relationship(&source, &target, &diagram.nodes),
+                route_relationship(&source, &target, &diagram.nodes)?,
             ))
         })
         .collect::<Result<_, String>>()?;
@@ -427,7 +427,8 @@ pub fn update_activity_presentation_geometry(
             lane_index: 0,
             reserved_routes: &[],
             allow_shared_departure: false,
-        });
+            bounds: None,
+        })?;
     }
 
     history::checkpoint_states(&workspace, &state, &history)?;

@@ -538,7 +538,8 @@ pub fn add_activity_edge(
         lane_index,
         reserved_routes: &[],
         allow_shared_departure: false,
-    });
+        bounds: None,
+    })?;
     diagram.edges.push(ActivityDiagramEdge {
         id: uuid::Uuid::new_v4().to_string(),
         activity_edge_id: edge_id.to_string(),

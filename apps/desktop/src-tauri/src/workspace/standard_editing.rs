@@ -869,7 +869,7 @@ fn paste_clipboard(
                         .cloned()
                         .ok_or("target presentation not found")?;
                     let id = uuid::Uuid::new_v4().to_string();
-                    let points = route_relationship(&source, &target, &diagram.nodes);
+                    let points = route_relationship(&source, &target, &diagram.nodes)?;
                     diagram.edges.push(DiagramEdge {
                         id: id.clone(),
                         relationship_id: edge.relationship_id.clone(),
@@ -1111,7 +1111,8 @@ fn paste_clipboard(
                         lane_index: 0,
                         reserved_routes: &[],
                         allow_shared_departure: false,
-                    });
+                        bounds: None,
+                    })?;
                     let id = uuid::Uuid::new_v4().to_string();
                     diagram.edges.push(activity_workspace::ActivityDiagramEdge {
                         id: id.clone(),
@@ -1832,7 +1833,7 @@ fn duplicate_selection_items(
                     &source,
                     &target,
                     &snapshot.diagrams[diagram_index].nodes,
-                );
+                )?;
                 snapshot.diagrams[diagram_index].edges.push(DiagramEdge {
                     id: id.clone(),
                     relationship_id: new.to_string(),
@@ -2023,12 +2024,23 @@ fn move_selection_items(
             let routes: Vec<_> = diagram
                 .edges
                 .iter()
-                .filter_map(|edge| {
-                    let source = diagram.nodes.iter().find(|node| node.id == edge.source_node_id)?;
-                    let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id)?;
-                    Some((edge.id.clone(), route_relationship(source, target, &diagram.nodes)))
+                .map(|edge| {
+                    let source = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.source_node_id)
+                        .ok_or("relationship source presentation not found")?;
+                    let target = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.target_node_id)
+                        .ok_or("relationship target presentation not found")?;
+                    Ok((
+                        edge.id.clone(),
+                        route_relationship(source, target, &diagram.nodes)?,
+                    ))
                 })
-                .collect();
+                .collect::<Result<_, String>>()?;
             for (edge_id, points) in routes {
                 if let Some(edge) = diagram.edges.iter_mut().find(|edge| edge.id == edge_id) {
                     edge.points = points;
