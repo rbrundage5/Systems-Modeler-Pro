@@ -294,7 +294,16 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
             let element = project
                 .element(parse_element_id(&node.element_id)?)
                 .map_err(|error| error.to_string())?;
-            if diagram.family != "parametric" && !bdd_presentable(&element.kind) {
+            if diagram.family == "package" && element.kind != ElementKind::Package {
+                return Err(format!(
+                    "element kind {:?} is not valid on a Package Diagram",
+                    element.kind
+                ));
+            }
+            if diagram.family != "parametric"
+                && diagram.family != "package"
+                && !bdd_presentable(&element.kind)
+            {
                 return Err(format!(
                     "element kind {:?} is not valid as a BDD node",
                     element.kind
@@ -395,6 +404,9 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                     node.id
                 ));
             }
+        }
+        if diagram.family == "package" && !diagram.edges.is_empty() {
+            return Err("Package Diagram relationships are not part of the PR26A foundation".into());
         }
         for edge in &diagram.edges {
             if uuid::Uuid::parse_str(&edge.id).is_err() {
