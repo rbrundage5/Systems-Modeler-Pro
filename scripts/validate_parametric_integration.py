@@ -14,6 +14,7 @@ families = read("crates/model-core/src/diagram_family.rs")
 commands = read("apps/desktop/src-tauri/src/workspace/parametrics.rs")
 dispatcher = read("apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 frontend = read("apps/desktop/frontend/parametric-ui.js")
+binding_diagnostics = read("apps/desktop/frontend/parametric-binding-diagnostics.js")
 bdd_frontend = read("apps/desktop/frontend/bdd-completion-ui.js")
 bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
 styles = read("apps/desktop/frontend/parametric.css")
@@ -70,6 +71,7 @@ assert '"parametric" => {' in dispatcher
 assert "route_parametric_with_bounds" in dispatcher
 assert "layout_parametric_with_bounds" in dispatcher
 assert "parametric-ui.js" in index and "parametric.css" in index
+assert "parametric-binding-diagnostics.js" in index
 assert 'id: "evaluateParametrics"' in manifest
 assert 'rust_adapter: Some("evaluate_parametric_diagram")' in manifest
 assert 'data-command="evaluateParametrics"' in shell
@@ -95,8 +97,22 @@ for notation in [
     assert notation in frontend
 assert "relationship-bindingconnector" in styles
 
+for diagnostic_contract in [
+    "Rust remains the sole authority for BindingConnector compatibility",
+    "Binding Connector endpoints are incompatible.",
+    "Set both endpoints to compatible types in Properties.",
+    "compatible ValueTypes with matching QuantityKind and dimension",
+    "constraint-parameter-label",
+    "par-binding-source",
+    "par-binding-target",
+    "formatBindingTypeError",
+]:
+    assert diagnostic_contract in binding_diagnostics
+assert "originalAlert(formatBindingTypeError(text))" in binding_diagnostics
+
 print(
     "PR25 Parametric integration contract passed: the eighth shared diagram family, "
     "typed bindings, reusable constraints, unit-aware Rust evaluation, shared routing/layout, "
-    "explicit evaluation, and thin Parametric renderer are wired end to end"
+    "explicit evaluation, engineer-readable binding diagnostics, and thin Parametric renderer "
+    "are wired end to end"
 )
