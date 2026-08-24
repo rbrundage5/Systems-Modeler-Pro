@@ -184,38 +184,44 @@ pub fn route_ibd_edge(
         diagram,
         source_id,
         target_id,
-        lane_index(diagram, source_id, target_id),
-        &[],
-        false,
-        &[],
-        None,
+        IbdRouteContext {
+            lane_index: lane_index(diagram, source_id, target_id),
+            reserved_routes: &[],
+            allow_shared_departure: false,
+            additional_obstacles: &[],
+            bounds: None,
+        },
     )
+}
+
+struct IbdRouteContext<'a> {
+    lane_index: usize,
+    reserved_routes: &'a [Vec<DiagramPoint>],
+    allow_shared_departure: bool,
+    additional_obstacles: &'a [RouteRect],
+    bounds: Option<RouteRect>,
 }
 
 fn route_ibd_edge_avoiding(
     diagram: &IbdDiagram,
     source_id: &str,
     target_id: &str,
-    lane_index: usize,
-    reserved_routes: &[Vec<DiagramPoint>],
-    allow_shared_departure: bool,
-    additional_obstacles: &[RouteRect],
-    bounds: Option<RouteRect>,
+    context: IbdRouteContext<'_>,
 ) -> Result<Vec<DiagramPoint>, String> {
     let (_, source_rect) = ibd_end_for_presentation(diagram, source_id)?;
     let (_, target_rect) = ibd_end_for_presentation(diagram, target_id)?;
     let obstacles: Vec<_> = routing_obstacles(diagram, source_id, target_id)
         .into_iter()
-        .chain(additional_obstacles.iter().copied())
+        .chain(context.additional_obstacles.iter().copied())
         .collect();
     orthogonal_route(RouteRequest {
         source: source_rect,
         target: target_rect,
         obstacles: &obstacles,
-        lane_index,
-        reserved_routes,
-        allow_shared_departure,
-        bounds,
+        lane_index: context.lane_index,
+        reserved_routes: context.reserved_routes,
+        allow_shared_departure: context.allow_shared_departure,
+        bounds: context.bounds,
     })
 }
 
@@ -631,11 +637,13 @@ fn routed_ibd_connectors(
             &snapshot,
             &edge.source_presentation_id,
             &edge.target_presentation_id,
-            same_source_count,
-            &routes,
-            same_source_count > 0,
-            &label_obstacles,
-            bounds,
+            IbdRouteContext {
+                lane_index: same_source_count,
+                reserved_routes: &routes,
+                allow_shared_departure: same_source_count > 0,
+                additional_obstacles: &label_obstacles,
+                bounds,
+            },
         )?;
         let obstacles: Vec<_> = all_obstacles
             .iter()

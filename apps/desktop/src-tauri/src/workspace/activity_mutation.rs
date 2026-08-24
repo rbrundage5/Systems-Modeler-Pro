@@ -143,15 +143,19 @@ fn activity_region_obstacles(
     obstacles
 }
 
+struct ActivityRouteContext<'a> {
+    lane_index: usize,
+    reserved_routes: &'a [Vec<DiagramPoint>],
+    allow_shared_departure: bool,
+    additional_obstacles: &'a [routing::RouteRect],
+    bounds: Option<routing::RouteRect>,
+}
+
 fn route_semantic_edge(
     diagram: &activity_workspace::ActivityDiagram,
     activity: &Activity,
     edge: &ActivityEdge,
-    lane_index: usize,
-    reserved_routes: &[Vec<DiagramPoint>],
-    allow_shared_departure: bool,
-    additional_obstacles: &[routing::RouteRect],
-    bounds: Option<routing::RouteRect>,
+    context: ActivityRouteContext<'_>,
 ) -> Result<Vec<DiagramPoint>, String> {
     let source_owner_id = endpoint_owner(activity, edge.source)?;
     let target_owner_id = endpoint_owner(activity, edge.target)?;
@@ -180,16 +184,16 @@ fn route_semantic_edge(
             Some(source_owner_id),
             Some(target_owner_id),
         ))
-        .chain(additional_obstacles.iter().copied())
+        .chain(context.additional_obstacles.iter().copied())
         .collect();
     routing::orthogonal_route(routing::RouteRequest {
         source: source_rect,
         target: target_rect,
         obstacles: &obstacles,
-        lane_index,
-        reserved_routes,
-        allow_shared_departure,
-        bounds,
+        lane_index: context.lane_index,
+        reserved_routes: context.reserved_routes,
+        allow_shared_departure: context.allow_shared_departure,
+        bounds: context.bounds,
     })
 }
 
@@ -235,11 +239,13 @@ fn reroute_diagram(
             &snapshot,
             activity,
             semantic,
-            lane_index,
-            &reserved_routes,
-            allow_shared_departure,
-            &reserved_labels,
-            bounds,
+            ActivityRouteContext {
+                lane_index,
+                reserved_routes: &reserved_routes,
+                allow_shared_departure,
+                additional_obstacles: &reserved_labels,
+                bounds,
+            },
         )?;
         let label_obstacles: Vec<_> = all_obstacles
             .iter()
