@@ -231,6 +231,26 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             ],
             PreferredFlowDirection::TopToBottom,
         ),
+        descriptor(
+            "use-case",
+            "Use Case Diagram",
+            ("uc", "Package"),
+            "use-case",
+            &["Model", "Package"],
+            &[
+                C::NodePlacement,
+                C::Relationships,
+                C::Frames,
+                C::Move,
+                C::Resize,
+                C::Delete,
+                C::Clipboard,
+                C::Routing,
+                C::CleanLayout,
+                C::DrillDown,
+            ],
+            PreferredFlowDirection::LeftToRight,
+        ),
     ] {
         registry
             .register(descriptor)

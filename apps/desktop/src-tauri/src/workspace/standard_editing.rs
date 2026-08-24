@@ -21,6 +21,7 @@ const PASTE_OFFSET: f64 = 28.0;
 enum EditingFamily {
     Bdd,
     Requirement,
+    UseCase,
     Ibd,
     StateMachine,
     Sequence,
@@ -225,10 +226,10 @@ fn validate_activity_presentations(
 
 fn family_for(diagram_id: &str, snapshot: &EditingSnapshot) -> Result<EditingFamily, String> {
     if let Some(diagram) = snapshot.diagrams.iter().find(|diagram| diagram.id == diagram_id) {
-        return Ok(if diagram.family == "requirement" {
-            EditingFamily::Requirement
-        } else {
-            EditingFamily::Bdd
+        return Ok(match diagram.family.as_str() {
+            "requirement" => EditingFamily::Requirement,
+            "use-case" => EditingFamily::UseCase,
+            _ => EditingFamily::Bdd,
         });
     }
     if snapshot.ibd_diagrams.iter().any(|diagram| diagram.id == diagram_id) {
@@ -380,7 +381,7 @@ fn collect_clipboard(
     let family = family_for(diagram_id, snapshot)?;
     let mut items = Vec::new();
     let semantic_context_id = match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => None,
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => None,
         EditingFamily::Ibd => snapshot
             .ibd_diagrams
             .iter()
@@ -399,7 +400,7 @@ fn collect_clipboard(
     };
 
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram = snapshot
                 .diagrams
                 .iter()
@@ -640,7 +641,7 @@ fn remove_presentations(
     let family = family_for(diagram_id, snapshot)?;
     let mut changed = 0;
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram = snapshot
                 .diagrams
                 .iter_mut()
@@ -794,9 +795,13 @@ fn paste_clipboard(
     let target_family = family_for(target_diagram_id, snapshot)?;
     let mut selections = Vec::new();
     match target_family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
-            if !matches!(payload.family, EditingFamily::Bdd | EditingFamily::Requirement) {
-                return Err("clipboard selection is not compatible with a BDD/Requirement Diagram".into());
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+            let use_case_compatible = target_family == EditingFamily::UseCase
+                && payload.family == EditingFamily::UseCase;
+            let structural_compatible = target_family != EditingFamily::UseCase
+                && matches!(payload.family, EditingFamily::Bdd | EditingFamily::Requirement);
+            if !use_case_compatible && !structural_compatible {
+                return Err("clipboard selection is not compatible with the active diagram family".into());
             }
             let diagram = snapshot
                 .diagrams
@@ -1722,7 +1727,7 @@ fn duplicate_selection_items(
     }
     let mut selections = Vec::new();
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram_index = snapshot
                 .diagrams
                 .iter()
@@ -1997,7 +2002,7 @@ fn move_selection_items(
     let family = family_for(diagram_id, snapshot)?;
     let mut changed = 0;
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram = snapshot
                 .diagrams
                 .iter_mut()

@@ -70,6 +70,7 @@ pub fn create_requirement_diagram(
             name,
             owner_id: owner_id.to_string(),
             family: "requirement".into(),
+            semantic_context_id: None,
             nodes: Vec::new(),
             edges: Vec::new(),
         });

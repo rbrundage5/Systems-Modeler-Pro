@@ -20,6 +20,9 @@ pub struct ElementSnapshot {
     pub documentation: String,
     pub requirement_id: Option<String>,
     pub requirement_text: Option<String>,
+    pub extension_points: Vec<String>,
+    pub use_case_specification: String,
+    pub represented_classifier_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +43,8 @@ pub struct RelationshipSnapshot {
     pub source_id: String,
     pub target_id: String,
     pub association_ends: Vec<AssociationEndSnapshot>,
+    pub extension_condition: Option<String>,
+    pub extension_location: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -85,6 +90,9 @@ pub struct BddDiagram {
     pub owner_id: String,
     #[serde(default = "default_bdd_family")]
     pub family: String,
+    /// Presentation context is intentionally independent of repository ownership.
+    #[serde(default)]
+    pub semantic_context_id: Option<String>,
     pub nodes: Vec<DiagramNode>,
     #[serde(default)]
     pub edges: Vec<DiagramEdge>,
@@ -196,6 +204,8 @@ fn relationship_display_kind(relationship: &Relationship) -> &'static str {
         RelationshipKind::Refine => "Refine",
         RelationshipKind::Trace => "Trace",
         RelationshipKind::Copy => "Copy",
+        RelationshipKind::Include => "Include",
+        RelationshipKind::Extend => "Extend",
     }
 }
 
@@ -212,6 +222,9 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             documentation: element.documentation.clone(),
             requirement_id: element.requirement_id.clone(),
             requirement_text: element.requirement_text.clone(),
+            extension_points: element.extension_points.clone(),
+            use_case_specification: element.use_case_specification.clone(),
+            represented_classifier_id: element.represented_classifier_id.map(|id| id.to_string()),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));
@@ -237,6 +250,8 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
                     aggregation: aggregation_name(end.aggregation).to_string(),
                 })
                 .collect(),
+            extension_condition: relationship.extension_condition.clone(),
+            extension_location: relationship.extension_location.clone(),
         })
         .collect();
     relationships.sort_by(|a, b| a.id.cmp(&b.id));
@@ -264,6 +279,17 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
         if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
             return Err(format!("BDD owner is not a Model or Package: {}", diagram.owner_id));
         }
+        if let Some(context_id) = diagram.semantic_context_id.as_deref() {
+            let context = project
+                .element(parse_element_id(context_id)?)
+                .map_err(|error| error.to_string())?;
+            if diagram.family == "use-case"
+                && (!context.is_classifier()
+                    || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase))
+            {
+                return Err("Use Case diagram context is not a represented system classifier".into());
+            }
+        }
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() {
                 return Err(format!("invalid diagram node id: {}", node.id));
@@ -272,7 +298,15 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                 return Err(format!("duplicate diagram node id: {}", node.id));
             }
             let element_id = parse_element_id(&node.element_id)?;
-            project.element(element_id).map_err(|error| error.to_string())?;
+            let element = project.element(element_id).map_err(|error| error.to_string())?;
+            if diagram.family == "use-case"
+                && !matches!(element.kind, ElementKind::Actor | ElementKind::UseCase)
+            {
+                return Err(format!(
+                    "element kind {:?} is not valid on a Use Case Diagram",
+                    element.kind
+                ));
+            }
         }
         for edge in &diagram.edges {
             if uuid::Uuid::parse_str(&edge.id).is_err() {
@@ -285,6 +319,20 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
             let relationship = project.relationship(relationship_id).map_err(|error| error.to_string())?;
             if matches!(relationship.kind, RelationshipKind::Connector | RelationshipKind::ItemFlow) {
                 return Err("Connector and ItemFlow presentations belong on an IBD, not a BDD".into());
+            }
+            if diagram.family == "use-case"
+                && !matches!(
+                    relationship.kind,
+                    RelationshipKind::Association
+                        | RelationshipKind::Include
+                        | RelationshipKind::Extend
+                        | RelationshipKind::Generalization
+                )
+            {
+                return Err(format!(
+                    "relationship kind {:?} is not valid on a Use Case Diagram",
+                    relationship.kind
+                ));
             }
             let source = diagram.nodes.iter().find(|node| node.id == edge.source_node_id).ok_or_else(|| format!("edge source node not found: {}", edge.source_node_id))?;
             let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id).ok_or_else(|| format!("edge target node not found: {}", edge.target_node_id))?;
@@ -423,7 +471,7 @@ pub fn create_bdd(owner_id: String, name: String, state: tauri::State<'_, Worksp
     }
     let id = DiagramId::new();
     state.diagrams.lock().map_err(|_| "diagram lock poisoned")?.push(BddDiagram {
-        id: id.to_string(), name, owner_id: owner_id.to_string(), family: "bdd".into(), nodes: Vec::new(), edges: Vec::new(),
+        id: id.to_string(), name, owner_id: owner_id.to_string(), family: "bdd".into(), semantic_context_id: None, nodes: Vec::new(), edges: Vec::new(),
     });
     Ok(id.to_string())
 }
@@ -618,6 +666,11 @@ pub(super) fn layout_bdd_with_bounds(
     state: &WorkspaceState,
     bounds: Option<routing::RouteRect>,
 ) -> Result<bool, String> {
+    let project = state
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone();
     let mut diagrams = state
         .diagrams
         .lock()
@@ -631,8 +684,35 @@ pub(super) fn layout_bdd_with_bounds(
     let edges: Vec<_> = candidate
         .edges
         .iter()
-        .map(|edge| (edge.source_node_id.clone(), edge.target_node_id.clone()))
+        .map(|edge| {
+            let source = candidate
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.source_node_id);
+            let target = candidate
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.target_node_id);
+            let actor_to_use_case = candidate.family == "use-case"
+                && source
+                    .and_then(|node| parse_element_id(&node.element_id).ok())
+                    .and_then(|id| project.as_ref()?.element(id).ok())
+                    .is_some_and(|element| element.kind == ElementKind::UseCase)
+                && target
+                    .and_then(|node| parse_element_id(&node.element_id).ok())
+                    .and_then(|id| project.as_ref()?.element(id).ok())
+                    .is_some_and(|element| element.kind == ElementKind::Actor);
+            if actor_to_use_case {
+                (edge.target_node_id.clone(), edge.source_node_id.clone())
+            } else {
+                (edge.source_node_id.clone(), edge.target_node_id.clone())
+            }
+        })
         .collect();
+    let flow = systems_modeler_core::supported_diagram_families()
+        .get(&systems_modeler_core::DiagramFamilyId(candidate.family.clone()))
+        .map(|family| family.preferred_flow.clone())
+        .unwrap_or(systems_modeler_core::PreferredFlowDirection::TopToBottom);
     let positions = layout::hierarchical_positions_sized(
         candidate.nodes.iter().map(|node| layout::LayoutNode {
             id: node.id.clone(),
@@ -640,7 +720,7 @@ pub(super) fn layout_bdd_with_bounds(
             height: node.height,
         }),
         &edges,
-        systems_modeler_core::PreferredFlowDirection::TopToBottom,
+        flow,
     );
     for node in &mut candidate.nodes {
         if let Some((x, y)) = positions.get(&node.id) {

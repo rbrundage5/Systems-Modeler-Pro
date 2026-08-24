@@ -169,6 +169,11 @@ pub fn delete_model_element(
         .delete_element(element_id)
         .map_err(|error| error.to_string())?;
     remove_bdd_presentations(&mut diagrams, element_id);
+    for diagram in &mut diagrams {
+        if diagram.semantic_context_id.as_deref() == Some(element_id.to_string().as_str()) {
+            diagram.semantic_context_id = None;
+        }
+    }
     remove_ibd_presentations(&mut ibd_diagrams, element_id);
 
     project.validate().map_err(|error| error.to_string())?;
@@ -398,6 +403,7 @@ mod tests {
             name: "Structure".into(),
             owner_id: ElementId::new().to_string(),
             family: "bdd".into(),
+            semantic_context_id: None,
             nodes: vec![
                 DiagramNode {
                     id: "removed".into(),

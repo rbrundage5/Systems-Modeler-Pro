@@ -307,7 +307,9 @@ fn dispatch_route(
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<bool, String> {
     match family {
-        "bdd" | "requirement" => super::route_bdd_with_bounds(diagram_id, workspace, bounds),
+        "bdd" | "requirement" | "use-case" => {
+            super::route_bdd_with_bounds(diagram_id, workspace, bounds)
+        }
         "ibd" => super::ibd::route_ibd_with_bounds(diagram_id, workspace, bounds),
         "state-machine" | "sequence" => {
             super::behavior_workspace::route_behavior_with_bounds(diagram_id, workspace, bounds)
@@ -329,7 +331,9 @@ fn dispatch_layout(
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<bool, String> {
     match family {
-        "bdd" | "requirement" => super::layout_bdd_with_bounds(diagram_id, workspace, bounds),
+        "bdd" | "requirement" | "use-case" => {
+            super::layout_bdd_with_bounds(diagram_id, workspace, bounds)
+        }
         "ibd" => super::ibd::layout_ibd_with_bounds(diagram_id, workspace, bounds),
         "state-machine" | "sequence" => {
             super::behavior_workspace::layout_behavior_with_bounds(diagram_id, workspace, bounds)
@@ -537,6 +541,35 @@ pub fn rename_active_diagram_header(
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("BDD not found")?
+                .name = diagram_name.into();
+        }
+        "use-case" => {
+            let context_id = workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("Use Case Diagram not found")?
+                .semantic_context_id
+                .clone();
+            if let Some(context_id) = context_id {
+                workspace
+                    .project
+                    .lock()
+                    .map_err(|_| "project lock poisoned")?
+                    .as_mut()
+                    .ok_or("no project open")?
+                    .rename_element(super::parse_element_id(&context_id)?, model_element_name)
+                    .map_err(|error| error.to_string())?;
+            }
+            workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("Use Case Diagram not found")?
                 .name = diagram_name.into();
         }
         "ibd" => {
@@ -842,13 +875,19 @@ mod tests {
     #[test]
     fn registry_exposes_renderer_contract_for_every_current_family() {
         let families = diagram_family_registry();
-        assert_eq!(families.len(), 6);
+        assert_eq!(families.len(), 7);
         let requirement = families
             .iter()
             .find(|family| family.id.0 == "requirement")
             .expect("Requirement Diagram must be registered in the shared workspace");
         assert_eq!(requirement.renderer_id, "requirement");
         assert_eq!(requirement.frame_abbreviation, "req");
+        let use_case = families
+            .iter()
+            .find(|family| family.id.0 == "use-case")
+            .expect("Use Case Diagram must be registered in the shared workspace");
+        assert_eq!(use_case.renderer_id, "use-case");
+        assert_eq!(use_case.frame_abbreviation, "uc");
         assert!(families.iter().all(|family| !family.renderer_id.is_empty()));
         assert!(
             families
@@ -890,6 +929,7 @@ mod tests {
                 name: "Traceability".into(),
                 owner_id: uuid::Uuid::new_v4().to_string(),
                 family: "requirement".into(),
+                semantic_context_id: None,
                 nodes: vec![
                     node("source", 80.0, 140.0, 150.0, 80.0),
                     node("obstacle", 340.0, 120.0, 150.0, 120.0),
@@ -939,6 +979,90 @@ mod tests {
         let diagrams = workspace.diagrams.lock().expect("diagram lock");
         assert_eq!(diagrams[0].family, "requirement");
         assert_eq!(diagrams[0].edges[0].relationship_id.len(), 36);
+    }
+
+    #[test]
+    fn use_case_dispatcher_reuses_routing_and_registered_left_to_right_layout() {
+        let workspace = super::super::WorkspaceState::default();
+        let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
+        let mut project = systems_modeler_core::Project::new("Use Cases");
+        let package = project
+            .create_element(
+                systems_modeler_core::ElementKind::Package,
+                "Operations",
+                project.root_id,
+            )
+            .unwrap();
+        let actor = project
+            .create_element(systems_modeler_core::ElementKind::Actor, "Operator", package)
+            .unwrap();
+        let use_case = project
+            .create_element(
+                systems_modeler_core::ElementKind::UseCase,
+                "Operate system",
+                package,
+            )
+            .unwrap();
+        *workspace.project.lock().expect("project lock") = Some(project);
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        workspace
+            .diagrams
+            .lock()
+            .expect("diagram lock")
+            .push(super::super::BddDiagram {
+                id: diagram_id.clone(),
+                name: "Operations".into(),
+                owner_id: package.to_string(),
+                family: "use-case".into(),
+                semantic_context_id: None,
+                nodes: vec![
+                    super::super::DiagramNode {
+                        id: "actor".into(),
+                        element_id: actor.to_string(),
+                        x: 760.0,
+                        y: 420.0,
+                        width: 110.0,
+                        height: 150.0,
+                    },
+                    super::super::DiagramNode {
+                        id: "use-case".into(),
+                        element_id: use_case.to_string(),
+                        x: 90.0,
+                        y: 100.0,
+                        width: 210.0,
+                        height: 115.0,
+                    },
+                ],
+                edges: vec![super::super::DiagramEdge {
+                    id: "association-presentation".into(),
+                    relationship_id: uuid::Uuid::new_v4().to_string(),
+                    source_node_id: "use-case".into(),
+                    target_node_id: "actor".into(),
+                    points: vec![
+                        super::super::DiagramPoint { x: 90.0, y: 155.0 },
+                        super::super::DiagramPoint { x: 760.0, y: 495.0 },
+                    ],
+                    label_anchor: None,
+                }],
+            });
+
+        dispatch_route("use-case", &diagram_id, &workspace, &activity, None)
+            .expect("Use Case Route must use the shared dispatcher");
+        dispatch_layout("use-case", &diagram_id, &workspace, &activity, None)
+            .expect("Use Case Clean Layout must use the shared dispatcher");
+        let diagrams = workspace.diagrams.lock().expect("diagram lock");
+        let actor = diagrams[0]
+            .nodes
+            .iter()
+            .find(|node| node.id == "actor")
+            .unwrap();
+        let use_case = diagrams[0]
+            .nodes
+            .iter()
+            .find(|node| node.id == "use-case")
+            .unwrap();
+        assert!(actor.x < use_case.x);
+        assert!(diagrams[0].edges[0].points.len() >= 2);
     }
 
     #[test]

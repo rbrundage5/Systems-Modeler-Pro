@@ -17,6 +17,8 @@ paletteSymbol = function paletteSymbolTechnical(item) {
     Comment: '▰',
     Requirement: 'R',
     TestCase: 'T',
+    Actor: '♙',
+    UseCase: '⬭',
 
     PartProperty: '▣',
     ReferenceProperty: '↗',
@@ -43,6 +45,8 @@ paletteSymbol = function paletteSymbolTechnical(item) {
     Refine: 'F┄➤',
     Trace: 'T┄➤',
     Copy: 'C┄➤',
+    Include: 'I┄➤',
+    Extend: 'E┄➤',
   };
   return symbols[item.semantic_kind] || symbols[item.relationship_kind] || '·';
 };

@@ -22,6 +22,7 @@ mod workspace {
     #[rustfmt::skip]
     mod standard_editing;
     mod standard_editing_bridge;
+    mod use_cases;
     pub use activity_editing::{
         add_activity_action, add_activity_parameter_node, add_activity_partition,
         add_structured_activity_node, assign_activity_node_partition,
@@ -98,6 +99,11 @@ mod workspace {
         copy_selection, delete_active_selection, duplicate_selection, move_active_selection,
         paste_selection,
     };
+    pub use use_cases::{
+        create_use_case_diagram, create_use_case_element, create_use_case_relationship,
+        delete_use_case_relationship, place_on_use_case_diagram, reconnect_use_case_relationship,
+        update_actor_details, update_extend_specification, update_use_case_specification,
+    };
 }
 
 use serde::Serialize;
@@ -115,10 +121,12 @@ use workspace::{
     create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
     create_bdd_relationship, create_bdd_relationship_complete, create_block, create_ibd,
     create_ibd_connector, create_package, create_requirement, create_requirement_diagram,
+    create_use_case_diagram, create_use_case_element, create_use_case_relationship,
     create_sequence_diagram, create_sequence_diagram_staged, create_state_machine_diagram,
     create_state_machine_diagram_staged, create_test_case, create_traceability_relationship,
     delete_active_selection, delete_activity_item, delete_bdd_relationship, delete_behavior_item,
-    delete_model_element, delete_repository_diagram, diagram_command_manifest,
+    delete_model_element, delete_repository_diagram, delete_use_case_relationship,
+    diagram_command_manifest,
     diagram_family_registry, duplicate_selection, fit_diagram_viewport,
     get_diagram_frame_preference, get_panel_preferences, get_viewport_preference,
     history_checkpoint, history_redo, history_reset, history_undo, ibd_item_flow_notation,
@@ -126,6 +134,7 @@ use workspace::{
     move_repository_element, move_sequence_lifeline, move_state_vertex, new_project,
     open_project_file, open_project_file_complete, paste_selection, place_bdd_element,
     place_element_on_bdd, place_on_requirement_diagram, populate_ibd_from_context,
+    place_on_use_case_diagram, reconnect_use_case_relationship,
     reconnect_activity_edge, reconnect_bdd_relationship, reconnect_sequence_message,
     reconnect_traceability_relationship, rename_active_diagram_header, rename_element,
     reset_activity_workspace, resize_sequence_lifeline_timeline, route_activity_diagram,
@@ -138,6 +147,7 @@ use workspace::{
     update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_execution_specification, update_ibd_port_geometry,
     update_ibd_property_geometry, update_requirement, update_sequence_message,
+    update_actor_details, update_extend_specification, update_use_case_specification,
     update_sequence_message_complete, update_state_behaviors, update_state_invariant,
     update_state_presentation_geometry, update_state_transition, workspace_interaction_snapshot,
     workspace_snapshot, workspace_snapshot_complete, zoom_diagram_viewport,
@@ -415,6 +425,14 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             relationship_item("trace", "Trace", "Trace"),
             relationship_item("copy", "Copy", "Copy"),
         ]),
+        "UseCase" => Ok(vec![
+            element_item("actor", "Actor", "Actor"),
+            element_item("use-case", "Use Case", "UseCase"),
+            relationship_item("association", "Association", "Association"),
+            relationship_item("include", "Include", "Include"),
+            relationship_item("extend", "Extend", "Extend"),
+            relationship_item("generalization", "Generalization", "Generalization"),
+        ]),
         _ => Err(format!("unsupported diagram palette: {diagram_type}")),
     }
 }
@@ -453,6 +471,15 @@ fn main() {
             delete_active_selection,
             move_active_selection,
             diagram_palette,
+            create_use_case_diagram,
+            create_use_case_element,
+            update_use_case_specification,
+            place_on_use_case_diagram,
+            create_use_case_relationship,
+            update_extend_specification,
+            reconnect_use_case_relationship,
+            delete_use_case_relationship,
+            update_actor_details,
             create_requirement_diagram,
             create_requirement,
             create_test_case,
