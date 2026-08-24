@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn registry_is_extensible_and_rejects_duplicates() {
         let mut registry = supported_diagram_families();
-        assert_eq!(registry.descriptors().len(), 6);
+        assert_eq!(registry.descriptors().len(), 7);
         let future = descriptor(
             "parametric",
             "Parametric Diagram",
@@ -524,6 +524,7 @@ mod tests {
             PreferredFlowDirection::TopToBottom,
         );
         assert!(registry.register(future.clone()).is_ok());
+        assert_eq!(registry.descriptors().len(), 8);
         assert!(registry.register(future).is_err());
     }
     #[test]
@@ -536,6 +537,7 @@ mod tests {
             ("sequence", "seq", "Interaction"),
             ("activity", "act", "Activity"),
             ("requirement", "req", "Package"),
+            ("use-case", "uc", "Package"),
         ];
         for (id, abbreviation, context_kind) in expected {
             let family = registry.get(&DiagramFamilyId::new(id).unwrap()).unwrap();
