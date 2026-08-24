@@ -757,20 +757,24 @@ pub fn update_constraint_block_details(
 pub fn create_constraint_parameter(
     constraint_block_id: String,
     name: String,
-    type_id: String,
+    type_id: Option<String>,
     multiplicity: String,
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<String, String> {
     let constraint_block_id = parse_element_id(&constraint_block_id)?;
-    let type_id = parse_element_id(&type_id)?;
     let mut project = workspace
         .project
         .lock()
         .map_err(|_| "project lock poisoned")?
         .clone()
         .ok_or("no project open")?;
+    let type_id = resolve_constraint_parameter_type(
+        &mut project,
+        constraint_block_id,
+        type_id.as_deref(),
+    )?;
     let parameter_id = project
         .create_typed_feature(
             ElementKind::ConstraintParameter,
@@ -813,6 +817,34 @@ pub fn create_constraint_parameter(
         .lock()
         .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(parameter_id.to_string())
+}
+
+fn resolve_constraint_parameter_type(
+    project: &mut Project,
+    constraint_block_id: ElementId,
+    type_id: Option<&str>,
+) -> Result<ElementId, String> {
+    if let Some(type_id) = type_id {
+        return parse_element_id(type_id);
+    }
+
+    let constraint_block = project
+        .element(constraint_block_id)
+        .map_err(|error| error.to_string())?;
+    if constraint_block.kind != ElementKind::ConstraintBlock {
+        return Err("constraint parameters require a ConstraintBlock owner".into());
+    }
+    let namespace_id = constraint_block
+        .owner_id
+        .ok_or("ConstraintBlock has no owning Model or Package")?;
+    if let Some(existing) = project.children(namespace_id).find(|element| {
+        element.name == "Real" && element.kind == ElementKind::PrimitiveType
+    }) {
+        return Ok(existing.id);
+    }
+    project
+        .create_element(ElementKind::PrimitiveType, "Real", namespace_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1487,6 +1519,36 @@ pub fn evaluate_parametric_diagram(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_constraint_parameter_gets_reusable_real_primitive_type() {
+        let mut project = Project::new("Fresh Parametrics");
+        let package = project
+            .create_element(ElementKind::Package, "Analysis", project.root_id)
+            .unwrap();
+        let block = project
+            .create_element(ElementKind::ConstraintBlock, "Equation", package)
+            .unwrap();
+
+        let first = resolve_constraint_parameter_type(&mut project, block, None).unwrap();
+        let second = resolve_constraint_parameter_type(&mut project, block, None).unwrap();
+
+        assert_eq!(first, second);
+        let real = project.element(first).unwrap();
+        assert_eq!(real.kind, ElementKind::PrimitiveType);
+        assert_eq!(real.name, "Real");
+        assert_eq!(real.owner_id, Some(package));
+        project
+            .create_typed_feature(
+                ElementKind::ConstraintParameter,
+                "input",
+                block,
+                first,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        project.validate().unwrap();
+    }
 
     #[test]
     fn route_and_clean_layout_use_parameter_aware_shared_geometry() {

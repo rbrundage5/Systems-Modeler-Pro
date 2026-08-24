@@ -79,6 +79,10 @@ async function chooseTypeId(kind) {
     ConstraintParameter: ['ValueType', 'DataType', 'PrimitiveType', 'Enumeration'],
   }[kind] || [];
   const choices = project.elements.filter((element) => compatible.includes(element.kind));
+  // The Rust ConstraintParameter command can atomically provision a reusable
+  // PrimitiveType named Real for a fresh model. Other typed features still
+  // require the engineer to select an existing compatible semantic type.
+  if (!choices.length && kind === 'ConstraintParameter') return '__create_real__';
   if (!choices.length) throw new Error(`${kind} requires a compatible type, but none exists in the model.`);
   const menu = choices.map((element, index) => `${index + 1}. ${element.name} (${element.kind})`).join('\n');
   const answer = prompt(`Choose a type for ${kind}:\n${menu}`, '1'); if (!answer) return null;
@@ -110,7 +114,10 @@ async function createFeatureFromPalette(item) {
   }
   const featureId = semanticKind === 'ConstraintParameter'
     ? await runCommand('Creating Constraint Parameter…', () => requireInvoke()('create_constraint_parameter', {
-        constraintBlockId: owner.id, name, typeId, multiplicity: notation,
+        constraintBlockId: owner.id,
+        name,
+        typeId: typeId === '__create_real__' ? null : typeId,
+        multiplicity: notation,
       }))
     : await runCommand(`Creating ${item.label}…`, () => requireInvoke()('create_bdd_feature', {
         kind: semanticKind, ownerId: owner.id, name, typeId, lower, upper, defaultValue: null,

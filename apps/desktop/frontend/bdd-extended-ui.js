@@ -26,7 +26,7 @@ classifierCompartments = function classifierCompartmentsExtended(project, elemen
     ['references', ['ReferenceProperty']], ['values', ['ValueProperty']],
     ['flow properties', ['FlowProperty']], ['constraints', ['ConstraintProperty']],
     ['ports', ['ProxyPort', 'FullPort']], ['operations', ['Operation']],
-    ['receptions', ['Reception']], ['parameters', ['Parameter']], ['slots', ['Slot']],
+    ['receptions', ['Reception']], ['parameters', ['Parameter', 'ConstraintParameter']], ['slots', ['Slot']],
   ];
   return groups.map(([label, kinds]) => {
     const items = children.filter((child) => kinds.includes(child.kind));
@@ -46,7 +46,7 @@ paletteSymbol = function paletteSymbolExtended(item) {
     Unit: 'U', QuantityKind: 'Q', InstanceSpecification: 'I', Comment: '◩',
     PartProperty: '◆', ReferenceProperty: '◇', ValueProperty: 'v', FlowProperty: '↔',
     ConstraintProperty: 'c', ProxyPort: '□', FullPort: '■', Operation: 'ƒ',
-    Reception: '⇥', Parameter: 'p', EnumerationLiteral: '•', Slot: 's',
+    Reception: '⇥', Parameter: 'p', ConstraintParameter: 'p=', EnumerationLiteral: '•', Slot: 's',
     Association: '──', Aggregation: '◇─', Composition: '◆─', Generalization: '▷─',
     Dependency: '⇢', Realization: '⇢▷',
   };
@@ -66,8 +66,10 @@ chooseTypeId = async function chooseTypeIdExtended(kind) {
     ProxyPort: ['InterfaceBlock', 'Block', 'AssociationBlock', 'DataType'],
     FullPort: ['InterfaceBlock', 'Block', 'AssociationBlock', 'DataType'],
     Parameter: classifiers,
+    ConstraintParameter: ['ValueType', 'DataType', 'PrimitiveType', 'Enumeration'],
   }[kind] || [];
   const choices = project.elements.filter((element) => compatible.includes(element.kind));
+  if (!choices.length && kind === 'ConstraintParameter') return '__create_real__';
   if (!choices.length) throw new Error(`${kind} requires a compatible type, but none exists in the model.`);
   const menu = choices.map((element, index) => `${index + 1}. ${element.name} (${element.kind})`).join('\n');
   const answer = prompt(`Choose a type for ${kind}:\n${menu}`, '1');

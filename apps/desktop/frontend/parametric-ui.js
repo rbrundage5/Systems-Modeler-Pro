@@ -390,6 +390,10 @@
       $('add-constraint-parameter').onclick = async () => {
         const candidates = project.elements.filter((candidate) => VALUE_TYPE_KINDS.has(candidate.kind))
           .map((candidate) => ({ id: candidate.id, label: `${candidate.name} (${candidate.kind})` }));
+        if (!candidates.length) candidates.push({
+          id: '__create_real__',
+          label: 'Create reusable Real (PrimitiveType)',
+        });
         const definition = await window.smpDialogs?.choose({
           title: 'Create constraint parameter',
           fields: [
@@ -403,7 +407,7 @@
         await runCommand('Creating constraint parameter…', () => requireInvoke()('create_constraint_parameter', {
           constraintBlockId: element.id,
           name: definition.values.name,
-          typeId: definition.selectedId,
+          typeId: definition.selectedId === '__create_real__' ? null : definition.selectedId,
           multiplicity: definition.values.multiplicity,
         }));
         await refresh();
