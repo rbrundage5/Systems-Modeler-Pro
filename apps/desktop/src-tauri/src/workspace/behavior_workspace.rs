@@ -1188,9 +1188,7 @@ fn state_machine_routes(
     let mut reserved_routes = Vec::new();
     let mut label_obstacles = Vec::new();
     let mut routes = Vec::new();
-    for (index, (id, source_id, target_id, has_visible_label)) in
-        transitions.iter().enumerate()
-    {
+    for (index, (id, source_id, target_id, has_visible_label)) in transitions.iter().enumerate() {
         let source = diagram
             .state_nodes
             .iter()
