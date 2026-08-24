@@ -132,10 +132,10 @@ fn ibd_end_for_presentation(
 fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> Vec<RouteRect> {
     let mut obstacles = Vec::new();
     for property in &diagram.properties {
-        let owns_source = property.id == source_id
-            || property.ports.iter().any(|port| port.id == source_id);
-        let owns_target = property.id == target_id
-            || property.ports.iter().any(|port| port.id == target_id);
+        let owns_source =
+            property.id == source_id || property.ports.iter().any(|port| port.id == source_id);
+        let owns_target =
+            property.id == target_id || property.ports.iter().any(|port| port.id == target_id);
         if !owns_source && !owns_target {
             obstacles.push(property_rect(property));
         }
@@ -625,9 +625,7 @@ fn routed_ibd_connectors(
     for (index, edge) in snapshot.connectors.iter().enumerate() {
         let same_source_count = snapshot.connectors[..index]
             .iter()
-            .filter(|candidate| {
-                candidate.source_presentation_id == edge.source_presentation_id
-            })
+            .filter(|candidate| candidate.source_presentation_id == edge.source_presentation_id)
             .count();
         let points = route_ibd_edge_avoiding(
             &snapshot,
@@ -644,12 +642,8 @@ fn routed_ibd_connectors(
             .copied()
             .chain(label_obstacles.iter().copied())
             .collect();
-        let label_anchor = super::routing::route_label_anchor_avoiding(
-            &points,
-            &obstacles,
-            &routes,
-            bounds,
-        )?;
+        let label_anchor =
+            super::routing::route_label_anchor_avoiding(&points, &obstacles, &routes, bounds)?;
         let connector = connectors
             .iter_mut()
             .find(|candidate| candidate.id == edge.id)
@@ -665,16 +659,20 @@ fn routed_ibd_connectors(
 fn ibd_presentation_changed(left: &IbdDiagram, right: &IbdDiagram) -> bool {
     left.properties.len() != right.properties.len()
         || left.connectors.len() != right.connectors.len()
-        || left.properties.iter().zip(&right.properties).any(|(left, right)| {
-            left.id != right.id
-                || left.x != right.x
-                || left.y != right.y
-                || left.width != right.width
-                || left.height != right.height
-                || left.ports.iter().zip(&right.ports).any(|(left, right)| {
-                    left.id != right.id || left.x != right.x || left.y != right.y
-                })
-        })
+        || left
+            .properties
+            .iter()
+            .zip(&right.properties)
+            .any(|(left, right)| {
+                left.id != right.id
+                    || left.x != right.x
+                    || left.y != right.y
+                    || left.width != right.width
+                    || left.height != right.height
+                    || left.ports.iter().zip(&right.ports).any(|(left, right)| {
+                        left.id != right.id || left.x != right.x || left.y != right.y
+                    })
+            })
         || left
             .connectors
             .iter()
@@ -708,14 +706,6 @@ pub(super) fn route_ibd_with_bounds(
         diagram.connectors = connectors;
     }
     Ok(changed)
-}
-
-pub fn layout_ibd(
-    diagram_id: String,
-    state: tauri::State<'_, WorkspaceState>,
-) -> Result<(), String> {
-    layout_ibd_with_bounds(&diagram_id, &state, None)?;
-    Ok(())
 }
 
 pub(super) fn layout_ibd_with_bounds(

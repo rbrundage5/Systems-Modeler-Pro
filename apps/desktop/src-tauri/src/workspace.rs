@@ -613,15 +613,6 @@ pub(super) fn route_bdd_with_bounds(
     Ok(changed)
 }
 
-#[tauri::command]
-pub fn route_bdd(
-    diagram_id: String,
-    state: tauri::State<'_, WorkspaceState>,
-) -> Result<(), String> {
-    route_bdd_with_bounds(&diagram_id, &state, None)?;
-    Ok(())
-}
-
 pub(super) fn layout_bdd_with_bounds(
     diagram_id: &str,
     state: &WorkspaceState,
@@ -663,12 +654,4 @@ pub(super) fn layout_bdd_with_bounds(
         diagrams[index] = candidate;
     }
     Ok(changed)
-}
-
-pub fn layout_bdd(
-    diagram_id: String,
-    state: tauri::State<'_, WorkspaceState>,
-) -> Result<(), String> {
-    layout_bdd_with_bounds(&diagram_id, &state, None)?;
-    Ok(())
 }

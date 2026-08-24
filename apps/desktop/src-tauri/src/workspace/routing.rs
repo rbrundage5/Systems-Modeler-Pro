@@ -121,11 +121,13 @@ pub fn route_label_anchor_avoiding(
             };
             let rect = label_rect(anchor);
             let inside_bounds = bounds.is_none_or(|frame| rect_inside(rect, frame));
-            let clears_obstacles = obstacles.iter().all(|obstacle| !rects_overlap(rect, *obstacle));
+            let clears_obstacles = obstacles
+                .iter()
+                .all(|obstacle| !rects_overlap(rect, *obstacle));
             let clears_routes = reserved_routes.iter().all(|route| {
-                route.windows(2).all(|reserved| {
-                    !segment_intersects_rect_exact(reserved[0], reserved[1], rect)
-                })
+                route
+                    .windows(2)
+                    .all(|reserved| !segment_intersects_rect_exact(reserved[0], reserved[1], rect))
             });
             if inside_bounds && clears_obstacles && clears_routes {
                 return Ok(anchor);
@@ -181,12 +183,8 @@ pub fn route_diagram_with_bounds(
             allow_shared_departure: same_source_count > 0,
             bounds,
         })?;
-        let label_anchor = route_label_anchor_avoiding(
-            &points,
-            &label_obstacles,
-            &reserved_routes,
-            bounds,
-        )?;
+        let label_anchor =
+            route_label_anchor_avoiding(&points, &label_obstacles, &reserved_routes, bounds)?;
         reserved_routes.push(points.clone());
         reserved_labels.push(label_rect(label_anchor));
         routed.push(RoutedDiagramEdge {
@@ -243,16 +241,32 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
     let mut candidates = Vec::new();
 
     if horizontal {
-        let mid_x = (start.x + end.x) / 2.0 + lane_offset;
-        candidates.push(compact(vec![
-            start,
-            DiagramPoint {
-                x: mid_x,
-                y: start.y,
-            },
-            DiagramPoint { x: mid_x, y: end.y },
-            end,
-        ]));
+        if request.lane_index == 0 {
+            let mid_x = (start.x + end.x) / 2.0;
+            candidates.push(compact(vec![
+                start,
+                DiagramPoint {
+                    x: mid_x,
+                    y: start.y,
+                },
+                DiagramPoint { x: mid_x, y: end.y },
+                end,
+            ]));
+        } else {
+            let lane_y = start.y.max(end.y) + lane_offset;
+            candidates.push(compact(vec![
+                start,
+                DiagramPoint {
+                    x: start.x,
+                    y: lane_y,
+                },
+                DiagramPoint {
+                    x: end.x,
+                    y: lane_y,
+                },
+                end,
+            ]));
+        }
 
         // A left/right relationship blocked between its endpoints must escape
         // perpendicular to the relationship, then traverse above or below all
@@ -282,16 +296,32 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
             }
         }
     } else {
-        let mid_y = (start.y + end.y) / 2.0 + lane_offset;
-        candidates.push(compact(vec![
-            start,
-            DiagramPoint {
-                x: start.x,
-                y: mid_y,
-            },
-            DiagramPoint { x: end.x, y: mid_y },
-            end,
-        ]));
+        if request.lane_index == 0 {
+            let mid_y = (start.y + end.y) / 2.0;
+            candidates.push(compact(vec![
+                start,
+                DiagramPoint {
+                    x: start.x,
+                    y: mid_y,
+                },
+                DiagramPoint { x: end.x, y: mid_y },
+                end,
+            ]));
+        } else {
+            let lane_x = start.x.max(end.x) + lane_offset;
+            candidates.push(compact(vec![
+                start,
+                DiagramPoint {
+                    x: lane_x,
+                    y: start.y,
+                },
+                DiagramPoint {
+                    x: lane_x,
+                    y: end.y,
+                },
+                end,
+            ]));
+        }
 
         // A top/bottom relationship detours left or right of blocking geometry.
         let min_x = request
@@ -320,6 +350,23 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
     }
 
     add_escape_candidates(&mut candidates, start, end, &request, lane_offset);
+    if request.lane_index > 0 {
+        candidates.retain(|candidate| {
+            if horizontal {
+                let minimum = start.y.min(end.y) - lane_offset;
+                let maximum = start.y.max(end.y) + lane_offset;
+                candidate
+                    .iter()
+                    .any(|point| point.y <= minimum || point.y >= maximum)
+            } else {
+                let minimum = start.x.min(end.x) - lane_offset;
+                let maximum = start.x.max(end.x) + lane_offset;
+                candidate
+                    .iter()
+                    .any(|point| point.x <= minimum || point.x >= maximum)
+            }
+        });
+    }
     candidates.sort_by(|left, right| route_cost(left).total_cmp(&route_cost(right)));
     candidates
         .into_iter()
@@ -861,11 +908,36 @@ mod tests {
             height: 40.0,
         };
         let barriers = [
-            RouteRect { x: 0.0, y: 90.0, width: 400.0, height: 20.0 },
-            RouteRect { x: 0.0, y: 210.0, width: 400.0, height: 20.0 },
-            RouteRect { x: 90.0, y: 0.0, width: 20.0, height: 320.0 },
-            RouteRect { x: 330.0, y: 0.0, width: 20.0, height: 320.0 },
-            RouteRect { x: 205.0, y: 90.0, width: 20.0, height: 140.0 },
+            RouteRect {
+                x: 0.0,
+                y: 90.0,
+                width: 400.0,
+                height: 20.0,
+            },
+            RouteRect {
+                x: 0.0,
+                y: 210.0,
+                width: 400.0,
+                height: 20.0,
+            },
+            RouteRect {
+                x: 90.0,
+                y: 0.0,
+                width: 20.0,
+                height: 320.0,
+            },
+            RouteRect {
+                x: 330.0,
+                y: 0.0,
+                width: 20.0,
+                height: 320.0,
+            },
+            RouteRect {
+                x: 205.0,
+                y: 90.0,
+                width: 20.0,
+                height: 140.0,
+            },
         ];
         let result = orthogonal_route(RouteRequest {
             source,
@@ -874,9 +946,18 @@ mod tests {
             lane_index: 0,
             reserved_routes: &[],
             allow_shared_departure: false,
-            bounds: Some(RouteRect { x: 0.0, y: 0.0, width: 400.0, height: 320.0 }),
+            bounds: Some(RouteRect {
+                x: 0.0,
+                y: 0.0,
+                width: 400.0,
+                height: 320.0,
+            }),
         });
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("existing geometry was preserved"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("existing geometry was preserved")
+        );
     }
 }

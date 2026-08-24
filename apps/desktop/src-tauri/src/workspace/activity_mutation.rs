@@ -558,14 +558,6 @@ pub(super) fn route_activity_with_bounds(
     Ok(changed)
 }
 
-pub fn layout_activity_diagram(
-    diagram_id: String,
-    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
-) -> Result<(), String> {
-    layout_activity_with_bounds(&diagram_id, &activity_state, None)?;
-    Ok(())
-}
-
 pub(super) fn layout_activity_with_bounds(
     diagram_id: &str,
     activity_state: &activity_workspace::ActivityWorkspaceState,

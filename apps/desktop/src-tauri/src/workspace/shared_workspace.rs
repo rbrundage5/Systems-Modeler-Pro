@@ -307,11 +307,9 @@ fn dispatch_route(
         "state-machine" | "sequence" => {
             super::behavior_workspace::route_behavior_with_bounds(diagram_id, workspace, bounds)
         }
-        "activity" => super::activity_mutation::route_activity_with_bounds(
-            diagram_id,
-            activity,
-            bounds,
-        ),
+        "activity" => {
+            super::activity_mutation::route_activity_with_bounds(diagram_id, activity, bounds)
+        }
         family => Err(format!(
             "shared routing geometry is not implemented for {family} yet"
         )),
@@ -331,11 +329,9 @@ fn dispatch_layout(
         "state-machine" | "sequence" => {
             super::behavior_workspace::layout_behavior_with_bounds(diagram_id, workspace, bounds)
         }
-        "activity" => super::activity_mutation::layout_activity_with_bounds(
-            diagram_id,
-            activity,
-            bounds,
-        ),
+        "activity" => {
+            super::activity_mutation::layout_activity_with_bounds(diagram_id, activity, bounds)
+        }
         family => Err(format!(
             "shared Clean Layout is not implemented for {family}"
         )),
@@ -872,18 +868,19 @@ mod tests {
         let workspace = super::super::WorkspaceState::default();
         let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
         let diagram_id = uuid::Uuid::new_v4().to_string();
-        let node = |id: &str, x: f64, y: f64, width: f64, height: f64| {
-            super::super::DiagramNode {
-                id: id.into(),
-                element_id: uuid::Uuid::new_v4().to_string(),
-                x,
-                y,
-                width,
-                height,
-            }
+        let node = |id: &str, x: f64, y: f64, width: f64, height: f64| super::super::DiagramNode {
+            id: id.into(),
+            element_id: uuid::Uuid::new_v4().to_string(),
+            x,
+            y,
+            width,
+            height,
         };
-        workspace.diagrams.lock().expect("diagram lock").push(
-            super::super::BddDiagram {
+        workspace
+            .diagrams
+            .lock()
+            .expect("diagram lock")
+            .push(super::super::BddDiagram {
                 id: diagram_id.clone(),
                 name: "Traceability".into(),
                 owner_id: uuid::Uuid::new_v4().to_string(),
@@ -904,8 +901,7 @@ mod tests {
                     ],
                     label_anchor: None,
                 }],
-            },
-        );
+            });
         let bounds = Some(super::super::routing::RouteRect {
             x: 0.0,
             y: 42.0,

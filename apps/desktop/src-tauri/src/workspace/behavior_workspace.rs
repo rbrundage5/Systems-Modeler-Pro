@@ -1306,8 +1306,8 @@ fn sequence_routes(
     repository: &BehaviorRepository,
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<Vec<BehaviorEdgePresentation>, String> {
-    let interaction_id = parse_uuid(&diagram.semantic_id)
-        .map(systems_modeler_core::behavior::InteractionId)?;
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
     let interaction = repository
         .interactions
         .get(&interaction_id)
@@ -1337,8 +1337,7 @@ fn sequence_routes(
         let mut obstacles: Vec<_> = presentation_obstacles
             .iter()
             .filter(|(owner, _)| {
-                owner.is_none()
-                    || (*owner != source_lifeline && *owner != target_lifeline)
+                owner.is_none() || (*owner != source_lifeline && *owner != target_lifeline)
             })
             .map(|(_, rect)| *rect)
             .collect();
@@ -1351,8 +1350,7 @@ fn sequence_routes(
         let same_source_count = interaction.messages[..index]
             .iter()
             .filter(|candidate| {
-                candidate.send_event.as_ref().map(|event| event.lifeline_id)
-                    == source_lifeline
+                candidate.send_event.as_ref().map(|event| event.lifeline_id) == source_lifeline
             })
             .count();
         let points = if source_x == target_x {
@@ -1441,24 +1439,36 @@ fn behavior_presentation_changed(left: &BehaviorDiagram, right: &BehaviorDiagram
     left.state_nodes.len() != right.state_nodes.len()
         || left.lifelines.len() != right.lifelines.len()
         || left.edge_routes.len() != right.edge_routes.len()
-        || left.state_nodes.iter().zip(&right.state_nodes).any(|(left, right)| {
-            left.vertex_id != right.vertex_id
-                || left.x != right.x
-                || left.y != right.y
-                || left.width != right.width
-                || left.height != right.height
-        })
-        || left.lifelines.iter().zip(&right.lifelines).any(|(left, right)| {
-            left.lifeline_id != right.lifeline_id
-                || left.x != right.x
-                || left.timeline_start_y != right.timeline_start_y
-                || left.timeline_end_y != right.timeline_end_y
-        })
-        || left.edge_routes.iter().zip(&right.edge_routes).any(|(left, right)| {
-            left.semantic_id != right.semantic_id
-                || left.points != right.points
-                || left.label_anchor != right.label_anchor
-        })
+        || left
+            .state_nodes
+            .iter()
+            .zip(&right.state_nodes)
+            .any(|(left, right)| {
+                left.vertex_id != right.vertex_id
+                    || left.x != right.x
+                    || left.y != right.y
+                    || left.width != right.width
+                    || left.height != right.height
+            })
+        || left
+            .lifelines
+            .iter()
+            .zip(&right.lifelines)
+            .any(|(left, right)| {
+                left.lifeline_id != right.lifeline_id
+                    || left.x != right.x
+                    || left.timeline_start_y != right.timeline_start_y
+                    || left.timeline_end_y != right.timeline_end_y
+            })
+        || left
+            .edge_routes
+            .iter()
+            .zip(&right.edge_routes)
+            .any(|(left, right)| {
+                left.semantic_id != right.semantic_id
+                    || left.points != right.points
+                    || left.label_anchor != right.label_anchor
+            })
 }
 
 pub(super) fn route_behavior_with_bounds(
@@ -1569,9 +1579,9 @@ pub(super) fn layout_behavior_with_bounds(
                 .state_nodes
                 .iter()
                 .filter_map(|node| {
-                    positions.get(&node.vertex_id).map(|(x, y)| {
-                        (node.vertex_id.clone(), (*x - node.x, *y - node.y))
-                    })
+                    positions
+                        .get(&node.vertex_id)
+                        .map(|(x, y)| (node.vertex_id.clone(), (*x - node.x, *y - node.y)))
                 })
                 .collect();
             for node in &mut candidate.state_nodes {
@@ -1616,13 +1626,6 @@ pub(super) fn layout_behavior_with_bounds(
         *target = candidate;
     }
     Ok(changed)
-}
-
-pub fn layout_behavior_diagram(
-    diagram_id: String,
-    state: tauri::State<'_, WorkspaceState>,
-) -> Result<(), String> {
-    layout_behavior_with_bounds(&diagram_id, &state, None).map(|_| ())
 }
 
 pub fn save_behavior_metadata(

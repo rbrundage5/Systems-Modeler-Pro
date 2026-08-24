@@ -50,7 +50,8 @@ assert "active_diagram_layout" in main
 assert "checkpoint_states" in read(root / "apps/desktop/src-tauri/src/workspace/history.rs")
 assert "hierarchical_positions" in read(root / "apps/desktop/src-tauri/src/workspace/layout.rs")
 assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
-assert "pub fn route_bdd" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
+assert "fn route_bdd_with_bounds" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
+assert '"bdd" | "requirement" => super::route_bdd_with_bounds' in shared_workspace
 assert "route_diagram_geometry" in main
 router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
 assert "route_diagram_geometry" in router

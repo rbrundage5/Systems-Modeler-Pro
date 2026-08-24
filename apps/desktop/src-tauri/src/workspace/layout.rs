@@ -13,6 +13,7 @@ pub struct LayoutNode {
     pub height: f64,
 }
 
+#[cfg(test)]
 pub fn hierarchical_positions(
     node_ids: impl IntoIterator<Item = String>,
     edges: &[(String, String)],
@@ -143,9 +144,21 @@ mod tests {
     fn actual_sizes_and_spacing_prevent_overlap() {
         let positions = hierarchical_positions_sized(
             [
-                LayoutNode { id: "wide".into(), width: 320.0, height: 80.0 },
-                LayoutNode { id: "next".into(), width: 240.0, height: 160.0 },
-                LayoutNode { id: "peer".into(), width: 280.0, height: 100.0 },
+                LayoutNode {
+                    id: "wide".into(),
+                    width: 320.0,
+                    height: 80.0,
+                },
+                LayoutNode {
+                    id: "next".into(),
+                    width: 240.0,
+                    height: 160.0,
+                },
+                LayoutNode {
+                    id: "peer".into(),
+                    width: 280.0,
+                    height: 100.0,
+                },
             ],
             &[("wide".into(), "next".into())],
             PreferredFlowDirection::TopToBottom,
