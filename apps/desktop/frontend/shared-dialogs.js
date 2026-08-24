@@ -107,9 +107,6 @@
     const byExternal = elementsByExternalId();
     const role = byId.get(roleId);
     if (!role) return null;
-    if (role.kind === 'ValueProperty') {
-      return { roleId, parameterId: null, label: role.name, ...typeDetails(role, byId, byExternal) };
-    }
     return { roleId, parameterId: null, label: role.name, ...typeDetails(role, byId, byExternal) };
   }
 
@@ -159,7 +156,8 @@
       if (!parameter) continue;
       const details = typeDetails(parameter, byId, byExternal);
       const label = endpoint.querySelector('.constraint-parameter-label');
-      if (label) label.textContent = `${parameter.name} : ${details.typeName}`;
+      const nextLabel = `${parameter.name} : ${details.typeName}`;
+      if (label && label.textContent !== nextLabel) label.textContent = nextLabel;
       endpoint.title = endpointLine({ label: parameter.name, ...details });
     }
     for (const selectId of ['par-binding-source', 'par-binding-target']) {
@@ -167,7 +165,9 @@
       if (!select) continue;
       for (const option of select.options) {
         const endpoint = describePresentation(option.value);
-        if (endpoint) option.textContent = endpointLine(endpoint);
+        if (!endpoint) continue;
+        const nextLabel = endpointLine(endpoint);
+        if (option.textContent !== nextLabel) option.textContent = nextLabel;
       }
     }
   }
