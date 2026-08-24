@@ -182,6 +182,7 @@
     const local = transientHandlers[id];
     if (local) { await local(args); return true; }
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
+    await publishInteraction();
     await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...args });
     await renderer()?.refresh?.(); return true;
   }
@@ -255,6 +256,7 @@
     if (event.code === 'Space' && !editable) { state.space = true; canvas.classList.add('space-pan'); event.preventDefault(); }
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); void cancelEverything(); }
     if (editable) return;
+    if (window.smpRepositoryEditing?.handleDelete?.(event)) return;
     const shortcuts = { Delete:'delete', Backspace:'delete' };
     if (shortcuts[event.key]) { event.preventDefault(); void execute(shortcuts[event.key]); }
     if (event.ctrlKey && event.key === '0') { event.preventDefault(); void execute('actualSize'); }
@@ -345,8 +347,16 @@
 
   window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:() => state.frame&&{...state.frame} });
   const selectionAdapter = (selectionKeys, toolKeys) => ({
-    selection: () => selectionKeys.map((key) => window.smpState?.[key]).filter(Boolean),
-    clearSelection: () => { for (const key of selectionKeys) if (window.smpState) window.smpState[key] = null; },
+    selection: () => {
+      const standard = window.smpStandardEditing?.selections?.() || window.smpStandardSelections;
+      if (Array.isArray(standard) && standard.length) return standard;
+      return selectionKeys.map((key) => window.smpState?.[key]).filter(Boolean);
+    },
+    clearSelection: () => {
+      if (window.smpStandardEditing?.setSelections) window.smpStandardEditing.setSelections([]);
+      else window.smpStandardSelections = [];
+      for (const key of selectionKeys) if (window.smpState) window.smpState[key] = null;
+    },
     activeTool: () => toolKeys.map((key) => window.smpState?.[key]).find(Boolean) || null,
     cancelInteraction: () => { for (const key of toolKeys) if (window.smpState) window.smpState[key] = null; },
     refresh: async () => { if (typeof window.refresh === 'function') await window.refresh(); },

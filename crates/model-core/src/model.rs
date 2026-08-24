@@ -305,6 +305,13 @@ pub enum ModelError {
     EndpointNotFound(ElementId),
     #[error("cannot delete an element that still owns children: {0}")]
     OwnerHasChildren(ElementId),
+    #[error("the project root cannot be moved or deleted: {0}")]
+    ProtectedProjectRoot(ElementId),
+    #[error("moving element {element_id} under {new_owner_id} would create an ownership cycle")]
+    OwnershipCycle {
+        element_id: ElementId,
+        new_owner_id: ElementId,
+    },
     #[error("cannot delete an element still referenced by relationships or types: {0}")]
     ElementStillReferenced(ElementId),
     #[error("external ID already exists: {0}")]
@@ -515,9 +522,23 @@ impl Project {
         id: ElementId,
         new_owner_id: ElementId,
     ) -> Result<(), ModelError> {
+        if id == self.root_id {
+            return Err(ModelError::ProtectedProjectRoot(id));
+        }
         let kind = self.element(id)?.kind.clone();
         let owner_kind = self.element(new_owner_id)?.kind.clone();
         validate_owner_kind(&kind, &owner_kind)?;
+        let mut ancestor = Some(new_owner_id);
+        let mut visited = HashSet::new();
+        while let Some(candidate) = ancestor {
+            if candidate == id || !visited.insert(candidate) {
+                return Err(ModelError::OwnershipCycle {
+                    element_id: id,
+                    new_owner_id,
+                });
+            }
+            ancestor = self.element(candidate)?.owner_id;
+        }
         self.element_mut(id)?.owner_id = Some(new_owner_id);
         Ok(())
     }
@@ -795,6 +816,9 @@ impl Project {
     }
 
     pub fn delete_element(&mut self, id: ElementId) -> Result<(), ModelError> {
+        if id == self.root_id {
+            return Err(ModelError::ProtectedProjectRoot(id));
+        }
         self.element(id)?;
         if self.children(id).next().is_some() {
             return Err(ModelError::OwnerHasChildren(id));

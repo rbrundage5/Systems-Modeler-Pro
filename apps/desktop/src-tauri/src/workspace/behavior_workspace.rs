@@ -55,6 +55,15 @@ pub struct BehaviorEdgePresentation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorPresentationCopy {
+    pub id: String,
+    pub semantic_id: String,
+    pub kind: String,
+    pub offset_x: f64,
+    pub offset_y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorDiagram {
     pub id: String,
     pub name: String,
@@ -68,6 +77,10 @@ pub struct BehaviorDiagram {
     pub lifelines: Vec<LifelinePresentation>,
     #[serde(default)]
     pub edge_routes: Vec<BehaviorEdgePresentation>,
+    #[serde(default)]
+    pub hidden_semantic_ids: Vec<String>,
+    #[serde(default)]
+    pub presentation_copies: Vec<BehaviorPresentationCopy>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -383,6 +396,8 @@ pub fn create_state_machine_diagram(
             state_nodes: Vec::new(),
             lifelines: Vec::new(),
             edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
         });
     Ok(id)
 }
@@ -419,6 +434,8 @@ pub fn create_sequence_diagram(
             state_nodes: Vec::new(),
             lifelines: Vec::new(),
             edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
         });
     Ok(id)
 }
@@ -1083,6 +1100,22 @@ pub fn validate_behavior_workspace(
                 ));
             }
         }
+        for hidden_id in &diagram.hidden_semantic_ids {
+            parse_uuid(hidden_id)?;
+        }
+        for copy in &diagram.presentation_copies {
+            parse_uuid(&copy.id)?;
+            parse_uuid(&copy.semantic_id)?;
+            if copy.kind.trim().is_empty()
+                || !copy.offset_x.is_finite()
+                || !copy.offset_y.is_finite()
+            {
+                return Err(format!(
+                    "behavior presentation copy is invalid: {}",
+                    copy.id
+                ));
+            }
+        }
         match diagram.kind {
             BehaviorDiagramKind::StateMachine => {
                 let id = state_machine_id(&diagram.semantic_id)?;
@@ -1433,6 +1466,8 @@ mod behavior_metadata_database_tests {
                 state_nodes: Vec::new(),
                 lifelines: Vec::new(),
                 edge_routes: Vec::new(),
+                hidden_semantic_ids: Vec::new(),
+                presentation_copies: Vec::new(),
             },
             BehaviorDiagram {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -1444,6 +1479,8 @@ mod behavior_metadata_database_tests {
                 state_nodes: Vec::new(),
                 lifelines: Vec::new(),
                 edge_routes: Vec::new(),
+                hidden_semantic_ids: Vec::new(),
+                presentation_copies: Vec::new(),
             },
         ];
 
