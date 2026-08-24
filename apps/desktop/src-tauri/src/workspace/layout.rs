@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use systems_modeler_core::PreferredFlowDirection;
 
 const ORIGIN_X: f64 = 80.0;
@@ -67,7 +67,9 @@ pub fn hierarchical_positions_sized(
         .filter_map(|(id, degree)| (*degree == 0).then_some(id.clone()))
         .collect();
     let mut levels: BTreeMap<String, usize> = ids.iter().map(|id| (id.clone(), 0)).collect();
+    let mut placed = BTreeSet::new();
     while let Some(id) = ready.pop_first() {
+        placed.insert(id.clone());
         let next_level = levels[&id].saturating_add(1);
         for target in outgoing.get(&id).into_iter().flatten() {
             levels
@@ -77,6 +79,28 @@ pub fn hierarchical_positions_sized(
             *degree -= 1;
             if *degree == 0 {
                 ready.insert(target.clone());
+            }
+        }
+    }
+
+    // A state machine commonly contains transition cycles, so Kahn layering alone
+    // leaves an entire strongly connected portion on level zero. Complete a stable
+    // spanning hierarchy for those remaining vertices while ignoring back edges.
+    // This keeps the layout bounded and produces useful top-to-bottom/left-to-right
+    // flow without introducing a separate graph-layout subsystem.
+    for start in &ids {
+        if placed.contains(start) {
+            continue;
+        }
+        placed.insert(start.clone());
+        let mut pending = VecDeque::from([start.clone()]);
+        while let Some(source) = pending.pop_front() {
+            let next_level = levels[&source].saturating_add(1);
+            for target in outgoing.get(&source).into_iter().flatten() {
+                if placed.insert(target.clone()) {
+                    levels.insert(target.clone(), next_level);
+                    pending.push_back(target.clone());
+                }
             }
         }
     }
@@ -175,8 +199,9 @@ mod tests {
         let positions = hierarchical_positions(
             ["a", "b", "c"].map(String::from),
             &[("a".into(), "b".into()), ("b".into(), "a".into())],
-            PreferredFlowDirection::LeftToRight,
+            PreferredFlowDirection::TopToBottom,
         );
         assert!(positions.values().all(|(x, y)| *x < 1000.0 && *y < 1000.0));
+        assert_ne!(positions["a"].1, positions["b"].1);
     }
 }
