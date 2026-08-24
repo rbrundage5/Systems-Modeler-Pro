@@ -188,13 +188,25 @@ fn find_vertex(regions: &[Region], wanted: VertexId) -> Option<&Vertex> {
     None
 }
 
-fn collect_transition_endpoints(regions: &[Region], output: &mut Vec<(String, String, String)>) {
+fn collect_transition_endpoints(
+    regions: &[Region],
+    output: &mut Vec<(String, String, String, bool)>,
+) {
     for region in regions {
         output.extend(region.transitions.iter().map(|transition| {
             (
                 transition.id.to_string(),
                 transition.source_id.to_string(),
                 transition.target_id.to_string(),
+                transition.trigger.is_some()
+                    || transition
+                        .guard
+                        .as_deref()
+                        .is_some_and(|guard| !guard.trim().is_empty())
+                    || transition
+                        .effect
+                        .as_deref()
+                        .is_some_and(|effect| !effect.trim().is_empty()),
             )
         }));
         for vertex in &region.vertices {
@@ -1176,7 +1188,9 @@ fn state_machine_routes(
     let mut reserved_routes = Vec::new();
     let mut label_obstacles = Vec::new();
     let mut routes = Vec::new();
-    for (index, (id, source_id, target_id)) in transitions.iter().enumerate() {
+    for (index, (id, source_id, target_id, has_visible_label)) in
+        transitions.iter().enumerate()
+    {
         let source = diagram
             .state_nodes
             .iter()
@@ -1219,7 +1233,7 @@ fn state_machine_routes(
             .collect();
         let same_source_count = transitions[..index]
             .iter()
-            .filter(|(_, candidate_source, _)| candidate_source == source_id)
+            .filter(|(_, candidate_source, _, _)| candidate_source == source_id)
             .count();
         let points = super::routing::orthogonal_route(super::routing::RouteRequest {
             source: super::routing::RouteRect {
@@ -1240,17 +1254,22 @@ fn state_machine_routes(
             allow_shared_departure: same_source_count > 0,
             bounds,
         })?;
-        let label_anchor = super::routing::route_label_anchor_avoiding(
-            &points,
-            &all_label_obstacles,
-            &reserved_routes,
-            bounds,
-        )?;
-        label_obstacles.push(super::routing::label_rect(label_anchor));
+        let label_anchor = if *has_visible_label {
+            let anchor = super::routing::route_label_anchor_avoiding(
+                &points,
+                &all_label_obstacles,
+                &reserved_routes,
+                bounds,
+            )?;
+            label_obstacles.push(super::routing::label_rect(anchor));
+            Some(anchor)
+        } else {
+            None
+        };
         reserved_routes.push(points.clone());
         routes.push(BehaviorEdgePresentation {
             semantic_id: id.clone(),
-            label_anchor: Some(label_anchor),
+            label_anchor,
             points,
         });
     }
@@ -1559,7 +1578,7 @@ pub(super) fn layout_behavior_with_bounds(
                 .collect();
             let edges: Vec<_> = transitions
                 .iter()
-                .map(|(_, source, target)| (root_id(source), root_id(target)))
+                .map(|(_, source, target, _)| (root_id(source), root_id(target)))
                 .filter(|(source, target)| source != target)
                 .collect();
             let mut positions = super::layout::hierarchical_positions_sized(
@@ -1903,6 +1922,7 @@ mod state_machine_layout_tests {
             diagram.edge_routes[0].semantic_id,
             transition_id.to_string()
         );
+        assert!(diagram.edge_routes[0].label_anchor.is_none());
         assert!(diagram.edge_routes[0].points.iter().all(|point| {
             point.x >= frame.x
                 && point.x <= frame.x + frame.width
