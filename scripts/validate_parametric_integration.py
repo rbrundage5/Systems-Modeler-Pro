@@ -14,7 +14,7 @@ families = read("crates/model-core/src/diagram_family.rs")
 commands = read("apps/desktop/src-tauri/src/workspace/parametrics.rs")
 dispatcher = read("apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 frontend = read("apps/desktop/frontend/parametric-ui.js")
-binding_diagnostics = read("apps/desktop/frontend/parametric-binding-diagnostics.js")
+binding_diagnostics = read("apps/desktop/frontend/shared-dialogs.js")
 bdd_frontend = read("apps/desktop/frontend/bdd-completion-ui.js")
 bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
 styles = read("apps/desktop/frontend/parametric.css")
@@ -71,7 +71,7 @@ assert '"parametric" => {' in dispatcher
 assert "route_parametric_with_bounds" in dispatcher
 assert "layout_parametric_with_bounds" in dispatcher
 assert "parametric-ui.js" in index and "parametric.css" in index
-assert "parametric-binding-diagnostics.js" in index
+assert "shared-dialogs.js" in index
 assert 'id: "evaluateParametrics"' in manifest
 assert 'rust_adapter: Some("evaluate_parametric_diagram")' in manifest
 assert 'data-command="evaluateParametrics"' in shell
@@ -98,7 +98,7 @@ for notation in [
 assert "relationship-bindingconnector" in styles
 
 for diagnostic_contract in [
-    "Rust remains the sole authority for BindingConnector compatibility",
+    "Rust remains the sole authority",
     "Binding Connector endpoints are incompatible.",
     "Set both endpoints to compatible types in Properties.",
     "compatible ValueTypes with matching QuantityKind and dimension",
