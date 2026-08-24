@@ -286,12 +286,17 @@ fn routing_bounds(
             .get(diagram_id)
             .cloned()
     };
-    Ok(preference.map(|frame| super::routing::RouteRect {
-        x: frame.x,
-        y: frame.y + 42.0,
-        width: frame.width,
-        height: (frame.height - 42.0).max(1.0),
-    }))
+    // An automatic frame follows content and is recalculated after rendering, so it
+    // must not act as a hard routing boundary. Only a frame the user explicitly
+    // sized represents a committed boundary that Route/Clean Layout must respect.
+    Ok(preference
+        .filter(|frame| frame.manually_sized)
+        .map(|frame| super::routing::RouteRect {
+            x: frame.x,
+            y: frame.y + 42.0,
+            width: frame.width,
+            height: (frame.height - 42.0).max(1.0),
+        }))
 }
 
 fn dispatch_route(
@@ -949,6 +954,40 @@ mod tests {
         record_presentation_change(&workspace, &activity, &history, || Ok(false))
             .expect("no-op command succeeds");
         assert_eq!(super::super::history::undo_len(&history), 0);
+    }
+
+    #[test]
+    fn only_manually_sized_frames_constrain_routing_and_layout() {
+        let shared = SharedWorkspaceState::default();
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let automatic = DiagramFramePreference {
+            x: 480.0,
+            y: 320.0,
+            width: 720.0,
+            height: 520.0,
+            manually_sized: false,
+        };
+        assert_eq!(
+            routing_bounds(&shared, &diagram_id, Some(automatic)),
+            Ok(None)
+        );
+
+        let manual = DiagramFramePreference {
+            x: 480.0,
+            y: 320.0,
+            width: 720.0,
+            height: 520.0,
+            manually_sized: true,
+        };
+        assert_eq!(
+            routing_bounds(&shared, &diagram_id, Some(manual)),
+            Ok(Some(super::super::routing::RouteRect {
+                x: 480.0,
+                y: 362.0,
+                width: 720.0,
+                height: 478.0,
+            }))
+        );
     }
 
     #[test]
