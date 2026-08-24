@@ -1562,7 +1562,7 @@ pub(super) fn layout_behavior_with_bounds(
                 .map(|(_, source, target)| (root_id(source), root_id(target)))
                 .filter(|(source, target)| source != target)
                 .collect();
-            let positions = super::layout::hierarchical_positions_sized(
+            let mut positions = super::layout::hierarchical_positions_sized(
                 candidate
                     .state_nodes
                     .iter()
@@ -1575,6 +1575,23 @@ pub(super) fn layout_behavior_with_bounds(
                 &edges,
                 systems_modeler_core::PreferredFlowDirection::TopToBottom,
             );
+            if let Some(frame) = bounds
+                && let (Some(min_x), Some(min_y)) = (
+                    positions.values().map(|(x, _)| *x).reduce(f64::min),
+                    positions.values().map(|(_, y)| *y).reduce(f64::min),
+                )
+            {
+                // Clean Layout receives the current diagram-frame interior. Keep the
+                // generated STM hierarchy inside that coordinate space instead of
+                // relocating it to the global canvas origin, which would make the
+                // mandatory post-layout routing validation reject the transaction.
+                let offset_x = frame.x + super::routing::ROUTE_CLEARANCE - min_x;
+                let offset_y = frame.y + super::routing::ROUTE_CLEARANCE - min_y;
+                for (x, y) in positions.values_mut() {
+                    *x += offset_x;
+                    *y += offset_y;
+                }
+            }
             let deltas: BTreeMap<_, _> = candidate
                 .state_nodes
                 .iter()
@@ -1778,5 +1795,116 @@ mod behavior_metadata_database_tests {
             }));
         }
         let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod state_machine_layout_tests {
+    use super::*;
+
+    #[test]
+    fn clean_layout_uses_the_current_state_machine_frame_coordinate_space() {
+        let mut project = Project::new("State Layout");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .expect("block");
+        let mut repository = BehaviorRepository::default();
+        let machine_id = repository
+            .create_state_machine(&project, block, "Controller States")
+            .expect("state machine");
+        let source_id = VertexId::new();
+        let target_id = VertexId::new();
+        let transition_id = TransitionId::new();
+        let machine = repository
+            .state_machines
+            .get_mut(&machine_id)
+            .expect("state machine");
+        machine.regions[0].vertices.extend([
+            Vertex {
+                id: source_id,
+                name: "Idle".into(),
+                kind: VertexKind::State(State::default()),
+            },
+            Vertex {
+                id: target_id,
+                name: "Running".into(),
+                kind: VertexKind::State(State::default()),
+            },
+        ]);
+        machine.regions[0].transitions.push(Transition {
+            id: transition_id,
+            source_id,
+            target_id,
+            kind: TransitionKind::External,
+            trigger: None,
+            guard: None,
+            effect: None,
+        });
+
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project);
+        *workspace.behavior.lock().expect("behavior lock") = repository;
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = vec![BehaviorDiagram {
+            id: diagram_id.clone(),
+            name: "Controller States".into(),
+            owner_id: block.to_string(),
+            context_id: block.to_string(),
+            kind: BehaviorDiagramKind::StateMachine,
+            semantic_id: machine_id.to_string(),
+            state_nodes: vec![
+                StateNodePresentation {
+                    vertex_id: source_id.to_string(),
+                    x: 620.0,
+                    y: 520.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+                StateNodePresentation {
+                    vertex_id: target_id.to_string(),
+                    x: 900.0,
+                    y: 720.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+            ],
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        }];
+        let frame = super::super::routing::RouteRect {
+            x: 560.0,
+            y: 480.0,
+            width: 720.0,
+            height: 520.0,
+        };
+
+        assert!(
+            layout_behavior_with_bounds(&diagram_id, &workspace, Some(frame))
+                .expect("State Machine Clean Layout")
+        );
+        let diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock");
+        let diagram = &diagrams[0];
+        assert!(diagram.state_nodes.iter().all(|node| {
+            node.x >= frame.x
+                && node.y >= frame.y
+                && node.x + node.width <= frame.x + frame.width
+                && node.y + node.height <= frame.y + frame.height
+        }));
+        assert_eq!(diagram.edge_routes.len(), 1);
+        assert_eq!(diagram.edge_routes[0].semantic_id, transition_id.to_string());
+        assert!(diagram.edge_routes[0].points.iter().all(|point| {
+            point.x >= frame.x
+                && point.x <= frame.x + frame.width
+                && point.y >= frame.y
+                && point.y <= frame.y + frame.height
+        }));
     }
 }
