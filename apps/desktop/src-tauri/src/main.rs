@@ -151,8 +151,8 @@ use workspace::{
     update_sequence_message, update_sequence_message_complete, update_state_behaviors,
     update_state_invariant, update_state_presentation_geometry, update_state_transition,
     update_use_case_actor_notation, update_use_case_diagram_subject, update_use_case_specification,
-    update_use_case_subject_boundary_geometry, workspace_interaction_snapshot,
-    workspace_snapshot, workspace_snapshot_complete, zoom_diagram_viewport,
+    update_use_case_subject_boundary_geometry, workspace_interaction_snapshot, workspace_snapshot,
+    workspace_snapshot_complete, zoom_diagram_viewport,
 };
 
 #[derive(Serialize)]

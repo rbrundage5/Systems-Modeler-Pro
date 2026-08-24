@@ -1003,11 +1003,7 @@ mod tests {
             )
             .unwrap();
         let subject = project
-            .create_element(
-                systems_modeler_core::ElementKind::Block,
-                "System",
-                package,
-            )
+            .create_element(systems_modeler_core::ElementKind::Block, "System", package)
             .unwrap();
         let use_case = project
             .create_element(

@@ -347,15 +347,14 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                     element.kind
                 ));
             }
-            if let Some(notation) = node.actor_notation.as_deref() {
-                if element.kind != ElementKind::Actor
-                    || !matches!(notation, "stick" | "rectangle")
-                {
-                    return Err(format!(
-                        "invalid Actor notation for presentation {}",
-                        node.id
-                    ));
-                }
+            if let Some(notation) = node.actor_notation.as_deref()
+                && (element.kind != ElementKind::Actor
+                    || !matches!(notation, "stick" | "rectangle"))
+            {
+                return Err(format!(
+                    "invalid Actor notation for presentation {}",
+                    node.id
+                ));
             }
             if element.kind == ElementKind::UseCase
                 && let Some(boundary) = diagram.subject_boundary.as_ref()

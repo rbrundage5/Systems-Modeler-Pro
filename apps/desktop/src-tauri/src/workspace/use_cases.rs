@@ -960,7 +960,10 @@ mod tests {
         let decoded: BddDiagram =
             serde_json::from_str(&encoded).expect("deserialize Use Case presentation");
         assert_eq!(decoded.subject_boundary.unwrap().id, boundary_id);
-        assert_eq!(decoded.nodes[0].actor_notation.as_deref(), Some("rectangle"));
+        assert_eq!(
+            decoded.nodes[0].actor_notation.as_deref(),
+            Some("rectangle")
+        );
     }
 
     #[test]
