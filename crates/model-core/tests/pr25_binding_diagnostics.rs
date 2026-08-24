@@ -1,9 +1,13 @@
-use systems_modeler_core::{
-    BindingEndpoint, ElementKind, ModelError, Multiplicity, Project,
-};
+use systems_modeler_core::{BindingEndpoint, ElementKind, ModelError, Multiplicity, Project};
 
-fn endpoint(role_id: systems_modeler_core::ElementId, parameter_id: Option<systems_modeler_core::ElementId>) -> BindingEndpoint {
-    BindingEndpoint { role_id, parameter_id }
+fn endpoint(
+    role_id: systems_modeler_core::ElementId,
+    parameter_id: Option<systems_modeler_core::ElementId>,
+) -> BindingEndpoint {
+    BindingEndpoint {
+        role_id,
+        parameter_id,
+    }
 }
 
 #[test]
@@ -60,7 +64,10 @@ fn real_constraint_parameter_cannot_bind_to_mass_until_types_are_aligned() {
             endpoint(mass_value, None),
         )
         .unwrap_err();
-    assert!(matches!(rejected, ModelError::IncompatibleBindingTypes { .. }));
+    assert!(matches!(
+        rejected,
+        ModelError::IncompatibleBindingTypes { .. }
+    ));
     assert!(project.relationships.is_empty());
 
     project.element_mut(mass_parameter).unwrap().type_id = Some(mass_type);
