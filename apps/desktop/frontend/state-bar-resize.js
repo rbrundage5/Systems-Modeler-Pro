@@ -31,6 +31,10 @@
   }
 
   function updateIncidentTransitions(diagram, vertexId, next) {
+    if (typeof window.smpPreviewStateTransitionGeometry === 'function') {
+      window.smpPreviewStateTransitionGeometry(diagram, vertexId, next);
+      return;
+    }
     const machine = state.behaviorSnapshot?.repository?.state_machines?.[String(diagram.semantic_id)];
     if (!machine) return;
     const transitions = [];

@@ -727,6 +727,7 @@ fn remove_presentations(
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("behavior diagram not found")?;
+            let mut endpoints_changed = false;
             for selection in selections {
                 if kind_is(selection, &["BehaviorCopy"])
                     && let Some(index) = diagram
@@ -2145,6 +2146,7 @@ fn move_selection_items(
                             node.x = (node.x + dx).max(0.0);
                             node.y = (node.y + dy).max(42.0);
                             changed += 1;
+                            endpoints_changed = true;
                         }
                     }
                     "Lifeline" => {
@@ -2155,6 +2157,7 @@ fn move_selection_items(
                         {
                             lifeline.x = (lifeline.x + dx).max(40.0);
                             changed += 1;
+                            endpoints_changed = true;
                         }
                     }
                     "Transition" | "Message" => {
@@ -2172,6 +2175,13 @@ fn move_selection_items(
                     }
                     _ => {}
                 }
+            }
+            if endpoints_changed {
+                behavior_workspace::reroute_behavior_presentation(
+                    diagram,
+                    &snapshot.behavior,
+                    None,
+                )?;
             }
         }
         EditingFamily::Activity => {

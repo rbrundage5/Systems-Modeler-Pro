@@ -186,10 +186,11 @@
       await publishInteraction();
       const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
       await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
-      if (state.context.family.id === 'state-machine' && typeof window.smpRefreshBehaviorSnapshot === 'function') {
-        await window.smpRefreshBehaviorSnapshot();
-        if (typeof window.render === 'function') window.render();
-      } else await renderer()?.refresh?.();
+      // Use the same authoritative refresh path for every family. The Behavior
+      // refresh wrapper hydrates STM/Sequence state before render, while the
+      // common path also refreshes command bindings, frame bounds, and pointer
+      // interactions after Route or Clean Layout changes node geometry.
+      await renderer()?.refresh?.();
       if (id === 'route' || id === 'cleanLayout') notify(`${command.label} completed.`, 'info');
       return true;
     } catch (error) {

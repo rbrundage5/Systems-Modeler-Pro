@@ -696,7 +696,8 @@ pub fn move_state_vertex(
     let mut diagrams = state
         .behavior_diagrams
         .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -708,6 +709,16 @@ pub fn move_state_vertex(
         .ok_or("State presentation not found")?;
     presentation.x = x;
     presentation.y = y;
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    reroute_behavior_presentation(diagram, &repository, None)?;
+    drop(repository);
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1452,6 +1463,17 @@ fn routed_behavior_edges(
     }
 }
 
+pub(super) fn reroute_behavior_presentation(
+    diagram: &mut BehaviorDiagram,
+    repository: &BehaviorRepository,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<(), String> {
+    // Compute the complete route set before replacing any committed geometry.
+    // This is the same transactional behavior used by Route and Clean Layout.
+    diagram.edge_routes = routed_behavior_edges(diagram, repository, bounds)?;
+    Ok(())
+}
+
 fn behavior_presentation_changed(left: &BehaviorDiagram, right: &BehaviorDiagram) -> bool {
     left.state_nodes.len() != right.state_nodes.len()
         || left.lifelines.len() != right.lifelines.len()
@@ -1645,7 +1667,7 @@ pub(super) fn layout_behavior_with_bounds(
             }
         }
     }
-    candidate.edge_routes = routed_behavior_edges(&candidate, &repository, bounds)?;
+    reroute_behavior_presentation(&mut candidate, &repository, bounds)?;
     drop(repository);
     let changed = behavior_presentation_changed(&original, &candidate);
     if changed {
@@ -1927,5 +1949,125 @@ mod state_machine_layout_tests {
                 && point.y >= frame.y
                 && point.y <= frame.y + frame.height
         }));
+    }
+
+    #[test]
+    fn moved_state_reroutes_connected_transitions_and_clean_layout_uses_that_geometry() {
+        let mut project = Project::new("Connected State Movement");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .expect("block");
+        let mut repository = BehaviorRepository::default();
+        let machine_id = repository
+            .create_state_machine(&project, block, "Controller States")
+            .expect("state machine");
+        let source_id = VertexId::new();
+        let target_id = VertexId::new();
+        let transition_id = TransitionId::new();
+        let machine = repository
+            .state_machines
+            .get_mut(&machine_id)
+            .expect("state machine");
+        machine.regions[0].vertices.extend([
+            Vertex {
+                id: source_id,
+                name: "Idle".into(),
+                kind: VertexKind::State(State::default()),
+            },
+            Vertex {
+                id: target_id,
+                name: "Running".into(),
+                kind: VertexKind::State(State::default()),
+            },
+        ]);
+        machine.regions[0].transitions.push(Transition {
+            id: transition_id,
+            source_id,
+            target_id,
+            kind: TransitionKind::External,
+            trigger: None,
+            guard: None,
+            effect: None,
+        });
+
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let mut diagram = BehaviorDiagram {
+            id: diagram_id.clone(),
+            name: "Controller States".into(),
+            owner_id: block.to_string(),
+            context_id: block.to_string(),
+            kind: BehaviorDiagramKind::StateMachine,
+            semantic_id: machine_id.to_string(),
+            state_nodes: vec![
+                StateNodePresentation {
+                    vertex_id: source_id.to_string(),
+                    x: 80.0,
+                    y: 90.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+                StateNodePresentation {
+                    vertex_id: target_id.to_string(),
+                    x: 640.0,
+                    y: 520.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+            ],
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        };
+        reroute_behavior_presentation(&mut diagram, &repository, None)
+            .expect("initial transition route");
+        let initial_route = diagram.edge_routes[0].points.clone();
+
+        diagram.state_nodes[0].x = 430.0;
+        diagram.state_nodes[0].y = 760.0;
+        reroute_behavior_presentation(&mut diagram, &repository, None)
+            .expect("moved transition route");
+        assert_ne!(diagram.edge_routes[0].points, initial_route);
+        let moved_source = &diagram.state_nodes[0];
+        let attachment = diagram.edge_routes[0].points[0];
+        let on_vertical = (attachment.x - moved_source.x).abs() < 0.001
+            || (attachment.x - (moved_source.x + moved_source.width)).abs() < 0.001;
+        let on_horizontal = (attachment.y - moved_source.y).abs() < 0.001
+            || (attachment.y - (moved_source.y + moved_source.height)).abs() < 0.001;
+        assert!(on_vertical || on_horizontal);
+
+        let wild_positions: Vec<_> = diagram
+            .state_nodes
+            .iter()
+            .map(|node| (node.x, node.y))
+            .collect();
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project);
+        *workspace.behavior.lock().expect("behavior lock") = repository;
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = vec![diagram];
+
+        assert!(
+            layout_behavior_with_bounds(&diagram_id, &workspace, None)
+                .expect("State Machine Clean Layout")
+        );
+        let diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock");
+        let diagram = &diagrams[0];
+        let clean_positions: Vec<_> = diagram
+            .state_nodes
+            .iter()
+            .map(|node| (node.x, node.y))
+            .collect();
+        assert_ne!(clean_positions, wild_positions);
+        assert_eq!(diagram.edge_routes.len(), 1);
+        assert_eq!(
+            diagram.edge_routes[0].semantic_id,
+            transition_id.to_string()
+        );
     }
 }

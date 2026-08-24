@@ -32,6 +32,12 @@ require(
     "diagram.edge_routes",
     "document.createElementNS(SVG_NS, 'polyline')",
 )
+require(
+    "apps/desktop/frontend/interaction-runtime-fixes.js",
+    "smpPreviewStateTransitionGeometry",
+    "line.setAttribute('points'",
+    "update_state_presentation_geometry",
+)
 
 
 require(

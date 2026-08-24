@@ -1,6 +1,6 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
-use super::{WorkspaceState, ibd, route_relationship};
+use super::{WorkspaceState, behavior_workspace, ibd, route_relationship};
 
 fn validate_geometry(
     x: f64,
@@ -333,6 +333,13 @@ pub fn update_state_presentation_geometry(
     presentation.y = y;
     presentation.width = width;
     presentation.height = height;
+
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    behavior_workspace::reroute_behavior_presentation(diagram, &repository, None)?;
+    drop(repository);
 
     history::checkpoint_states(&state, &activity, &history)?;
     *state
