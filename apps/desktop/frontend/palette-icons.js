@@ -30,6 +30,7 @@ paletteSymbol = function paletteSymbolTechnical(item) {
     Operation: '⌁',
     Reception: '⇥',
     Parameter: '↦',
+    ConstraintParameter: 'p=',
     EnumerationLiteral: '•',
     Slot: '◫',
 

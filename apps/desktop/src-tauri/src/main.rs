@@ -281,6 +281,11 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
                 "Constraint Property",
                 "ConstraintProperty",
             ),
+            feature_item(
+                "constraint-parameter",
+                "Constraint Parameter",
+                "ConstraintParameter",
+            ),
             feature_item("proxy-port", "Proxy Port", "ProxyPort"),
             feature_item("full-port", "Full Port", "FullPort"),
             feature_item("operation", "Operation", "Operation"),

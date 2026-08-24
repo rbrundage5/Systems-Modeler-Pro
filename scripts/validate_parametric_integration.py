@@ -14,6 +14,7 @@ families = read("crates/model-core/src/diagram_family.rs")
 commands = read("apps/desktop/src-tauri/src/workspace/parametrics.rs")
 dispatcher = read("apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 frontend = read("apps/desktop/frontend/parametric-ui.js")
+bdd_frontend = read("apps/desktop/frontend/bdd-completion-ui.js")
 styles = read("apps/desktop/frontend/parametric.css")
 index = read("apps/desktop/frontend/index.html")
 main = read("apps/desktop/src-tauri/src/main.rs")
@@ -71,6 +72,10 @@ assert "parametric-ui.js" in index and "parametric.css" in index
 assert 'id: "evaluateParametrics"' in manifest
 assert 'rust_adapter: Some("evaluate_parametric_diagram")' in manifest
 assert 'data-command="evaluateParametrics"' in shell
+assert '"constraint-parameter"' in main
+assert "ConstraintParameter: ['ValueType', 'DataType', 'PrimitiveType', 'Enumeration']" in bdd_frontend
+assert "semanticKind === 'ConstraintParameter'" in bdd_frontend
+assert "requireInvoke()('create_constraint_parameter'" in bdd_frontend
 for notation in [
     "constraint-property",
     "constraint-parameter",
