@@ -155,6 +155,12 @@
   function decorateStructural() {
     const diagram = bddDiagram();
     if (!diagram) return;
+    if (diagram.family === 'use-case' && diagram.subject_boundary) {
+      const boundary = document.querySelector(
+        `#canvas .use-case-subject-boundary[data-subject-boundary-id="${CSS.escape(String(diagram.subject_boundary.id))}"]`,
+      );
+      mark(boundary, 'UseCaseSubjectBoundary', diagram.subject_boundary.id);
+    }
     [...document.querySelectorAll('#canvas .bdd-block')].forEach((node, index) => {
       const presentation = diagram.nodes?.find((item) => String(item.id) === String(node.dataset.presentationId))
         || diagram.nodes?.[index];
@@ -425,6 +431,7 @@
     const item = presentationFromTarget(event.target);
     if (item && !selections().some((selected) => selectionKey(selected) === selectionKey(item))) setSelections([item]);
     if (!selections().length) return;
+    if (selections().every((selected) => selected.kind === 'UseCaseSubjectBoundary')) return;
     event.preventDefault();
     openMenu(event.clientX, event.clientY);
   });
@@ -437,6 +444,11 @@
     if (!current.length || !activeDiagramId()) return;
     const section = document.createElement('section');
     section.className = 'standard-editing-properties';
+    if (current.every((selected) => selected.kind === 'UseCaseSubjectBoundary')) {
+      section.innerHTML = '<div class="property-heading">Editing</div><div class="muted">The subject boundary is diagram context. Move or resize it directly; contained Use Cases move with it.</div>';
+      panel.appendChild(section);
+      return;
+    }
     section.innerHTML = `<div class="property-heading">Editing</div><div class="muted">${current.length} presentation${current.length === 1 ? '' : 's'} selected</div><div class="standard-editing-actions"><button type="button" data-action="copy">Copy</button><button type="button" data-action="duplicate">Duplicate</button><button type="button" data-action="delete">Remove from Diagram</button><button type="button" class="danger" data-action="delete-model">Delete from Model</button></div>`;
     section.addEventListener('click', (event) => {
       const action = event.target.closest('[data-action]')?.dataset.action;

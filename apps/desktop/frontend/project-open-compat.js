@@ -50,8 +50,7 @@
     state.activitySnapshot = await requireInvoke()('activity_snapshot');
 
     if (!state.selectedDiagramId && state.snapshot?.diagrams?.length) {
-      state.selectedDiagramId = state.snapshot.diagrams[0].id;
-      await loadPalette();
+      await selectDiagram(state.snapshot.diagrams[0].id);
     }
     render();
   }

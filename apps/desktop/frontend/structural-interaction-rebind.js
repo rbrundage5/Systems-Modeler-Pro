@@ -130,9 +130,39 @@
     });
   }
 
+  function installUseCaseSubjectBoundary() {
+    const diagram = state.snapshot?.diagrams?.find(
+      (item) => String(item.id) === String(state.selectedDiagramId) && item.family === 'use-case',
+    );
+    const boundary = diagram?.subject_boundary;
+    if (!diagram || !boundary) return;
+    const node = document.querySelector(
+      `#canvas .use-case-subject-boundary[data-subject-boundary-id="${CSS.escape(String(boundary.id))}"]`,
+    );
+    bind(node, {
+      minWidth: 280,
+      minHeight: 220,
+      geometry: () => ({ ...boundary }),
+      disabled: () => !!state.pendingRelationship || !!state.paletteTool,
+      select: () => {
+        Object.assign(state, {
+          selectedUseCaseSubjectBoundaryId: boundary.id,
+          selectedElementId: null,
+          selectedRelationshipId: null,
+        });
+      },
+      commit: (next) => invokeCommit('update_use_case_subject_boundary_geometry', {
+        diagramId: diagram.id,
+        boundaryId: boundary.id,
+        x: next.x, y: next.y, width: next.width, height: next.height,
+      }),
+    });
+  }
+
   function install() {
     installBdd();
     installIbd();
+    installUseCaseSubjectBoundary();
   }
 
   const canvas = document.getElementById('canvas');

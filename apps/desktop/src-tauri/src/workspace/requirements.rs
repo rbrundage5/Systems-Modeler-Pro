@@ -70,6 +70,8 @@ pub fn create_requirement_diagram(
             name,
             owner_id: owner_id.to_string(),
             family: "requirement".into(),
+            semantic_context_id: None,
+            subject_boundary: None,
             nodes: Vec::new(),
             edges: Vec::new(),
         });
@@ -200,6 +202,7 @@ pub fn place_on_requirement_diagram(
         y,
         width,
         height,
+        actor_notation: None,
     });
     Ok(id)
 }

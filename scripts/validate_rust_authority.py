@@ -41,12 +41,12 @@ metrics = {
     ),
 }
 
-# Controller-debt ceilings are measured at merged PR15, main d117fc1. They
-# constrain frontend authority patterns, not legitimate presentation code.
+# Controller-debt ceilings retain the PR15 behavior, with one explicitly
+# bounded renderer file/adapter added for PR24's seventh diagram family.
 maximums = {
-    "frontend JavaScript files": 39,
+    "frontend JavaScript files": 40,
     "direct frontend state assignments": 332,
-    "renderer wrapper assignments": 32,
+    "renderer wrapper assignments": 33,
     "blocking browser dialogs": 73,
     "frontend keydown controllers": 7,
 }

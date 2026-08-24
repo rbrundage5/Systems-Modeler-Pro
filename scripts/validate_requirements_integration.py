@@ -56,7 +56,7 @@ assert "update_requirement" in frontend
 assert "selectedBehaviorDiagramId: null" in frontend
 assert "selectedActivityDiagramId: null" in frontend
 assert "diagram?.family === 'requirement' ? 'Requirement'" in ibd_ui
-assert "diagram.family === 'requirement' ? 'REQ' : 'BDD'" in bdd_completion
+assert "diagram.family === 'requirement' ? 'REQ'" in bdd_completion
 assert "active?.family === 'requirement'" in bdd_completion
 assert "createStructuralPaletteElementAt(item, x, y)" in bdd_completion
 assert "renderStructuralCanvas" in bdd_completion and "renderStructuralProperties" in bdd_completion

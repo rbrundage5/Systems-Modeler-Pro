@@ -22,6 +22,9 @@ pub struct CompleteElementSnapshot {
     pub flow_direction: Option<String>,
     pub requirement_id: Option<String>,
     pub requirement_text: Option<String>,
+    pub extension_points: Vec<String>,
+    pub use_case_specification: String,
+    pub represented_classifier_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +62,8 @@ fn bdd_presentable(kind: &ElementKind) -> bool {
             | ElementKind::Comment
             | ElementKind::Requirement
             | ElementKind::TestCase
+            | ElementKind::Actor
+            | ElementKind::UseCase
     )
 }
 
@@ -91,6 +96,8 @@ fn parse_kind(value: &str) -> Result<ElementKind, String> {
         "Comment" => Ok(ElementKind::Comment),
         "Requirement" => Ok(ElementKind::Requirement),
         "TestCase" => Ok(ElementKind::TestCase),
+        "Actor" => Ok(ElementKind::Actor),
+        "UseCase" => Ok(ElementKind::UseCase),
         _ => Err(format!("unsupported BDD semantic kind: {value}")),
     }
 }
@@ -143,6 +150,9 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
                 .map(str::to_string),
             requirement_id: element.requirement_id.clone(),
             requirement_text: element.requirement_text.clone(),
+            extension_points: element.extension_points.clone(),
+            use_case_specification: element.use_case_specification.clone(),
+            represented_classifier_id: element.represented_classifier_id.map(|id| id.to_string()),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));
@@ -168,6 +178,8 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
                     aggregation: aggregation_name(end.aggregation).to_string(),
                 })
                 .collect(),
+            extension_condition: relationship.extension_condition.clone(),
+            extension_location: relationship.extension_location.clone(),
         })
         .collect();
     relationships.sort_by(|a, b| a.id.cmp(&b.id));
@@ -200,6 +212,44 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 diagram.owner_id
             ));
         }
+        if let Some(context_id) = diagram.semantic_context_id.as_deref() {
+            let context = project
+                .element(parse_element_id(context_id)?)
+                .map_err(|error| error.to_string())?;
+            if diagram.family == "use-case"
+                && (!context.is_classifier()
+                    || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase))
+            {
+                return Err(
+                    "Use Case diagram context is not a represented system classifier".into(),
+                );
+            }
+        }
+        if diagram.family != "use-case" && diagram.subject_boundary.is_some() {
+            return Err("subject boundaries are only valid on Use Case Diagrams".into());
+        }
+        if diagram.semantic_context_id.is_none() && diagram.subject_boundary.is_some() {
+            return Err("Use Case subject boundary requires a semantic context".into());
+        }
+        if let Some(boundary) = diagram.subject_boundary.as_ref() {
+            if uuid::Uuid::parse_str(&boundary.id).is_err() || !node_ids.insert(&boundary.id) {
+                return Err(format!(
+                    "invalid or duplicate Use Case subject-boundary id: {}",
+                    boundary.id
+                ));
+            }
+            if !boundary.x.is_finite()
+                || !boundary.y.is_finite()
+                || !boundary.width.is_finite()
+                || !boundary.height.is_finite()
+                || boundary.x < 0.0
+                || boundary.y < 42.0
+                || boundary.width < 280.0
+                || boundary.height < 220.0
+            {
+                return Err("invalid Use Case subject-boundary geometry".into());
+            }
+        }
         for node in &diagram.nodes {
             if uuid::Uuid::parse_str(&node.id).is_err() {
                 return Err(format!("invalid diagram node id: {}", node.id));
@@ -214,6 +264,35 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 return Err(format!(
                     "element kind {:?} is not valid as a BDD node",
                     element.kind
+                ));
+            }
+            if diagram.family == "use-case"
+                && !matches!(element.kind, ElementKind::Actor | ElementKind::UseCase)
+            {
+                return Err(format!(
+                    "element kind {:?} is not valid on a Use Case Diagram",
+                    element.kind
+                ));
+            }
+            if let Some(notation) = node.actor_notation.as_deref()
+                && (element.kind != ElementKind::Actor
+                    || !matches!(notation, "stick" | "rectangle"))
+            {
+                return Err(format!(
+                    "invalid Actor notation for presentation {}",
+                    node.id
+                ));
+            }
+            if element.kind == ElementKind::UseCase
+                && let Some(boundary) = diagram.subject_boundary.as_ref()
+                && (node.x < boundary.x
+                    || node.y < boundary.y
+                    || node.x + node.width > boundary.x + boundary.width
+                    || node.y + node.height > boundary.y + boundary.height)
+            {
+                return Err(format!(
+                    "Use Case presentation {} is outside its subject boundary",
+                    node.id
                 ));
             }
         }
@@ -234,6 +313,20 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 return Err(
                     "Connector and ItemFlow presentations belong on an IBD, not a BDD".into(),
                 );
+            }
+            if diagram.family == "use-case"
+                && !matches!(
+                    relationship.kind,
+                    RelationshipKind::Association
+                        | RelationshipKind::Include
+                        | RelationshipKind::Extend
+                        | RelationshipKind::Generalization
+                )
+            {
+                return Err(format!(
+                    "relationship kind {:?} is not valid on a Use Case Diagram",
+                    relationship.kind
+                ));
             }
             let source = diagram
                 .nodes
@@ -444,6 +537,7 @@ pub fn place_bdd_element(
         y,
         width,
         height,
+        actor_notation: None,
     });
     Ok(node_id)
 }

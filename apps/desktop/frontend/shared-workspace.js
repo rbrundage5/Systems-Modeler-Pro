@@ -376,6 +376,7 @@
   registerRenderer('bdd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('ibd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('requirement', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
+  registerRenderer('use-case', selectionAdapter(['selectedElementId','selectedRelationshipId','selectedUseCaseSubjectBoundaryId'], ['paletteTool','pendingRelationship']));
   registerRenderer('state-machine', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending','behaviorTargetRegionId']));
   registerRenderer('sequence', selectionAdapter(['selectedBehaviorItem'], ['behaviorTool','behaviorPending']));
   registerRenderer('activity', selectionAdapter(['selectedActivityNodeId','selectedActivityEdgeId'], ['activityTool','activityPendingFlow']));

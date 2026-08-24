@@ -8,6 +8,7 @@ const state = {
   selectedPackageId: null,
   selectedDiagramId: null,
   selectedRelationshipId: null,
+  selectedUseCaseSubjectBoundaryId: null,
   pendingRelationship: null,
   repositoryFilter: '',
 };
@@ -214,6 +215,7 @@ async function selectDiagram(diagramId) {
   Object.assign(state, {
     selectedDiagramId: diagramId,
     selectedRelationshipId: null,
+    selectedUseCaseSubjectBoundaryId: null,
     pendingRelationship: null,
     paletteTool: null,
     selectedBehaviorDiagramId: null,
@@ -233,7 +235,7 @@ async function selectDiagram(diagramId) {
     diagramId,
     familyId: ibd ? 'ibd' : (bdd?.family || 'bdd'),
     name: (ibd || bdd)?.name || 'Diagram',
-    semanticContextId: ibd?.context_block_id || bdd?.owner_id || '',
+    semanticContextId: ibd?.context_block_id || bdd?.semantic_context_id || bdd?.owner_id || '',
   });
   render();
 }
@@ -244,7 +246,7 @@ function renderDiagramTabs() {
     const tab = document.createElement('button');
     tab.className = 'diagram-tab';
     if (diagram.id === state.selectedDiagramId) tab.classList.add('active');
-    tab.textContent = `${diagram.name} · ${diagram.family === 'requirement' ? 'REQ' : 'BDD'}`;
+    tab.textContent = `${diagram.name} · ${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : 'BDD'}`;
     tab.onclick = () => selectDiagram(diagram.id);
     host.appendChild(tab);
   }
@@ -288,7 +290,7 @@ function addEndpointLabel(svg, point, text, side) {
   svg.appendChild(label);
 }
 function traceabilityLabel(kind) {
-  return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy' }[kind] || '';
+  return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy', Include:'include', Extend:'extend' }[kind] || '';
 }
 function addRelationshipStereotype(svg, points, kind) {
   const stereotype=traceabilityLabel(kind); if(!stereotype||!points.length)return;
@@ -317,10 +319,11 @@ function createRelationshipLayer(frame, diagram, project) {
     polyline.setAttribute('points', edge.points.map((point) => `${point.x},${point.y}`).join(' '));
     polyline.setAttribute('fill', 'none');
     polyline.classList.add('bdd-relationship', `relationship-${relationship.kind.toLowerCase()}`);
+    polyline.dataset.relationshipId = relationship.id;
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
     applyAssociationEndDecoration(polyline, relationship);
     if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
-    if (['Dependency', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
+    if (['Dependency', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;
@@ -617,7 +620,8 @@ async function createProject() {
   await runCommand('Creating project…', () => requireInvoke()('new_project', { name }));
   Object.assign(state, {
     paletteItems: [], paletteTool: null, selectedElementId: null, selectedPackageId: null,
-    selectedDiagramId: null, selectedRelationshipId: null, pendingRelationship: null,
+    selectedDiagramId: null, selectedRelationshipId: null,
+    selectedUseCaseSubjectBoundaryId: null, pendingRelationship: null,
   });
   await refresh();
 }
@@ -628,7 +632,8 @@ async function openProject() {
   await runCommand('Opening project…', () => requireInvoke()('open_project_file', { path }));
   Object.assign(state, {
     paletteItems: [], paletteTool: null, selectedElementId: null, selectedPackageId: null,
-    selectedDiagramId: null, selectedRelationshipId: null, pendingRelationship: null,
+    selectedDiagramId: null, selectedRelationshipId: null,
+    selectedUseCaseSubjectBoundaryId: null, pendingRelationship: null,
   });
   await refresh();
   if (!state.selectedDiagramId && state.snapshot?.diagrams?.length) {

@@ -23,6 +23,7 @@
         <button class="ribbon-command" data-forward="new-package"><span class="command-icon">□</span><span>Package</span></button>
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>BDD</span></button>
         <button class="ribbon-command" data-action="new-requirement"><span class="command-icon">R</span><span>Requirement</span></button>
+        <button class="ribbon-command" data-action="new-use-case"><span class="command-icon">UC</span><span>Use Case</span></button>
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>Sequence</span></button>
@@ -33,6 +34,7 @@
       <section class="ribbon-group"><div class="ribbon-actions">
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>New BDD</span></button>
         <button class="ribbon-command" data-action="new-requirement"><span class="command-icon">R</span><span>New Requirement</span></button>
+        <button class="ribbon-command" data-action="new-use-case"><span class="command-icon">UC</span><span>New Use Case</span></button>
         <button class="ribbon-command" data-action="new-ibd"><span class="command-icon">▥</span><span>New IBD</span></button>
         <button class="ribbon-command" data-action="new-state-machine"><span class="command-icon">◉</span><span>New State Machine</span></button>
         <button class="ribbon-command" data-action="new-sequence"><span class="command-icon">⇥</span><span>New Sequence</span></button>
@@ -71,6 +73,7 @@
       button.addEventListener('click', () => window.smpCreateIbdForSelectedBlock?.());
     });
     ribbon.querySelectorAll('[data-action="new-requirement"]').forEach((button) => button.addEventListener('click', () => window.smpCreateRequirementDiagram?.()));
+    ribbon.querySelectorAll('[data-action="new-use-case"]').forEach((button) => button.addEventListener('click', () => window.smpCreateUseCaseDiagram?.()));
     ribbon.querySelectorAll('[data-action="new-state-machine"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateStateMachineForSelectedBlock?.());
     });

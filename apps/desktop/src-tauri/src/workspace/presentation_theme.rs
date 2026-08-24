@@ -134,6 +134,13 @@ const REQUIREMENT: PresentationStyle = PresentationStyle {
     border: "#71575c",
     text: "#291b1e",
 };
+const USE_CASE: PresentationStyle = PresentationStyle {
+    category: "use-case",
+    fill: "#f5f1df",
+    header: "#e4dcc0",
+    border: "#5d5b4f",
+    text: "#211f18",
+};
 const CONSTRAINT: PresentationStyle = PresentationStyle {
     category: "constraint",
     fill: "#ebe5f3",
@@ -235,6 +242,8 @@ const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("ShallowHistory", CONTROL),
     ("DeepHistory", CONTROL),
     ("Requirement", REQUIREMENT),
+    ("Actor", USE_CASE),
+    ("UseCase", USE_CASE),
     ("ConstraintBlock", CONSTRAINT),
     ("ConstraintProperty", CONSTRAINT),
     ("ValueType", DATA),
@@ -309,6 +318,16 @@ pub struct ResolvedDiagramCommand {
     pub disabled_reason: Option<&'static str>,
 }
 
+const ALL_DIAGRAMS: &[&str] = &[
+    "BDD",
+    "IBD",
+    "Requirement",
+    "UseCase",
+    "StateMachine",
+    "Sequence",
+    "Activity",
+];
+
 pub fn resolve_diagram_commands(
     family: Option<&systems_modeler_core::DiagramFamilyDescriptor>,
 ) -> Vec<ResolvedDiagramCommand> {
@@ -334,13 +353,12 @@ pub fn resolve_diagram_commands(
 
 #[tauri::command]
 pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
-    const ALL: &[&str] = &["BDD", "IBD", "StateMachine", "Sequence", "Activity"];
     let mut commands = vec![
         DiagramCommandCapability {
             id: "select",
             label: "Select",
             shortcut: Some("V"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -349,7 +367,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "clearSelection",
             label: "Clear Selection",
             shortcut: Some("Escape"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -358,7 +376,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "delete",
             label: "Delete",
             shortcut: Some("Delete"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: Some("delete_active_selection"),
             unavailable_reason: None,
             required_capability: Some(DiagramCapability::Delete),
@@ -367,7 +385,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "undo",
             label: "Undo",
             shortcut: Some("Ctrl+Z"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: Some("history_undo"),
             unavailable_reason: None,
             required_capability: None,
@@ -376,7 +394,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "redo",
             label: "Redo",
             shortcut: Some("Ctrl+Y"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: Some("history_redo"),
             unavailable_reason: None,
             required_capability: None,
@@ -385,7 +403,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "copy",
             label: "Copy",
             shortcut: Some("Ctrl+C"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: Some("copy_selection"),
             unavailable_reason: None,
             required_capability: Some(DiagramCapability::Clipboard),
@@ -394,7 +412,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "paste",
             label: "Paste",
             shortcut: Some("Ctrl+V"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: Some("paste_selection"),
             unavailable_reason: None,
             required_capability: Some(DiagramCapability::Clipboard),
@@ -403,7 +421,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
             id: "duplicate",
             label: "Duplicate",
             shortcut: Some("Ctrl+D"),
-            supported_diagrams: ALL,
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: Some("duplicate_selection"),
             unavailable_reason: None,
             required_capability: Some(DiagramCapability::Clipboard),
@@ -419,6 +437,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
                 "BDD",
                 "IBD",
                 "Requirement",
+                "UseCase",
                 "StateMachine",
                 "Sequence",
                 "Activity",
@@ -435,6 +454,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
                 "BDD",
                 "IBD",
                 "Requirement",
+                "UseCase",
                 "StateMachine",
                 "Sequence",
                 "Activity",
@@ -453,7 +473,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "zoomIn",
             label: "Zoom In",
             shortcut: Some("Ctrl++"),
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -462,7 +482,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "zoomOut",
             label: "Zoom Out",
             shortcut: Some("Ctrl+-"),
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -471,7 +491,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "actualSize",
             label: "100%",
             shortcut: Some("Ctrl+0"),
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -480,7 +500,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "fitDiagram",
             label: "Fit Diagram",
             shortcut: Some("Ctrl+9"),
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -489,7 +509,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "pan",
             label: "Pan",
             shortcut: Some("Space"),
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -498,7 +518,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "toggleGrid",
             label: "Show/Hide Grid",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -507,7 +527,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "snapGrid",
             label: "Snap to Grid",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -516,7 +536,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "showRepository",
             label: "Show/Hide Repository",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -525,7 +545,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "showElements",
             label: "Show/Hide Elements",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -534,7 +554,7 @@ fn viewport_commands() -> Vec<DiagramCommandCapability> {
             id: "showProperties",
             label: "Show/Hide Properties",
             shortcut: None,
-            supported_diagrams: &["BDD", "IBD", "StateMachine", "Sequence", "Activity"],
+            supported_diagrams: ALL_DIAGRAMS,
             rust_adapter: None,
             unavailable_reason: None,
             required_capability: None,
@@ -574,6 +594,8 @@ mod tests {
             "Operation",
             "Parameter",
             "Reception",
+            "Actor",
+            "UseCase",
             "Comment",
         ];
         for kind in required {
@@ -591,7 +613,7 @@ mod tests {
                 "zoomIn" | "zoomOut" | "actualSize" | "fitDiagram" | "pan"
             )
         }) {
-            assert_eq!(command.supported_diagrams.len(), 5);
+            assert_eq!(command.supported_diagrams.len(), 7);
         }
     }
 

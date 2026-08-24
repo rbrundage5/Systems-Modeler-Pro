@@ -57,7 +57,7 @@
 
   function applyCompartmentPresentation() {
     const diagram = activeBdd();
-    if (!diagram) return;
+    if (!diagram || diagram.family === 'use-case') return;
     const boxes = [...document.querySelectorAll('#canvas .bdd-block')];
     boxes.forEach((box, index) => {
       const presentation = diagram.nodes?.[index];
@@ -87,7 +87,7 @@
     const diagram = activeBdd();
     const panel = $('properties');
     const elementId = state.selectedElementId;
-    if (!diagram || !panel || !elementId) return;
+    if (!diagram || diagram.family === 'use-case' || !panel || !elementId) return;
     const presentation = presentationForElement(elementId);
     if (!presentation) return;
     const element = state.snapshot?.project?.elements?.find((candidate) => String(candidate.id) === String(elementId));

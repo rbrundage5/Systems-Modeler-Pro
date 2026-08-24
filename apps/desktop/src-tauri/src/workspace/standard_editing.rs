@@ -21,6 +21,7 @@ const PASTE_OFFSET: f64 = 28.0;
 enum EditingFamily {
     Bdd,
     Requirement,
+    UseCase,
     Ibd,
     StateMachine,
     Sequence,
@@ -225,10 +226,10 @@ fn validate_activity_presentations(
 
 fn family_for(diagram_id: &str, snapshot: &EditingSnapshot) -> Result<EditingFamily, String> {
     if let Some(diagram) = snapshot.diagrams.iter().find(|diagram| diagram.id == diagram_id) {
-        return Ok(if diagram.family == "requirement" {
-            EditingFamily::Requirement
-        } else {
-            EditingFamily::Bdd
+        return Ok(match diagram.family.as_str() {
+            "requirement" => EditingFamily::Requirement,
+            "use-case" => EditingFamily::UseCase,
+            _ => EditingFamily::Bdd,
         });
     }
     if snapshot.ibd_diagrams.iter().any(|diagram| diagram.id == diagram_id) {
@@ -380,7 +381,7 @@ fn collect_clipboard(
     let family = family_for(diagram_id, snapshot)?;
     let mut items = Vec::new();
     let semantic_context_id = match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => None,
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => None,
         EditingFamily::Ibd => snapshot
             .ibd_diagrams
             .iter()
@@ -399,7 +400,7 @@ fn collect_clipboard(
     };
 
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram = snapshot
                 .diagrams
                 .iter()
@@ -640,7 +641,7 @@ fn remove_presentations(
     let family = family_for(diagram_id, snapshot)?;
     let mut changed = 0;
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram = snapshot
                 .diagrams
                 .iter_mut()
@@ -794,9 +795,13 @@ fn paste_clipboard(
     let target_family = family_for(target_diagram_id, snapshot)?;
     let mut selections = Vec::new();
     match target_family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
-            if !matches!(payload.family, EditingFamily::Bdd | EditingFamily::Requirement) {
-                return Err("clipboard selection is not compatible with a BDD/Requirement Diagram".into());
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+            let use_case_compatible = target_family == EditingFamily::UseCase
+                && payload.family == EditingFamily::UseCase;
+            let structural_compatible = target_family != EditingFamily::UseCase
+                && matches!(payload.family, EditingFamily::Bdd | EditingFamily::Requirement);
+            if !use_case_compatible && !structural_compatible {
+                return Err("clipboard selection is not compatible with the active diagram family".into());
             }
             let diagram = snapshot
                 .diagrams
@@ -1722,7 +1727,7 @@ fn duplicate_selection_items(
     }
     let mut selections = Vec::new();
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
             let diagram_index = snapshot
                 .diagrams
                 .iter()
@@ -1997,16 +2002,51 @@ fn move_selection_items(
     let family = family_for(diagram_id, snapshot)?;
     let mut changed = 0;
     match family {
-        EditingFamily::Bdd | EditingFamily::Requirement => {
+        EditingFamily::Bdd | EditingFamily::Requirement | EditingFamily::UseCase => {
+            let project = &snapshot.project;
             let diagram = snapshot
                 .diagrams
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("diagram not found")?;
+            let boundary_selected = family == EditingFamily::UseCase
+                && diagram.subject_boundary.as_ref().is_some_and(|boundary| {
+                    selections.iter().any(|selection| {
+                        kind_is(selection, &["UseCaseSubjectBoundary"])
+                            && selection.id == boundary.id
+                    })
+                });
+            if boundary_selected {
+                if let Some(boundary) = diagram.subject_boundary.as_mut() {
+                    boundary.x = (boundary.x + dx).max(0.0);
+                    boundary.y = (boundary.y + dy).max(42.0);
+                }
+                for node in &mut diagram.nodes {
+                    let use_case = parse_element_id(&node.element_id)
+                        .ok()
+                        .and_then(|id| project.element(id).ok())
+                        .is_some_and(|element| element.kind == ElementKind::UseCase);
+                    if use_case {
+                        node.x = (node.x + dx).max(0.0);
+                        node.y = (node.y + dy).max(42.0);
+                    }
+                }
+                changed += 1;
+            }
             for selection in selections {
+                if kind_is(selection, &["UseCaseSubjectBoundary"]) {
+                    continue;
+                }
                 if let Some(node) = diagram.nodes.iter_mut().find(|node| {
                     node.id == selection.id || node.element_id == selection.id
                 }) {
+                    let use_case = parse_element_id(&node.element_id)
+                        .ok()
+                        .and_then(|id| project.element(id).ok())
+                        .is_some_and(|element| element.kind == ElementKind::UseCase);
+                    if boundary_selected && use_case {
+                        continue;
+                    }
                     node.x = (node.x + dx).max(0.0);
                     node.y = (node.y + dy).max(42.0);
                     changed += 1;
@@ -2021,6 +2061,7 @@ fn move_selection_items(
                     changed += 1;
                 }
             }
+            super::use_cases::fit_use_case_subject_boundary(diagram, project, false);
             let routes: Vec<_> = diagram
                 .edges
                 .iter()
@@ -2346,5 +2387,98 @@ mod tests {
         let second = duplicate_element(&mut project, block).expect("second copy");
         assert_eq!(project.element(first).unwrap().name, "Controller Copy");
         assert_eq!(project.element(second).unwrap().name, "Controller Copy 2");
+    }
+
+    #[test]
+    fn moving_use_case_subject_boundary_carries_use_cases_but_not_actors() {
+        let mut project = Project::new("P");
+        let package = project
+            .create_element(ElementKind::Package, "Package", project.root_id)
+            .expect("package");
+        let subject = project
+            .create_element(ElementKind::Block, "System", package)
+            .expect("subject");
+        let actor = project
+            .create_element(ElementKind::Actor, "Operator", package)
+            .expect("actor");
+        let use_case = project
+            .create_element(ElementKind::UseCase, "Operate", package)
+            .expect("use case");
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let boundary_id = uuid::Uuid::new_v4().to_string();
+        let actor_presentation_id = uuid::Uuid::new_v4().to_string();
+        let use_case_presentation_id = uuid::Uuid::new_v4().to_string();
+        let mut snapshot = EditingSnapshot {
+            project,
+            diagrams: vec![BddDiagram {
+                id: diagram_id.clone(),
+                name: "Use Cases".into(),
+                owner_id: package.to_string(),
+                family: "use-case".into(),
+                semantic_context_id: Some(subject.to_string()),
+                subject_boundary: Some(UseCaseSubjectBoundary {
+                    id: boundary_id.clone(),
+                    x: 300.0,
+                    y: 84.0,
+                    width: 580.0,
+                    height: 500.0,
+                }),
+                nodes: vec![
+                    DiagramNode {
+                        id: actor_presentation_id.clone(),
+                        element_id: actor.to_string(),
+                        x: 100.0,
+                        y: 210.0,
+                        width: 110.0,
+                        height: 150.0,
+                        actor_notation: Some("rectangle".into()),
+                    },
+                    DiagramNode {
+                        id: use_case_presentation_id.clone(),
+                        element_id: use_case.to_string(),
+                        x: 420.0,
+                        y: 220.0,
+                        width: 210.0,
+                        height: 115.0,
+                        actor_notation: None,
+                    },
+                ],
+                edges: Vec::new(),
+            }],
+            ibd_diagrams: Vec::new(),
+            behavior: systems_modeler_core::BehaviorRepository::default(),
+            behavior_diagrams: Vec::new(),
+            activity: ActivityRepository::default(),
+            activity_diagrams: Vec::new(),
+        };
+
+        let changed = move_selection_items(
+            &mut snapshot,
+            &diagram_id,
+            &[WorkspaceSelection {
+                kind: "UseCaseSubjectBoundary".into(),
+                id: boundary_id,
+            }],
+            75.0,
+            35.0,
+        )
+        .expect("subject boundary moves");
+        assert_eq!(changed, 1);
+        let diagram = &snapshot.diagrams[0];
+        let boundary = diagram.subject_boundary.as_ref().unwrap();
+        assert_eq!((boundary.x, boundary.y), (375.0, 119.0));
+        let actor_node = diagram
+            .nodes
+            .iter()
+            .find(|node| node.id == actor_presentation_id)
+            .unwrap();
+        assert_eq!((actor_node.x, actor_node.y), (100.0, 210.0));
+        let use_case_node = diagram
+            .nodes
+            .iter()
+            .find(|node| node.id == use_case_presentation_id)
+            .unwrap();
+        assert_eq!((use_case_node.x, use_case_node.y), (495.0, 255.0));
+        snapshot.validate().expect("moved boundary persists valid geometry");
     }
 }

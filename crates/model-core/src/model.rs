@@ -67,6 +67,8 @@ pub enum ElementKind {
     Reception,
     Requirement,
     TestCase,
+    Actor,
+    UseCase,
     Comment,
 }
 
@@ -87,6 +89,10 @@ pub enum RelationshipKind {
     Refine,
     Trace,
     Copy,
+    /// Required reuse from the including Use Case (source) to the included Use Case (target).
+    Include,
+    /// Optional behavior from the extending Use Case (source) to the extended Use Case (target).
+    Extend,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -177,6 +183,15 @@ pub struct Element {
     pub requirement_id: Option<String>,
     #[serde(default)]
     pub requirement_text: Option<String>,
+    /// Named insertion locations owned by a Use Case.
+    #[serde(default)]
+    pub extension_points: Vec<String>,
+    /// Structured Use Case specification kept separately from general documentation.
+    #[serde(default)]
+    pub use_case_specification: String,
+    /// Optional classifier represented as the system/subject for this Use Case.
+    #[serde(default)]
+    pub represented_classifier_id: Option<ElementId>,
 }
 
 impl Element {
@@ -204,6 +219,9 @@ impl Element {
             flow_direction: None,
             requirement_id: None,
             requirement_text: None,
+            extension_points: Vec::new(),
+            use_case_specification: String::new(),
+            represented_classifier_id: None,
         }
     }
 
@@ -225,6 +243,8 @@ impl Element {
                 | ElementKind::Signal
                 | ElementKind::Requirement
                 | ElementKind::TestCase
+                | ElementKind::Actor
+                | ElementKind::UseCase
         )
     }
 
@@ -282,6 +302,12 @@ pub struct Relationship {
     pub connector: Option<Connector>,
     #[serde(default)]
     pub item_flow: Option<ItemFlow>,
+    /// Optional guard for an Extend relationship.
+    #[serde(default)]
+    pub extension_condition: Option<String>,
+    /// Optional named extension point on the extended (target) Use Case.
+    #[serde(default)]
+    pub extension_location: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -338,6 +364,25 @@ pub enum ModelError {
     GeneralizationRequiresClassifiers,
     #[error("generalization would create an inheritance cycle")]
     GeneralizationCycle,
+    #[error("Actor and Use Case generalization endpoints must have the same semantic kind")]
+    InvalidUseCaseGeneralization,
+    #[error("invalid endpoints for {relationship:?}: {source_kind:?} -> {target_kind:?}")]
+    InvalidUseCaseRelationshipEndpoints {
+        relationship: RelationshipKind,
+        source_kind: ElementKind,
+        target_kind: ElementKind,
+    },
+    #[error("Use Case relationships cannot connect an element to itself")]
+    SelfUseCaseRelationship,
+    #[error("extension point '{location}' is not owned by extended Use Case {use_case_id}")]
+    ExtensionPointNotFound {
+        use_case_id: ElementId,
+        location: String,
+    },
+    #[error("Use Case extension point names must be non-empty and unique: {0}")]
+    InvalidExtensionPoints(ElementId),
+    #[error("represented Use Case subject is not a valid classifier: {0}")]
+    InvalidUseCaseSubject(ElementId),
     #[error("association requires at least two ends")]
     AssociationRequiresTwoEnds,
     #[error("association end classifier not found: {0}")]
@@ -615,6 +660,12 @@ impl Project {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
         let traceability = is_traceability_relationship(&kind);
+        validate_use_case_relationship_endpoints(&kind, &source.kind, &target.kind)?;
+        if matches!(kind, RelationshipKind::Include | RelationshipKind::Extend)
+            && source_id == target_id
+        {
+            return Err(ModelError::SelfUseCaseRelationship);
+        }
         if traceability && source_id == target_id {
             return Err(ModelError::SelfTraceabilityRelationship);
         }
@@ -639,6 +690,12 @@ impl Project {
             }
             if self.would_create_generalization_cycle(source_id, target_id) {
                 return Err(ModelError::GeneralizationCycle);
+            }
+            if (matches!(source.kind, ElementKind::Actor | ElementKind::UseCase)
+                || matches!(target.kind, ElementKind::Actor | ElementKind::UseCase))
+                && source.kind != target.kind
+            {
+                return Err(ModelError::InvalidUseCaseGeneralization);
             }
         }
         if traceability && owner_id.is_none() {
@@ -669,12 +726,75 @@ impl Project {
                 association_ends: Vec::new(),
                 connector: None,
                 item_flow: None,
+                extension_condition: None,
+                extension_location: None,
             },
         );
         if let Some(text) = copied_requirement_text {
             self.element_mut(source_id)?.requirement_text = Some(text);
         }
         Ok(id)
+    }
+
+    pub fn update_use_case(
+        &mut self,
+        id: ElementId,
+        specification: impl Into<String>,
+        extension_points: Vec<String>,
+        represented_classifier_id: Option<ElementId>,
+    ) -> Result<(), ModelError> {
+        if self.element(id)?.kind != ElementKind::UseCase {
+            return Err(ModelError::InvalidUseCaseSubject(id));
+        }
+        if let Some(subject_id) = represented_classifier_id {
+            let subject = self.element(subject_id)?;
+            if !subject.is_classifier()
+                || matches!(subject.kind, ElementKind::Actor | ElementKind::UseCase)
+            {
+                return Err(ModelError::InvalidUseCaseSubject(subject_id));
+            }
+        }
+        let mut unique = HashSet::new();
+        let extension_points = extension_points
+            .into_iter()
+            .map(|point| point.trim().to_owned())
+            .filter(|point| !point.is_empty() && unique.insert(point.clone()))
+            .collect();
+        let use_case = self.element_mut(id)?;
+        use_case.use_case_specification = specification.into();
+        use_case.extension_points = extension_points;
+        use_case.represented_classifier_id = represented_classifier_id;
+        Ok(())
+    }
+
+    pub fn update_extend_relationship(
+        &mut self,
+        id: RelationshipId,
+        condition: Option<String>,
+        extension_location: Option<String>,
+    ) -> Result<(), ModelError> {
+        let relationship = self.relationship(id)?;
+        if relationship.kind != RelationshipKind::Extend {
+            return Err(ModelError::InvalidUseCaseRelationshipEndpoints {
+                relationship: relationship.kind.clone(),
+                source_kind: self.element(relationship.source_id)?.kind.clone(),
+                target_kind: self.element(relationship.target_id)?.kind.clone(),
+            });
+        }
+        if let Some(location) = extension_location.as_deref().filter(|value| !value.trim().is_empty())
+        {
+            let target = self.element(relationship.target_id)?;
+            if !target.extension_points.iter().any(|point| point == location) {
+                return Err(ModelError::ExtensionPointNotFound {
+                    use_case_id: target.id,
+                    location: location.to_owned(),
+                });
+            }
+        }
+        let relationship = self.relationships.get_mut(&id).unwrap();
+        relationship.extension_condition = condition.filter(|value| !value.trim().is_empty());
+        relationship.extension_location = extension_location.filter(|value| !value.trim().is_empty());
+        Ok(())
     }
 
     pub fn create_requirement(
@@ -848,7 +968,9 @@ impl Project {
         }) || self
             .elements
             .values()
-            .any(|element| element.type_id == Some(id));
+            .any(|element| {
+                element.type_id == Some(id) || element.represented_classifier_id == Some(id)
+            });
         if referenced {
             return Err(ModelError::ElementStillReferenced(id));
         }
@@ -902,6 +1024,24 @@ impl Project {
                 })
             {
                 return Err(ModelError::InvalidUnitReference(unit.clone()));
+            }
+        }
+        if element.kind == ElementKind::UseCase {
+            if let Some(subject_id) = element.represented_classifier_id {
+                let subject = self.element(subject_id)?;
+                if !subject.is_classifier()
+                    || matches!(subject.kind, ElementKind::Actor | ElementKind::UseCase)
+                {
+                    return Err(ModelError::InvalidUseCaseSubject(subject_id));
+                }
+            }
+            let mut extension_points = HashSet::new();
+            if element
+                .extension_points
+                .iter()
+                .any(|point| point.trim().is_empty() || !extension_points.insert(point))
+            {
+                return Err(ModelError::InvalidExtensionPoints(element.id));
             }
         }
         Ok(())
@@ -967,6 +1107,30 @@ impl Project {
                 &self.element(relationship.source_id)?.kind,
                 &self.element(relationship.target_id)?.kind,
             )?;
+            let source = self.element(relationship.source_id)?;
+            let target = self.element(relationship.target_id)?;
+            validate_use_case_relationship_endpoints(
+                &relationship.kind,
+                &source.kind,
+                &target.kind,
+            )?;
+            if matches!(relationship.kind, RelationshipKind::Include | RelationshipKind::Extend)
+                && relationship.source_id == relationship.target_id
+            {
+                return Err(ModelError::SelfUseCaseRelationship);
+            }
+            if relationship.kind == RelationshipKind::Extend
+                && let Some(location) = relationship
+                    .extension_location
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                && !target.extension_points.iter().any(|point| point == location)
+            {
+                return Err(ModelError::ExtensionPointNotFound {
+                    use_case_id: target.id,
+                    location: location.to_owned(),
+                });
+            }
             for end in &relationship.association_ends {
                 self.element(end.classifier_id)
                     .map_err(|_| ModelError::AssociationEndClassifierNotFound(end.classifier_id))?;
@@ -976,6 +1140,12 @@ impl Project {
                 let target = self.element(relationship.target_id)?;
                 if !source.is_classifier() || !target.is_classifier() {
                     return Err(ModelError::GeneralizationRequiresClassifiers);
+                }
+                if (matches!(source.kind, ElementKind::Actor | ElementKind::UseCase)
+                    || matches!(target.kind, ElementKind::Actor | ElementKind::UseCase))
+                    && source.kind != target.kind
+                {
+                    return Err(ModelError::InvalidUseCaseGeneralization);
                 }
             }
             match relationship.kind {
@@ -1087,7 +1257,9 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         | ElementKind::QuantityKind
         | ElementKind::InstanceSpecification
         | ElementKind::Requirement
-        | ElementKind::TestCase => namespace_owned,
+        | ElementKind::TestCase
+        | ElementKind::Actor
+        | ElementKind::UseCase => namespace_owned,
         ElementKind::Comment => namespace_owned || classifier_owner,
         ElementKind::EnumerationLiteral => matches!(owner, ElementKind::Enumeration),
         ElementKind::Slot => matches!(owner, ElementKind::InstanceSpecification),
@@ -1122,6 +1294,38 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         Err(ModelError::InvalidOwnerKind {
             kind: kind.clone(),
             owner: owner.clone(),
+        })
+    }
+}
+
+fn validate_use_case_relationship_endpoints(
+    relationship: &RelationshipKind,
+    source: &ElementKind,
+    target: &ElementKind,
+) -> Result<(), ModelError> {
+    let valid = match relationship {
+        RelationshipKind::Include | RelationshipKind::Extend => {
+            *source == ElementKind::UseCase && *target == ElementKind::UseCase
+        }
+        RelationshipKind::Association
+            if matches!(source, ElementKind::Actor | ElementKind::UseCase)
+                || matches!(target, ElementKind::Actor | ElementKind::UseCase) =>
+        {
+            matches!(
+                (source, target),
+                (ElementKind::Actor, ElementKind::UseCase)
+                    | (ElementKind::UseCase, ElementKind::Actor)
+            )
+        }
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(ModelError::InvalidUseCaseRelationshipEndpoints {
+            relationship: relationship.clone(),
+            source_kind: source.clone(),
+            target_kind: target.clone(),
         })
     }
 }
@@ -1293,6 +1497,11 @@ pub mod notation {
                 target_decoration: EndDecoration::HollowTriangle,
             },
             RelationshipKind::Dependency => RelationshipNotation {
+                line: LineStyle::Dashed,
+                source_decoration: EndDecoration::None,
+                target_decoration: EndDecoration::OpenArrow,
+            },
+            RelationshipKind::Include | RelationshipKind::Extend => RelationshipNotation {
                 line: LineStyle::Dashed,
                 source_decoration: EndDecoration::None,
                 target_decoration: EndDecoration::OpenArrow,

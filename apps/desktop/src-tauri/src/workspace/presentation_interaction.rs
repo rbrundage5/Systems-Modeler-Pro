@@ -1,6 +1,9 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
-use super::{WorkspaceState, behavior_workspace, ibd, route_relationship};
+use super::{
+    WorkspaceState, behavior_workspace, ibd, route_relationship, use_cases,
+    validate_loaded_diagrams,
+};
 
 fn validate_geometry(
     x: f64,
@@ -35,6 +38,12 @@ pub fn update_bdd_presentation_geometry(
     history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 48.0, 32.0)?;
+    let project = state
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
     let mut diagrams = state
         .diagrams
         .lock()
@@ -53,6 +62,7 @@ pub fn update_bdd_presentation_geometry(
     node.y = y;
     node.width = width;
     node.height = height;
+    use_cases::fit_use_case_subject_boundary(diagram, &project, false);
 
     let routes: Vec<_> = diagram
         .edges
@@ -81,6 +91,8 @@ pub fn update_bdd_presentation_geometry(
             edge.points = points;
         }
     }
+
+    validate_loaded_diagrams(&project, &diagrams)?;
 
     history::checkpoint_states(&state, &activity, &history)?;
     *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
