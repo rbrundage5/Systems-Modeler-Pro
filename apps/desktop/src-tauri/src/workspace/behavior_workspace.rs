@@ -1899,7 +1899,10 @@ mod state_machine_layout_tests {
                 && node.y + node.height <= frame.y + frame.height
         }));
         assert_eq!(diagram.edge_routes.len(), 1);
-        assert_eq!(diagram.edge_routes[0].semantic_id, transition_id.to_string());
+        assert_eq!(
+            diagram.edge_routes[0].semantic_id,
+            transition_id.to_string()
+        );
         assert!(diagram.edge_routes[0].points.iter().all(|point| {
             point.x >= frame.x
                 && point.x <= frame.x + frame.width
