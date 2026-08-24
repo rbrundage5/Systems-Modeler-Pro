@@ -727,7 +727,6 @@ fn remove_presentations(
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("behavior diagram not found")?;
-            let mut endpoints_changed = false;
             for selection in selections {
                 if kind_is(selection, &["BehaviorCopy"])
                     && let Some(index) = diagram
@@ -2123,6 +2122,7 @@ fn move_selection_items(
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("behavior diagram not found")?;
+            let mut endpoints_changed = false;
             for selection in selections {
                 if kind_is(selection, &["BehaviorCopy"])
                     && let Some(copy) = diagram
