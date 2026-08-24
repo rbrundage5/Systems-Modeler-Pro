@@ -67,7 +67,9 @@ pub fn create_use_case_diagram(
             if !context.is_classifier()
                 || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase)
             {
-                return Err("Use Case diagram subject must be a represented system classifier".into());
+                return Err(
+                    "Use Case diagram subject must be a represented system classifier".into(),
+                );
             }
         }
     }
