@@ -20,10 +20,8 @@ fn remove_bdd_presentations(diagrams: &mut [BddDiagram], element_id: ElementId) 
             .filter(|node| node.element_id == element_id)
             .cloned()
             .collect();
-        let mut removed_presentation_ids: HashSet<_> = removed_nodes
-            .iter()
-            .map(|node| node.id.clone())
-            .collect();
+        let mut removed_presentation_ids: HashSet<_> =
+            removed_nodes.iter().map(|node| node.id.clone()).collect();
         removed_presentation_ids.extend(
             removed_nodes
                 .iter()
@@ -154,7 +152,10 @@ pub fn move_repository_element(
         }
     }
     if moved_kind == ElementKind::ConstraintParameter {
-        for diagram in diagrams.iter_mut().filter(|diagram| diagram.family == "parametric") {
+        for diagram in diagrams
+            .iter_mut()
+            .filter(|diagram| diagram.family == "parametric")
+        {
             for node in &mut diagram.nodes {
                 super::parametrics::sync_parameter_presentations(node, &project)?;
             }

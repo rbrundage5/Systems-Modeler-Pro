@@ -45,7 +45,10 @@ fn parametric_semantics_and_binding_endpoints_round_trip_through_sqlite() {
             Multiplicity::ONE,
         )
         .unwrap();
-    project.element_mut(definition).unwrap().constraint_expression = "mass = mass".into();
+    project
+        .element_mut(definition)
+        .unwrap()
+        .constraint_expression = "mass = mass".into();
     let property = project
         .create_typed_feature(
             ElementKind::ConstraintProperty,
@@ -90,11 +93,23 @@ fn parametric_semantics_and_binding_endpoints_round_trip_through_sqlite() {
         "mass = mass"
     );
     assert_eq!(
-        restored.element(quantity).unwrap().quantity_dimension.as_deref(),
+        restored
+            .element(quantity)
+            .unwrap()
+            .quantity_dimension
+            .as_deref(),
         Some("M")
     );
-    assert_eq!(restored.element(unit).unwrap().unit_symbol.as_deref(), Some("kg"));
-    let connector = restored.relationship(binding).unwrap().binding.as_ref().unwrap();
+    assert_eq!(
+        restored.element(unit).unwrap().unit_symbol.as_deref(),
+        Some("kg")
+    );
+    let connector = restored
+        .relationship(binding)
+        .unwrap()
+        .binding
+        .as_ref()
+        .unwrap();
     assert_eq!(connector.source.role_id, property);
     assert_eq!(connector.source.parameter_id, Some(parameter));
     assert_eq!(connector.target.role_id, value);

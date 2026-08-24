@@ -678,7 +678,10 @@ mod tests {
             .find(|item| item.command.id == "evaluateParametrics")
             .expect("Evaluate Parametrics is registered");
         assert!(evaluation.enabled);
-        assert_eq!(evaluation.command.rust_adapter, Some("evaluate_parametric_diagram"));
+        assert_eq!(
+            evaluation.command.rust_adapter,
+            Some("evaluate_parametric_diagram")
+        );
     }
 
     #[test]

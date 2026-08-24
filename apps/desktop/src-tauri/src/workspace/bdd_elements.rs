@@ -189,16 +189,19 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
                 .collect(),
             extension_condition: relationship.extension_condition.clone(),
             extension_location: relationship.extension_location.clone(),
-            binding: relationship.binding.as_ref().map(|binding| BindingConnectorSnapshot {
-                source: BindingEndpointSnapshot {
-                    role_id: binding.source.role_id.to_string(),
-                    parameter_id: binding.source.parameter_id.map(|id| id.to_string()),
-                },
-                target: BindingEndpointSnapshot {
-                    role_id: binding.target.role_id.to_string(),
-                    parameter_id: binding.target.parameter_id.map(|id| id.to_string()),
-                },
-            }),
+            binding: relationship
+                .binding
+                .as_ref()
+                .map(|binding| BindingConnectorSnapshot {
+                    source: BindingEndpointSnapshot {
+                        role_id: binding.source.role_id.to_string(),
+                        parameter_id: binding.source.parameter_id.map(|id| id.to_string()),
+                    },
+                    target: BindingEndpointSnapshot {
+                        role_id: binding.target.role_id.to_string(),
+                        parameter_id: binding.target.parameter_id.map(|id| id.to_string()),
+                    },
+                }),
         })
         .collect();
     relationships.sort_by(|a, b| a.id.cmp(&b.id));
@@ -324,7 +327,8 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                     return Err("ValueProperty presentations cannot own parameter endpoints".into());
                 }
                 if element.kind == ElementKind::ConstraintProperty {
-                    let constraint_block_id = element.type_id.ok_or("ConstraintProperty has no type")?;
+                    let constraint_block_id =
+                        element.type_id.ok_or("ConstraintProperty has no type")?;
                     let expected_parameters: HashSet<_> = project
                         .children(constraint_block_id)
                         .filter(|parameter| parameter.kind == ElementKind::ConstraintParameter)
@@ -452,12 +456,16 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                     .nodes
                     .iter()
                     .find(|node| node.id == edge.source_node_id)
-                    .ok_or_else(|| format!("edge source node not found: {}", edge.source_node_id))?;
+                    .ok_or_else(|| {
+                        format!("edge source node not found: {}", edge.source_node_id)
+                    })?;
                 let target = diagram
                     .nodes
                     .iter()
                     .find(|node| node.id == edge.target_node_id)
-                    .ok_or_else(|| format!("edge target node not found: {}", edge.target_node_id))?;
+                    .ok_or_else(|| {
+                        format!("edge target node not found: {}", edge.target_node_id)
+                    })?;
                 if source.element_id != relationship.source_id.to_string()
                     || target.element_id != relationship.target_id.to_string()
                 {

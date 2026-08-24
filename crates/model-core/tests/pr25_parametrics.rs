@@ -177,8 +177,14 @@ fn kinetic_energy_evaluates_with_units_and_reusable_definition_parameters() {
     .expect("deterministic evaluation");
     assert_eq!(report.evaluated_constraints, 1);
     assert_eq!(report.updates.len(), 1);
-    assert_eq!(project.element(energy).unwrap().default_value.as_deref(), Some("300000 J"));
-    assert_eq!(project.element(mass_parameter).unwrap().owner_id, Some(block));
+    assert_eq!(
+        project.element(energy).unwrap().default_value.as_deref(),
+        Some("300000 J")
+    );
+    assert_eq!(
+        project.element(mass_parameter).unwrap().owner_id,
+        Some(block)
+    );
 }
 
 #[test]
@@ -193,10 +199,22 @@ fn binding_rejects_incompatible_quantity_kinds_and_self_connections() {
     let (_, _, mass_type) = definition(&mut project, package, "Mass", "M", "kg", "kg", 1.0);
     let (_, _, time_type) = definition(&mut project, package, "Time", "T", "second", "s", 1.0);
     let mass = project
-        .create_typed_feature(ElementKind::ValueProperty, "mass", context, mass_type, Multiplicity::ONE)
+        .create_typed_feature(
+            ElementKind::ValueProperty,
+            "mass",
+            context,
+            mass_type,
+            Multiplicity::ONE,
+        )
         .unwrap();
     let time = project
-        .create_typed_feature(ElementKind::ValueProperty, "time", context, time_type, Multiplicity::ONE)
+        .create_typed_feature(
+            ElementKind::ValueProperty,
+            "time",
+            context,
+            time_type,
+            Multiplicity::ONE,
+        )
         .unwrap();
     let error = project
         .create_binding_connector(context, endpoint(mass, None), endpoint(time, None))
@@ -252,7 +270,10 @@ fn project_validation_rejects_duplicate_binding_connectors_from_loaded_data() {
         .unwrap();
     project.relationships.get_mut(&duplicate).unwrap().binding = binding;
 
-    assert_eq!(project.validate().unwrap_err(), ModelError::DuplicateBindingConnector);
+    assert_eq!(
+        project.validate().unwrap_err(),
+        ModelError::DuplicateBindingConnector
+    );
 }
 
 #[test]
@@ -306,7 +327,9 @@ fn evaluation_reports_unbound_mandatory_parameters_without_mutating_values() {
         },
     )
     .unwrap_err();
-    assert!(matches!(error, ModelError::ParametricEvaluation(message) if message.contains("unbound")));
+    assert!(
+        matches!(error, ModelError::ParametricEvaluation(message) if message.contains("unbound"))
+    );
 }
 
 #[test]
@@ -320,10 +343,22 @@ fn evaluation_rejects_constraint_dependency_cycles() {
         .unwrap();
     let (_, _, scalar) = definition(&mut project, package, "Scalar", "1", "one", "1", 1.0);
     let x = project
-        .create_typed_feature(ElementKind::ValueProperty, "x", context, scalar, Multiplicity::ONE)
+        .create_typed_feature(
+            ElementKind::ValueProperty,
+            "x",
+            context,
+            scalar,
+            Multiplicity::ONE,
+        )
         .unwrap();
     let y = project
-        .create_typed_feature(ElementKind::ValueProperty, "y", context, scalar, Multiplicity::ONE)
+        .create_typed_feature(
+            ElementKind::ValueProperty,
+            "y",
+            context,
+            scalar,
+            Multiplicity::ONE,
+        )
         .unwrap();
 
     let mut constraints = Vec::new();
@@ -390,5 +425,7 @@ fn evaluation_rejects_constraint_dependency_cycles() {
         },
     )
     .unwrap_err();
-    assert!(matches!(error, ModelError::ParametricEvaluation(message) if message.contains("cycle")));
+    assert!(
+        matches!(error, ModelError::ParametricEvaluation(message) if message.contains("cycle"))
+    );
 }

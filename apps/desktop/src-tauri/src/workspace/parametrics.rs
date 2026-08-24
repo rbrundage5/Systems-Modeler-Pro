@@ -95,8 +95,7 @@ fn parameter_layout(
                 id: uuid::Uuid::new_v4().to_string(),
                 parameter_id: parameter.id.to_string(),
                 offset_x: if right { width - PARAMETER_SIZE } else { 0.0 },
-                offset_y: (center_y - PARAMETER_SIZE / 2.0)
-                    .clamp(0.0, height - PARAMETER_SIZE),
+                offset_y: (center_y - PARAMETER_SIZE / 2.0).clamp(0.0, height - PARAMETER_SIZE),
                 size: PARAMETER_SIZE,
             }
         })
@@ -161,7 +160,9 @@ fn endpoint_from_presentation(
             .element(element_id)
             .map_err(|error| error.to_string())?;
         if element.kind != ElementKind::ValueProperty {
-            return Err("BindingConnector must attach to a ValueProperty or constraint parameter".into());
+            return Err(
+                "BindingConnector must attach to a ValueProperty or constraint parameter".into(),
+            );
         }
         return Ok(BindingEndpoint {
             role_id: element_id,
@@ -342,9 +343,21 @@ pub(super) fn layout_parametric_with_bounds(
         }
     }
     candidate.edges = routed_edges(&candidate, bounds)?;
-    let changed = original.nodes.iter().zip(&candidate.nodes).any(|(left, right)| {
-        left.x != right.x || left.y != right.y || left.width != right.width || left.height != right.height
-    }) || original.edges.iter().zip(&candidate.edges).any(|(left, right)| left.points != right.points);
+    let changed = original
+        .nodes
+        .iter()
+        .zip(&candidate.nodes)
+        .any(|(left, right)| {
+            left.x != right.x
+                || left.y != right.y
+                || left.width != right.width
+                || left.height != right.height
+        })
+        || original
+            .edges
+            .iter()
+            .zip(&candidate.edges)
+            .any(|(left, right)| left.points != right.points);
     if changed {
         diagrams[index] = candidate;
     }
@@ -368,7 +381,9 @@ pub fn create_parametric_diagram(
         .map_err(|_| "project lock poisoned")?
         .clone()
         .ok_or("no project open")?;
-    let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+    let owner = project
+        .element(owner_id)
+        .map_err(|error| error.to_string())?;
     if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
         return Err("Parametric Diagram owner must be a Model or Package".into());
     }
@@ -434,7 +449,10 @@ pub fn place_on_parametric_diagram(
         element.kind,
         ElementKind::ConstraintProperty | ElementKind::ValueProperty
     ) {
-        return Err("only ConstraintProperties and ValueProperties can be placed on a Parametric Diagram".into());
+        return Err(
+            "only ConstraintProperties and ValueProperties can be placed on a Parametric Diagram"
+                .into(),
+        );
     }
     let mut diagrams = workspace
         .diagrams
@@ -448,7 +466,11 @@ pub fn place_on_parametric_diagram(
     if element.owner_id != Some(diagram_context(diagram)?) {
         return Err("Parametric element must be owned by the diagram context".into());
     }
-    if diagram.nodes.iter().any(|node| node.element_id == element_id.to_string()) {
+    if diagram
+        .nodes
+        .iter()
+        .any(|node| node.element_id == element_id.to_string())
+    {
         return Err("this semantic property is already presented on the Parametric Diagram".into());
     }
     let constraint = element.kind == ElementKind::ConstraintProperty;
@@ -457,8 +479,16 @@ pub fn place_on_parametric_diagram(
         element_id: element_id.to_string(),
         x: x.max(0.0),
         y: y.max(42.0),
-        width: if constraint { CONSTRAINT_WIDTH } else { VALUE_WIDTH },
-        height: if constraint { CONSTRAINT_HEIGHT } else { VALUE_HEIGHT },
+        width: if constraint {
+            CONSTRAINT_WIDTH
+        } else {
+            VALUE_WIDTH
+        },
+        height: if constraint {
+            CONSTRAINT_HEIGHT
+        } else {
+            VALUE_HEIGHT
+        },
         actor_notation: None,
         parameter_presentations: Vec::new(),
     };
@@ -527,8 +557,14 @@ pub fn create_parametric_constraint_property(
     project.validate().map_err(|error| error.to_string())?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(element_id.to_string())
 }
 
@@ -660,8 +696,14 @@ pub fn create_parametric_value_property(
     project.validate().map_err(|error| error.to_string())?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(element_id.to_string())
 }
 
@@ -677,19 +719,36 @@ pub fn update_constraint_block_details(
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    if project.element(element_id).map_err(|error| error.to_string())?.kind != ElementKind::ConstraintBlock {
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    if project
+        .element(element_id)
+        .map_err(|error| error.to_string())?
+        .kind
+        != ElementKind::ConstraintBlock
+    {
         return Err("constraint expression can only update a ConstraintBlock".into());
     }
-    project.rename_element(element_id, name).map_err(|error| error.to_string())?;
+    project
+        .rename_element(element_id, name)
+        .map_err(|error| error.to_string())?;
     {
-        let block = project.element_mut(element_id).map_err(|error| error.to_string())?;
+        let block = project
+            .element_mut(element_id)
+            .map_err(|error| error.to_string())?;
         block.documentation = documentation;
         block.constraint_expression = expression.trim().to_owned();
     }
     project.validate().map_err(|error| error.to_string())?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
     Ok(())
 }
 
@@ -706,7 +765,12 @@ pub fn create_constraint_parameter(
 ) -> Result<String, String> {
     let constraint_block_id = parse_element_id(&constraint_block_id)?;
     let type_id = parse_element_id(&type_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
     let parameter_id = project
         .create_typed_feature(
             ElementKind::ConstraintParameter,
@@ -716,11 +780,22 @@ pub fn create_constraint_parameter(
             parse_multiplicity(&multiplicity)?,
         )
         .map_err(|error| error.to_string())?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    for diagram in diagrams.iter_mut().filter(|diagram| diagram.family == "parametric") {
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    for diagram in diagrams
+        .iter_mut()
+        .filter(|diagram| diagram.family == "parametric")
+    {
         for node in &mut diagram.nodes {
-            let property = project.element(parse_element_id(&node.element_id)?).map_err(|error| error.to_string())?;
-            if property.kind == ElementKind::ConstraintProperty && property.type_id == Some(constraint_block_id) {
+            let property = project
+                .element(parse_element_id(&node.element_id)?)
+                .map_err(|error| error.to_string())?;
+            if property.kind == ElementKind::ConstraintProperty
+                && property.type_id == Some(constraint_block_id)
+            {
                 sync_parameter_presentations(node, &project)?;
             }
         }
@@ -729,8 +804,14 @@ pub fn create_constraint_parameter(
     project.validate().map_err(|error| error.to_string())?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(parameter_id.to_string())
 }
 
@@ -752,8 +833,18 @@ pub fn update_parametric_value_property(
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
     let type_id = parse_element_id(&type_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    if project.element(element_id).map_err(|error| error.to_string())?.kind != ElementKind::ValueProperty {
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    if project
+        .element(element_id)
+        .map_err(|error| error.to_string())?
+        .kind
+        != ElementKind::ValueProperty
+    {
         return Err("value editing requires a ValueProperty".into());
     }
     let quantity_external = quantity_kind_id
@@ -761,19 +852,35 @@ pub fn update_parametric_value_property(
         .filter(|value| !value.trim().is_empty())
         .map(parse_element_id)
         .transpose()?
-        .map(|id| project.element(id).map(|element| element.external_id.clone()).map_err(|error| error.to_string()))
+        .map(|id| {
+            project
+                .element(id)
+                .map(|element| element.external_id.clone())
+                .map_err(|error| error.to_string())
+        })
         .transpose()?;
     let unit_external = unit_id
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .map(parse_element_id)
         .transpose()?
-        .map(|id| project.element(id).map(|element| element.external_id.clone()).map_err(|error| error.to_string()))
+        .map(|id| {
+            project
+                .element(id)
+                .map(|element| element.external_id.clone())
+                .map_err(|error| error.to_string())
+        })
         .transpose()?;
-    project.rename_element(element_id, name).map_err(|error| error.to_string())?;
-    project.set_multiplicity(element_id, parse_multiplicity(&multiplicity)?).map_err(|error| error.to_string())?;
+    project
+        .rename_element(element_id, name)
+        .map_err(|error| error.to_string())?;
+    project
+        .set_multiplicity(element_id, parse_multiplicity(&multiplicity)?)
+        .map_err(|error| error.to_string())?;
     {
-        let property = project.element_mut(element_id).map_err(|error| error.to_string())?;
+        let property = project
+            .element_mut(element_id)
+            .map_err(|error| error.to_string())?;
         property.type_id = Some(type_id);
         property.default_value = value.filter(|value| !value.trim().is_empty());
         property.is_derived = is_derived;
@@ -783,7 +890,10 @@ pub fn update_parametric_value_property(
     }
     project.validate().map_err(|error| error.to_string())?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
     Ok(())
 }
 
@@ -860,21 +970,22 @@ pub fn update_value_type_details(
     {
         return Err("unit and QuantityKind editing requires a ValueType".into());
     }
-    let resolve_external = |value: Option<String>, kind: ElementKind| -> Result<Option<String>, String> {
-        value
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .map(parse_element_id)
-            .transpose()?
-            .map(|id| {
-                let element = project.element(id).map_err(|error| error.to_string())?;
-                if element.kind != kind {
-                    return Err(format!("reference must target a {kind:?}"));
-                }
-                Ok(element.external_id.clone())
-            })
-            .transpose()
-    };
+    let resolve_external =
+        |value: Option<String>, kind: ElementKind| -> Result<Option<String>, String> {
+            value
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(parse_element_id)
+                .transpose()?
+                .map(|id| {
+                    let element = project.element(id).map_err(|error| error.to_string())?;
+                    if element.kind != kind {
+                        return Err(format!("reference must target a {kind:?}"));
+                    }
+                    Ok(element.external_id.clone())
+                })
+                .transpose()
+        };
     let quantity_external = resolve_external(quantity_kind_id, ElementKind::QuantityKind)?;
     let unit_external = resolve_external(unit_id, ElementKind::Unit)?;
     project
@@ -909,19 +1020,36 @@ pub fn update_quantity_kind_details(
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    if project.element(element_id).map_err(|error| error.to_string())?.kind != ElementKind::QuantityKind {
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    if project
+        .element(element_id)
+        .map_err(|error| error.to_string())?
+        .kind
+        != ElementKind::QuantityKind
+    {
         return Err("dimension editing requires a QuantityKind".into());
     }
-    project.rename_element(element_id, name).map_err(|error| error.to_string())?;
+    project
+        .rename_element(element_id, name)
+        .map_err(|error| error.to_string())?;
     {
-        let quantity = project.element_mut(element_id).map_err(|error| error.to_string())?;
+        let quantity = project
+            .element_mut(element_id)
+            .map_err(|error| error.to_string())?;
         quantity.documentation = documentation;
         quantity.quantity_dimension = Some(dimension.trim().to_owned());
     }
     project.validate().map_err(|error| error.to_string())?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
     Ok(())
 }
 
@@ -940,18 +1068,34 @@ pub fn update_unit_details(
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
     let quantity_kind_id = parse_element_id(&quantity_kind_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    if project.element(element_id).map_err(|error| error.to_string())?.kind != ElementKind::Unit {
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    if project
+        .element(element_id)
+        .map_err(|error| error.to_string())?
+        .kind
+        != ElementKind::Unit
+    {
         return Err("unit editing requires a Unit".into());
     }
-    let quantity = project.element(quantity_kind_id).map_err(|error| error.to_string())?;
+    let quantity = project
+        .element(quantity_kind_id)
+        .map_err(|error| error.to_string())?;
     if quantity.kind != ElementKind::QuantityKind {
         return Err("Unit quantity kind must reference a QuantityKind".into());
     }
     let quantity_external = quantity.external_id.clone();
-    project.rename_element(element_id, name).map_err(|error| error.to_string())?;
+    project
+        .rename_element(element_id, name)
+        .map_err(|error| error.to_string())?;
     {
-        let unit = project.element_mut(element_id).map_err(|error| error.to_string())?;
+        let unit = project
+            .element_mut(element_id)
+            .map_err(|error| error.to_string())?;
         unit.documentation = documentation;
         unit.unit_symbol = Some(symbol.trim().to_owned());
         unit.unit_scale_to_base = scale_to_base;
@@ -959,7 +1103,10 @@ pub fn update_unit_details(
     }
     project.validate().map_err(|error| error.to_string())?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
     Ok(())
 }
 
@@ -972,12 +1119,26 @@ pub fn create_binding_connector(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<String, String> {
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id && diagram.family == "parametric").ok_or("Parametric Diagram not found")?;
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
+        .ok_or("Parametric Diagram not found")?;
     let source = endpoint_from_presentation(diagram, &project, &source_presentation_id)?;
     let target = endpoint_from_presentation(diagram, &project, &target_presentation_id)?;
-    let relationship_id = project.create_binding_connector(diagram_context(diagram)?, source, target).map_err(|error| error.to_string())?;
+    let relationship_id = project
+        .create_binding_connector(diagram_context(diagram)?, source, target)
+        .map_err(|error| error.to_string())?;
     diagram.edges.push(DiagramEdge {
         id: uuid::Uuid::new_v4().to_string(),
         relationship_id: relationship_id.to_string(),
@@ -990,8 +1151,14 @@ pub fn create_binding_connector(
     project.validate().map_err(|error| error.to_string())?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(relationship_id.to_string())
 }
 
@@ -1009,15 +1176,33 @@ pub fn reconnect_binding_connector(
         return Err("BindingConnector side must be source or target".into());
     }
     let relationship_id = parse_relationship_id(&relationship_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id && diagram.family == "parametric").ok_or("Parametric Diagram not found")?;
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
+        .ok_or("Parametric Diagram not found")?;
     let endpoint = endpoint_from_presentation(diagram, &project, &presentation_id)?;
-    let relationship = project.relationships.get_mut(&relationship_id).ok_or("BindingConnector not found")?;
+    let relationship = project
+        .relationships
+        .get_mut(&relationship_id)
+        .ok_or("BindingConnector not found")?;
     if relationship.kind != RelationshipKind::BindingConnector {
         return Err("relationship is not a BindingConnector".into());
     }
-    let binding = relationship.binding.as_mut().ok_or("BindingConnector endpoint details are missing")?;
+    let binding = relationship
+        .binding
+        .as_mut()
+        .ok_or("BindingConnector endpoint details are missing")?;
     if side == "source" {
         binding.source = endpoint.clone();
         relationship.source_id = endpoint.role_id;
@@ -1026,13 +1211,27 @@ pub fn reconnect_binding_connector(
         relationship.target_id = endpoint.role_id;
     }
     project.validate().map_err(|error| error.to_string())?;
-    let edge = diagram.edges.iter_mut().find(|edge| edge.relationship_id == relationship_id.to_string()).ok_or("BindingConnector presentation not found")?;
-    if side == "source" { edge.source_node_id = presentation_id; } else { edge.target_node_id = presentation_id; }
+    let edge = diagram
+        .edges
+        .iter_mut()
+        .find(|edge| edge.relationship_id == relationship_id.to_string())
+        .ok_or("BindingConnector presentation not found")?;
+    if side == "source" {
+        edge.source_node_id = presentation_id;
+    } else {
+        edge.target_node_id = presentation_id;
+    }
     diagram.edges = routed_edges(diagram, None)?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1044,18 +1243,40 @@ pub fn delete_binding_connector(
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
     let relationship_id = parse_relationship_id(&relationship_id)?;
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    if project.relationship(relationship_id).map_err(|error| error.to_string())?.kind != RelationshipKind::BindingConnector {
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    if project
+        .relationship(relationship_id)
+        .map_err(|error| error.to_string())?
+        .kind
+        != RelationshipKind::BindingConnector
+    {
         return Err("relationship is not a BindingConnector".into());
     }
     project.relationships.remove(&relationship_id);
     let id = relationship_id.to_string();
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    for diagram in &mut diagrams { diagram.edges.retain(|edge| edge.relationship_id != id); }
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    for diagram in &mut diagrams {
+        diagram.edges.retain(|edge| edge.relationship_id != id);
+    }
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")? = Some(project);
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1072,19 +1293,42 @@ pub fn update_parametric_presentation_geometry(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
-    if ![x, y, width, height].iter().all(|value| value.is_finite()) || width < 80.0 || height < 50.0 {
+    if ![x, y, width, height].iter().all(|value| value.is_finite()) || width < 80.0 || height < 50.0
+    {
         return Err("Parametric presentation geometry is invalid".into());
     }
-    let project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id && diagram.family == "parametric").ok_or("Parametric Diagram not found")?;
-    let node = diagram.nodes.iter_mut().find(|node| node.id == presentation_id).ok_or("Parametric presentation not found")?;
-    node.x = x.max(0.0); node.y = y.max(42.0); node.width = width; node.height = height;
+    let project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
+        .ok_or("Parametric Diagram not found")?;
+    let node = diagram
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == presentation_id)
+        .ok_or("Parametric presentation not found")?;
+    node.x = x.max(0.0);
+    node.y = y.max(42.0);
+    node.width = width;
+    node.height = height;
     sync_parameter_presentations(node, &project)?;
     diagram.edges = routed_edges(diagram, None)?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1099,25 +1343,74 @@ pub fn update_constraint_parameter_presentation(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
-    if !offset_x.is_finite() || !offset_y.is_finite() { return Err("parameter position must be finite".into()); }
-    let project = workspace.project.lock().map_err(|_| "project lock poisoned")?.clone().ok_or("no project open")?;
-    let mut diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id && diagram.family == "parametric").ok_or("Parametric Diagram not found")?;
-    let node = diagram.nodes.iter_mut().find(|node| node.parameter_presentations.iter().any(|parameter| parameter.id == presentation_id)).ok_or("ConstraintParameter presentation not found")?;
-    let parameter = node.parameter_presentations.iter_mut().find(|parameter| parameter.id == presentation_id).unwrap();
-    let max_x = (node.width - parameter.size).max(0.0); let max_y = (node.height - parameter.size).max(0.0);
-    let x = offset_x.clamp(0.0, max_x); let y = offset_y.clamp(0.0, max_y);
+    if !offset_x.is_finite() || !offset_y.is_finite() {
+        return Err("parameter position must be finite".into());
+    }
+    let project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    let mut diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
+        .ok_or("Parametric Diagram not found")?;
+    let node = diagram
+        .nodes
+        .iter_mut()
+        .find(|node| {
+            node.parameter_presentations
+                .iter()
+                .any(|parameter| parameter.id == presentation_id)
+        })
+        .ok_or("ConstraintParameter presentation not found")?;
+    let parameter = node
+        .parameter_presentations
+        .iter_mut()
+        .find(|parameter| parameter.id == presentation_id)
+        .unwrap();
+    let max_x = (node.width - parameter.size).max(0.0);
+    let max_y = (node.height - parameter.size).max(0.0);
+    let x = offset_x.clamp(0.0, max_x);
+    let y = offset_y.clamp(0.0, max_y);
     let distances = [x, max_x - x, y, max_y - y];
-    match distances.iter().enumerate().min_by(|left, right| left.1.total_cmp(right.1)).map(|(index, _)| index).unwrap_or(0) {
-        0 => { parameter.offset_x = 0.0; parameter.offset_y = y; }
-        1 => { parameter.offset_x = max_x; parameter.offset_y = y; }
-        2 => { parameter.offset_x = x; parameter.offset_y = 0.0; }
-        _ => { parameter.offset_x = x; parameter.offset_y = max_y; }
+    match distances
+        .iter()
+        .enumerate()
+        .min_by(|left, right| left.1.total_cmp(right.1))
+        .map(|(index, _)| index)
+        .unwrap_or(0)
+    {
+        0 => {
+            parameter.offset_x = 0.0;
+            parameter.offset_y = y;
+        }
+        1 => {
+            parameter.offset_x = max_x;
+            parameter.offset_y = y;
+        }
+        2 => {
+            parameter.offset_x = x;
+            parameter.offset_y = 0.0;
+        }
+        _ => {
+            parameter.offset_x = x;
+            parameter.offset_y = max_y;
+        }
     }
     diagram.edges = routed_edges(diagram, None)?;
     validate_loaded_diagrams(&project, &diagrams)?;
     checkpoint(&workspace, &activity, &history)?;
-    *workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
+    *workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1128,8 +1421,15 @@ pub fn evaluate_parametric_diagram(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<ParametricEvaluationSnapshot, String> {
-    let diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
-    let diagram = diagrams.iter().find(|diagram| diagram.id == diagram_id && diagram.family == "parametric").ok_or("Parametric Diagram not found")?;
+    let diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
+        .ok_or("Parametric Diagram not found")?;
     let mut project = workspace
         .project
         .lock()
@@ -1138,28 +1438,49 @@ pub fn evaluate_parametric_diagram(
         .ok_or("no project open")?;
     let scope = ParametricEvaluationScope {
         context_id: diagram_context(diagram)?,
-        constraint_property_ids: diagram.nodes.iter().filter_map(|node| {
-            let id = parse_element_id(&node.element_id).ok()?;
-            (project.element(id).ok()?.kind == ElementKind::ConstraintProperty).then_some(id)
-        }).collect(),
-        value_property_ids: diagram.nodes.iter().filter_map(|node| {
-            let id = parse_element_id(&node.element_id).ok()?;
-            (project.element(id).ok()?.kind == ElementKind::ValueProperty).then_some(id)
-        }).collect(),
-        binding_relationship_ids: diagram.edges.iter().map(|edge| parse_relationship_id(&edge.relationship_id)).collect::<Result<Vec<_>, _>>()?,
+        constraint_property_ids: diagram
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let id = parse_element_id(&node.element_id).ok()?;
+                (project.element(id).ok()?.kind == ElementKind::ConstraintProperty).then_some(id)
+            })
+            .collect(),
+        value_property_ids: diagram
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let id = parse_element_id(&node.element_id).ok()?;
+                (project.element(id).ok()?.kind == ElementKind::ValueProperty).then_some(id)
+            })
+            .collect(),
+        binding_relationship_ids: diagram
+            .edges
+            .iter()
+            .map(|edge| parse_relationship_id(&edge.relationship_id))
+            .collect::<Result<Vec<_>, _>>()?,
     };
     let report = evaluate_parametrics(&mut project, &scope).map_err(|error| error.to_string())?;
     project.validate().map_err(|error| error.to_string())?;
     if !report.updates.is_empty() {
         checkpoint(&workspace, &activity, &history)?;
-        *workspace.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
+        *workspace
+            .project
+            .lock()
+            .map_err(|_| "project lock poisoned")? = Some(project);
     }
     Ok(ParametricEvaluationSnapshot {
         evaluated_constraints: report.evaluated_constraints,
         changed_values: report.updates.len(),
-        updates: report.updates.into_iter().map(|update| ParametricValueSnapshot {
-            element_id: update.element_id.to_string(), previous_value: update.previous_value, value: update.value,
-        }).collect(),
+        updates: report
+            .updates
+            .into_iter()
+            .map(|update| ParametricValueSnapshot {
+                element_id: update.element_id.to_string(),
+                previous_value: update.previous_value,
+                value: update.value,
+            })
+            .collect(),
     })
 }
 
@@ -1274,15 +1595,19 @@ mod tests {
         *workspace.diagrams.lock().unwrap() = vec![diagram];
 
         assert!(route_parametric_with_bounds(&diagram_id, &workspace, None).unwrap());
-        let routed = workspace.diagrams.lock().unwrap()[0].edges[0].points.clone();
+        let routed = workspace.diagrams.lock().unwrap()[0].edges[0]
+            .points
+            .clone();
         assert!(routed.len() >= 2);
         assert!(layout_parametric_with_bounds(&diagram_id, &workspace, None).unwrap());
         let diagrams = workspace.diagrams.lock().unwrap();
         assert!(diagrams[0].edges[0].points.len() >= 2);
-        assert!(diagrams[0]
-            .nodes
-            .iter()
-            .all(|node| node.x >= 0.0 && node.y >= 0.0));
+        assert!(
+            diagrams[0]
+                .nodes
+                .iter()
+                .all(|node| node.x >= 0.0 && node.y >= 0.0)
+        );
     }
 
     #[test]
@@ -1332,8 +1657,14 @@ mod tests {
         second.id = "second".into();
         sync_parameter_presentations(&mut first, &project).unwrap();
         sync_parameter_presentations(&mut second, &project).unwrap();
-        assert_eq!(first.parameter_presentations[0].parameter_id, parameter.to_string());
-        assert_ne!(first.parameter_presentations[0].id, second.parameter_presentations[0].id);
+        assert_eq!(
+            first.parameter_presentations[0].parameter_id,
+            parameter.to_string()
+        );
+        assert_ne!(
+            first.parameter_presentations[0].id,
+            second.parameter_presentations[0].id
+        );
         let presentation = &first.parameter_presentations[0];
         assert!(presentation.offset_x == 0.0 || presentation.offset_y == 0.0);
     }
