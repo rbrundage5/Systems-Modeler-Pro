@@ -48,28 +48,29 @@ pub fn create_use_case_diagram(
         .filter(|value| !value.trim().is_empty())
         .map(parse_element_id)
         .transpose()?;
-    let project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?;
-    let project = project.as_ref().ok_or("no project open")?;
-    let owner = project
-        .element(owner_id)
-        .map_err(|error| error.to_string())?;
-    if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
-        return Err("Use Case Diagram owner must be a Model or Package".into());
-    }
-    if let Some(context_id) = context_id {
-        let context = project
-            .element(context_id)
+    {
+        let project = workspace
+            .project
+            .lock()
+            .map_err(|_| "project lock poisoned")?;
+        let project = project.as_ref().ok_or("no project open")?;
+        let owner = project
+            .element(owner_id)
             .map_err(|error| error.to_string())?;
-        if !context.is_classifier()
-            || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase)
-        {
-            return Err("Use Case diagram subject must be a represented system classifier".into());
+        if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
+            return Err("Use Case Diagram owner must be a Model or Package".into());
+        }
+        if let Some(context_id) = context_id {
+            let context = project
+                .element(context_id)
+                .map_err(|error| error.to_string())?;
+            if !context.is_classifier()
+                || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase)
+            {
+                return Err("Use Case diagram subject must be a represented system classifier".into());
+            }
         }
     }
-    drop(project);
     checkpoint(&workspace, &activity, &history)?;
     let id = DiagramId::new().to_string();
     workspace
