@@ -109,16 +109,12 @@ impl Project {
         }
 
         let element_imports = self.element_import_bindings(namespace_id, false);
-        if let Some(result) =
-            self.resolve_binding_layer(&context, requested, element_imports)?
-        {
+        if let Some(result) = self.resolve_binding_layer(&context, requested, element_imports)? {
             return Ok(result);
         }
 
         let package_imports = self.package_import_bindings(namespace_id, false);
-        if let Some(result) =
-            self.resolve_binding_layer(&context, requested, package_imports)?
-        {
+        if let Some(result) = self.resolve_binding_layer(&context, requested, package_imports)? {
             return Ok(result);
         }
 
@@ -242,9 +238,11 @@ impl Project {
             })
             .collect();
         bindings.sort_by(|left, right| {
-            left.local_name
-                .cmp(&right.local_name)
-                .then_with(|| left.element_id.to_string().cmp(&right.element_id.to_string()))
+            left.local_name.cmp(&right.local_name).then_with(|| {
+                left.element_id
+                    .to_string()
+                    .cmp(&right.element_id.to_string())
+            })
         });
         bindings
     }
@@ -276,9 +274,11 @@ impl Project {
             });
         }
         bindings.sort_by(|left, right| {
-            left.local_name
-                .cmp(&right.local_name)
-                .then_with(|| left.element_id.to_string().cmp(&right.element_id.to_string()))
+            left.local_name.cmp(&right.local_name).then_with(|| {
+                left.element_id
+                    .to_string()
+                    .cmp(&right.element_id.to_string())
+            })
         });
         bindings
     }
@@ -331,9 +331,11 @@ impl Project {
         }
 
         bindings.sort_by(|left, right| {
-            left.local_name
-                .cmp(&right.local_name)
-                .then_with(|| left.element_id.to_string().cmp(&right.element_id.to_string()))
+            left.local_name.cmp(&right.local_name).then_with(|| {
+                left.element_id
+                    .to_string()
+                    .cmp(&right.element_id.to_string())
+            })
         });
         bindings
     }
