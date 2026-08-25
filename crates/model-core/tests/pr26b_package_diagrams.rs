@@ -1,6 +1,4 @@
-use systems_modeler_core::{
-    ElementKind, ModelError, Project, RelationshipKind, VisibilityKind,
-};
+use systems_modeler_core::{ElementKind, ModelError, Project, RelationshipKind, VisibilityKind};
 
 fn package_project() -> (
     Project,

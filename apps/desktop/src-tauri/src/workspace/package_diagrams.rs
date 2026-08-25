@@ -37,7 +37,10 @@ fn commit_states(
     history: &history::HistoryState,
 ) -> Result<(), String> {
     project.validate().map_err(|error| error.to_string())?;
-    for diagram in diagrams.iter().filter(|diagram| diagram.family == "package") {
+    for diagram in diagrams
+        .iter()
+        .filter(|diagram| diagram.family == "package")
+    {
         validate_package_diagram(&project, diagram)?;
     }
     checkpoint(workspace, activity, history)?;
@@ -153,7 +156,10 @@ fn dependency_endpoints(
         ));
     }
     if source_id == target_id {
-        return Err(format!("Dependency cannot connect '{}' to itself", source.name));
+        return Err(format!(
+            "Dependency cannot connect '{}' to itself",
+            source.name
+        ));
     }
     Ok(())
 }
@@ -319,16 +325,12 @@ pub(super) fn validate_package_diagram(
             .nodes
             .iter()
             .find(|node| node.id == edge.source_node_id)
-            .ok_or(
-                "Package relationship presentation references a missing source presentation",
-            )?;
+            .ok_or("Package relationship presentation references a missing source presentation")?;
         let target = diagram
             .nodes
             .iter()
             .find(|node| node.id == edge.target_node_id)
-            .ok_or(
-                "Package relationship presentation references a missing target presentation",
-            )?;
+            .ok_or("Package relationship presentation references a missing target presentation")?;
         if source.element_id != relationship.source_id.to_string()
             || target.element_id != relationship.target_id.to_string()
         {
@@ -777,7 +779,12 @@ mod tests {
             .create_package_import(source, target, VisibilityKind::Public)
             .unwrap();
         let second = project
-            .create_element_import(source, target, VisibilityKind::Private, Some("Drive".into()))
+            .create_element_import(
+                source,
+                target,
+                VisibilityKind::Private,
+                Some("Drive".into()),
+            )
             .unwrap();
         let diagram = BddDiagram {
             id: DiagramId::new().to_string(),
@@ -816,9 +823,11 @@ mod tests {
         assert!(routed.iter().all(|edge| edge.label_anchor.is_some()));
         let obstacle_rect = diagram_node_route_rect(&diagram, &diagram.nodes[2]);
         assert_eq!(obstacle_rect.y, diagram.nodes[2].y - 20.0);
-        assert!(routed
-            .iter()
-            .all(|edge| routing::route_is_clear(&edge.points, &[obstacle_rect])));
+        assert!(
+            routed
+                .iter()
+                .all(|edge| routing::route_is_clear(&edge.points, &[obstacle_rect]))
+        );
     }
 
     #[test]
@@ -833,9 +842,7 @@ mod tests {
         let wrong_target = project
             .create_element(ElementKind::Package, "Safety", project.root_id)
             .unwrap();
-        let relationship = project
-            .create_package_merge(source, target)
-            .unwrap();
+        let relationship = project.create_package_merge(source, target).unwrap();
         let diagram = BddDiagram {
             id: DiagramId::new().to_string(),
             name: "Packages".into(),
@@ -908,8 +915,7 @@ mod tests {
         let activity = activity_workspace::ActivityWorkspaceState::default();
         let history = history::HistoryState::default();
 
-        let (mut candidate_project, mut candidate_diagrams) =
-            candidate_states(&workspace).unwrap();
+        let (mut candidate_project, mut candidate_diagrams) = candidate_states(&workspace).unwrap();
         reconnect_candidate(
             &mut candidate_project,
             &mut candidate_diagrams[0],
@@ -958,8 +964,7 @@ mod tests {
         );
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
 
-        let (mut candidate_project, mut candidate_diagrams) =
-            candidate_states(&workspace).unwrap();
+        let (mut candidate_project, mut candidate_diagrams) = candidate_states(&workspace).unwrap();
         delete_relationship_candidate(
             &mut candidate_project,
             &mut candidate_diagrams,
@@ -974,24 +979,28 @@ mod tests {
             &history,
         )
         .unwrap();
-        assert!(workspace
-            .project
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .relationship(relationship)
-            .is_err());
+        assert!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationship(relationship)
+                .is_err()
+        );
         assert!(workspace.diagrams.lock().unwrap()[0].edges.is_empty());
         assert!(history::undo_states(&workspace, &activity, &history).unwrap());
-        assert!(workspace
-            .project
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .relationship(relationship)
-            .is_ok());
+        assert!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationship(relationship)
+                .is_ok()
+        );
         assert_eq!(workspace.diagrams.lock().unwrap()[0].edges.len(), 1);
     }
 }

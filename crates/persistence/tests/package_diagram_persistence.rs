@@ -42,7 +42,10 @@ fn package_semantics_visibility_alias_and_ownership_round_trip() {
         VisibilityKind::Private
     );
     let restored_element_import = restored.relationship(element_import).unwrap();
-    assert_eq!(restored_element_import.kind, RelationshipKind::ElementImport);
+    assert_eq!(
+        restored_element_import.kind,
+        RelationshipKind::ElementImport
+    );
     assert_eq!(restored_element_import.alias.as_deref(), Some("Types"));
     assert_eq!(
         restored.relationship(package_merge).unwrap().kind,
