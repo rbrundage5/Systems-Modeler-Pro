@@ -234,7 +234,11 @@ impl ExecutionSession {
             self.push_trace(
                 TraceKind::EventDispatched,
                 event.target_semantic_id,
-                format!("Dispatched {} event '{}'", event_kind_name(event.kind), event.name),
+                format!(
+                    "Dispatched {} event '{}'",
+                    event_kind_name(event.kind),
+                    event.name
+                ),
             );
         }
         Ok(event)
@@ -252,11 +256,7 @@ impl ExecutionSession {
         Ok(())
     }
 
-    pub fn fail(
-        &mut self,
-        semantic_element_id: Option<ElementId>,
-        message: impl Into<String>,
-    ) {
+    pub fn fail(&mut self, semantic_element_id: Option<ElementId>, message: impl Into<String>) {
         let message = message.into();
         self.state = ExecutionState::Failed;
         self.diagnostics.push(ExecutionDiagnostic {
