@@ -1,7 +1,8 @@
 use systems_modeler_core::{
     ElementKind, EngineStepOutcome, ExecutionConfiguration, ExecutionEngine, ExecutionError,
     ExecutionManager, ExecutionSession, ExecutionState, Multiplicity, NamespaceResolutionError,
-    Project, RuntimeEvent, RuntimeEventKind, RuntimeValue, SimulationTime, VisibilityKind,
+    Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind, RuntimeValue, SimulationTime,
+    VisibilityKind,
 };
 
 #[test]
@@ -257,6 +258,10 @@ fn scheduler_orders_by_simulation_time_then_event_sequence() {
         .unwrap();
     let mut session = ExecutionSession::new(&project);
     session.initialize(&project).unwrap();
+    let target = RuntimeEventAddress {
+        target_semantic_id: Some(controller),
+        ..RuntimeEventAddress::default()
+    };
 
     let late = session
         .queue_event_after(
@@ -264,10 +269,7 @@ fn scheduler_orders_by_simulation_time_then_event_sequence() {
             10,
             RuntimeEventKind::Time,
             "late",
-            None,
-            Some(controller),
-            None,
-            None,
+            target,
             Vec::new(),
         )
         .unwrap();
@@ -277,10 +279,7 @@ fn scheduler_orders_by_simulation_time_then_event_sequence() {
             5,
             RuntimeEventKind::Time,
             "first-five",
-            None,
-            Some(controller),
-            None,
-            None,
+            target,
             Vec::new(),
         )
         .unwrap();
@@ -290,10 +289,7 @@ fn scheduler_orders_by_simulation_time_then_event_sequence() {
             5,
             RuntimeEventKind::Time,
             "second-five",
-            None,
-            Some(controller),
-            None,
-            None,
+            target,
             Vec::new(),
         )
         .unwrap();
@@ -331,10 +327,10 @@ fn runtime_instance_addressing_is_preserved_in_events_and_structured_trace() {
             0,
             RuntimeEventKind::Signal,
             "StartMotor",
-            None,
-            None,
-            None,
-            Some(instance),
+            RuntimeEventAddress {
+                target_runtime_instance_id: Some(instance),
+                ..RuntimeEventAddress::default()
+            },
             Vec::new(),
         )
         .unwrap();
