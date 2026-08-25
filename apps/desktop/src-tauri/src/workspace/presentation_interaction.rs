@@ -1,7 +1,7 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
 use super::{
-    WorkspaceState, behavior_workspace, ibd, route_relationship, use_cases,
+    WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases,
     validate_loaded_diagrams,
 };
 
