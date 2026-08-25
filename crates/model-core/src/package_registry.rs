@@ -1,9 +1,8 @@
 use crate::diagram_family::{DiagramCapability, DiagramFamilyDescriptor, DiagramFamilyRegistry};
 
-const SHARED_WORKSPACE_CAPABILITIES: [DiagramCapability; 9] = [
+const SHARED_WORKSPACE_CAPABILITIES: [DiagramCapability; 8] = [
     DiagramCapability::NodePlacement,
     DiagramCapability::Relationships,
-    DiagramCapability::Frames,
     DiagramCapability::Move,
     DiagramCapability::Resize,
     DiagramCapability::Delete,
@@ -39,6 +38,9 @@ fn close_shared_workspace_contract(descriptor: &mut DiagramFamilyDescriptor) {
     for capability in SHARED_WORKSPACE_CAPABILITIES {
         descriptor.capabilities.insert(capability);
     }
+
+    // Every qualified built-in workspace uses the shared SysML frame host.
+    descriptor.capabilities.insert(DiagramCapability::Frames);
 
     // BDD already has qualified semantic Block/AssociationBlock -> IBD
     // navigation in the desktop workspace. Advertise that existing behavior
@@ -91,6 +93,11 @@ mod tests {
                     family.id.0
                 );
             }
+            assert!(
+                family.supports(C::Frames),
+                "{} is missing the shared SysML frame capability",
+                family.id.0
+            );
         }
     }
 
@@ -98,13 +105,17 @@ mod tests {
     fn bdd_and_package_expose_qualified_frame_and_navigation_support() {
         let registry = supported_diagram_families();
 
-        for id in ["bdd", "package"] {
-            let family = registry
-                .get(&DiagramFamilyId::new(id).unwrap())
-                .expect("qualified family is registered");
-            assert!(family.supports(C::Frames));
-            assert!(family.supports(C::DrillDown));
-        }
+        let bdd = registry
+            .get(&DiagramFamilyId::new("bdd").unwrap())
+            .expect("BDD is registered");
+        assert!(bdd.supports(C::Frames));
+        assert!(bdd.supports(C::DrillDown));
+
+        let package = registry
+            .get(&DiagramFamilyId::new("package").unwrap())
+            .expect("Package Diagram is registered");
+        assert!(package.supports(C::Frames));
+        assert!(package.supports(C::DrillDown));
     }
 
     #[test]
