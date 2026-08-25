@@ -522,12 +522,9 @@ pub fn rename_active_diagram_header(
     }
     super::history::checkpoint_states(&workspace, &activity, &history)?;
     match active.family.id.0.as_str() {
-        "bdd" | "requirement" | "package" => rename_owner_owned_diagram(
-            &workspace,
-            &diagram_id,
-            model_element_name,
-            diagram_name,
-        )?,
+        "bdd" | "requirement" | "package" => {
+            rename_owner_owned_diagram(&workspace, &diagram_id, model_element_name, diagram_name)?
+        }
         "use-case" | "parametric" => {
             let context_id = workspace
                 .diagrams
