@@ -199,10 +199,12 @@ fn resolution_from_nested_context_uses_nearest_package_namespace() {
         project.resolve_from_context(controller, "Mass").unwrap(),
         mass
     );
-    assert!(project
-        .visible_members_from_context(controller)
-        .unwrap()
-        .contains(&mass));
+    assert!(
+        project
+            .visible_members_from_context(controller)
+            .unwrap()
+            .contains(&mass)
+    );
 }
 
 #[test]
@@ -482,12 +484,19 @@ fn execution_manager_owns_multiple_independent_sessions() {
 
     assert_ne!(first, second);
     assert_eq!(manager.len(), 2);
-    manager.session_mut(first).unwrap().initialize(&project).unwrap();
+    manager
+        .session_mut(first)
+        .unwrap()
+        .initialize(&project)
+        .unwrap();
     assert_eq!(
         manager.session(first).unwrap().state,
         ExecutionState::Initialized
     );
-    assert_eq!(manager.session(second).unwrap().state, ExecutionState::Created);
+    assert_eq!(
+        manager.session(second).unwrap().state,
+        ExecutionState::Created
+    );
     manager.terminate_session(first).unwrap();
     assert_eq!(
         manager.session(first).unwrap().state,
@@ -591,8 +600,10 @@ fn event_queue_and_trace_are_deterministic_and_support_run_pause_resume() {
             .windows(2)
             .all(|entries| entries[0].sequence < entries[1].sequence)
     );
-    assert!(session
-        .trace
-        .iter()
-        .any(|entry| entry.message.contains("StartMotor")));
+    assert!(
+        session
+            .trace
+            .iter()
+            .any(|entry| entry.message.contains("StartMotor"))
+    );
 }
