@@ -1,6 +1,4 @@
-use crate::diagram_family::{
-    DiagramCapability, DiagramFamilyDescriptor, DiagramFamilyRegistry,
-};
+use crate::diagram_family::{DiagramCapability, DiagramFamilyDescriptor, DiagramFamilyRegistry};
 
 const SHARED_WORKSPACE_CAPABILITIES: [DiagramCapability; 9] = [
     DiagramCapability::NodePlacement,
