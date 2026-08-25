@@ -1,10 +1,30 @@
-use crate::diagram_family::DiagramFamilyRegistry;
+use crate::diagram_family::{
+    DiagramCapability, DiagramFamilyRegistry,
+};
 
 /// Returns the product-level diagram family registry.
 ///
-/// Package Diagram is a built-in ninth family in the shared registry.
+/// Package Diagram is the ninth built-in SysML 1.x family. Product-level
+/// capability closure is applied here so downstream workspace consumers see
+/// the same shared frame/navigation contract as the other qualified families
+/// without duplicating renderer or interaction infrastructure.
 pub fn supported_diagram_families() -> DiagramFamilyRegistry {
-    crate::diagram_family::supported_diagram_families()
+    let base = crate::diagram_family::supported_diagram_families();
+    let mut registry = DiagramFamilyRegistry::default();
+
+    for mut descriptor in base.descriptors() {
+        if descriptor.id.0 == "package" {
+            descriptor.capabilities.insert(DiagramCapability::Frames);
+            descriptor
+                .capabilities
+                .insert(DiagramCapability::DrillDown);
+        }
+        registry
+            .register(descriptor)
+            .expect("product diagram family registry must remain valid");
+    }
+
+    registry
 }
 
 #[cfg(test)]
@@ -29,5 +49,7 @@ mod tests {
         assert!(package.supports(C::Relationships));
         assert!(package.supports(C::Routing));
         assert!(package.supports(C::CleanLayout));
+        assert!(package.supports(C::Frames));
+        assert!(package.supports(C::DrillDown));
     }
 }
