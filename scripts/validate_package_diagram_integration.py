@@ -24,6 +24,7 @@ commands = read("apps/desktop/src-tauri/src/workspace/package_diagrams.rs")
 shared_workspace = read("apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 standard_editing = read("apps/desktop/src-tauri/src/workspace/standard_editing.rs")
 family_registry = read("crates/model-core/src/diagram_family.rs")
+package_registry = read("crates/model-core/src/package_registry.rs")
 presentation_theme = read("apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 model = read("crates/model-core/src/model.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
@@ -70,6 +71,10 @@ assert "DuplicatePackageRelationship" in model
 assert "InvalidElementImportAlias" in model
 assert '"package",\n            "Package Diagram",\n            ("pkg", "Package")' in family_registry
 assert "C::Relationships" in family_registry
+assert "descriptor.capabilities.insert(DiagramCapability::Frames)" in package_registry
+assert "descriptor.capabilities.insert(DiagramCapability::DrillDown)" in package_registry
+assert "assert!(package.supports(C::Frames))" in package_registry
+assert "assert!(package.supports(C::DrillDown))" in package_registry
 assert '"ModelLibrary", FRAME' in presentation_theme
 assert '"Package",' in presentation_theme
 
@@ -126,6 +131,7 @@ for palette_item in (
     'element_item("signal", "Signal", "Signal")',
     'element_item("unit", "Unit", "Unit")',
     'element_item("quantity-kind", "Quantity Kind", "QuantityKind")',
+    '"instance-specification",\n                "Instance Specification",\n                "InstanceSpecification"',
     'element_item("requirement", "Requirement", "Requirement")',
     'element_item("test-case", "Test Case", "TestCase")',
     'element_item("actor", "Actor", "Actor")',
@@ -183,13 +189,27 @@ assert "package-contents" in workspace
 assert "window.smpRequirementPresentationMarkup(element)" in workspace
 assert "window.smpUseCasePresentation.actorMarkup(element, node)" in workspace
 assert "window.smpUseCasePresentation.useCaseMarkup(element)" in workspace
+assert "extendedElementMarkup(project, element)" in workspace
 assert "window.smpRequirementPresentationMarkup = requirementPresentationMarkup" in app
 assert "window.smpUseCasePresentation = Object.freeze({ actorMarkup, useCaseMarkup })" in use_case_ui
 assert "candidate.owner_id === element.id" in workspace
-assert "pkg [package]" in workspace
 assert "node.dataset.smpInternalDrag = 'true'" in workspace
 assert "createPaletteElementAt = async function createPackagePaletteElementAt" in workspace
 assert "move_repository_element" in workspace
+
+# Package has one frame: the shared SysML frame. Its owner/context name is
+# resolved from the semantic Package/Model owner when the Package diagram opens.
+assert "className='sysml-diagram-frame'" in shared_frontend
+assert "state.context.frameLabel" in shared_frontend
+assert "baseSelectDiagramWithPackageContext" in workspace
+assert "modelElementName: owner?.name" in workspace
+assert "semanticContextId: diagram.owner_id || ''" in workspace
+assert 'pkg [package]' not in workspace
+assert "presentation.ondblclick" in workspace
+assert "await drillDown(element)" in workspace
+assert "function drillDownCandidates" in workspace
+assert "window.smpDialogs?.choose?." in workspace
+assert "No diagram will be created automatically." in workspace
 
 assert '"bdd" | "requirement" | "use-case" | "package"' in shared_workspace
 assert "super::route_bdd_with_bounds" in shared_workspace
@@ -197,7 +217,7 @@ assert "super::layout_bdd_with_bounds" in shared_workspace
 assert '"bdd" | "requirement" | "package" => {' in shared_workspace
 assert "rename_owner_owned_diagram(&workspace, &diagram_id, model_element_name, diagram_name)" in shared_workspace
 assert "package_header_apply_renames_the_rust_owner_and_diagram" in shared_workspace
-assert "await renderer()?.refresh?.()" in read("apps/desktop/frontend/shared-workspace.js")
+assert "await renderer()?.refresh?.()" in shared_frontend
 assert "EditingFamily::Package" in standard_editing
 assert "duplicate.owner_id = duplicate" in standard_editing
 assert "relationship.visibility === 'private' ? 'access' : 'import'" in app
