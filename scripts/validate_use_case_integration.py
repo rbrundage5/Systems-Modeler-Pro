@@ -88,7 +88,7 @@ for behavior in [
     "update_association_end",
 ]:
     assert behavior in frontend or behavior in read(
-        "apps/desktop/frontend/structural-interaction-rebind.js"
+        "apps/desktop/frontend/diagram-interaction.js"
     ), f"missing Use Case workspace behavior: {behavior}"
 
 assert "use-case.css" in index and "use-case-ui.js" in index

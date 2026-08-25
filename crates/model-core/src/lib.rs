@@ -7,4 +7,12 @@ pub mod activity;
 pub use activity::*;
 
 pub mod diagram_family;
-pub use diagram_family::*;
+pub use diagram_family::{
+    DiagramCapability, DiagramFamilyDescriptor, DiagramFamilyId, DiagramFamilyRegistry,
+    DiagramGeometry, DiagramGeometrySnapshot, GeometryPoint, GeometryRect, PanelPreference,
+    PreferredFlowDirection, RelationshipGeometry, ViewportPreference, fit_viewport,
+    zoom_viewport_at,
+};
+
+mod package_registry;
+pub use package_registry::supported_diagram_families;

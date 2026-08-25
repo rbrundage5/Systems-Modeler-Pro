@@ -881,7 +881,7 @@ mod tests {
     #[test]
     fn registry_exposes_renderer_contract_for_every_current_family() {
         let families = diagram_family_registry();
-        assert_eq!(families.len(), 8);
+        assert_eq!(families.len(), 9);
         let requirement = families
             .iter()
             .find(|family| family.id.0 == "requirement")

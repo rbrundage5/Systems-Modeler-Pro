@@ -21,6 +21,7 @@
     Home: `
       <section class="ribbon-group"><div class="ribbon-actions">
         <button class="ribbon-command" data-forward="new-package"><span class="command-icon">□</span><span>Package</span></button>
+        <button class="ribbon-command" data-forward="new-package-diagram"><span class="command-icon">pkg</span><span>Package<br>Diagram</span></button>
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>BDD</span></button>
         <button class="ribbon-command" data-action="new-requirement"><span class="command-icon">R</span><span>Requirement</span></button>
         <button class="ribbon-command" data-action="new-use-case"><span class="command-icon">UC</span><span>Use Case</span></button>
@@ -33,6 +34,7 @@
       <section class="ribbon-group ribbon-context"><div class="context-title">Active Diagram</div><div id="active-diagram-summary" class="context-value">No diagram selected</div><div class="context-subtitle">Elements and properties follow the active diagram</div><div class="ribbon-label">Context</div></section>`,
     Diagram: `
       <section class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-command" data-forward="new-package-diagram"><span class="command-icon">pkg</span><span>New Package<br>Diagram</span></button>
         <button class="ribbon-command" data-forward="new-bdd"><span class="command-icon">▤</span><span>New BDD</span></button>
         <button class="ribbon-command" data-action="new-requirement"><span class="command-icon">R</span><span>New Requirement</span></button>
         <button class="ribbon-command" data-action="new-use-case"><span class="command-icon">UC</span><span>New Use Case</span></button>
@@ -55,7 +57,7 @@
   };
 
   const original = new Map();
-  for (const id of ['new-project', 'open-project', 'save-project', 'save-project-as', 'new-package', 'new-bdd']) {
+  for (const id of ['new-project', 'open-project', 'save-project', 'save-project-as', 'new-package', 'new-package-diagram', 'new-bdd']) {
     const node = document.getElementById(id);
     if (node) original.set(id, node);
   }
