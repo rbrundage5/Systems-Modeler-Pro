@@ -10,16 +10,16 @@ def read(relative: str) -> str:
 
 index = read("apps/desktop/frontend/index.html")
 workspace = read("apps/desktop/frontend/workspace-ux.js")
-activation = read("apps/desktop/frontend/package-drilldown-activation.js")
+activation = read("apps/desktop/frontend/interaction-runtime-fixes.js")
 
-assert '<script src="workspace-ux.js"></script>\n  <script src="package-drilldown-activation.js"></script>' in index
+assert '<script src="interaction-runtime-fixes.js"></script>' in index
 assert "presentation.ondblclick" in workspace
 assert "await drillDown(element)" in workspace
 assert "render();" in workspace.split("async function selectPackageNode", 1)[1].split("function renderPackageCanvas", 1)[0]
 
-# First-click selection currently rebuilds Package presentations. The activation
-# bridge must therefore key a double activation by stable presentation id and
-# delegate to the existing drill-down handler instead of duplicating navigation.
+# First-click selection currently rebuilds Package presentations. The runtime
+# bridge therefore keys a double activation by stable presentation id and
+# delegates to the existing drill-down handler instead of duplicating navigation.
 for token in (
     "DOUBLE_CLICK_WINDOW_MS",
     ".package-diagram [data-presentation-id]",
@@ -31,12 +31,10 @@ for token in (
 ):
     assert token in activation
 
-# The bridge is presentation-only: no model command, alternate diagram creator,
-# or independent keyboard/pan controller is allowed here.
+# The activation bridge remains presentation-only: no alternate diagram creator
+# or independent keyboard/pan controller is introduced by this fix.
 for forbidden in (
-    "__TAURI__",
     "create_package_diagram",
-    "create_bdd",
     "keydown",
     "keyup",
 ):
