@@ -1,6 +1,6 @@
-use crate::{ElementId, Project, ProjectId};
+use crate::{ElementId, ElementKind, Project, ProjectId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -20,6 +20,12 @@ impl Default for ExecutionSessionId {
     }
 }
 
+impl std::fmt::Display for ExecutionSessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct RuntimeInstanceId(pub Uuid);
@@ -33,6 +39,34 @@ impl RuntimeInstanceId {
 impl Default for RuntimeInstanceId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Display for RuntimeInstanceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct SimulationTime(pub u64);
+
+impl SimulationTime {
+    pub const ZERO: Self = Self(0);
+
+    pub const fn from_nanos(nanos: u64) -> Self {
+        Self(nanos)
+    }
+
+    pub const fn as_nanos(self) -> u64 {
+        self.0
+    }
+
+    pub fn checked_add(self, nanos: u64) -> Option<Self> {
+        self.0.checked_add(nanos).map(Self)
     }
 }
 
@@ -57,10 +91,29 @@ pub enum RuntimeValue {
     ElementReference(ElementId),
 }
 
+impl RuntimeValue {
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Unset => "unset",
+            Self::Boolean(_) => "boolean",
+            Self::Integer(_) => "integer",
+            Self::Real(_) => "real",
+            Self::Text(_) => "text",
+            Self::ElementReference(_) => "element reference",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuntimeValueKey {
     pub instance_id: Option<RuntimeInstanceId>,
     pub semantic_element_id: ElementId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeValueSnapshot {
+    pub key: RuntimeValueKey,
+    pub value: RuntimeValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,7 +141,15 @@ pub struct RuntimeEvent {
     pub name: String,
     pub source_semantic_id: Option<ElementId>,
     pub target_semantic_id: Option<ElementId>,
+    pub source_runtime_instance_id: Option<RuntimeInstanceId>,
+    pub target_runtime_instance_id: Option<RuntimeInstanceId>,
     pub payload: Vec<(String, RuntimeValue)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScheduledEvent {
+    pub due_time: SimulationTime,
+    pub event: RuntimeEvent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,14 +159,22 @@ pub enum TraceKind {
     EventQueued,
     EventDispatched,
     ValueSet,
+    ActiveSetChanged,
     Diagnostic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionTraceEntry {
     pub sequence: u64,
+    pub simulation_time: SimulationTime,
     pub kind: TraceKind,
     pub semantic_element_id: Option<ElementId>,
+    pub runtime_instance_id: Option<RuntimeInstanceId>,
+    pub event_sequence: Option<u64>,
+    pub source_semantic_id: Option<ElementId>,
+    pub target_semantic_id: Option<ElementId>,
+    pub source_runtime_instance_id: Option<RuntimeInstanceId>,
+    pub target_runtime_instance_id: Option<RuntimeInstanceId>,
     pub message: String,
 }
 
@@ -120,13 +189,83 @@ pub enum DiagnosticSeverity {
 pub struct ExecutionDiagnostic {
     pub severity: DiagnosticSeverity,
     pub semantic_element_id: Option<ElementId>,
+    pub runtime_instance_id: Option<RuntimeInstanceId>,
     pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionConfiguration {
+    pub root_semantic_id: ElementId,
+    pub random_seed: u64,
+    pub max_steps: u64,
+    pub max_queued_events: usize,
+}
+
+impl ExecutionConfiguration {
+    pub fn for_project(project: &Project) -> Self {
+        Self {
+            root_semantic_id: project.root_id,
+            random_seed: 0,
+            max_steps: 100_000,
+            max_queued_events: 10_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionSnapshot {
+    pub session_id: ExecutionSessionId,
+    pub revision: u64,
+    pub configuration: ExecutionConfiguration,
+    pub state: ExecutionState,
+    pub simulation_time: SimulationTime,
+    pub steps_executed: u64,
+    pub cancellation_requested: bool,
+    pub runtime_instances: Vec<RuntimeInstance>,
+    pub runtime_values: Vec<RuntimeValueSnapshot>,
+    pub scheduled_events: Vec<ScheduledEvent>,
+    pub active_semantic_element_ids: Vec<ElementId>,
+    pub trace: Vec<ExecutionTraceEntry>,
+    pub diagnostics: Vec<ExecutionDiagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineStepOutcome {
+    Idle,
+    Progressed,
+    Completed,
+}
+
+/// Shared boundary for future executable semantic engines. Activity, State
+/// Machine, and later engines implement this contract instead of embedding their
+/// semantics directly in `ExecutionSession`.
+pub trait ExecutionEngine {
+    fn initialize(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+    ) -> Result<(), ExecutionError>;
+
+    fn step(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+    ) -> Result<EngineStepOutcome, ExecutionError>;
+
+    fn handle_event(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+        event: &RuntimeEvent,
+    ) -> Result<EngineStepOutcome, ExecutionError>;
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ExecutionError {
     #[error("execution session belongs to a different project")]
     ProjectMismatch,
+    #[error("execution root does not exist in the project: {0}")]
+    ExecutionRootNotFound(ElementId),
     #[error("cannot {operation} while execution session is {state:?}")]
     InvalidState {
         operation: &'static str,
@@ -136,42 +275,98 @@ pub enum ExecutionError {
     SemanticElementNotFound,
     #[error("runtime classifier does not exist in the project")]
     ClassifierNotFound,
-    #[error("runtime instance does not exist")]
-    RuntimeInstanceNotFound,
+    #[error("runtime instance does not exist: {0}")]
+    RuntimeInstanceNotFound(RuntimeInstanceId),
+    #[error("runtime instance does not represent the supplied semantic element")]
+    RuntimeInstanceSemanticMismatch,
     #[error("runtime value is not finite")]
     NonFiniteValue,
+    #[error("runtime value kind '{actual}' is incompatible with '{expected}' for '{element}'")]
+    RuntimeValueTypeMismatch {
+        element: String,
+        expected: String,
+        actual: String,
+    },
+    #[error("runtime value references a semantic element that does not exist")]
+    RuntimeReferenceNotFound,
+    #[error("scheduled simulation time overflow")]
+    SimulationTimeOverflow,
+    #[error("execution step limit exceeded: {limit}")]
+    StepLimitExceeded { limit: u64 },
+    #[error("execution event queue limit exceeded: {limit}")]
+    EventQueueLimitExceeded { limit: usize },
+    #[error("execution cancellation was requested")]
+    CancellationRequested,
+    #[error("execution session not found: {0}")]
+    SessionNotFound(ExecutionSessionId),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
+struct TraceContext {
+    semantic_element_id: Option<ElementId>,
+    runtime_instance_id: Option<RuntimeInstanceId>,
+    event_sequence: Option<u64>,
+    source_semantic_id: Option<ElementId>,
+    target_semantic_id: Option<ElementId>,
+    source_runtime_instance_id: Option<RuntimeInstanceId>,
+    target_runtime_instance_id: Option<RuntimeInstanceId>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ExecutionSession {
     pub id: ExecutionSessionId,
     pub project_id: ProjectId,
     pub project_root_id: ElementId,
+    pub configuration: ExecutionConfiguration,
     pub state: ExecutionState,
+    pub revision: u64,
+    pub simulation_time: SimulationTime,
     pub instances: HashMap<RuntimeInstanceId, RuntimeInstance>,
     pub values: HashMap<RuntimeValueKey, RuntimeValue>,
-    pub event_queue: VecDeque<RuntimeEvent>,
+    pub event_queue: VecDeque<ScheduledEvent>,
     pub trace: Vec<ExecutionTraceEntry>,
     pub diagnostics: Vec<ExecutionDiagnostic>,
+    pub steps_executed: u64,
+    pub cancellation_requested: bool,
+    active_semantic_elements: HashSet<ElementId>,
     next_event_sequence: u64,
     next_trace_sequence: u64,
 }
 
 impl ExecutionSession {
     pub fn new(project: &Project) -> Self {
-        Self {
+        Self::with_configuration(project, ExecutionConfiguration::for_project(project))
+            .expect("project root must exist")
+    }
+
+    pub fn with_configuration(
+        project: &Project,
+        configuration: ExecutionConfiguration,
+    ) -> Result<Self, ExecutionError> {
+        if !project.elements.contains_key(&configuration.root_semantic_id) {
+            return Err(ExecutionError::ExecutionRootNotFound(
+                configuration.root_semantic_id,
+            ));
+        }
+        Ok(Self {
             id: ExecutionSessionId::new(),
             project_id: project.id,
             project_root_id: project.root_id,
+            configuration,
             state: ExecutionState::Created,
+            revision: 0,
+            simulation_time: SimulationTime::ZERO,
             instances: HashMap::new(),
             values: HashMap::new(),
             event_queue: VecDeque::new(),
             trace: Vec::new(),
             diagnostics: Vec::new(),
+            steps_executed: 0,
+            cancellation_requested: false,
+            active_semantic_elements: HashSet::new(),
             next_event_sequence: 0,
             next_trace_sequence: 0,
-        }
+        })
     }
 
     pub fn initialize(&mut self, project: &Project) -> Result<(), ExecutionError> {
@@ -185,13 +380,25 @@ impl ExecutionSession {
         ) {
             return Err(self.invalid_state("initialize"));
         }
+        if !project
+            .elements
+            .contains_key(&self.configuration.root_semantic_id)
+        {
+            return Err(ExecutionError::ExecutionRootNotFound(
+                self.configuration.root_semantic_id,
+            ));
+        }
         self.clear_runtime_state();
         self.state = ExecutionState::Initialized;
         self.push_trace(
             TraceKind::Session,
-            Some(project.root_id),
+            TraceContext {
+                semantic_element_id: Some(self.configuration.root_semantic_id),
+                ..TraceContext::default()
+            },
             format!("Initialized execution session for {}", project.name),
         );
+        self.touch();
         Ok(())
     }
 
@@ -199,7 +406,12 @@ impl ExecutionSession {
         match self.state {
             ExecutionState::Initialized | ExecutionState::Paused => {
                 self.state = ExecutionState::Running;
-                self.push_trace(TraceKind::StateChange, None, "Execution running".into());
+                self.push_trace(
+                    TraceKind::StateChange,
+                    TraceContext::default(),
+                    "Execution running".into(),
+                );
+                self.touch();
                 Ok(())
             }
             _ => Err(self.invalid_state("run")),
@@ -211,7 +423,12 @@ impl ExecutionSession {
             return Err(self.invalid_state("pause"));
         }
         self.state = ExecutionState::Paused;
-        self.push_trace(TraceKind::StateChange, None, "Execution paused".into());
+        self.push_trace(
+            TraceKind::StateChange,
+            TraceContext::default(),
+            "Execution paused".into(),
+        );
+        self.touch();
         Ok(())
     }
 
@@ -219,9 +436,9 @@ impl ExecutionSession {
         self.run()
     }
 
-    /// Dispatches one queued event in deterministic FIFO order. This foundation
-    /// does not execute Activity or State Machine semantics yet; future engines
-    /// consume the returned event and apply their own semantic step.
+    /// Dispatches one scheduled event in deterministic simulation-time/sequence
+    /// order. Future semantic engines consume the returned event and apply their
+    /// own Activity/State Machine behavior.
     pub fn step(&mut self) -> Result<Option<RuntimeEvent>, ExecutionError> {
         if !matches!(
             self.state,
@@ -229,19 +446,87 @@ impl ExecutionSession {
         ) {
             return Err(self.invalid_state("step"));
         }
-        let event = self.event_queue.pop_front();
-        if let Some(event) = event.as_ref() {
-            self.push_trace(
-                TraceKind::EventDispatched,
-                event.target_semantic_id,
-                format!(
-                    "Dispatched {} event '{}'",
-                    event_kind_name(event.kind),
-                    event.name
-                ),
-            );
+        self.consume_step_budget()?;
+        let scheduled = self.event_queue.pop_front();
+        let Some(scheduled) = scheduled else {
+            return Ok(None);
+        };
+        if scheduled.due_time > self.simulation_time {
+            self.simulation_time = scheduled.due_time;
         }
-        Ok(event)
+        let event = scheduled.event;
+        self.push_trace(
+            TraceKind::EventDispatched,
+            TraceContext {
+                semantic_element_id: event.target_semantic_id,
+                runtime_instance_id: event.target_runtime_instance_id,
+                event_sequence: Some(event.sequence),
+                source_semantic_id: event.source_semantic_id,
+                target_semantic_id: event.target_semantic_id,
+                source_runtime_instance_id: event.source_runtime_instance_id,
+                target_runtime_instance_id: event.target_runtime_instance_id,
+            },
+            format!(
+                "Dispatched {} event '{}'",
+                event_kind_name(event.kind),
+                event.name
+            ),
+        );
+        self.touch();
+        Ok(Some(event))
+    }
+
+    /// Consumes one semantic step from the configured deterministic execution
+    /// budget. Future engines call this for internal steps that do not dispatch
+    /// a queued event.
+    pub fn consume_step_budget(&mut self) -> Result<u64, ExecutionError> {
+        if self.cancellation_requested {
+            self.state = ExecutionState::Terminated;
+            self.diagnostics.push(ExecutionDiagnostic {
+                severity: DiagnosticSeverity::Info,
+                semantic_element_id: Some(self.configuration.root_semantic_id),
+                runtime_instance_id: None,
+                message: "Execution cancelled".into(),
+            });
+            self.push_trace(
+                TraceKind::Diagnostic,
+                TraceContext {
+                    semantic_element_id: Some(self.configuration.root_semantic_id),
+                    ..TraceContext::default()
+                },
+                "Execution cancelled".into(),
+            );
+            self.touch();
+            return Err(ExecutionError::CancellationRequested);
+        }
+        if self.steps_executed >= self.configuration.max_steps {
+            self.state = ExecutionState::Failed;
+            let message = format!(
+                "Execution stopped after reaching the configured {} step limit",
+                self.configuration.max_steps
+            );
+            self.diagnostics.push(ExecutionDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                semantic_element_id: Some(self.configuration.root_semantic_id),
+                runtime_instance_id: None,
+                message: message.clone(),
+            });
+            self.push_trace(
+                TraceKind::Diagnostic,
+                TraceContext {
+                    semantic_element_id: Some(self.configuration.root_semantic_id),
+                    ..TraceContext::default()
+                },
+                message,
+            );
+            self.touch();
+            return Err(ExecutionError::StepLimitExceeded {
+                limit: self.configuration.max_steps,
+            });
+        }
+        let sequence = self.steps_executed;
+        self.steps_executed += 1;
+        Ok(sequence)
     }
 
     pub fn complete(&mut self) -> Result<(), ExecutionError> {
@@ -252,7 +537,12 @@ impl ExecutionSession {
             return Err(self.invalid_state("complete"));
         }
         self.state = ExecutionState::Completed;
-        self.push_trace(TraceKind::StateChange, None, "Execution completed".into());
+        self.push_trace(
+            TraceKind::StateChange,
+            TraceContext::default(),
+            "Execution completed".into(),
+        );
+        self.touch();
         Ok(())
     }
 
@@ -262,9 +552,18 @@ impl ExecutionSession {
         self.diagnostics.push(ExecutionDiagnostic {
             severity: DiagnosticSeverity::Error,
             semantic_element_id,
+            runtime_instance_id: None,
             message: message.clone(),
         });
-        self.push_trace(TraceKind::Diagnostic, semantic_element_id, message);
+        self.push_trace(
+            TraceKind::Diagnostic,
+            TraceContext {
+                semantic_element_id,
+                ..TraceContext::default()
+            },
+            message,
+        );
+        self.touch();
     }
 
     pub fn terminate(&mut self) -> Result<(), ExecutionError> {
@@ -272,7 +571,12 @@ impl ExecutionSession {
             return Err(self.invalid_state("terminate"));
         }
         self.state = ExecutionState::Terminated;
-        self.push_trace(TraceKind::StateChange, None, "Execution terminated".into());
+        self.push_trace(
+            TraceKind::StateChange,
+            TraceContext::default(),
+            "Execution terminated".into(),
+        );
+        self.touch();
         Ok(())
     }
 
@@ -282,10 +586,28 @@ impl ExecutionSession {
         self.state = ExecutionState::Initialized;
         self.push_trace(
             TraceKind::Session,
-            Some(project.root_id),
+            TraceContext {
+                semantic_element_id: Some(self.configuration.root_semantic_id),
+                ..TraceContext::default()
+            },
             format!("Reset execution session for {}", project.name),
         );
+        self.touch();
         Ok(())
+    }
+
+    pub fn request_cancellation(&mut self) {
+        if !self.cancellation_requested {
+            self.cancellation_requested = true;
+            self.touch();
+        }
+    }
+
+    pub fn clear_cancellation(&mut self) {
+        if self.cancellation_requested {
+            self.cancellation_requested = false;
+            self.touch();
+        }
     }
 
     pub fn create_instance(
@@ -314,6 +636,7 @@ impl ExecutionSession {
                 name: element.name.clone(),
             },
         );
+        self.touch();
         Ok(id)
     }
 
@@ -329,14 +652,10 @@ impl ExecutionSession {
             .elements
             .get(&semantic_element_id)
             .ok_or(ExecutionError::SemanticElementNotFound)?;
-        if let Some(instance_id) = instance_id
-            && !self.instances.contains_key(&instance_id)
-        {
-            return Err(ExecutionError::RuntimeInstanceNotFound);
+        if let Some(instance_id) = instance_id {
+            self.require_instance_semantic(instance_id, None)?;
         }
-        if matches!(&value, RuntimeValue::Real(number) if !number.is_finite()) {
-            return Err(ExecutionError::NonFiniteValue);
-        }
+        validate_runtime_assignment(project, element, &value)?;
         self.values.insert(
             RuntimeValueKey {
                 instance_id,
@@ -346,9 +665,14 @@ impl ExecutionSession {
         );
         self.push_trace(
             TraceKind::ValueSet,
-            Some(semantic_element_id),
+            TraceContext {
+                semantic_element_id: Some(semantic_element_id),
+                runtime_instance_id: instance_id,
+                ..TraceContext::default()
+            },
             format!("Updated runtime value for {}", element.name),
         );
+        self.touch();
         Ok(())
     }
 
@@ -372,16 +696,82 @@ impl ExecutionSession {
         target_semantic_id: Option<ElementId>,
         payload: Vec<(String, RuntimeValue)>,
     ) -> Result<u64, ExecutionError> {
+        self.queue_event_at(
+            project,
+            self.simulation_time,
+            kind,
+            name,
+            source_semantic_id,
+            target_semantic_id,
+            None,
+            None,
+            payload,
+        )
+    }
+
+    pub fn queue_event_after(
+        &mut self,
+        project: &Project,
+        delay_nanos: u64,
+        kind: RuntimeEventKind,
+        name: impl Into<String>,
+        source_semantic_id: Option<ElementId>,
+        target_semantic_id: Option<ElementId>,
+        source_runtime_instance_id: Option<RuntimeInstanceId>,
+        target_runtime_instance_id: Option<RuntimeInstanceId>,
+        payload: Vec<(String, RuntimeValue)>,
+    ) -> Result<u64, ExecutionError> {
+        let due_time = self
+            .simulation_time
+            .checked_add(delay_nanos)
+            .ok_or(ExecutionError::SimulationTimeOverflow)?;
+        self.queue_event_at(
+            project,
+            due_time,
+            kind,
+            name,
+            source_semantic_id,
+            target_semantic_id,
+            source_runtime_instance_id,
+            target_runtime_instance_id,
+            payload,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn queue_event_at(
+        &mut self,
+        project: &Project,
+        due_time: SimulationTime,
+        kind: RuntimeEventKind,
+        name: impl Into<String>,
+        source_semantic_id: Option<ElementId>,
+        target_semantic_id: Option<ElementId>,
+        source_runtime_instance_id: Option<RuntimeInstanceId>,
+        target_runtime_instance_id: Option<RuntimeInstanceId>,
+        payload: Vec<(String, RuntimeValue)>,
+    ) -> Result<u64, ExecutionError> {
         self.require_project(project)?;
+        if self.event_queue.len() >= self.configuration.max_queued_events {
+            return Err(ExecutionError::EventQueueLimitExceeded {
+                limit: self.configuration.max_queued_events,
+            });
+        }
         for id in source_semantic_id.into_iter().chain(target_semantic_id) {
             if !project.elements.contains_key(&id) {
                 return Err(ExecutionError::SemanticElementNotFound);
             }
         }
+        let source_semantic_id = self.resolve_instance_semantic(
+            source_runtime_instance_id,
+            source_semantic_id,
+        )?;
+        let target_semantic_id = self.resolve_instance_semantic(
+            target_runtime_instance_id,
+            target_semantic_id,
+        )?;
         for (_, value) in &payload {
-            if matches!(value, RuntimeValue::Real(number) if !number.is_finite()) {
-                return Err(ExecutionError::NonFiniteValue);
-            }
+            validate_runtime_payload_value(project, value)?;
         }
 
         let sequence = self.next_event_sequence;
@@ -392,19 +782,129 @@ impl ExecutionSession {
             name: name.into(),
             source_semantic_id,
             target_semantic_id,
+            source_runtime_instance_id,
+            target_runtime_instance_id,
             payload,
         };
         self.push_trace(
             TraceKind::EventQueued,
-            target_semantic_id,
+            TraceContext {
+                semantic_element_id: target_semantic_id,
+                runtime_instance_id: target_runtime_instance_id,
+                event_sequence: Some(sequence),
+                source_semantic_id,
+                target_semantic_id,
+                source_runtime_instance_id,
+                target_runtime_instance_id,
+            },
             format!("Queued {} event '{}'", event_kind_name(kind), event.name),
         );
-        self.event_queue.push_back(event);
+        self.insert_scheduled_event(ScheduledEvent { due_time, event });
+        self.touch();
         Ok(sequence)
     }
 
-    pub fn next_event(&self) -> Option<&RuntimeEvent> {
+    pub fn next_event(&self) -> Option<&ScheduledEvent> {
         self.event_queue.front()
+    }
+
+    pub fn set_active_semantic_elements(
+        &mut self,
+        project: &Project,
+        element_ids: impl IntoIterator<Item = ElementId>,
+    ) -> Result<(), ExecutionError> {
+        self.require_project(project)?;
+        let mut next = HashSet::new();
+        for id in element_ids {
+            if !project.elements.contains_key(&id) {
+                return Err(ExecutionError::SemanticElementNotFound);
+            }
+            next.insert(id);
+        }
+        if next != self.active_semantic_elements {
+            self.active_semantic_elements = next;
+            self.push_trace(
+                TraceKind::ActiveSetChanged,
+                TraceContext::default(),
+                "Active semantic set changed".into(),
+            );
+            self.touch();
+        }
+        Ok(())
+    }
+
+    pub fn snapshot(&self) -> ExecutionSnapshot {
+        let mut runtime_instances: Vec<_> = self.instances.values().cloned().collect();
+        runtime_instances.sort_by_key(|instance| instance.id.to_string());
+
+        let mut runtime_values: Vec<_> = self
+            .values
+            .iter()
+            .map(|(key, value)| RuntimeValueSnapshot {
+                key: *key,
+                value: value.clone(),
+            })
+            .collect();
+        runtime_values.sort_by(|left, right| runtime_value_key_sort(&left.key, &right.key));
+
+        let mut active_semantic_element_ids: Vec<_> =
+            self.active_semantic_elements.iter().copied().collect();
+        active_semantic_element_ids.sort_by_key(ToString::to_string);
+
+        ExecutionSnapshot {
+            session_id: self.id,
+            revision: self.revision,
+            configuration: self.configuration.clone(),
+            state: self.state,
+            simulation_time: self.simulation_time,
+            steps_executed: self.steps_executed,
+            cancellation_requested: self.cancellation_requested,
+            runtime_instances,
+            runtime_values,
+            scheduled_events: self.event_queue.iter().cloned().collect(),
+            active_semantic_element_ids,
+            trace: self.trace.clone(),
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
+
+    fn insert_scheduled_event(&mut self, scheduled: ScheduledEvent) {
+        let position = self
+            .event_queue
+            .iter()
+            .position(|existing| {
+                (scheduled.due_time, scheduled.event.sequence)
+                    < (existing.due_time, existing.event.sequence)
+            })
+            .unwrap_or(self.event_queue.len());
+        self.event_queue.insert(position, scheduled);
+    }
+
+    fn resolve_instance_semantic(
+        &self,
+        instance_id: Option<RuntimeInstanceId>,
+        semantic_id: Option<ElementId>,
+    ) -> Result<Option<ElementId>, ExecutionError> {
+        let Some(instance_id) = instance_id else {
+            return Ok(semantic_id);
+        };
+        let instance = self.require_instance_semantic(instance_id, semantic_id)?;
+        Ok(Some(instance.semantic_element_id))
+    }
+
+    fn require_instance_semantic(
+        &self,
+        instance_id: RuntimeInstanceId,
+        semantic_id: Option<ElementId>,
+    ) -> Result<&RuntimeInstance, ExecutionError> {
+        let instance = self
+            .instances
+            .get(&instance_id)
+            .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
+        if semantic_id.is_some_and(|id| id != instance.semantic_element_id) {
+            return Err(ExecutionError::RuntimeInstanceSemanticMismatch);
+        }
+        Ok(instance)
     }
 
     fn clear_runtime_state(&mut self) {
@@ -413,6 +913,10 @@ impl ExecutionSession {
         self.event_queue.clear();
         self.trace.clear();
         self.diagnostics.clear();
+        self.active_semantic_elements.clear();
+        self.simulation_time = SimulationTime::ZERO;
+        self.steps_executed = 0;
+        self.cancellation_requested = false;
         self.next_event_sequence = 0;
         self.next_trace_sequence = 0;
     }
@@ -431,21 +935,166 @@ impl ExecutionSession {
         }
     }
 
-    fn push_trace(
-        &mut self,
-        kind: TraceKind,
-        semantic_element_id: Option<ElementId>,
-        message: String,
-    ) {
+    fn touch(&mut self) {
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    fn push_trace(&mut self, kind: TraceKind, context: TraceContext, message: String) {
         let sequence = self.next_trace_sequence;
         self.next_trace_sequence += 1;
         self.trace.push(ExecutionTraceEntry {
             sequence,
+            simulation_time: self.simulation_time,
             kind,
-            semantic_element_id,
+            semantic_element_id: context.semantic_element_id,
+            runtime_instance_id: context.runtime_instance_id,
+            event_sequence: context.event_sequence,
+            source_semantic_id: context.source_semantic_id,
+            target_semantic_id: context.target_semantic_id,
+            source_runtime_instance_id: context.source_runtime_instance_id,
+            target_runtime_instance_id: context.target_runtime_instance_id,
             message,
         });
     }
+}
+
+#[derive(Debug, Default)]
+pub struct ExecutionManager {
+    sessions: HashMap<ExecutionSessionId, ExecutionSession>,
+}
+
+impl ExecutionManager {
+    pub fn create_session(
+        &mut self,
+        project: &Project,
+        configuration: ExecutionConfiguration,
+    ) -> Result<ExecutionSessionId, ExecutionError> {
+        let session = ExecutionSession::with_configuration(project, configuration)?;
+        let id = session.id;
+        self.sessions.insert(id, session);
+        Ok(id)
+    }
+
+    pub fn create_default_session(&mut self, project: &Project) -> ExecutionSessionId {
+        let session = ExecutionSession::new(project);
+        let id = session.id;
+        self.sessions.insert(id, session);
+        id
+    }
+
+    pub fn session(&self, id: ExecutionSessionId) -> Result<&ExecutionSession, ExecutionError> {
+        self.sessions
+            .get(&id)
+            .ok_or(ExecutionError::SessionNotFound(id))
+    }
+
+    pub fn session_mut(
+        &mut self,
+        id: ExecutionSessionId,
+    ) -> Result<&mut ExecutionSession, ExecutionError> {
+        self.sessions
+            .get_mut(&id)
+            .ok_or(ExecutionError::SessionNotFound(id))
+    }
+
+    pub fn terminate_session(&mut self, id: ExecutionSessionId) -> Result<(), ExecutionError> {
+        self.session_mut(id)?.terminate()
+    }
+
+    pub fn remove_session(&mut self, id: ExecutionSessionId) -> Option<ExecutionSession> {
+        self.sessions.remove(&id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.sessions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
+}
+
+fn validate_runtime_assignment(
+    project: &Project,
+    element: &crate::Element,
+    value: &RuntimeValue,
+) -> Result<(), ExecutionError> {
+    validate_runtime_payload_value(project, value)?;
+    let Some(type_id) = element.type_id else {
+        return Ok(());
+    };
+    let expected = project
+        .elements
+        .get(&type_id)
+        .ok_or(ExecutionError::ClassifierNotFound)?;
+    if runtime_value_matches_type(expected, value) {
+        return Ok(());
+    }
+    Err(ExecutionError::RuntimeValueTypeMismatch {
+        element: element.name.clone(),
+        expected: expected.name.clone(),
+        actual: value.kind_name().into(),
+    })
+}
+
+fn validate_runtime_payload_value(
+    project: &Project,
+    value: &RuntimeValue,
+) -> Result<(), ExecutionError> {
+    if matches!(value, RuntimeValue::Real(number) if !number.is_finite()) {
+        return Err(ExecutionError::NonFiniteValue);
+    }
+    if let RuntimeValue::ElementReference(id) = value
+        && !project.elements.contains_key(id)
+    {
+        return Err(ExecutionError::RuntimeReferenceNotFound);
+    }
+    Ok(())
+}
+
+fn runtime_value_matches_type(expected: &crate::Element, value: &RuntimeValue) -> bool {
+    if matches!(value, RuntimeValue::Unset) {
+        return true;
+    }
+    match expected.kind {
+        ElementKind::PrimitiveType => match expected.name.trim().to_ascii_lowercase().as_str() {
+            "boolean" | "bool" => matches!(value, RuntimeValue::Boolean(_)),
+            "integer" | "int" => matches!(value, RuntimeValue::Integer(_)),
+            "real" | "double" | "float" => {
+                matches!(value, RuntimeValue::Integer(_) | RuntimeValue::Real(_))
+            }
+            "string" | "text" => matches!(value, RuntimeValue::Text(_)),
+            _ => !matches!(value, RuntimeValue::ElementReference(_)),
+        },
+        ElementKind::Enumeration => matches!(value, RuntimeValue::Text(_)),
+        ElementKind::Block
+        | ElementKind::AssociationBlock
+        | ElementKind::InterfaceBlock
+        | ElementKind::ConstraintBlock
+        | ElementKind::Signal
+        | ElementKind::Actor
+        | ElementKind::UseCase
+        | ElementKind::Requirement
+        | ElementKind::TestCase => matches!(value, RuntimeValue::ElementReference(_)),
+        ElementKind::ValueType | ElementKind::DataType => {
+            !matches!(value, RuntimeValue::ElementReference(_))
+        }
+        _ => true,
+    }
+}
+
+fn runtime_value_key_sort(
+    left: &RuntimeValueKey,
+    right: &RuntimeValueKey,
+) -> std::cmp::Ordering {
+    left.instance_id
+        .map(|id| id.to_string())
+        .cmp(&right.instance_id.map(|id| id.to_string()))
+        .then_with(|| {
+            left.semantic_element_id
+                .to_string()
+                .cmp(&right.semantic_element_id.to_string())
+        })
 }
 
 fn event_kind_name(kind: RuntimeEventKind) -> &'static str {
