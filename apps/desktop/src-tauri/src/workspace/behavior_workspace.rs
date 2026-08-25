@@ -1,4 +1,9 @@
-use super::{DiagramPoint, WorkspaceState, parse_element_id};
+use super::{
+    DiagramPoint, WorkspaceState,
+    activity_workspace::ActivityWorkspaceState,
+    history::{self, HistoryState},
+    parse_element_id,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use systems_modeler_core::behavior::{
@@ -850,6 +855,35 @@ pub fn resize_sequence_lifeline_timeline(
     timeline_start_y: f64,
     timeline_end_y: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
+    resize_sequence_lifeline_timeline_in(
+        &mut diagrams,
+        &diagram_id,
+        &lifeline_id_value,
+        timeline_start_y,
+        timeline_end_y,
+    )?;
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
+    Ok(())
+}
+
+fn resize_sequence_lifeline_timeline_in(
+    diagrams: &mut [BehaviorDiagram],
+    diagram_id: &str,
+    lifeline_id_value: &str,
+    timeline_start_y: f64,
+    timeline_end_y: f64,
 ) -> Result<(), String> {
     if !timeline_start_y.is_finite() || !timeline_end_y.is_finite() {
         return Err("Lifeline timeline coordinates must be finite".into());
@@ -860,10 +894,6 @@ pub fn resize_sequence_lifeline_timeline(
     if timeline_end_y - timeline_start_y < 80.0 {
         return Err("Lifeline timeline must be at least 80 diagram units long".into());
     }
-    let mut diagrams = state
-        .behavior_diagrams
-        .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -1776,6 +1806,8 @@ mod behavior_metadata_database_tests {
         let interaction_id = repository
             .create_interaction(&project, block, "Controller Sequence")
             .expect("interaction");
+        let sequence_diagram_id = uuid::Uuid::new_v4().to_string();
+        let lifeline_id = uuid::Uuid::new_v4().to_string();
         let diagrams = vec![
             BehaviorDiagram {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -1791,19 +1823,82 @@ mod behavior_metadata_database_tests {
                 presentation_copies: Vec::new(),
             },
             BehaviorDiagram {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: sequence_diagram_id.clone(),
                 name: "Controller Sequence".into(),
                 owner_id: package.to_string(),
                 context_id: block.to_string(),
                 kind: BehaviorDiagramKind::Sequence,
                 semantic_id: interaction_id.to_string(),
                 state_nodes: Vec::new(),
-                lifelines: Vec::new(),
+                lifelines: vec![LifelinePresentation {
+                    lifeline_id: lifeline_id.clone(),
+                    x: 320.0,
+                    timeline_start_y: 102.0,
+                    timeline_end_y: 840.0,
+                }],
                 edge_routes: Vec::new(),
                 hidden_semantic_ids: Vec::new(),
                 presentation_copies: Vec::new(),
             },
         ];
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project.clone());
+        *workspace.behavior.lock().expect("behavior lock") = repository.clone();
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = diagrams;
+        let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
+        let history = super::super::history::HistoryState::default();
+        super::super::history::checkpoint_states(&workspace, &activity, &history)
+            .expect("history checkpoint");
+        let mut resized_diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock")
+            .clone();
+        resize_sequence_lifeline_timeline_in(
+            &mut resized_diagrams,
+            &sequence_diagram_id,
+            &lifeline_id,
+            112.0,
+            960.0,
+        )
+        .expect("resize Lifeline timeline");
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = resized_diagrams;
+        let resized = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock")[1]
+            .lifelines[0]
+            .clone();
+        assert_eq!(resized.timeline_start_y, 112.0);
+        assert_eq!(resized.timeline_end_y, 960.0);
+        assert!(
+            super::super::history::undo_states(&workspace, &activity, &history)
+                .expect("undo Lifeline resize")
+        );
+        assert_eq!(
+            workspace
+                .behavior_diagrams
+                .lock()
+                .expect("behavior diagram lock")[1]
+                .lifelines[0]
+                .timeline_end_y,
+            840.0
+        );
+        assert!(
+            super::super::history::redo_states(&workspace, &activity, &history)
+                .expect("redo Lifeline resize")
+        );
+        let diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock")
+            .clone();
 
         let path = std::env::temp_dir().join(format!(
             "systems-modeler-behavior-round-trip-{}.smproj",
@@ -1831,6 +1926,10 @@ mod behavior_metadata_database_tests {
             assert!(restored_diagrams.iter().any(|diagram| {
                 diagram.kind == BehaviorDiagramKind::Sequence
                     && diagram.semantic_id == interaction_id.to_string()
+                    && diagram.lifelines.first().is_some_and(|presentation| {
+                        presentation.timeline_start_y == 112.0
+                            && presentation.timeline_end_y == 960.0
+                    })
             }));
         }
         let _ = std::fs::remove_file(path);

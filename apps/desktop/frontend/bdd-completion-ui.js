@@ -207,9 +207,9 @@ const renderStructuralCanvas = renderCanvas; renderCanvas = function renderCanva
   const elementsById = new Map(project.elements.map((element) => [element.id, element]));
   for (const node of diagram.nodes) {
     const element = elementsById.get(node.element_id); if (!element) continue;
-    const box = document.createElement('button'); box.className = 'bdd-block'; box.dataset.semanticKind = element.kind;
+    const box = document.createElement('button'); box.className = 'bdd-block'; box.dataset.semanticKind = element.kind; box.dataset.presentationId = node.id;
     if (state.selectedElementId === element.id) box.classList.add('selected'); if (state.pendingRelationship?.sourceElementId === element.id) box.classList.add('relationship-source');
-    box.style.left = `${node.x}px`; box.style.top = `${node.y}px`; box.style.width = `${node.width}px`; box.style.minHeight = `${node.height}px`; box.style.height = 'auto';
+    box.style.left = `${node.x}px`; box.style.top = `${node.y}px`; box.style.width = `${node.width}px`; box.style.height = `${node.height}px`; box.style.minHeight = '0';
     box.innerHTML = `<div class="stereotype">«${escapeHtml(classifierStereotype(element.kind))}»</div><div class="block-name">${escapeHtml(element.name)}</div>${classifierCompartments(project, element)}`;
     box.onclick = async (event) => {
       event.stopPropagation();

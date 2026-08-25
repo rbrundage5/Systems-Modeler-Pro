@@ -24,31 +24,18 @@ fn validate_geometry(
     Ok(())
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
-pub fn update_bdd_presentation_geometry(
-    diagram_id: String,
-    presentation_id: String,
+#[allow(clippy::too_many_arguments)] // Shared geometry primitive mirrors the named IPC fields.
+fn apply_bdd_presentation_geometry(
+    project: &systems_modeler_core::Project,
+    diagrams: &mut [super::BddDiagram],
+    diagram_id: &str,
+    presentation_id: &str,
     x: f64,
     y: f64,
     width: f64,
     height: f64,
-    state: tauri::State<'_, WorkspaceState>,
-    activity: tauri::State<'_, ActivityWorkspaceState>,
-    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 48.0, 32.0)?;
-    let project = state
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?
-        .clone()
-        .ok_or("no project open")?;
-    let mut diagrams = state
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")?
-        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -62,7 +49,7 @@ pub fn update_bdd_presentation_geometry(
     node.y = y;
     node.width = width;
     node.height = height;
-    use_cases::fit_use_case_subject_boundary(diagram, &project, false);
+    use_cases::fit_use_case_subject_boundary(diagram, project, false);
 
     let routes: Vec<_> = diagram
         .edges
@@ -91,8 +78,43 @@ pub fn update_bdd_presentation_geometry(
             edge.points = points;
         }
     }
+    validate_loaded_diagrams(project, diagrams)
+}
 
-    validate_loaded_diagrams(&project, &diagrams)?;
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
+pub fn update_bdd_presentation_geometry(
+    diagram_id: String,
+    presentation_id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    let project = state
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or("no project open")?;
+    let mut diagrams = state
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .clone();
+    apply_bdd_presentation_geometry(
+        &project,
+        &mut diagrams,
+        &diagram_id,
+        &presentation_id,
+        x,
+        y,
+        width,
+        height,
+    )?;
 
     history::checkpoint_states(&state, &activity, &history)?;
     *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
@@ -456,4 +478,136 @@ pub fn update_activity_presentation_geometry(
         .lock()
         .map_err(|_| "activity diagram lock poisoned")? = diagrams;
     Ok(())
+}
+
+#[cfg(test)]
+mod shared_resize_tests {
+    use super::*;
+    use systems_modeler_core::{ElementKind, Project};
+    use systems_modeler_persistence::ProjectDatabase;
+
+    fn presentation(id: &str, element_id: String) -> super::super::DiagramNode {
+        super::super::DiagramNode {
+            id: id.into(),
+            element_id,
+            x: 120.0,
+            y: 160.0,
+            width: 180.0,
+            height: 90.0,
+            actor_notation: None,
+            parameter_presentations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn structural_and_package_resize_snapshot_persistence_and_history_round_trip() {
+        let mut project = Project::new("Shared Resize");
+        let owner = project
+            .create_element(ElementKind::Package, "Owner", project.root_id)
+            .expect("owner Package");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", owner)
+            .expect("Block");
+        let package = project
+            .create_element(ElementKind::Package, "Subsystem", owner)
+            .expect("presented Package");
+        let bdd_id = uuid::Uuid::new_v4().to_string();
+        let package_diagram_id = uuid::Uuid::new_v4().to_string();
+        let bdd_node_id = uuid::Uuid::new_v4().to_string();
+        let package_node_id = uuid::Uuid::new_v4().to_string();
+        let original = vec![
+            super::super::BddDiagram {
+                id: bdd_id.clone(),
+                name: "Structure".into(),
+                owner_id: owner.to_string(),
+                family: "bdd".into(),
+                semantic_context_id: None,
+                subject_boundary: None,
+                nodes: vec![presentation(&bdd_node_id, block.to_string())],
+                edges: Vec::new(),
+            },
+            super::super::BddDiagram {
+                id: package_diagram_id.clone(),
+                name: "Packages".into(),
+                owner_id: owner.to_string(),
+                family: "package".into(),
+                semantic_context_id: None,
+                subject_boundary: None,
+                nodes: vec![presentation(&package_node_id, package.to_string())],
+                edges: Vec::new(),
+            },
+        ];
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project.clone());
+        *workspace.diagrams.lock().expect("diagram lock") = original;
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        history::checkpoint_states(&workspace, &activity, &history).expect("history checkpoint");
+
+        let mut resized = workspace.diagrams.lock().expect("diagram lock").clone();
+        apply_bdd_presentation_geometry(
+            &project,
+            &mut resized,
+            &bdd_id,
+            &bdd_node_id,
+            140.0,
+            180.0,
+            320.0,
+            170.0,
+        )
+        .expect("resize structural presentation");
+        apply_bdd_presentation_geometry(
+            &project,
+            &mut resized,
+            &package_diagram_id,
+            &package_node_id,
+            360.0,
+            240.0,
+            280.0,
+            150.0,
+        )
+        .expect("resize Package presentation");
+        *workspace.diagrams.lock().expect("diagram lock") = resized.clone();
+
+        let snapshot = workspace.diagrams.lock().expect("diagram lock").clone();
+        assert_eq!((snapshot[0].nodes[0].width, snapshot[0].nodes[0].height), (320.0, 170.0));
+        assert_eq!((snapshot[1].nodes[0].width, snapshot[1].nodes[0].height), (280.0, 150.0));
+
+        let path = std::env::temp_dir().join(format!(
+            "systems-modeler-shared-resize-{}.smproj",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let mut database = ProjectDatabase::open(&path).expect("open database");
+            database.save_project(&project).expect("save project");
+            database
+                .save_metadata(
+                    project.id,
+                    super::super::BDD_METADATA_KEY,
+                    &serde_json::to_string(&resized).expect("serialize diagrams"),
+                )
+                .expect("save diagram geometry");
+        }
+        {
+            let database = ProjectDatabase::open(&path).expect("reopen database");
+            let payload = database
+                .load_metadata(project.id, super::super::BDD_METADATA_KEY)
+                .expect("load metadata")
+                .expect("diagram metadata");
+            let reopened: Vec<super::super::BddDiagram> =
+                serde_json::from_str(&payload).expect("deserialize diagrams");
+            assert_eq!((reopened[0].nodes[0].width, reopened[0].nodes[0].height), (320.0, 170.0));
+            assert_eq!((reopened[1].nodes[0].width, reopened[1].nodes[0].height), (280.0, 150.0));
+        }
+        let _ = std::fs::remove_file(path);
+
+        assert!(history::undo_states(&workspace, &activity, &history).expect("undo resize"));
+        let undone = workspace.diagrams.lock().expect("diagram lock").clone();
+        assert_eq!((undone[0].nodes[0].width, undone[0].nodes[0].height), (180.0, 90.0));
+        assert_eq!((undone[1].nodes[0].width, undone[1].nodes[0].height), (180.0, 90.0));
+        assert!(history::redo_states(&workspace, &activity, &history).expect("redo resize"));
+        let redone = workspace.diagrams.lock().expect("diagram lock").clone();
+        assert_eq!((redone[0].nodes[0].width, redone[0].nodes[0].height), (320.0, 170.0));
+        assert_eq!((redone[1].nodes[0].width, redone[1].nodes[0].height), (280.0, 150.0));
+    }
 }

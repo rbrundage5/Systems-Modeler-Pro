@@ -157,6 +157,14 @@ pub fn history_undo(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
 ) -> Result<bool, String> {
+    undo_states(&workspace, &activity, &history)
+}
+
+pub(super) fn undo_states(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+) -> Result<bool, String> {
     let target = {
         let mut undo = history
             .undo
@@ -167,8 +175,8 @@ pub fn history_undo(
     let Some(target) = target else {
         return Ok(false);
     };
-    let current = capture_states(&workspace, &activity)?;
-    restore(target, &workspace, &activity)?;
+    let current = capture_states(workspace, activity)?;
+    restore(target, workspace, activity)?;
     let mut redo = history
         .redo
         .lock()
@@ -186,6 +194,14 @@ pub fn history_redo(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
 ) -> Result<bool, String> {
+    redo_states(&workspace, &activity, &history)
+}
+
+pub(super) fn redo_states(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+) -> Result<bool, String> {
     let target = {
         let mut redo = history
             .redo
@@ -196,8 +212,8 @@ pub fn history_redo(
     let Some(target) = target else {
         return Ok(false);
     };
-    let current = capture_states(&workspace, &activity)?;
-    restore(target, &workspace, &activity)?;
+    let current = capture_states(workspace, activity)?;
+    restore(target, workspace, activity)?;
     let mut undo = history
         .undo
         .lock()
