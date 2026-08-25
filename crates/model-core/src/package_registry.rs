@@ -1,6 +1,4 @@
-use crate::diagram_family::{
-    DiagramCapability, DiagramFamilyRegistry,
-};
+use crate::diagram_family::{DiagramCapability, DiagramFamilyRegistry};
 
 /// Returns the product-level diagram family registry.
 ///
@@ -15,9 +13,7 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
     for mut descriptor in base.descriptors() {
         if descriptor.id.0 == "package" {
             descriptor.capabilities.insert(DiagramCapability::Frames);
-            descriptor
-                .capabilities
-                .insert(DiagramCapability::DrillDown);
+            descriptor.capabilities.insert(DiagramCapability::DrillDown);
         }
         registry
             .register(descriptor)
