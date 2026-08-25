@@ -16,14 +16,19 @@
   `;
   document.head.appendChild(style);
 
-  function commit(command, args, after) {
-    return runCommand('Updating diagram presentation…', () => requireInvoke()(command, args))
-      .then(async () => {
-        await after();
-        render();
-      })
-      .catch((error) => console.error('Presentation geometry update failed', error));
+  async function commit(command, args) {
+    try {
+      await runCommand('Updating diagram presentation…', () => requireInvoke()(command, args));
+    } catch (error) {
+      console.error('Presentation geometry update failed', error);
+    } finally {
+      // The pointer preview is disposable. Always replace it with the snapshot
+      // returned after the Rust mutation completes, including on rejection.
+      await refresh();
+    }
   }
+
+  window.smpCommitPresentationGeometry = commit;
 
   function bindHtmlGeometry(node, config) {
     if (!node || node.dataset.smpGeometryBound === '1') return;
@@ -35,14 +40,26 @@
     handle.className = 'smp-resize-handle';
     handle.title = 'Drag to resize';
     handle.setAttribute('aria-label', 'Resize element');
+    handle.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
     node.appendChild(handle);
+    let suppressNextClick = false;
+    node.addEventListener('click', (event) => {
+      if (!suppressNextClick) return;
+      suppressNextClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
 
     node.onpointerdown = (event) => {
-      if (event.button !== 0 || event.target.closest?.('.smp-resize-handle')) return;
+      if (event.button !== 0 || event.target.closest?.('.smp-resize-handle, .constraint-parameter')) return;
       if (config.disabled?.()) return;
       event.preventDefault();
       event.stopPropagation();
       config.select?.();
+      suppressNextClick = true;
       const startX = event.clientX;
       const startY = event.clientY;
       const original = config.geometry();
@@ -54,12 +71,13 @@
         next.y = Math.max(42, original.y + move.clientY - startY);
         node.style.left = `${next.x}px`;
         node.style.top = `${next.y}px`;
+        config.preview?.(next);
       };
-      node.onpointerup = () => {
+      node.onpointerup = async () => {
         node.onpointermove = null;
         node.onpointerup = null;
         node.classList.remove('smp-dragging');
-        void config.commit(next);
+        await config.commit(next);
       };
     };
 
@@ -68,6 +86,7 @@
       event.preventDefault();
       event.stopPropagation();
       config.select?.();
+      suppressNextClick = true;
       const startX = event.clientX;
       const startY = event.clientY;
       const original = config.geometry();
@@ -78,11 +97,12 @@
         next.height = Math.max(config.minHeight, original.height + move.clientY - startY);
         node.style.width = `${next.width}px`;
         node.style.height = `${next.height}px`;
+        config.preview?.(next);
       };
-      handle.onpointerup = () => {
+      handle.onpointerup = async () => {
         handle.onpointermove = null;
         handle.onpointerup = null;
-        void config.commit(next);
+        await config.commit(next);
       };
     };
   }
@@ -91,7 +111,10 @@
     const diagram = state.snapshot?.diagrams?.find((item) => item.id === state.selectedDiagramId);
     if (!diagram) return;
     [...document.querySelectorAll('#canvas .bdd-block')].forEach((node, index) => {
-      const presentation = diagram.nodes[index];
+      const presentationId = node.dataset.presentationId;
+      const presentation = (presentationId
+        ? diagram.nodes?.find((item) => String(item.id) === String(presentationId))
+        : null) || diagram.nodes?.[index];
       if (!presentation) return;
       bindHtmlGeometry(node, {
         minWidth: MIN.BDD.width,
@@ -99,11 +122,14 @@
         geometry: () => ({ ...presentation }),
         disabled: () => !!state.pendingRelationship || !!state.paletteTool,
         select: () => { state.selectedElementId = presentation.element_id; state.selectedRelationshipId = null; },
-        commit: (next) => commit('update_bdd_presentation_geometry', {
+        commit: (next) => commit(
+          diagram.family === 'parametric'
+            ? 'update_parametric_presentation_geometry'
+            : 'update_bdd_presentation_geometry', {
           diagramId: diagram.id,
           presentationId: presentation.id,
           x: next.x, y: next.y, width: next.width, height: next.height,
-        }, refresh),
+        }),
       });
     });
   }
@@ -112,7 +138,10 @@
     const diagram = (state.snapshot?.ibd_diagrams || []).find((item) => item.id === state.selectedDiagramId);
     if (!diagram) return;
     [...document.querySelectorAll('#canvas .ibd-property')].forEach((node, index) => {
-      const presentation = diagram.properties[index];
+      const presentationId = node.dataset.presentationId;
+      const presentation = (presentationId
+        ? diagram.properties?.find((item) => String(item.id) === String(presentationId))
+        : null) || diagram.properties?.[index];
       if (!presentation) return;
       bindHtmlGeometry(node, {
         minWidth: MIN.IBD.width,
@@ -124,13 +153,16 @@
           diagramId: diagram.id,
           presentationId: presentation.id,
           x: next.x, y: next.y, width: next.width, height: next.height,
-        }, refresh),
+        }),
       });
     });
 
     const ports = [...diagram.properties.flatMap((property) => property.ports || []), ...(diagram.boundary_ports || [])];
     [...document.querySelectorAll('#canvas .ibd-port')].forEach((node, index) => {
-      const presentation = ports[index];
+      const presentationId = node.dataset.presentationId;
+      const presentation = (presentationId
+        ? ports.find((item) => String(item.id) === String(presentationId))
+        : null) || ports[index];
       if (!presentation) return;
       bindHtmlGeometry(node, {
         minWidth: 10,
@@ -149,8 +181,37 @@
           x: next.x + next.width / 2,
           y: next.y + next.height / 2,
           size: Math.max(10, Math.max(next.width, next.height)),
-        }, refresh),
+        }),
       });
+    });
+  }
+
+  function installUseCaseSubjectBoundary() {
+    const diagram = state.snapshot?.diagrams?.find(
+      (item) => String(item.id) === String(state.selectedDiagramId) && item.family === 'use-case',
+    );
+    const boundary = diagram?.subject_boundary;
+    if (!diagram || !boundary) return;
+    const node = document.querySelector(
+      `#canvas .use-case-subject-boundary[data-subject-boundary-id="${CSS.escape(String(boundary.id))}"]`,
+    );
+    bindHtmlGeometry(node, {
+      minWidth: 280,
+      minHeight: 220,
+      geometry: () => ({ ...boundary }),
+      disabled: () => !!state.pendingRelationship || !!state.paletteTool,
+      select: () => {
+        Object.assign(state, {
+          selectedUseCaseSubjectBoundaryId: boundary.id,
+          selectedElementId: null,
+          selectedRelationshipId: null,
+        });
+      },
+      commit: (next) => commit('update_use_case_subject_boundary_geometry', {
+        diagramId: diagram.id,
+        boundaryId: boundary.id,
+        x: next.x, y: next.y, width: next.width, height: next.height,
+      }),
     });
   }
 
@@ -163,15 +224,16 @@
       if (!presentation) return;
       bindHtmlGeometry(node, {
         minWidth: MIN.StateMachine.width,
-        minHeight: MIN.StateMachine.height,
+        minHeight: node.classList.contains('submachine-state') ? 90 : MIN.StateMachine.height,
         geometry: () => ({ ...presentation }),
         disabled: () => !!state.behaviorPending || !!state.behaviorTool,
         select: () => {},
+        preview: (next) => window.smpPreviewStateTransitionGeometry?.(diagram, vertexId, next),
         commit: (next) => commit('update_state_presentation_geometry', {
           diagramId: diagram.id,
           stateVertexId: vertexId,
           x: next.x, y: next.y, width: next.width, height: next.height,
-        }, refresh),
+        }),
       });
     });
   }
@@ -181,6 +243,70 @@
       node.classList.add('smp-interactive-presentation');
       node.title = `${node.title ? `${node.title} · ` : ''}Drag to move; use the lower handle to resize the timeline.`;
     });
+  }
+
+  function applyActivityShapeGeometry(group, geometry) {
+    const { x, y, width, height } = geometry;
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+    const radius = Math.max(2, Math.min(width, height) / 2 - 2);
+    if (group.classList.contains('activity-initial')) {
+      const circle = group.querySelector('circle');
+      if (circle) {
+        circle.setAttribute('cx', centerX);
+        circle.setAttribute('cy', centerY);
+        circle.setAttribute('r', radius);
+      }
+      return;
+    }
+    if (group.classList.contains('activity-activityfinal')) {
+      const circles = group.querySelectorAll('circle');
+      circles[0]?.setAttribute('cx', centerX);
+      circles[0]?.setAttribute('cy', centerY);
+      circles[0]?.setAttribute('r', radius);
+      circles[1]?.setAttribute('cx', centerX);
+      circles[1]?.setAttribute('cy', centerY);
+      circles[1]?.setAttribute('r', Math.max(1, Math.min(width, height) / 2 - 7));
+      return;
+    }
+    if (group.classList.contains('activity-flowfinal')) {
+      const circle = group.querySelector('circle');
+      if (circle) {
+        circle.setAttribute('cx', centerX);
+        circle.setAttribute('cy', centerY);
+        circle.setAttribute('r', radius);
+      }
+      const lines = group.querySelectorAll('line');
+      lines[0]?.setAttribute('x1', x + 6);
+      lines[0]?.setAttribute('y1', y + 6);
+      lines[0]?.setAttribute('x2', x + width - 6);
+      lines[0]?.setAttribute('y2', y + height - 6);
+      lines[1]?.setAttribute('x1', x + width - 6);
+      lines[1]?.setAttribute('y1', y + 6);
+      lines[1]?.setAttribute('x2', x + 6);
+      lines[1]?.setAttribute('y2', y + height - 6);
+      return;
+    }
+    if (group.classList.contains('activity-decision') || group.classList.contains('activity-merge')) {
+      group.querySelector('polygon')?.setAttribute(
+        'points',
+        `${centerX},${y} ${x + width},${centerY} ${centerX},${y + height} ${x},${centerY}`,
+      );
+      return;
+    }
+    const rect = group.querySelector('rect:not(.smp-svg-resize-handle)');
+    if (rect) {
+      rect.setAttribute('x', x);
+      rect.setAttribute('y', y);
+      rect.setAttribute('width', width);
+      rect.setAttribute('height', height);
+    }
+    if (group.classList.contains('activity-fork') || group.classList.contains('activity-join')) return;
+    const text = group.querySelector('text');
+    if (text) {
+      text.setAttribute('x', centerX);
+      text.setAttribute('y', centerY + 4);
+    }
   }
 
   function installActivity() {
@@ -206,6 +332,10 @@
       handle.setAttribute('y', presentation.y + presentation.height - 6);
       handle.setAttribute('width', '12');
       handle.setAttribute('height', '12');
+      handle.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
       group.appendChild(handle);
 
       group.onpointerdown = (event) => {
@@ -227,16 +357,16 @@
           next.y = Math.max(42, original.y + dy);
           group.setAttribute('transform', `translate(${next.x - original.x} ${next.y - original.y})`);
         };
-        group.onpointerup = () => {
+        group.onpointerup = async () => {
           group.onpointermove = null;
           group.onpointerup = null;
           group.classList.remove('smp-dragging');
           group.removeAttribute('transform');
-          void commit('update_activity_presentation_geometry', {
+          await commit('update_activity_presentation_geometry', {
             diagramId: diagram.id,
             presentationId: presentation.id,
             x: next.x, y: next.y, width: next.width, height: next.height,
-          }, async () => { state.activitySnapshot = await requireInvoke()('activity_snapshot'); });
+          });
         };
       };
 
@@ -252,18 +382,22 @@
         handle.onpointermove = (move) => {
           const scale = unitsPerPixel();
           next.width = Math.max(MIN.Activity.width, original.width + (move.clientX - startX) * scale.x);
-          next.height = Math.max(MIN.Activity.height, original.height + (move.clientY - startY) * scale.y);
+          const barLike = group.classList.contains('activity-fork') || group.classList.contains('activity-join');
+          next.height = barLike
+            ? Math.max(20, Math.min(24, original.height + (move.clientY - startY) * scale.y))
+            : Math.max(MIN.Activity.height, original.height + (move.clientY - startY) * scale.y);
+          applyActivityShapeGeometry(group, next);
           handle.setAttribute('x', original.x + next.width - 6);
           handle.setAttribute('y', original.y + next.height - 6);
         };
-        handle.onpointerup = () => {
+        handle.onpointerup = async () => {
           handle.onpointermove = null;
           handle.onpointerup = null;
-          void commit('update_activity_presentation_geometry', {
+          await commit('update_activity_presentation_geometry', {
             diagramId: diagram.id,
             presentationId: presentation.id,
             x: original.x, y: original.y, width: next.width, height: next.height,
-          }, async () => { state.activitySnapshot = await requireInvoke()('activity_snapshot'); });
+          });
         };
       };
     });
@@ -272,6 +406,7 @@
   function install() {
     installBdd();
     installIbd();
+    installUseCaseSubjectBoundary();
     installStateMachine();
     installSequence();
     installActivity();

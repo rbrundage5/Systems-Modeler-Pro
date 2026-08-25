@@ -357,7 +357,6 @@
     }
   }
 
-  window.smpRendererHost = Object.freeze({ registerRenderer, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:() => state.frame&&{...state.frame} });
   const selectionAdapter = (selectionKeys, toolKeys) => ({
     selection: () => {
       const standard = window.smpStandardEditing?.selections?.() || window.smpStandardSelections;
@@ -373,6 +372,16 @@
     cancelInteraction: () => { for (const key of toolKeys) if (window.smpState) window.smpState[key] = null; },
     refresh: async () => { if (typeof window.refresh === 'function') await window.refresh(); },
   });
+  function registerSelectionRenderer(familyId, selectionKeys, toolKeys, adapter = {}) {
+    registerRenderer(familyId, { ...selectionAdapter(selectionKeys, toolKeys), ...adapter });
+  }
+  function renderFamilyCanvas(familyId) {
+    const adapter = familyId ? renderers.get(familyId) : renderer();
+    if (typeof adapter?.renderCanvas !== 'function') return false;
+    adapter.renderCanvas();
+    return true;
+  }
+  window.smpRendererHost = Object.freeze({ registerRenderer, registerSelectionRenderer, renderFamilyCanvas, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:() => state.frame&&{...state.frame} });
   registerRenderer('bdd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('ibd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('requirement', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));

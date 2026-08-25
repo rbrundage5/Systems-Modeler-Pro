@@ -60,7 +60,10 @@
     if (!diagram || diagram.family === 'use-case') return;
     const boxes = [...document.querySelectorAll('#canvas .bdd-block')];
     boxes.forEach((box, index) => {
-      const presentation = diagram.nodes?.[index];
+      const presentationId = box.dataset.presentationId;
+      const presentation = (presentationId
+        ? diagram.nodes?.find((item) => String(item.id) === String(presentationId))
+        : null) || diagram.nodes?.[index];
       if (!presentation) return;
       box.dataset.presentationId = presentation.id;
       const hidden = hiddenCompartments(diagram, presentation);
@@ -70,8 +73,8 @@
         compartment.hidden = hidden.has(label);
       }
       const visibleCompartments = compartments.filter((compartment) => !compartment.hidden);
-      box.style.height = visibleCompartments.length ? `${presentation.height}px` : 'auto';
-      box.style.minHeight = visibleCompartments.length ? '0' : '52px';
+      box.style.height = `${presentation.height}px`;
+      box.style.minHeight = '0';
       box.style.overflow = 'hidden';
       box.style.boxSizing = 'border-box';
       box.classList.toggle('compartments-collapsed', !visibleCompartments.length);

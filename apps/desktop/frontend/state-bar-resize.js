@@ -105,20 +105,14 @@
         handle.onpointerup = async () => {
           handle.onpointermove = null;
           handle.onpointerup = null;
-          try {
-            await runCommand('Resizing State Fork/Join…', () => requireInvoke()('update_state_presentation_geometry', {
-              diagramId: diagram.id,
-              stateVertexId: String(vertexId),
-              x: next.x,
-              y: next.y,
-              width: next.width,
-              height: next.height,
-            }));
-          } finally {
-            // Always rehydrate from Rust. Never leave speculative frontend
-            // geometry behind if the authoritative command rejects the edit.
-            await refresh();
-          }
+          await window.smpCommitPresentationGeometry('update_state_presentation_geometry', {
+            diagramId: diagram.id,
+            stateVertexId: String(vertexId),
+            x: next.x,
+            y: next.y,
+            width: next.width,
+            height: next.height,
+          });
         };
       };
     });

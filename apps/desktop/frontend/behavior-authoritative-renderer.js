@@ -265,6 +265,10 @@
       timeline.style.height = `${Math.max(80, timelineEnd - timelineStart)}px`;
       const timelineResize = node.querySelector('.lifeline-resize-handle');
       timelineResize.style.top = `${Math.max(50, timelineEnd - 66)}px`;
+      timelineResize.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
       if (presentation.fallback) node.classList.add('presentation-fallback');
       if (
         state.selectedBehaviorItem?.type === 'Lifeline'
@@ -294,13 +298,12 @@
           timelineResize.onpointerup = async () => {
             timelineResize.onpointermove = null;
             timelineResize.onpointerup = null;
-            await runCommand('Resizing Lifeline timeline…', () => requireInvoke()('resize_sequence_lifeline_timeline', {
+            await window.smpCommitPresentationGeometry('resize_sequence_lifeline_timeline', {
               diagramId: diagram.id,
               lifelineIdValue: String(lifeline.id),
               timelineStartY: timelineStart,
               timelineEndY: nextEnd,
-            }));
-            await refresh();
+            });
           };
         };
         node.onpointerdown = (event) => {
