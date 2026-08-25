@@ -544,28 +544,28 @@ pub enum ModelError {
     MissingTraceabilityOwner,
     #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
     InvalidTraceabilityOwner(ElementId),
-    #[error("{relationship:?} has invalid endpoints: '{source}' -> '{target}'")]
+    #[error("{relationship:?} has invalid endpoints: '{source_name}' -> '{target_name}'")]
     InvalidPackageRelationshipEndpoints {
         relationship: RelationshipKind,
-        source: String,
-        target: String,
+        source_name: String,
+        target_name: String,
     },
     #[error("{relationship:?} cannot connect '{element}' to itself")]
     SelfPackageRelationship {
         relationship: RelationshipKind,
         element: String,
     },
-    #[error("an equivalent {relationship:?} already exists: '{source}' -> '{target}'")]
+    #[error("an equivalent {relationship:?} already exists: '{source_name}' -> '{target_name}'")]
     DuplicatePackageRelationship {
         relationship: RelationshipKind,
-        source: String,
-        target: String,
+        source_name: String,
+        target_name: String,
     },
-    #[error("{relationship:?} from '{source}' must be owned by that importing namespace, not '{owner}'")]
+    #[error("{relationship:?} from '{source_name}' must be owned by that importing namespace, not '{owner_name}'")]
     InvalidPackageRelationshipOwner {
         relationship: RelationshipKind,
-        source: String,
-        owner: String,
+        source_name: String,
+        owner_name: String,
     },
     #[error("ElementImport alias '{0}' is not a valid identifier")]
     InvalidElementImportAlias(String),
@@ -790,8 +790,8 @@ impl Project {
             }) {
                 return Err(ModelError::DuplicatePackageRelationship {
                     relationship: kind,
-                    source: source.name.clone(),
-                    target: target.name.clone(),
+                    source_name: source.name.clone(),
+                    target_name: target.name.clone(),
                 });
             }
             if owner_id != Some(source_id) {
@@ -801,8 +801,8 @@ impl Project {
                     .unwrap_or_else(|| "no semantic owner".into());
                 return Err(ModelError::InvalidPackageRelationshipOwner {
                     relationship: kind,
-                    source: source.name.clone(),
-                    owner,
+                    source_name: source.name.clone(),
+                    owner_name: owner,
                 });
             }
         }
@@ -1358,8 +1358,8 @@ impl Project {
                         .unwrap_or_else(|| "no semantic owner".into());
                     return Err(ModelError::InvalidPackageRelationshipOwner {
                         relationship: relationship.kind.clone(),
-                        source: source.name.clone(),
-                        owner,
+                        source_name: source.name.clone(),
+                        owner_name: owner,
                     });
                 }
                 if self.relationships.values().any(|candidate| {
@@ -1370,8 +1370,8 @@ impl Project {
                 }) {
                     return Err(ModelError::DuplicatePackageRelationship {
                         relationship: relationship.kind.clone(),
-                        source: source.name.clone(),
-                        target: target.name.clone(),
+                        source_name: source.name.clone(),
+                        target_name: target.name.clone(),
                     });
                 }
                 if relationship.kind == RelationshipKind::ElementImport {
@@ -1543,8 +1543,8 @@ fn validate_package_relationship_endpoints(
     } else {
         Err(ModelError::InvalidPackageRelationshipEndpoints {
             relationship: relationship.clone(),
-            source: format!("{} ({:?})", source.name, source.kind),
-            target: format!("{} ({:?})", target.name, target.kind),
+            source_name: format!("{} ({:?})", source.name, source.kind),
+            target_name: format!("{} ({:?})", target.name, target.kind),
         })
     }
 }
