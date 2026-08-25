@@ -842,11 +842,7 @@ mod tests {
             .create_element(ElementKind::Package, "Structure", project.root_id)
             .unwrap();
         let library = project
-            .create_element(
-                ElementKind::ModelLibrary,
-                "Common Library",
-                project.root_id,
-            )
+            .create_element(ElementKind::ModelLibrary, "Common Library", project.root_id)
             .unwrap();
         let block = project
             .create_element(ElementKind::Block, "Vehicle Type", project.root_id)

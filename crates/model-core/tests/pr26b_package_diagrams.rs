@@ -63,11 +63,7 @@ fn package_import_accepts_package_and_model_library_namespaces_in_legal_roles() 
         .create_package_import(common_library, common_package, VisibilityKind::Public)
         .unwrap();
     let second_library = project
-        .create_element(
-            ElementKind::ModelLibrary,
-            "Vehicle Types",
-            project.root_id,
-        )
+        .create_element(ElementKind::ModelLibrary, "Vehicle Types", project.root_id)
         .unwrap();
     project
         .create_package_import(common_library, second_library, VisibilityKind::Public)
