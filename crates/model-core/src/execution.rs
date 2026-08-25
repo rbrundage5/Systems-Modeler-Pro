@@ -713,6 +713,7 @@ impl ExecutionSession {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn queue_event_after(
         &mut self,
         project: &Project,
