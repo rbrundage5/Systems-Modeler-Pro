@@ -1,45 +1,16 @@
-use crate::diagram_family::{
-    DiagramCapability as C, DiagramFamilyDescriptor, DiagramFamilyId, DiagramFamilyRegistry,
-    PreferredFlowDirection,
-};
+use crate::diagram_family::DiagramFamilyRegistry;
 
 /// Returns the product-level diagram family registry.
 ///
-/// Package Diagram is layered onto the established family contract instead of
-/// duplicating workspace behavior. The base registry remains independently
-/// extensible and its tests continue to exercise third-party registration.
+/// Package Diagram is a built-in ninth family in the shared registry.
 pub fn supported_diagram_families() -> DiagramFamilyRegistry {
-    let mut registry = crate::diagram_family::supported_diagram_families();
-    registry
-        .register(DiagramFamilyDescriptor {
-            id: DiagramFamilyId::new("package").expect("static package family id is valid"),
-            display_name: "Package Diagram".into(),
-            frame_abbreviation: "pkg".into(),
-            frame_model_element_type: "Package".into(),
-            renderer_id: "package".into(),
-            permitted_owner_kinds: vec!["Model".into(), "Package".into()],
-            capabilities: [
-                C::NodePlacement,
-                C::Frames,
-                C::Move,
-                C::Resize,
-                C::Delete,
-                C::Clipboard,
-                C::DrillDown,
-            ]
-            .into_iter()
-            .collect(),
-            preferred_flow: PreferredFlowDirection::TopToBottom,
-            accessibility_name: "Package Diagram engineering workspace".into(),
-            empty_message: "This Package Diagram has no presented packages.".into(),
-        })
-        .expect("built-in Package Diagram family must be valid");
-    registry
+    crate::diagram_family::supported_diagram_families()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagram_family::{DiagramCapability as C, DiagramFamilyId};
 
     #[test]
     fn product_registry_exposes_all_nine_sysml_1x_diagram_families() {
@@ -55,8 +26,8 @@ mod tests {
         assert!(package.supports(C::Move));
         assert!(package.supports(C::Resize));
         assert!(package.supports(C::Clipboard));
-        assert!(!package.supports(C::Relationships));
-        assert!(!package.supports(C::Routing));
-        assert!(!package.supports(C::CleanLayout));
+        assert!(package.supports(C::Relationships));
+        assert!(package.supports(C::Routing));
+        assert!(package.supports(C::CleanLayout));
     }
 }
