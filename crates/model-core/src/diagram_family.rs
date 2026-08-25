@@ -261,12 +261,14 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             &[
                 C::NodePlacement,
                 C::Relationships,
+                C::Frames,
                 C::Move,
                 C::Resize,
                 C::Delete,
                 C::Clipboard,
                 C::Routing,
                 C::CleanLayout,
+                C::DrillDown,
             ],
             PreferredFlowDirection::TopToBottom,
         ),
@@ -610,9 +612,16 @@ mod tests {
         let package = registry
             .get(&DiagramFamilyId::new("package").unwrap())
             .unwrap();
+        assert!(package.supports(DiagramCapability::NodePlacement));
         assert!(package.supports(DiagramCapability::Relationships));
+        assert!(package.supports(DiagramCapability::Move));
+        assert!(package.supports(DiagramCapability::Resize));
+        assert!(package.supports(DiagramCapability::Delete));
+        assert!(package.supports(DiagramCapability::Clipboard));
         assert!(package.supports(DiagramCapability::Routing));
         assert!(package.supports(DiagramCapability::CleanLayout));
+        assert!(package.supports(DiagramCapability::Frames));
+        assert!(package.supports(DiagramCapability::DrillDown));
         assert!(!sequence.supports(DiagramCapability::Evaluation));
     }
     #[test]
