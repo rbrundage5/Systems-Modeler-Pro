@@ -18,6 +18,7 @@
   document.head.appendChild(style);
 
   let drag = null;
+  let suppressNextClick = false;
 
   window.addEventListener('blur', cleanup);
 
@@ -91,6 +92,16 @@
     window.smpStandardEditing?.setSelections?.([]);
   });
 
+  // A renderer's ordinary empty-frame click clears selection. Suppress only the
+  // compatibility click generated after a completed marquee drag so the newly
+  // selected set survives. Normal empty-canvas clicks continue to clear.
+  canvas.addEventListener('click', (event) => {
+    if (!suppressNextClick) return;
+    suppressNextClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+
   // Space/Ctrl/Meta panning is intercepted by the shared workspace capture
   // handler before this bubble listener. Marquee therefore does not own another
   // keyboard controller and cannot compete with viewport panning.
@@ -147,6 +158,7 @@
       ? (window.smpStandardEditing?.selections?.() || [])
       : [];
     window.smpStandardEditing?.setSelections?.([...existing, ...hits]);
+    suppressNextClick = true;
   }, false);
 
   canvas.addEventListener('pointercancel', cleanup, false);
