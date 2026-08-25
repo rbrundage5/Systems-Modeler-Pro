@@ -30,7 +30,8 @@
 .use-case-diagram .relationship-layer { z-index: 1; }
 .use-case-diagram .bdd-block { z-index: 2; }
 
-.use-case-diagram .actor-presentation[data-semantic-kind="Actor"] {
+.use-case-diagram .actor-presentation[data-semantic-kind="Actor"],
+.package-diagram .actor-presentation[data-semantic-kind="Actor"] {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -38,7 +39,8 @@
   overflow: visible !important;
 }
 
-.use-case-diagram .actor-presentation.actor-rectangle-notation {
+.use-case-diagram .actor-presentation.actor-rectangle-notation,
+.package-diagram .actor-presentation.actor-rectangle-notation {
   display: flex;
   align-items: center;
   justify-content: center;

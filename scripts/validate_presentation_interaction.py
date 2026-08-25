@@ -99,7 +99,7 @@ assert "resize_sequence_lifeline_timeline" in sequence_frontend
 # Rust commands reroute attached notation and own the undo checkpoint. Focused
 # Rust tests cover immediate snapshots, persistence, and undo/redo for a BDD,
 # Package Diagram, and a behavioral Sequence presentation.
-assert "route_relationship" in interaction_rs, "BDD rerouting is not integrated"
+assert "routed_bdd_edges" in interaction_rs, "shared structural batch rerouting is not integrated"
 assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not boundary constrained"

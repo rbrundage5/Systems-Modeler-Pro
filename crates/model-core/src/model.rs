@@ -46,6 +46,7 @@ id_type!(DiagramId);
 pub enum ElementKind {
     Model,
     Package,
+    ModelLibrary,
     Block,
     AssociationBlock,
     InterfaceBlock,
@@ -81,6 +82,9 @@ pub enum ElementKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RelationshipKind {
     Dependency,
+    PackageImport,
+    ElementImport,
+    PackageMerge,
     Association,
     /// Retained for compatibility with the foundation API. New SysML composition
     /// should normally be modeled as an Association with a composite end.
@@ -101,6 +105,14 @@ pub enum RelationshipKind {
     Extend,
     /// Equality binding between compatible value/constraint endpoints.
     BindingConnector,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum VisibilityKind {
+    #[default]
+    Public,
+    Private,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -170,6 +182,8 @@ pub struct Element {
     pub kind: ElementKind,
     pub name: String,
     pub owner_id: Option<ElementId>,
+    #[serde(default)]
+    pub visibility: VisibilityKind,
     pub documentation: String,
     pub applied_stereotypes: Vec<String>,
     pub type_id: Option<ElementId>,
@@ -227,6 +241,7 @@ impl Element {
             kind,
             name,
             owner_id,
+            visibility: VisibilityKind::Public,
             documentation: String::new(),
             applied_stereotypes: Vec::new(),
             type_id: None,
@@ -254,7 +269,18 @@ impl Element {
     }
 
     pub fn is_namespace(&self) -> bool {
-        matches!(self.kind, ElementKind::Model | ElementKind::Package)
+        matches!(
+            self.kind,
+            ElementKind::Model | ElementKind::Package | ElementKind::ModelLibrary
+        )
+    }
+
+    pub fn is_packageable(&self) -> bool {
+        !self.is_feature()
+            && !matches!(
+                self.kind,
+                ElementKind::EnumerationLiteral | ElementKind::Slot | ElementKind::Comment
+            )
     }
 
     pub fn is_classifier(&self) -> bool {
@@ -326,6 +352,11 @@ pub struct Relationship {
     pub source_id: ElementId,
     pub target_id: ElementId,
     pub documentation: String,
+    #[serde(default)]
+    pub visibility: VisibilityKind,
+    /// Optional local name introduced by an ElementImport.
+    #[serde(default)]
+    pub alias: Option<String>,
     pub applied_stereotypes: Vec<String>,
     pub association_ends: Vec<AssociationEnd>,
     #[serde(default)]
@@ -513,6 +544,32 @@ pub enum ModelError {
     MissingTraceabilityOwner,
     #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
     InvalidTraceabilityOwner(ElementId),
+    #[error("{diagnostic}")]
+    InvalidPackageRelationshipEndpoints {
+        relationship: RelationshipKind,
+        source_name: String,
+        target_name: String,
+        diagnostic: String,
+    },
+    #[error("{relationship:?} cannot connect '{element}' to itself")]
+    SelfPackageRelationship {
+        relationship: RelationshipKind,
+        element: String,
+    },
+    #[error("an equivalent {relationship:?} already exists: '{source_name}' -> '{target_name}'")]
+    DuplicatePackageRelationship {
+        relationship: RelationshipKind,
+        source_name: String,
+        target_name: String,
+    },
+    #[error("{relationship:?} from '{source_name}' must be owned by that importing namespace, not '{owner_name}'")]
+    InvalidPackageRelationshipOwner {
+        relationship: RelationshipKind,
+        source_name: String,
+        owner_name: String,
+    },
+    #[error("ElementImport alias '{0}' is not a valid identifier")]
+    InvalidElementImportAlias(String),
 }
 
 impl Project {
@@ -717,6 +774,39 @@ impl Project {
     ) -> Result<RelationshipId, ModelError> {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
+        let package_relationship =
+            is_package_relationship(&kind) || kind == RelationshipKind::Dependency;
+        if package_relationship {
+            validate_package_relationship_endpoints(&kind, source, target)?;
+            if source_id == target_id {
+                return Err(ModelError::SelfPackageRelationship {
+                    relationship: kind,
+                    element: source.name.clone(),
+                });
+            }
+            if self.relationships.values().any(|relationship| {
+                relationship.kind == kind
+                    && relationship.source_id == source_id
+                    && relationship.target_id == target_id
+            }) {
+                return Err(ModelError::DuplicatePackageRelationship {
+                    relationship: kind,
+                    source_name: source.name.clone(),
+                    target_name: target.name.clone(),
+                });
+            }
+            if kind != RelationshipKind::Dependency && owner_id != Some(source_id) {
+                let owner = owner_id
+                    .and_then(|id| self.element(id).ok())
+                    .map(|element| element.name.clone())
+                    .unwrap_or_else(|| "no semantic owner".into());
+                return Err(ModelError::InvalidPackageRelationshipOwner {
+                    relationship: kind,
+                    source_name: source.name.clone(),
+                    owner_name: owner,
+                });
+            }
+        }
         let traceability = is_traceability_relationship(&kind);
         validate_use_case_relationship_endpoints(&kind, &source.kind, &target.kind)?;
         if matches!(kind, RelationshipKind::Include | RelationshipKind::Extend)
@@ -780,6 +870,8 @@ impl Project {
                 source_id,
                 target_id,
                 documentation: String::new(),
+                visibility: VisibilityKind::Public,
+                alias: None,
                 applied_stereotypes: Vec::new(),
                 association_ends: Vec::new(),
                 connector: None,
@@ -792,6 +884,42 @@ impl Project {
         if let Some(text) = copied_requirement_text {
             self.element_mut(source_id)?.requirement_text = Some(text);
         }
+        Ok(id)
+    }
+
+    pub fn create_package_import(
+        &mut self,
+        importing_namespace_id: ElementId,
+        imported_package_id: ElementId,
+        visibility: VisibilityKind,
+    ) -> Result<RelationshipId, ModelError> {
+        let id = self.create_relationship(
+            RelationshipKind::PackageImport,
+            importing_namespace_id,
+            imported_package_id,
+            Some(importing_namespace_id),
+        )?;
+        self.relationships.get_mut(&id).unwrap().visibility = visibility;
+        Ok(id)
+    }
+
+    pub fn create_element_import(
+        &mut self,
+        importing_namespace_id: ElementId,
+        imported_element_id: ElementId,
+        visibility: VisibilityKind,
+        alias: Option<String>,
+    ) -> Result<RelationshipId, ModelError> {
+        let alias = normalize_element_import_alias(alias)?;
+        let id = self.create_relationship(
+            RelationshipKind::ElementImport,
+            importing_namespace_id,
+            imported_element_id,
+            Some(importing_namespace_id),
+        )?;
+        let relationship = self.relationships.get_mut(&id).unwrap();
+        relationship.visibility = visibility;
+        relationship.alias = alias;
         Ok(id)
     }
 
@@ -1199,6 +1327,50 @@ impl Project {
                 &source.kind,
                 &target.kind,
             )?;
+            let package_relationship = is_package_relationship(&relationship.kind)
+                || relationship.kind == RelationshipKind::Dependency;
+            if package_relationship {
+                validate_package_relationship_endpoints(&relationship.kind, source, target)?;
+                if relationship.source_id == relationship.target_id {
+                    return Err(ModelError::SelfPackageRelationship {
+                        relationship: relationship.kind.clone(),
+                        element: source.name.clone(),
+                    });
+                }
+                if relationship.kind != RelationshipKind::Dependency
+                    && relationship.owner_id != Some(relationship.source_id)
+                {
+                    let owner = relationship
+                        .owner_id
+                        .and_then(|id| self.element(id).ok())
+                        .map(|element| element.name.clone())
+                        .unwrap_or_else(|| "no semantic owner".into());
+                    return Err(ModelError::InvalidPackageRelationshipOwner {
+                        relationship: relationship.kind.clone(),
+                        source_name: source.name.clone(),
+                        owner_name: owner,
+                    });
+                }
+                if self.relationships.values().any(|candidate| {
+                    candidate.id != relationship.id
+                        && candidate.kind == relationship.kind
+                        && candidate.source_id == relationship.source_id
+                        && candidate.target_id == relationship.target_id
+                }) {
+                    return Err(ModelError::DuplicatePackageRelationship {
+                        relationship: relationship.kind.clone(),
+                        source_name: source.name.clone(),
+                        target_name: target.name.clone(),
+                    });
+                }
+                if relationship.kind == RelationshipKind::ElementImport {
+                    normalize_element_import_alias(relationship.alias.clone())?;
+                } else if relationship.alias.is_some() {
+                    return Err(ModelError::InvalidElementImportAlias(
+                        relationship.alias.clone().unwrap_or_default(),
+                    ));
+                }
+            }
             if matches!(relationship.kind, RelationshipKind::Include | RelationshipKind::Extend)
                 && relationship.source_id == relationship.target_id
             {
@@ -1318,8 +1490,102 @@ impl Project {
     }
 }
 
+fn is_package_relationship(kind: &RelationshipKind) -> bool {
+    matches!(
+        kind,
+        RelationshipKind::PackageImport
+            | RelationshipKind::ElementImport
+            | RelationshipKind::PackageMerge
+    )
+}
+
+fn package_namespace(kind: &ElementKind) -> bool {
+    matches!(
+        kind,
+        ElementKind::Model | ElementKind::Package | ElementKind::ModelLibrary
+    )
+}
+
+fn validate_package_relationship_endpoints(
+    relationship: &RelationshipKind,
+    source: &Element,
+    target: &Element,
+) -> Result<(), ModelError> {
+    let diagnostic = match relationship {
+        RelationshipKind::PackageImport if !package_namespace(&source.kind) => Some(format!(
+            "Package Import requires a Package-compatible importing namespace; '{}' is a {:?}.",
+            source.name, source.kind
+        )),
+        RelationshipKind::PackageImport if !package_namespace(&target.kind) => Some(format!(
+            "Package Import requires a Package-compatible imported namespace; '{}' is a {:?}.",
+            target.name, target.kind
+        )),
+        RelationshipKind::ElementImport if !package_namespace(&source.kind) => Some(format!(
+            "Element Import requires a Package-compatible importing namespace; '{}' is a {:?}.",
+            source.name, source.kind
+        )),
+        RelationshipKind::ElementImport if !target.is_packageable() => Some(format!(
+            "Element Import requires a packageable imported element; '{}' is a {:?}.",
+            target.name, target.kind
+        )),
+        RelationshipKind::PackageMerge
+            if !matches!(source.kind, ElementKind::Package | ElementKind::ModelLibrary) =>
+        {
+            Some(format!(
+                "UML Package Merge requires a receiving Package; '{}' is a {:?}.",
+                source.name, source.kind
+            ))
+        }
+        RelationshipKind::PackageMerge
+            if !matches!(target.kind, ElementKind::Package | ElementKind::ModelLibrary) =>
+        {
+            Some(format!(
+                "UML Package Merge requires a merged Package; '{}' is a {:?}.",
+                target.name, target.kind
+            ))
+        }
+        RelationshipKind::Dependency if !source.is_packageable() => Some(format!(
+            "Dependency requires a packageable source; '{}' is a {:?}.",
+            source.name, source.kind
+        )),
+        RelationshipKind::Dependency if !target.is_packageable() => Some(format!(
+            "Dependency requires a packageable target; '{}' is a {:?}.",
+            target.name, target.kind
+        )),
+        _ => None,
+    };
+    match diagnostic {
+        None => Ok(()),
+        Some(diagnostic) => Err(ModelError::InvalidPackageRelationshipEndpoints {
+            relationship: relationship.clone(),
+            source_name: source.name.clone(),
+            target_name: target.name.clone(),
+            diagnostic,
+        }),
+    }
+}
+
+fn normalize_element_import_alias(alias: Option<String>) -> Result<Option<String>, ModelError> {
+    let Some(alias) = alias
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let mut characters = alias.chars();
+    let starts_valid = characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_alphabetic());
+    if !starts_valid
+        || !characters.all(|character| character == '_' || character.is_alphanumeric())
+    {
+        return Err(ModelError::InvalidElementImportAlias(alias));
+    }
+    Ok(Some(alias))
+}
+
 fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), ModelError> {
-    let namespace_owned = matches!(owner, ElementKind::Model | ElementKind::Package);
+    let namespace_owned = package_namespace(owner);
     let classifier_owner = matches!(
         owner,
         ElementKind::Block
@@ -1332,6 +1598,7 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
     let valid = match kind {
         ElementKind::Model => false,
         ElementKind::Package
+        | ElementKind::ModelLibrary
         | ElementKind::Block
         | ElementKind::AssociationBlock
         | ElementKind::InterfaceBlock
@@ -1538,6 +1805,7 @@ pub mod notation {
 
     pub fn stereotype_label(kind: &ElementKind) -> Option<&'static str> {
         match kind {
+            ElementKind::ModelLibrary => Some("modelLibrary"),
             ElementKind::Block | ElementKind::AssociationBlock => Some("block"),
             ElementKind::InterfaceBlock => Some("interfaceBlock"),
             ElementKind::ConstraintBlock => Some("constraint"),
@@ -1592,7 +1860,10 @@ pub mod notation {
                 source_decoration: EndDecoration::None,
                 target_decoration: EndDecoration::HollowTriangle,
             },
-            RelationshipKind::Dependency => RelationshipNotation {
+            RelationshipKind::Dependency
+            | RelationshipKind::PackageImport
+            | RelationshipKind::ElementImport
+            | RelationshipKind::PackageMerge => RelationshipNotation {
                 line: LineStyle::Dashed,
                 source_decoration: EndDecoration::None,
                 target_decoration: EndDecoration::OpenArrow,

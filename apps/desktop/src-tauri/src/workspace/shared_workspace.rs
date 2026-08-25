@@ -307,7 +307,7 @@ fn dispatch_route(
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<bool, String> {
     match family {
-        "bdd" | "requirement" | "use-case" => {
+        "bdd" | "requirement" | "use-case" | "package" => {
             super::route_bdd_with_bounds(diagram_id, workspace, bounds)
         }
         "parametric" => {
@@ -334,7 +334,7 @@ fn dispatch_layout(
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<bool, String> {
     match family {
-        "bdd" | "requirement" | "use-case" => {
+        "bdd" | "requirement" | "use-case" | "package" => {
             super::layout_bdd_with_bounds(diagram_id, workspace, bounds)
         }
         "parametric" => {
@@ -522,32 +522,8 @@ pub fn rename_active_diagram_header(
     }
     super::history::checkpoint_states(&workspace, &activity, &history)?;
     match active.family.id.0.as_str() {
-        "bdd" => {
-            let owner_id = workspace
-                .diagrams
-                .lock()
-                .map_err(|_| "diagram lock poisoned")?
-                .iter()
-                .find(|diagram| diagram.id == diagram_id)
-                .ok_or("BDD not found")?
-                .owner_id
-                .clone();
-            workspace
-                .project
-                .lock()
-                .map_err(|_| "project lock poisoned")?
-                .as_mut()
-                .ok_or("no project open")?
-                .rename_element(super::parse_element_id(&owner_id)?, model_element_name)
-                .map_err(|error| error.to_string())?;
-            workspace
-                .diagrams
-                .lock()
-                .map_err(|_| "diagram lock poisoned")?
-                .iter_mut()
-                .find(|diagram| diagram.id == diagram_id)
-                .ok_or("BDD not found")?
-                .name = diagram_name.into();
+        "bdd" | "requirement" | "package" => {
+            rename_owner_owned_diagram(&workspace, &diagram_id, model_element_name, diagram_name)?
         }
         "use-case" | "parametric" => {
             let context_id = workspace
@@ -676,6 +652,40 @@ pub fn rename_active_diagram_header(
         .lock()
         .map_err(|_| "active diagram context lock poisoned")? = Some(updated.clone());
     Ok(updated)
+}
+
+fn rename_owner_owned_diagram(
+    workspace: &super::WorkspaceState,
+    diagram_id: &str,
+    model_element_name: &str,
+    diagram_name: &str,
+) -> Result<(), String> {
+    let owner_id = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("owner-owned diagram not found")?
+        .owner_id
+        .clone();
+    workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .as_mut()
+        .ok_or("no project open")?
+        .rename_element(super::parse_element_id(&owner_id)?, model_element_name)
+        .map_err(|error| error.to_string())?;
+    workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("owner-owned diagram not found")?
+        .name = diagram_name.into();
+    Ok(())
 }
 
 #[tauri::command]
@@ -1221,6 +1231,60 @@ mod tests {
         assert!(snapshot.require_revision(Some(6)).is_err());
         assert!(snapshot.require_revision(Some(7)).is_ok());
         assert!(snapshot.require_revision(None).is_ok());
+    }
+
+    #[test]
+    fn package_header_apply_renames_the_rust_owner_and_diagram() {
+        let workspace = super::super::WorkspaceState::default();
+        let mut project = systems_modeler_core::Project::new("Vehicle Architecture");
+        let root_id = project.root_id;
+        let owner_id = project
+            .create_element(
+                systems_modeler_core::ElementKind::Package,
+                "Vehicle",
+                root_id,
+            )
+            .expect("Package owner is valid");
+        *workspace.project.lock().expect("project lock") = Some(project);
+
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        workspace
+            .diagrams
+            .lock()
+            .expect("diagram lock")
+            .push(super::super::BddDiagram {
+                id: diagram_id.clone(),
+                name: "Packages".into(),
+                owner_id: owner_id.to_string(),
+                family: "package".into(),
+                semantic_context_id: None,
+                subject_boundary: None,
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            });
+
+        rename_owner_owned_diagram(
+            &workspace,
+            &diagram_id,
+            "Vehicle Platform",
+            "Platform Packages",
+        )
+        .expect("Package header Apply succeeds");
+
+        let project = workspace.project.lock().expect("project lock");
+        assert_eq!(
+            project
+                .as_ref()
+                .expect("project")
+                .element(owner_id)
+                .expect("Package owner")
+                .name,
+            "Vehicle Platform"
+        );
+        assert_eq!(
+            workspace.diagrams.lock().expect("diagram lock")[0].name,
+            "Platform Packages"
+        );
     }
 
     #[test]

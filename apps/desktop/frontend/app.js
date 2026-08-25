@@ -18,13 +18,30 @@ function requireInvoke() {
   if (!invoke) throw new Error('Tauri command bridge is unavailable. Run this UI through the desktop application.');
   return invoke;
 }
+const PALETTE_TYPE_BY_FAMILY = Object.freeze({
+  bdd: 'BDD',
+  requirement: 'Requirement',
+  'use-case': 'UseCase',
+  parametric: 'Parametric',
+  package: 'Package',
+});
+let paletteLoadRequest = 0;
+let diagramSelectionRequest = 0;
+function resolvePaletteDiagramType(snapshot, diagramId) {
+  if (!diagramId) return null;
+  if ((snapshot?.ibd_diagrams || []).some((diagram) => diagram.id === diagramId)) return 'IBD';
+  const diagram = (snapshot?.diagrams || []).find((item) => item.id === diagramId);
+  return PALETTE_TYPE_BY_FAMILY[diagram?.family] || null;
+}
 async function loadPalette() {
-  if (!state.selectedDiagramId) {
-    state.paletteItems = [];
-    return;
-  }
-  const diagram = state.snapshot?.diagrams?.find((item) => item.id === state.selectedDiagramId);
-  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType: diagram?.family === 'requirement' ? 'Requirement' : 'BDD' });
+  const diagramId = state.selectedDiagramId;
+  const diagramType = resolvePaletteDiagramType(state.snapshot, diagramId);
+  const request = ++paletteLoadRequest;
+  state.paletteItems = [];
+  if (!diagramType) return;
+  const items = await requireInvoke()('diagram_palette', { diagramType });
+  if (request !== paletteLoadRequest || state.selectedDiagramId !== diagramId) return;
+  state.paletteItems = items;
 }
 async function refresh() {
   state.snapshot = await requireInvoke()('workspace_snapshot');
@@ -215,6 +232,7 @@ function activatePaletteItem(item) {
   render();
 }
 async function selectDiagram(diagramId) {
+  const request = ++diagramSelectionRequest;
   Object.assign(state, {
     selectedDiagramId: diagramId,
     selectedRelationshipId: null,
@@ -232,6 +250,7 @@ async function selectDiagram(diagramId) {
     activityPendingFlow: null,
   });
   await loadPalette();
+  if (request !== diagramSelectionRequest || state.selectedDiagramId !== diagramId) return;
   const bdd = state.snapshot?.diagrams?.find((diagram) => diagram.id === diagramId);
   const ibd = state.snapshot?.ibd_diagrams?.find((diagram) => diagram.id === diagramId);
   await window.smpRendererHost?.activate({
@@ -240,6 +259,7 @@ async function selectDiagram(diagramId) {
     name: (ibd || bdd)?.name || 'Diagram',
     semanticContextId: ibd?.context_block_id || bdd?.semantic_context_id || bdd?.owner_id || '',
   });
+  if (request !== diagramSelectionRequest || state.selectedDiagramId !== diagramId) return;
   render();
 }
 function renderDiagramTabs() {
@@ -292,22 +312,36 @@ function addEndpointLabel(svg, point, text, side) {
   label.textContent = text;
   svg.appendChild(label);
 }
+function requirementPresentationMarkup(element) {
+  return `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`;
+}
+window.smpRequirementPresentationMarkup = requirementPresentationMarkup;
 function traceabilityLabel(kind) {
   return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy', Include:'include', Extend:'extend' }[kind] || '';
 }
-function addRelationshipStereotype(svg, points, kind) {
-  const stereotype=traceabilityLabel(kind); if(!stereotype||!points.length)return;
+function addRelationshipStereotype(svg, points, relationship, labelAnchor) {
+  const packageLabel = {
+    PackageImport: relationship.visibility === 'private' ? 'access' : 'import',
+    ElementImport: 'elementImport',
+  }[relationship.kind];
+  const stereotype = packageLabel || traceabilityLabel(relationship.kind);
+  const suffix = relationship.kind === 'ElementImport' && relationship.alias ? ` ${relationship.alias}` : '';
+  const plainLabel = relationship.kind === 'Dependency' ? relationship.name : '';
+  if ((!stereotype && !plainLabel) || !points.length) return;
   const middle=points[Math.floor((points.length-1)/2)],next=points[Math.min(points.length-1,Math.floor((points.length-1)/2)+1)];
+  const anchor = Number.isFinite(labelAnchor?.x) && Number.isFinite(labelAnchor?.y)
+    ? labelAnchor
+    : { x: (middle.x + next.x) / 2, y: (middle.y + next.y) / 2 };
   const label=document.createElementNS(SVG_NS,'text'); label.classList.add('relationship-label','traceability-label');
-  label.setAttribute('x',String((middle.x+next.x)/2)); label.setAttribute('y',String((middle.y+next.y)/2-7));
-  label.setAttribute('text-anchor','middle'); label.textContent=`«${stereotype}»`; svg.appendChild(label);
+  label.setAttribute('x',String(anchor.x)); label.setAttribute('y',String(anchor.y-7));
+  label.setAttribute('text-anchor','middle'); label.textContent=stereotype ? `«${stereotype}»${suffix}` : plainLabel; svg.appendChild(label);
 }
 function createRelationshipLayer(frame, diagram, project) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('relationship-layer');
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');
-  svg.setAttribute('aria-label', 'BDD relationships');
+  svg.setAttribute('aria-label', 'Diagram relationships');
   const defs = document.createElementNS(SVG_NS, 'defs');
   marker(defs, 'open-triangle', 'M 1 1 L 11 6 L 1 11 Z', { fill: '#f8f8f6', refX: '11' });
   marker(defs, 'open-arrow', 'M 1 1 L 11 6 L 1 11', { fill: 'none', refX: '11' });
@@ -326,7 +360,7 @@ function createRelationshipLayer(frame, diagram, project) {
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
     applyAssociationEndDecoration(polyline, relationship);
     if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
-    if (['Dependency', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
+    if (['Dependency', 'PackageImport', 'ElementImport', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;
@@ -339,7 +373,7 @@ function createRelationshipLayer(frame, diagram, project) {
     title.textContent = relationship.kind;
     polyline.appendChild(title);
     svg.appendChild(polyline);
-    addRelationshipStereotype(svg, edge.points, relationship.kind);
+    addRelationshipStereotype(svg, edge.points, relationship, edge.label_anchor);
     if (relationship.association_ends?.length === 2) {
       addEndpointLabel(svg, edge.points[0], endpointLabel(relationship.association_ends[0]), 'start');
       addEndpointLabel(svg, edge.points[edge.points.length - 1], endpointLabel(relationship.association_ends[1]), 'end');
@@ -442,7 +476,7 @@ function renderCanvas() {
     box.style.width = `${node.width}px`;
     box.style.height = `${node.height}px`;
     box.innerHTML = element.kind === 'Requirement'
-      ? `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`
+      ? requirementPresentationMarkup(element)
       : `<div class="stereotype">«${element.kind === 'TestCase' ? 'testCase' : 'block'}»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment">${element.kind === 'Block' ? 'values' : 'verification'}</div>`;
     box.onclick = async (event) => {
       event.stopPropagation();

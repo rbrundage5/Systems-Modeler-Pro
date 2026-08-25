@@ -54,6 +54,7 @@ jobs:
             apps/desktop/frontend/use-case-ui.js \
             apps/desktop/frontend/parametric-ui.js \
             apps/desktop/frontend/standard-editing-ui.js \
+            apps/desktop/frontend/marquee-selection.js \
             apps/desktop/frontend/undo-redo-ui.js; do
             node --check "$file"
           done
@@ -71,6 +72,8 @@ jobs:
         run: python scripts/validate_parametric_integration.py
       - name: Package Diagram desktop integration contract
         run: python scripts/validate_package_diagram_integration.py
+      - name: Package drill-down activation contract
+        run: python scripts/validate_package_drilldown_activation.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
@@ -109,6 +112,8 @@ jobs:
         run: python scripts/validate_parametric_integration.py
       - name: Package Diagram desktop integration contract
         run: python scripts/validate_package_diagram_integration.py
+      - name: Package drill-down activation contract
+        run: python scripts/validate_package_drilldown_activation.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract

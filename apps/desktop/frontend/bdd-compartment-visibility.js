@@ -49,7 +49,11 @@
     const diagram=activeBdd(),presentation=presentationForElement(elementId); if(!diagram||!presentation)return null;
     const element=state.snapshot?.project?.elements?.find((candidate)=>String(candidate.id)===String(elementId));
     const box=[...document.querySelectorAll('#canvas .bdd-block')].find((candidate)=>candidate.dataset.presentationId===presentation.id);
-    const labels=element?.kind==='Requirement'?['id','text',...(element.documentation?['documentation']:[])]:[...(box?.querySelectorAll('.compartment')||[])].map((compartment)=>compartment.querySelector('.compartment-title')?.textContent?.trim()).filter(Boolean);
+    const labels=element?.kind==='Requirement'
+      ? ['id','text',...(element.documentation?['documentation']:[])]
+      : ['Model','Package','ModelLibrary'].includes(element?.kind)
+        ? ['Contents']
+        : [...(box?.querySelectorAll('.compartment')||[])].map((compartment)=>compartment.querySelector('.compartment-title')?.textContent?.trim()).filter(Boolean);
     const hidden=hiddenCompartments(diagram,presentation);
     return { labels,shown:(label)=>!hidden.has(label),set:(label,shown)=>{setCompartmentHidden(diagram,presentation,label,!shown);applyCompartmentPresentation();} };
   };
@@ -104,7 +108,8 @@
     const hidden = hiddenCompartments(diagram, presentation);
     const section = document.createElement('section');
     section.className = 'bdd-compartment-controls';
-    section.innerHTML = '<div class="property-heading">Presentation Display</div><div class="muted">Choose which semantic fields are visible on this requirement presentation. Hidden values remain in the model.</div>';
+    const noun = element?.kind === 'Requirement' ? 'requirement fields' : 'semantic compartments';
+    section.innerHTML = `<div class="property-heading">Presentation Display</div><div class="muted">Choose which ${noun} are visible on this presentation. Hidden values remain in the model.</div>`;
     for (const label of compartments) {
       const row = document.createElement('label');
       row.className = 'compartment-visibility-toggle';

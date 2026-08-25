@@ -19,6 +19,8 @@ def require(source: str, tokens: list[str], label: str) -> None:
 standard = read("apps/desktop/src-tauri/src/workspace/standard_editing.rs")
 bridge = read("apps/desktop/src-tauri/src/workspace/standard_editing_bridge.rs")
 ui = read("apps/desktop/frontend/standard-editing-ui.js")
+marquee = read("apps/desktop/frontend/marquee-selection.js")
+index = read("apps/desktop/frontend/index.html")
 shared = read("apps/desktop/frontend/shared-workspace.js")
 main = read("apps/desktop/src-tauri/src/main.rs")
 behavior = read("apps/desktop/src-tauri/src/workspace/behavior_workspace.rs")
@@ -30,6 +32,7 @@ require(
     [
         "enum EditingFamily",
         "Bdd,",
+        "Package,",
         "Requirement,",
         "UseCase,",
         "Ibd,",
@@ -100,6 +103,35 @@ require(
     "cross-diagram editing UI",
 )
 
+require(
+    marquee,
+    [
+        "smp-marquee-selection",
+        "[data-smp-presentation-id]",
+        "window.smpStandardEditing?.selections?.()",
+        "window.smpStandardEditing?.setSelections?.([...existing, ...hits])",
+        "smp:selection-changed",
+        "event.ctrlKey",
+        "event.metaKey",
+        "canvas.classList.contains('pan-active')",
+        "canvas.classList.contains('is-panning')",
+    ],
+    "shared marquee selection",
+)
+for forbidden in (
+    "addEventListener('keydown'",
+    'addEventListener("keydown"',
+    "addEventListener('keyup'",
+    'addEventListener("keyup"',
+):
+    if forbidden in marquee:
+        raise SystemExit(
+            "marquee-selection.js must not own a keyboard controller; "
+            "Space/Ctrl/Meta panning belongs to shared-workspace.js"
+        )
+if '<script src="standard-editing-ui.js"></script>\n  <script src="marquee-selection.js"></script>' not in index:
+    raise SystemExit("marquee-selection.js must load after standard-editing-ui.js")
+
 if "itemType: edge ? 'Edge' : 'Node'" in ui:
     raise SystemExit(
         "standard-editing-ui.js: Activity model deletion must use the qualified "
@@ -113,6 +145,10 @@ require(
         "set_workspace_interaction",
         "workspace_interaction_snapshot",
         "await publishInteraction();",
+        "state.space",
+        "pan-active",
+        "is-panning",
+        "smp:selection-changed",
     ],
     "shared workspace interaction authority",
 )
@@ -153,13 +189,16 @@ require(
 
 require(
     workflow,
-    ["apps/desktop/frontend/standard-editing-ui.js"],
+    [
+        "apps/desktop/frontend/standard-editing-ui.js",
+        "apps/desktop/frontend/marquee-selection.js",
+    ],
     "frontend syntax qualification",
 )
 
 print(
-    "PR22/PR24/PR25 standard editing integration contract passed: all eight diagram families retain "
-    "Rust-owned clipboard/remove/move authority, shared selection synchronization, "
-    "presentation persistence, model-vs-diagram deletion separation, and qualified "
+    "PR22/PR24/PR25/PR26B standard editing integration contract passed: all nine diagram families retain "
+    "Rust-owned clipboard/remove/move authority, shared click/marquee selection synchronization, "
+    "shared pan ownership, presentation persistence, model-vs-diagram deletion separation, and qualified "
     "Behavior/Activity model-deletion history wiring"
 )

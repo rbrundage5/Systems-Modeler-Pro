@@ -253,6 +253,26 @@ pub fn supported_diagram_families() -> DiagramFamilyRegistry {
             PreferredFlowDirection::LeftToRight,
         ),
         descriptor(
+            "package",
+            "Package Diagram",
+            ("pkg", "Package"),
+            "package",
+            &["Model", "Package"],
+            &[
+                C::NodePlacement,
+                C::Relationships,
+                C::Frames,
+                C::Move,
+                C::Resize,
+                C::Delete,
+                C::Clipboard,
+                C::Routing,
+                C::CleanLayout,
+                C::DrillDown,
+            ],
+            PreferredFlowDirection::TopToBottom,
+        ),
+        descriptor(
             "parametric",
             "Parametric Diagram",
             ("par", "Block"),
@@ -535,18 +555,18 @@ mod tests {
     #[test]
     fn registry_is_extensible_and_rejects_duplicates() {
         let mut registry = supported_diagram_families();
-        assert_eq!(registry.descriptors().len(), 8);
+        assert_eq!(registry.descriptors().len(), 9);
         let future = descriptor(
-            "package",
-            "Package Diagram",
-            ("pkg", "Package"),
-            "package",
+            "future",
+            "Future Diagram",
+            ("future", "Model"),
+            "future",
             &["Model", "Package"],
             &[DiagramCapability::NodePlacement],
             PreferredFlowDirection::TopToBottom,
         );
         assert!(registry.register(future.clone()).is_ok());
-        assert_eq!(registry.descriptors().len(), 9);
+        assert_eq!(registry.descriptors().len(), 10);
         assert!(registry.register(future).is_err());
     }
     #[test]
@@ -560,6 +580,7 @@ mod tests {
             ("activity", "act", "Activity"),
             ("requirement", "req", "Package"),
             ("use-case", "uc", "Package"),
+            ("package", "pkg", "Package"),
             ("parametric", "par", "Block"),
         ];
         for (id, abbreviation, context_kind) in expected {
@@ -588,6 +609,19 @@ mod tests {
         assert!(parametric.supports(DiagramCapability::Routing));
         assert!(parametric.supports(DiagramCapability::CleanLayout));
         assert!(parametric.supports(DiagramCapability::Evaluation));
+        let package = registry
+            .get(&DiagramFamilyId::new("package").unwrap())
+            .unwrap();
+        assert!(package.supports(DiagramCapability::NodePlacement));
+        assert!(package.supports(DiagramCapability::Relationships));
+        assert!(package.supports(DiagramCapability::Move));
+        assert!(package.supports(DiagramCapability::Resize));
+        assert!(package.supports(DiagramCapability::Delete));
+        assert!(package.supports(DiagramCapability::Clipboard));
+        assert!(package.supports(DiagramCapability::Routing));
+        assert!(package.supports(DiagramCapability::CleanLayout));
+        assert!(package.supports(DiagramCapability::Frames));
+        assert!(package.supports(DiagramCapability::DrillDown));
         assert!(!sequence.supports(DiagramCapability::Evaluation));
     }
     #[test]

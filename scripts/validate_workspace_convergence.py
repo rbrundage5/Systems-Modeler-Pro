@@ -14,6 +14,7 @@ shell_styles = read(frontend / "workspace-polish.css")
 ibd_ui = read(frontend / "ibd-ui.js")
 behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
 activity_ui = read(frontend / "activity-ui.js")
+package_ui = read(frontend / "workspace-ux.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
 shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
@@ -24,7 +25,11 @@ family_contract = read(root / "crates/model-core/src/diagram_family.rs")
 for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "state-machine", "sequence", "activity"]:
     assert f'registerRenderer(\'{family}\'' in workspace
     assert f'"{family}"' in family_contract
-for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("req", "Package"), ("uc", "Package"), ("par", "Block"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
+assert "registerSelectionRenderer?.(\n    'package'" in package_ui
+assert "{ renderCanvas: renderPackageCanvas }" in package_ui
+assert "registerRenderer('package'" not in workspace
+assert '"package"' in family_contract
+for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("req", "Package"), ("uc", "Package"), ("par", "Block"), ("pkg", "Package"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
 assert "modelElementName" in workspace and "state.context.frameLabel" in workspace
 assert "sysml-diagram-frame" in workspace and "sysml-frame-label" in styles
@@ -42,6 +47,12 @@ assert ".canvas.space-pan .workspace-renderer-surface" in styles
 assert "state.frameElement.style.transform=transform" in workspace
 assert "frame.dataset.diagramId=state.context.diagramId" in workspace
 assert "rename_active_diagram_header" in workspace and "editFrameHeader" in workspace
+rename_contract = shared_workspace.split("pub fn rename_active_diagram_header", 1)[1].split(
+    "pub fn workspace_interaction_snapshot", 1
+)[0]
+for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "package", "state-machine", "sequence", "activity"]:
+    assert f'"{family}"' in rename_contract
+assert "await renderer()?.refresh?.()" in workspace
 assert "root?.getBBox" in workspace and "Math.max(320,bounds.width" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
@@ -53,13 +64,13 @@ assert "checkpoint_states" in read(root / "apps/desktop/src-tauri/src/workspace/
 assert "hierarchical_positions" in read(root / "apps/desktop/src-tauri/src/workspace/layout.rs")
 assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 assert "fn route_bdd_with_bounds" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
-assert '"bdd" | "requirement" | "use-case"' in shared_workspace
+assert '"bdd" | "requirement" | "use-case" | "package"' in shared_workspace
 assert "route_diagram_geometry" in main
 router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
 assert "route_diagram_geometry" in router
 for routing_contract in ["DiagramRouteEdge", "RouteRect", "reserved_routes", "allow_shared_departure"]:
     assert routing_contract in router
-for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "state-machine", "sequence", "activity"]:
+for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "package", "state-machine", "sequence", "activity"]:
     assert family in family_contract
 assert "resolve_diagram_commands" in theme
 assert "command.enabled" in workspace and "command.disabledReason" in workspace

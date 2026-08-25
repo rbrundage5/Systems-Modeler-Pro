@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use systems_modeler_core::{
     AggregationKind, BehaviorRepository, BindingEndpoint, DiagramId, ElementId, ElementKind,
-    Multiplicity, Project, Relationship, RelationshipId, RelationshipKind,
+    Multiplicity, Project, Relationship, RelationshipId, RelationshipKind, VisibilityKind,
 };
 use systems_modeler_persistence::ProjectDatabase;
 
@@ -17,6 +17,10 @@ pub struct ElementSnapshot {
     pub kind: String,
     pub name: String,
     pub owner_id: Option<String>,
+    pub qualified_name: String,
+    pub packageable: bool,
+    pub namespace: bool,
+    pub visibility: String,
     pub documentation: String,
     pub requirement_id: Option<String>,
     pub requirement_text: Option<String>,
@@ -51,8 +55,13 @@ pub struct RelationshipSnapshot {
     pub id: String,
     pub external_id: String,
     pub kind: String,
+    pub name: String,
+    pub owner_id: Option<String>,
     pub source_id: String,
     pub target_id: String,
+    pub documentation: String,
+    pub visibility: String,
+    pub alias: Option<String>,
     pub association_ends: Vec<AssociationEndSnapshot>,
     pub extension_condition: Option<String>,
     pub extension_location: Option<String>,
@@ -242,6 +251,31 @@ fn aggregation_name(value: AggregationKind) -> &'static str {
     }
 }
 
+fn visibility_name(value: VisibilityKind) -> &'static str {
+    match value {
+        VisibilityKind::Public => "public",
+        VisibilityKind::Private => "private",
+    }
+}
+
+fn qualified_element_name(project: &Project, element_id: ElementId) -> String {
+    let mut names = Vec::new();
+    let mut current = Some(element_id);
+    let mut visited = HashSet::new();
+    while let Some(id) = current {
+        if !visited.insert(id) {
+            break;
+        }
+        let Ok(element) = project.element(id) else {
+            break;
+        };
+        names.push(element.name.clone());
+        current = element.owner_id;
+    }
+    names.reverse();
+    names.join("::")
+}
+
 fn relationship_display_kind(relationship: &Relationship) -> &'static str {
     if relationship.kind == RelationshipKind::Association {
         if relationship
@@ -262,6 +296,9 @@ fn relationship_display_kind(relationship: &Relationship) -> &'static str {
     }
     match relationship.kind {
         RelationshipKind::Dependency => "Dependency",
+        RelationshipKind::PackageImport => "PackageImport",
+        RelationshipKind::ElementImport => "ElementImport",
+        RelationshipKind::PackageMerge => "PackageMerge",
         RelationshipKind::Association => "Association",
         RelationshipKind::Composition => "Composition",
         RelationshipKind::Generalization => "Generalization",
@@ -290,6 +327,10 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             kind: format!("{:?}", element.kind),
             name: element.name.clone(),
             owner_id: element.owner_id.map(|id| id.to_string()),
+            qualified_name: qualified_element_name(project, element.id),
+            packageable: element.is_packageable(),
+            namespace: element.is_namespace(),
+            visibility: visibility_name(element.visibility).to_string(),
             documentation: element.documentation.clone(),
             requirement_id: element.requirement_id.clone(),
             requirement_text: element.requirement_text.clone(),
@@ -318,8 +359,13 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             id: relationship.id.to_string(),
             external_id: relationship.external_id.clone(),
             kind: relationship_display_kind(relationship).to_string(),
+            name: relationship.name.clone(),
+            owner_id: relationship.owner_id.map(|id| id.to_string()),
             source_id: relationship.source_id.to_string(),
             target_id: relationship.target_id.to_string(),
+            documentation: relationship.documentation.clone(),
+            visibility: visibility_name(relationship.visibility).to_string(),
+            alias: relationship.alias.clone(),
             association_ends: relationship
                 .association_ends
                 .iter()
@@ -580,6 +626,9 @@ fn validate_loaded_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Resul
                 return Err(format!("diagram edge has no usable route: {}", edge.id));
             }
         }
+        if diagram.family == "package" {
+            package_diagrams::validate_package_diagram(project, diagram)?;
+        }
     }
     Ok(())
 }
@@ -817,11 +866,28 @@ fn node_route_rect(node: &DiagramNode) -> routing::RouteRect {
     }
 }
 
+fn diagram_node_route_rect(diagram: &BddDiagram, node: &DiagramNode) -> routing::RouteRect {
+    let mut rect = node_route_rect(node);
+    if diagram.family == "package" {
+        // UML Package notation has a tab above the persisted body rectangle.
+        // Reserve it in the authoritative routing geometry so edges and labels
+        // cannot pass behind the visible tab header.
+        const PACKAGE_TAB_HEIGHT: f64 = 20.0;
+        rect.y -= PACKAGE_TAB_HEIGHT;
+        rect.height += PACKAGE_TAB_HEIGHT;
+    }
+    rect
+}
+
 fn routed_bdd_edges(
     diagram: &BddDiagram,
     bounds: Option<routing::RouteRect>,
 ) -> Result<Vec<DiagramEdge>, String> {
-    let obstacles: Vec<_> = diagram.nodes.iter().map(node_route_rect).collect();
+    let obstacles: Vec<_> = diagram
+        .nodes
+        .iter()
+        .map(|node| diagram_node_route_rect(diagram, node))
+        .collect();
     let route_edges = diagram
         .edges
         .iter()
@@ -840,8 +906,8 @@ fn routed_bdd_edges(
                 id: edge.id.clone(),
                 source_id: edge.source_node_id.clone(),
                 target_id: edge.target_node_id.clone(),
-                source: node_route_rect(source),
-                target: node_route_rect(target),
+                source: diagram_node_route_rect(diagram, source),
+                target: diagram_node_route_rect(diagram, target),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;

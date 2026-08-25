@@ -10,13 +10,6 @@
     );
   }
 
-  const baseLoadPalette = loadPalette;
-  loadPalette = async function loadUseCasePalette() {
-    const diagram = (state.snapshot?.diagrams || []).find((item) => item.id === state.selectedDiagramId);
-    if (diagram?.family !== 'use-case') return baseLoadPalette();
-    Object.assign(state, { paletteItems: await requireInvoke()('diagram_palette', { diagramType: 'UseCase' }) });
-  };
-
   function actorMarkup(element, node) {
     if (node.actor_notation === 'rectangle') {
       return `<div class="actor-rectangle"><div class="actor-stereotype">«actor»</div><div class="actor-name">${escapeHtml(element.name)}</div></div>`;
@@ -31,6 +24,8 @@
     const points = element.extension_points || [];
     return `<div class="use-case-name">${escapeHtml(element.name)}</div>${points.length ? `<div class="extension-point-compartment"><div class="compartment-title">extension points</div>${points.map((point) => `<div>${escapeHtml(point)}</div>`).join('')}</div>` : ''}`;
   }
+
+  window.smpUseCasePresentation = Object.freeze({ actorMarkup, useCaseMarkup });
 
   function subjectBoundary(frame, diagram, project) {
     const geometry = diagram.subject_boundary;
