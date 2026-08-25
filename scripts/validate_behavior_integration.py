@@ -36,7 +36,11 @@ require(
     "apps/desktop/frontend/interaction-runtime-fixes.js",
     "smpPreviewStateTransitionGeometry",
     "line.setAttribute('points'",
+)
+require(
+    "apps/desktop/frontend/diagram-interaction.js",
     "update_state_presentation_geometry",
+    "smpPreviewStateTransitionGeometry",
 )
 
 
