@@ -192,7 +192,7 @@ renderRepository = function renderRepositoryComplete() {
     for (const diagram of state.snapshot.diagrams) {
       if (state.repositoryFilter && !diagram.name.toLowerCase().includes(state.repositoryFilter.toLowerCase())) continue;
       const row = document.createElement('button'); row.className = 'tree-row diagram-row'; if (state.selectedDiagramId === diagram.id) row.classList.add('selected');
-      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : 'BDD'}</span>`; row.onclick = () => selectDiagram(diagram.id); host.appendChild(row);
+      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'package' ? 'PKG' : diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : 'BDD'}</span>`; row.onclick = () => selectDiagram(diagram.id); host.appendChild(row);
     }
   }
 };

@@ -23,6 +23,7 @@
   }
 
   function diagramTag(diagram) {
+    if (diagram.family === 'package') return 'PKG';
     if (diagram.family === 'requirement') return 'REQ';
     if (diagram.family === 'bdd') return 'BDD';
     if (diagram.family === 'use-case') return 'UC';

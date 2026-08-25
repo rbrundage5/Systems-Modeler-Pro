@@ -256,62 +256,6 @@ window.addEventListener('DOMContentLoaded', () => {
     $('model-counts').textContent = `Elements: ${state.snapshot.project.elements.length}   Relationships: ${state.snapshot.project.relationships.length}   Diagram: ${diagram.name} (PKG)`;
   };
 
-  const baseRenderDiagramTabs = renderDiagramTabs;
-  renderDiagramTabs = function renderPackageDiagramTabs() {
-    baseRenderDiagramTabs();
-    const structural = state.snapshot?.diagrams || [];
-    [...$('diagram-tabs').querySelectorAll('.diagram-tab')].forEach((tab, index) => {
-      if (structural[index]?.family === 'package') tab.textContent = `${structural[index].name} · PKG`;
-    });
-  };
-
-  const baseRenderRepository = renderRepository;
-  renderRepository = function renderPackageRepository() {
-    baseRenderRepository();
-    const diagrams = state.snapshot?.diagrams || [];
-    document.querySelectorAll('#repository .diagram-row[data-diagram-id]').forEach((row) => {
-      const diagram = diagrams.find((candidate) => String(candidate.id) === String(row.dataset.diagramId));
-      if (diagram?.family !== 'package') return;
-      const tag = row.querySelector('.type-tag');
-      if (tag) tag.textContent = 'PKG';
-    });
-  };
-
-  window.smpCreatePackageDiagram = async function createPackageDiagram() {
-    if (!state.snapshot?.project) {
-      window.smpDialogs?.notify?.('Create a project first.', 'warning');
-      return;
-    }
-    const project = state.snapshot.project;
-    const ownerId = state.selectedPackageId || project.root_id;
-    const owner = project.elements.find((element) => element.id === ownerId);
-    if (!owner || !['Model', 'Package'].includes(owner.kind)) {
-      window.smpDialogs?.notify?.('Select a Package or the model root before creating a Package Diagram.', 'warning');
-      return;
-    }
-    const definition = await window.smpDialogs?.edit?.({
-      title: 'Create Package Diagram',
-      description: `Diagram owner: ${owner.name}`,
-      fields: [{ id: 'name', label: 'Diagram name', value: `${owner.name} Packages`, required: true }],
-      confirmLabel: 'Create',
-    });
-    if (!definition) return;
-    const diagramId = await runCommand('Creating Package Diagram…', () => requireInvoke()('create_package_diagram', {
-      ownerId,
-      name: definition.values.name,
-    }));
-    Object.assign(state, {
-      selectedDiagramId: diagramId,
-      selectedElementId: null,
-      selectedPackageId: null,
-      selectedRelationshipId: null,
-      pendingRelationship: null,
-      paletteTool: null,
-    });
-    await refresh();
-    await selectDiagram(diagramId);
-  };
-
   window.smpRendererHost?.registerSelectionRenderer?.(
     'package',
     ['selectedElementId', 'selectedRelationshipId'],

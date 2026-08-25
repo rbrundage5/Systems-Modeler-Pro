@@ -70,6 +70,8 @@ jobs:
         run: python scripts/validate_use_case_integration.py
       - name: Parametric desktop integration contract
         run: python scripts/validate_parametric_integration.py
+      - name: Package Diagram desktop integration contract
+        run: python scripts/validate_package_diagram_integration.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
@@ -106,6 +108,8 @@ jobs:
         run: python scripts/validate_use_case_integration.py
       - name: Parametric desktop integration contract
         run: python scripts/validate_parametric_integration.py
+      - name: Package Diagram desktop integration contract
+        run: python scripts/validate_package_diagram_integration.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract

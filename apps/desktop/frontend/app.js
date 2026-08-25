@@ -146,7 +146,7 @@ function renderRepository() {
       const row = document.createElement('button');
       row.className = 'tree-row diagram-row';
       if (state.selectedDiagramId === diagram.id) row.classList.add('selected');
-      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : diagram.family === 'parametric' ? 'PAR' : 'BDD'}</span>`;
+      row.innerHTML = `<span class="kind">▤</span><span>${escapeHtml(diagram.name)}</span><span class="type-tag">${diagram.family === 'package' ? 'PKG' : diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : diagram.family === 'parametric' ? 'PAR' : 'BDD'}</span>`;
       row.onclick = () => selectDiagram(diagram.id);
       host.appendChild(row);
     }
@@ -249,7 +249,7 @@ function renderDiagramTabs() {
     const tab = document.createElement('button');
     tab.className = 'diagram-tab';
     if (diagram.id === state.selectedDiagramId) tab.classList.add('active');
-    tab.textContent = `${diagram.name} · ${diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : diagram.family === 'parametric' ? 'PAR' : 'BDD'}`;
+    tab.textContent = `${diagram.name} · ${diagram.family === 'package' ? 'PKG' : diagram.family === 'requirement' ? 'REQ' : diagram.family === 'use-case' ? 'UC' : diagram.family === 'parametric' ? 'PAR' : 'BDD'}`;
     tab.onclick = () => selectDiagram(diagram.id);
     host.appendChild(tab);
   }
@@ -681,6 +681,41 @@ async function createBdd() {
   state.paletteTool = null;
   await refresh();
 }
+async function createPackageDiagram() {
+  if (!state.snapshot?.project) {
+    window.smpDialogs?.notify?.('Create a project first.', 'warning');
+    return;
+  }
+  const project = state.snapshot.project;
+  const ownerId = state.selectedPackageId || project.root_id;
+  const owner = project.elements.find((element) => element.id === ownerId);
+  if (!owner || !['Model', 'Package'].includes(owner.kind)) {
+    window.smpDialogs?.notify?.('Select a Package or the model root before creating a Package Diagram.', 'warning');
+    return;
+  }
+  const definition = await window.smpDialogs?.edit?.({
+    title: 'Create Package Diagram',
+    description: `Diagram owner: ${owner.name}`,
+    fields: [{ id: 'name', label: 'Diagram name', value: `${owner.name} Packages`, required: true }],
+    confirmLabel: 'Create',
+  });
+  if (!definition) return;
+  const diagramId = await runCommand('Creating Package Diagram…', () => requireInvoke()('create_package_diagram', {
+    ownerId,
+    name: definition.values.name,
+  }));
+  Object.assign(state, {
+    selectedDiagramId: diagramId,
+    selectedElementId: null,
+    selectedPackageId: null,
+    selectedRelationshipId: null,
+    pendingRelationship: null,
+    paletteTool: null,
+  });
+  await refresh();
+  await selectDiagram(diagramId);
+}
+window.smpCreatePackageDiagram = createPackageDiagram;
 async function createRequirementDiagram() {
   if (!state.snapshot?.project) return window.smpDialogs?.notify('Create a project first.', 'warning');
   const ownerId = state.selectedPackageId || state.snapshot.project.root_id;
@@ -702,6 +737,7 @@ $('open-project').onclick = openProject;
 $('save-project').onclick = saveProject;
 $('save-project-as').onclick = saveProjectAs;
 $('new-package').onclick = createPackage;
+$('new-package-diagram').onclick = createPackageDiagram;
 $('new-bdd').onclick = createBdd;
 $('new-requirement-diagram').onclick = createRequirementDiagram;
 $('repository-search').oninput = (event) => {
