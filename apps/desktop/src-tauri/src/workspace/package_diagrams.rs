@@ -783,7 +783,10 @@ mod tests {
             "UseCase",
             "Comment",
         ] {
-            assert!(package_element_kind(kind).is_ok(), "{kind} must be creatable");
+            assert!(
+                package_element_kind(kind).is_ok(),
+                "{kind} must be creatable"
+            );
         }
         assert_eq!(
             package_relationship_semantic_kind("ElementImport").unwrap(),
