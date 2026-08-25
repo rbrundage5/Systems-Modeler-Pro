@@ -334,7 +334,7 @@ impl ExecutionSession {
         {
             return Err(ExecutionError::RuntimeInstanceNotFound);
         }
-        if matches!(value, RuntimeValue::Real(number) if !number.is_finite()) {
+        if matches!(&value, RuntimeValue::Real(number) if !number.is_finite()) {
             return Err(ExecutionError::NonFiniteValue);
         }
         self.values.insert(
