@@ -156,9 +156,7 @@ impl Project {
             }
             current = element.owner_id;
         }
-        Err(NamespaceResolutionError::NoEnclosingNamespace {
-            name: context_name,
-        })
+        Err(NamespaceResolutionError::NoEnclosingNamespace { name: context_name })
     }
 
     /// Resolves a visible name from any semantic element by first locating the
