@@ -1,6 +1,6 @@
 use systems_modeler_core::{
-    ElementKind, ExecutionSession, ExecutionState, NamespaceResolutionError, Project, RuntimeEventKind,
-    RuntimeValue, VisibilityKind,
+    ElementKind, ExecutionSession, ExecutionState, NamespaceResolutionError, Project,
+    RuntimeEventKind, RuntimeValue, VisibilityKind,
 };
 
 #[test]
@@ -33,7 +33,9 @@ fn package_import_makes_public_library_members_resolvable_without_reparenting() 
         "VehicleModel::Common_Library::Mass"
     );
     assert_eq!(
-        project.resolve_qualified_name("Common_Library::Mass").unwrap(),
+        project
+            .resolve_qualified_name("Common_Library::Mass")
+            .unwrap(),
         mass
     );
 }
@@ -111,7 +113,10 @@ fn element_import_alias_resolves_without_renaming_or_reparenting_target() {
         )
         .unwrap();
 
-    assert_eq!(project.resolve_name(vehicle, "CarType").unwrap(), vehicle_type);
+    assert_eq!(
+        project.resolve_name(vehicle, "CarType").unwrap(),
+        vehicle_type
+    );
     assert!(matches!(
         project.resolve_name(vehicle, "VehicleType"),
         Err(NamespaceResolutionError::NotFound { .. })
@@ -188,7 +193,11 @@ fn runtime_values_are_session_local_and_reset_does_not_mutate_authored_model() {
         Some(&RuntimeValue::Real(27.5))
     );
     assert_eq!(
-        project.element(controller).unwrap().default_value.as_deref(),
+        project
+            .element(controller)
+            .unwrap()
+            .default_value
+            .as_deref(),
         Some("authored-default")
     );
 
@@ -196,7 +205,11 @@ fn runtime_values_are_session_local_and_reset_does_not_mutate_authored_model() {
     assert_eq!(session.state, ExecutionState::Initialized);
     assert_eq!(session.value(None, controller), None);
     assert_eq!(
-        project.element(controller).unwrap().default_value.as_deref(),
+        project
+            .element(controller)
+            .unwrap()
+            .default_value
+            .as_deref(),
         Some("authored-default")
     );
 }
@@ -245,12 +258,17 @@ fn event_queue_and_trace_are_deterministic_and_support_run_pause_resume() {
     assert_eq!(start.name, "StartMotor");
     assert_eq!(tick.name, "Tick");
     assert!(session.step().unwrap().is_none());
-    assert!(session
-        .trace
-        .windows(2)
-        .all(|entries| entries[0].sequence < entries[1].sequence));
-    assert!(session
-        .trace
-        .iter()
-        .any(|entry| entry.message.contains("Controller") || entry.message.contains("StartMotor")));
+    assert!(
+        session
+            .trace
+            .windows(2)
+            .all(|entries| entries[0].sequence < entries[1].sequence)
+    );
+    assert!(
+        session
+            .trace
+            .iter()
+            .any(|entry| entry.message.contains("Controller")
+                || entry.message.contains("StartMotor"))
+    );
 }
