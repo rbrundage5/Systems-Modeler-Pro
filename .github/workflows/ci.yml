@@ -54,6 +54,7 @@ jobs:
             apps/desktop/frontend/use-case-ui.js \
             apps/desktop/frontend/parametric-ui.js \
             apps/desktop/frontend/standard-editing-ui.js \
+            apps/desktop/frontend/marquee-selection.js \
             apps/desktop/frontend/undo-redo-ui.js; do
             node --check "$file"
           done
