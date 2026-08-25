@@ -330,14 +330,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const diagram = selectedPackageDiagram();
     if (!diagram) return;
     if (state.pendingRelationship) {
-      const side = state.pendingRelationship.sourceElementId ? 'target' : 'source';
-      if (!legalPackageEndpoint(state.pendingRelationship.kind, side, element)) {
-        window.smpDialogs?.notify?.(
-          `${element.name} (${element.kind}) is not a valid Package relationship endpoint.`,
-          'error',
-        );
-        return;
-      }
       if (!state.pendingRelationship.sourceElementId) {
         state.pendingRelationship.sourceElementId = element.id;
         state.selectedElementId = element.id;

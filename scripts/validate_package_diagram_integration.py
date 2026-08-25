@@ -16,6 +16,7 @@ workspace = read("apps/desktop/frontend/workspace-ux.js")
 shared_frontend = read("apps/desktop/frontend/shared-workspace.js")
 repository = read("apps/desktop/frontend/repository-tree-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
+bdd_commands = read("apps/desktop/src-tauri/src/workspace/bdd_elements.rs")
 ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
 use_case_ui = read("apps/desktop/frontend/use-case-ui.js")
 parametric_ui = read("apps/desktop/frontend/parametric-ui.js")
@@ -156,6 +157,8 @@ assert "place_on_package_diagram" in workspace
 assert "element.packageable" in workspace
 assert "Boolean(element.namespace)" in workspace
 assert "Boolean(element.packageable)" in workspace
+assert "pub namespace: bool" in bdd_commands
+assert "namespace: element.is_namespace()" in bdd_commands
 assert "create_package_relationship" in workspace
 package_selection = workspace.split("async function selectPackageNode", 1)[1].split(
     "function renderPackageCanvas", 1
@@ -163,6 +166,7 @@ package_selection = workspace.split("async function selectPackageNode", 1)[1].sp
 assert "create_package_relationship" in package_selection
 assert "create_bdd_relationship" not in package_selection
 assert "create_bdd_relationship_complete" not in package_selection
+assert "is not a valid Package relationship endpoint" not in package_selection
 assert "registerRenderer('package'" not in shared_frontend
 assert "registerSelectionRenderer?.(\n    'package'" in workspace
 assert "{ renderCanvas: renderPackageCanvas }" in workspace
@@ -208,7 +212,6 @@ assert "pkg-display-contents" in workspace
 assert '>Public</option>' in workspace
 assert '>Private</option>' in workspace
 assert "await refresh();" in workspace
-bdd_commands = read("apps/desktop/src-tauri/src/workspace/bdd_elements.rs")
 assert "!source.is_classifier() || !target.is_classifier()" in bdd_commands
 assert "requires classifier endpoints on a BDD" in bdd_commands
 

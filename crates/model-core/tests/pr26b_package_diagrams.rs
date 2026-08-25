@@ -62,6 +62,16 @@ fn package_import_accepts_package_and_model_library_namespaces_in_legal_roles() 
     project
         .create_package_import(common_library, common_package, VisibilityKind::Public)
         .unwrap();
+    let second_library = project
+        .create_element(
+            ElementKind::ModelLibrary,
+            "Vehicle Types",
+            project.root_id,
+        )
+        .unwrap();
+    project
+        .create_package_import(common_library, second_library, VisibilityKind::Public)
+        .unwrap();
     project.validate().unwrap();
 }
 
@@ -97,6 +107,42 @@ fn element_import_supports_public_private_visibility_and_alias() {
             "not a valid alias".into()
         ))
     );
+    project.validate().unwrap();
+}
+
+#[test]
+fn element_import_accepts_packageable_targets_and_requires_a_namespace_source() {
+    let (mut project, importing, _, _) = package_project();
+    let block = project
+        .create_element(ElementKind::Block, "VehicleType", project.root_id)
+        .unwrap();
+    let value_type = project
+        .create_element(ElementKind::ValueType, "Mass", project.root_id)
+        .unwrap();
+    let primitive_type = project
+        .create_element(ElementKind::PrimitiveType, "Real", project.root_id)
+        .unwrap();
+
+    for target in [block, value_type, primitive_type] {
+        project
+            .create_element_import(importing, target, VisibilityKind::Public, None)
+            .unwrap();
+    }
+
+    let invalid_source = project
+        .create_element(ElementKind::Block, "Structure", project.root_id)
+        .unwrap();
+    let error = project
+        .create_element_import(invalid_source, block, VisibilityKind::Private, None)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ModelError::InvalidPackageRelationshipEndpoints { .. }
+    ));
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("Package-compatible importing namespace"));
+    assert!(diagnostic.contains("'Structure' is a Block"));
+    assert!(!diagnostic.contains(&invalid_source.to_string()));
     project.validate().unwrap();
 }
 

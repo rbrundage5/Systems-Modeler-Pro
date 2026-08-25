@@ -9,6 +9,7 @@ pub struct CompleteElementSnapshot {
     pub owner_id: Option<String>,
     pub qualified_name: String,
     pub packageable: bool,
+    pub namespace: bool,
     pub visibility: String,
     pub documentation: String,
     pub type_id: Option<String>,
@@ -139,6 +140,7 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
             owner_id: element.owner_id.map(|id| id.to_string()),
             qualified_name: qualified_element_name(project, element.id),
             packageable: element.is_packageable(),
+            namespace: element.is_namespace(),
             visibility: visibility_name(element.visibility).to_string(),
             documentation: element.documentation.clone(),
             type_id: element.type_id.map(|id| id.to_string()),
@@ -827,4 +829,45 @@ pub fn open_project_file_complete(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
     open_project_file(path, state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complete_snapshot_preserves_namespace_endpoint_capabilities() {
+        let mut project = Project::new("Vehicle");
+        let package = project
+            .create_element(ElementKind::Package, "Structure", project.root_id)
+            .unwrap();
+        let library = project
+            .create_element(
+                ElementKind::ModelLibrary,
+                "Common Library",
+                project.root_id,
+            )
+            .unwrap();
+        let block = project
+            .create_element(ElementKind::Block, "Vehicle Type", project.root_id)
+            .unwrap();
+
+        let snapshot = snapshot_complete(&project);
+        for namespace_id in [package, library] {
+            let element = snapshot
+                .elements
+                .iter()
+                .find(|element| element.id == namespace_id.to_string())
+                .unwrap();
+            assert!(element.namespace);
+            assert!(element.packageable);
+        }
+        let block = snapshot
+            .elements
+            .iter()
+            .find(|element| element.id == block.to_string())
+            .unwrap();
+        assert!(!block.namespace);
+        assert!(block.packageable);
+    }
 }
