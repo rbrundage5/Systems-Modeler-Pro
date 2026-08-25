@@ -59,13 +59,11 @@ for semantic_kind in (
     "ModelLibrary",
     "PackageImport",
     "ElementImport",
-    "PackageMerge",
     "VisibilityKind",
 ):
     assert semantic_kind in model
 assert "pub fn create_package_import" in model
 assert "pub fn create_element_import" in model
-assert "pub fn create_package_merge" in model
 assert "DuplicatePackageRelationship" in model
 assert "InvalidElementImportAlias" in model
 assert '"package",\n            "Package Diagram",\n            ("pkg", "Package")' in family_registry
@@ -118,7 +116,6 @@ for palette_item in (
     'element_item("comment", "Comment", "Comment")',
     'relationship_item("package-import", "Package Import", "PackageImport")',
     'relationship_item("element-import", "Element Import", "ElementImport")',
-    'relationship_item("package-merge", "Package Merge", "PackageMerge")',
     'relationship_item("dependency", "Dependency", "Dependency")',
 ):
     assert palette_item in package_palette
@@ -132,10 +129,13 @@ for bdd_only_kind in (
     '"FullPort"',
 ):
     assert bdd_only_kind not in package_palette
+assert 'PackageMerge' not in package_palette
+assert 'package_relationship_semantic_kind("PackageMerge").is_err()' in commands
 assert "create_package_element" in workspace
 assert "place_on_package_diagram" in workspace
 assert "element.packageable" in workspace
-assert "legalPackageEndpoint" in workspace
+assert "Boolean(element.namespace)" in workspace
+assert "Boolean(element.packageable)" in workspace
 assert "create_package_relationship" in workspace
 assert "update_package_element" in workspace
 assert "update_package_relationship" in workspace
@@ -143,6 +143,10 @@ assert "sourceElementId: sourceId" in workspace
 assert "targetElementId: targetId" in workspace
 assert "delete_package_relationship" in workspace
 assert "«modelLibrary»" in workspace
+assert "package-node-tab" in workspace
+assert "package-node-body" in workspace
+assert "package-contents" in workspace
+assert "candidate.owner_id === element.id" in workspace
 assert "pkg [package]" in workspace
 assert "node.dataset.smpInternalDrag = 'true'" in workspace
 assert "createPaletteElementAt = async function createPackagePaletteElementAt" in workspace
@@ -159,6 +163,12 @@ assert "EditingFamily::Package" in standard_editing
 assert "duplicate.owner_id = duplicate" in standard_editing
 assert "relationship.visibility === 'private' ? 'access' : 'import'" in app
 assert "edge.label_anchor" in app
-assert "['Dependency', 'PackageImport', 'ElementImport', 'PackageMerge'" in app
+assert "['Dependency', 'PackageImport', 'ElementImport'" in app
+assert "PackageMerge" not in workspace
+assert "Importing Package" in workspace
+assert "Imported Package" in workspace
+assert '>Public</option>' in workspace
+assert '>Private</option>' in workspace
+assert "await refresh();" in workspace
 
 print("PR26B Package Diagram semantic and workspace integration contract passed")

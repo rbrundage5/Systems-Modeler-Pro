@@ -27,7 +27,6 @@ fn package_semantics_visibility_alias_and_ownership_round_trip() {
             Some("Types".into()),
         )
         .unwrap();
-    let package_merge = project.create_package_merge(importing, library).unwrap();
     project.validate().unwrap();
 
     let mut database = ProjectDatabase::open_in_memory().unwrap();
@@ -48,7 +47,7 @@ fn package_semantics_visibility_alias_and_ownership_round_trip() {
     );
     assert_eq!(restored_element_import.alias.as_deref(), Some("Types"));
     assert_eq!(
-        restored.relationship(package_merge).unwrap().kind,
-        RelationshipKind::PackageMerge
+        restored.relationship(package_import).unwrap().kind,
+        RelationshipKind::PackageImport
     );
 }

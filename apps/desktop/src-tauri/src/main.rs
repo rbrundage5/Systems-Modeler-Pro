@@ -466,7 +466,6 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
             element_item("comment", "Comment", "Comment"),
             relationship_item("package-import", "Package Import", "PackageImport"),
             relationship_item("element-import", "Element Import", "ElementImport"),
-            relationship_item("package-merge", "Package Merge", "PackageMerge"),
             relationship_item("dependency", "Dependency", "Dependency"),
         ]),
         "UseCase" => Ok(vec![

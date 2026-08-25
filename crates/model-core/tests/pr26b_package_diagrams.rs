@@ -51,6 +51,21 @@ fn package_import_preserves_ownership_visibility_and_stable_ids() {
 }
 
 #[test]
+fn package_import_accepts_package_and_model_library_namespaces_in_legal_roles() {
+    let (mut project, vehicle_system, common_package, common_library) = package_project();
+    project
+        .create_package_import(vehicle_system, common_package, VisibilityKind::Public)
+        .unwrap();
+    project
+        .create_package_import(vehicle_system, common_library, VisibilityKind::Private)
+        .unwrap();
+    project
+        .create_package_import(common_library, common_package, VisibilityKind::Public)
+        .unwrap();
+    project.validate().unwrap();
+}
+
+#[test]
 fn element_import_supports_public_private_visibility_and_alias() {
     let (mut project, importing, _, _) = package_project();
     let block = project
@@ -86,27 +101,6 @@ fn element_import_supports_public_private_visibility_and_alias() {
 }
 
 #[test]
-fn package_merge_requires_package_endpoints_and_does_not_reparent() {
-    let (mut project, receiving, merged, _) = package_project();
-    let merged_owner = project.element(merged).unwrap().owner_id;
-    let relationship = project.create_package_merge(receiving, merged).unwrap();
-    assert_eq!(
-        project.relationship(relationship).unwrap().kind,
-        RelationshipKind::PackageMerge
-    );
-    assert_eq!(project.element(merged).unwrap().owner_id, merged_owner);
-
-    let block = project
-        .create_element(ElementKind::Block, "Invalid target", project.root_id)
-        .unwrap();
-    assert!(matches!(
-        project.create_package_merge(receiving, block),
-        Err(ModelError::InvalidPackageRelationshipEndpoints { .. })
-    ));
-    project.validate().unwrap();
-}
-
-#[test]
 fn package_relationships_reject_self_links_and_equivalent_duplicates_by_name() {
     let (mut project, importing, imported, _) = package_project();
     project
@@ -133,6 +127,22 @@ fn package_relationships_reject_self_links_and_equivalent_duplicates_by_name() {
         ModelError::SelfPackageRelationship { .. }
     ));
     assert!(self_import.to_string().contains("Vehicle"));
+    assert!(!self_import.to_string().contains(&importing.to_string()));
+}
+
+#[test]
+fn invalid_import_endpoint_diagnostic_uses_semantic_names_and_kinds() {
+    let (mut project, importing, _, _) = package_project();
+    let block = project
+        .create_element(ElementKind::Block, "Vehicle", project.root_id)
+        .unwrap();
+    let error = project
+        .create_package_import(importing, block, VisibilityKind::Public)
+        .unwrap_err();
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("Package-compatible imported namespace"));
+    assert!(diagnostic.contains("'Vehicle' is a Block"));
+    assert!(!diagnostic.contains(&block.to_string()));
 }
 
 #[test]

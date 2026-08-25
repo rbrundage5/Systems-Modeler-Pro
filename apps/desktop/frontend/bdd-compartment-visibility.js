@@ -104,7 +104,8 @@
     const hidden = hiddenCompartments(diagram, presentation);
     const section = document.createElement('section');
     section.className = 'bdd-compartment-controls';
-    section.innerHTML = '<div class="property-heading">Presentation Display</div><div class="muted">Choose which semantic fields are visible on this requirement presentation. Hidden values remain in the model.</div>';
+    const noun = element?.kind === 'Requirement' ? 'requirement fields' : 'semantic compartments';
+    section.innerHTML = `<div class="property-heading">Presentation Display</div><div class="muted">Choose which ${noun} are visible on this presentation. Hidden values remain in the model.</div>`;
     for (const label of compartments) {
       const row = document.createElement('label');
       row.className = 'compartment-visibility-toggle';

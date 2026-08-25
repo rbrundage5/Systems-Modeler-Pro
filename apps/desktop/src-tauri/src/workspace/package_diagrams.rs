@@ -86,7 +86,6 @@ fn package_relationship_kind(kind: &RelationshipKind) -> bool {
         kind,
         RelationshipKind::PackageImport
             | RelationshipKind::ElementImport
-            | RelationshipKind::PackageMerge
             | RelationshipKind::Dependency
     )
 }
@@ -95,7 +94,6 @@ fn package_relationship_name(kind: &RelationshipKind) -> &'static str {
     match kind {
         RelationshipKind::PackageImport => "PackageImport",
         RelationshipKind::ElementImport => "ElementImport",
-        RelationshipKind::PackageMerge => "PackageMerge",
         RelationshipKind::Dependency => "Dependency",
         _ => "Unsupported",
     }
@@ -114,7 +112,6 @@ fn package_relationship_semantic_kind(value: &str) -> Result<RelationshipKind, S
     match value {
         "PackageImport" => Ok(RelationshipKind::PackageImport),
         "ElementImport" => Ok(RelationshipKind::ElementImport),
-        "PackageMerge" => Ok(RelationshipKind::PackageMerge),
         "Dependency" => Ok(RelationshipKind::Dependency),
         _ => Err(format!("unsupported Package Diagram relationship: {value}")),
     }
@@ -552,7 +549,6 @@ pub fn create_package_relationship(
         RelationshipKind::ElementImport => {
             project.create_element_import(source_id, target_id, visibility, alias)
         }
-        RelationshipKind::PackageMerge => project.create_package_merge(source_id, target_id),
         RelationshipKind::Dependency => {
             dependency_endpoints(&project, source_id, target_id)?;
             project.create_relationship(kind, source_id, target_id, Some(source_id))
@@ -743,6 +739,7 @@ mod tests {
             package_relationship_semantic_kind("ElementImport").unwrap(),
             RelationshipKind::ElementImport
         );
+        assert!(package_relationship_semantic_kind("PackageMerge").is_err());
         assert!(package_element_kind("Block").is_err());
         assert!(package_relationship_semantic_kind("Association").is_err());
     }
@@ -842,7 +839,9 @@ mod tests {
         let wrong_target = project
             .create_element(ElementKind::Package, "Safety", project.root_id)
             .unwrap();
-        let relationship = project.create_package_merge(source, target).unwrap();
+        let relationship = project
+            .create_package_import(source, target, VisibilityKind::Public)
+            .unwrap();
         let diagram = BddDiagram {
             id: DiagramId::new().to_string(),
             name: "Packages".into(),
@@ -855,7 +854,7 @@ mod tests {
                 node("wrong-target", wrong_target, 520.0, 180.0),
             ],
             edges: vec![DiagramEdge {
-                id: "merge".into(),
+                id: "import".into(),
                 relationship_id: relationship.to_string(),
                 source_node_id: "source".into(),
                 target_node_id: "wrong-target".into(),
@@ -867,7 +866,7 @@ mod tests {
             }],
         };
         let error = validate_package_diagram(&project, &diagram).unwrap_err();
-        assert!(error.contains("PackageMerge"));
+        assert!(error.contains("PackageImport"));
         assert!(error.contains("endpoint"));
     }
 

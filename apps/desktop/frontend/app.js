@@ -319,7 +319,6 @@ function addRelationshipStereotype(svg, points, relationship, labelAnchor) {
   const packageLabel = {
     PackageImport: relationship.visibility === 'private' ? 'access' : 'import',
     ElementImport: 'elementImport',
-    PackageMerge: 'merge',
   }[relationship.kind];
   const stereotype = packageLabel || traceabilityLabel(relationship.kind);
   const suffix = relationship.kind === 'ElementImport' && relationship.alias ? ` ${relationship.alias}` : '';
@@ -357,7 +356,7 @@ function createRelationshipLayer(frame, diagram, project) {
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
     applyAssociationEndDecoration(polyline, relationship);
     if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
-    if (['Dependency', 'PackageImport', 'ElementImport', 'PackageMerge', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
+    if (['Dependency', 'PackageImport', 'ElementImport', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;

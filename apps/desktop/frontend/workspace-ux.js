@@ -167,22 +167,26 @@ window.addEventListener('DOMContentLoaded', () => {
   'use strict';
 
   const PACKAGE_NODE_KINDS = new Set(['Package', 'ModelLibrary', 'Comment']);
-  const PACKAGE_NAMESPACES = new Set(['Model', 'Package', 'ModelLibrary']);
   const PACKAGE_RELATIONSHIPS = new Set([
-    'PackageImport', 'ElementImport', 'PackageMerge', 'Dependency',
+    'PackageImport', 'ElementImport', 'Dependency',
   ]);
 
   const style = document.createElement('style');
   style.textContent = `
-    .package-diagram .package-node{overflow:visible!important;background:#fbfbf8!important;border:1.5px solid #222!important;border-radius:1px!important;text-align:left!important;padding:26px 12px 10px!important;box-sizing:border-box!important}
-    .package-diagram .package-node::before{content:"";position:absolute;left:-1.5px;top:-19px;width:76px;height:20px;background:#fbfbf8;border:1.5px solid #222;border-bottom:0;border-radius:3px 8px 0 0;box-sizing:border-box}
-    .package-diagram .package-node-stereotype{display:block;min-height:14px;font-size:11px;text-align:center;color:#444;margin-bottom:3px}
-    .package-diagram .package-node-name{display:block;font-weight:700;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .package-diagram .package-node{overflow:hidden!important;background:transparent!important;border:0!important;border-radius:0!important;text-align:left!important;padding:0!important;box-sizing:border-box!important;color:#202020!important}
+    .package-diagram .package-node-tab{position:absolute;left:0;top:0;width:min(92px,42%);height:22px;background:#f7f7f3;border:1.25px solid #2f3337;border-bottom:0;border-radius:3px 7px 0 0;box-sizing:border-box;pointer-events:none}
+    .package-diagram .package-node-body{position:absolute;inset:21px 0 0;background:#fbfbf8;border:1.25px solid #2f3337;border-radius:0 2px 2px 2px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;pointer-events:none}
+    .package-diagram .package-node-heading{padding:9px 12px 8px;min-height:39px;box-sizing:border-box;flex:0 0 auto}
+    .package-diagram .package-node-stereotype{display:block;min-height:14px;font-size:11px;line-height:14px;text-align:center;color:#4e555b;margin:0 0 2px;letter-spacing:.08px}
+    .package-diagram .package-node-name{display:block;font-weight:600;font-size:12px;line-height:16px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .package-diagram .package-node .package-contents{margin:0;border-top:1px solid #aeb3b7;padding:5px 9px 8px;min-height:0;overflow:hidden;flex:1 1 auto;background:#fff}
+    .package-diagram .package-node .package-contents .compartment-title{font-size:10px;font-weight:600;color:#62686d;margin-bottom:3px}
+    .package-diagram .package-member{font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#282d31}
     .package-diagram .package-node.selected,.package-diagram .package-comment.selected{outline:2px solid currentColor;outline-offset:2px}
     .package-diagram .package-comment{position:absolute;box-sizing:border-box;border:1.5px solid #555;background:#fffbe8;padding:12px;text-align:left;white-space:pre-wrap;overflow:hidden}
     .package-diagram .package-comment::after{content:"";position:absolute;right:-1px;top:-1px;width:16px;height:16px;background:linear-gradient(225deg,#fff 49%,#777 50%,#777 54%,#fffbe8 55%)}
     .package-diagram .package-hint{position:absolute;left:24px;top:54px;color:#666;font-size:12px;pointer-events:none}
-    .package-diagram .relationship-packageimport,.package-diagram .relationship-elementimport,.package-diagram .relationship-packagemerge,.package-diagram .relationship-dependency{stroke-dasharray:7 5}
+    .package-diagram .relationship-packageimport,.package-diagram .relationship-elementimport,.package-diagram .relationship-dependency{stroke-dasharray:7 5}
     .package-diagram .relationship-label{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
     .package-properties .technical-id{font-size:11px;color:#666;overflow-wrap:anywhere}
   `;
@@ -207,12 +211,9 @@ window.addEventListener('DOMContentLoaded', () => {
   function legalPackageEndpoint(kind, side, element) {
     if (!element) return false;
     if (kind === 'ElementImport') {
-      return side === 'source' ? PACKAGE_NAMESPACES.has(element.kind) : Boolean(element.packageable);
+      return side === 'source' ? Boolean(element.namespace) : Boolean(element.packageable);
     }
-    if (kind === 'PackageMerge') {
-      return ['Package', 'ModelLibrary'].includes(element.kind);
-    }
-    return PACKAGE_NAMESPACES.has(element.kind);
+    return Boolean(element.namespace);
   }
 
   const baseRenderPalette = renderPalette;
@@ -325,10 +326,6 @@ window.addEventListener('DOMContentLoaded', () => {
         render();
         return;
       }
-      if (state.pendingRelationship.sourceElementId === element.id) {
-        window.smpDialogs?.notify?.('Choose a different target element.', 'warning');
-        return;
-      }
       const pending = { ...state.pendingRelationship };
       const options = await relationshipOptions(pending.kind);
       if (!options) return;
@@ -410,7 +407,13 @@ window.addEventListener('DOMContentLoaded', () => {
         presentation.textContent = element.documentation || element.name;
       } else if (['Package', 'ModelLibrary'].includes(element.kind)) {
         const stereotype = element.kind === 'ModelLibrary' ? '«modelLibrary»' : '';
-        presentation.innerHTML = `<span class="package-node-stereotype">${stereotype}</span><span class="package-node-name">${escapeHtml(element.name)}</span>`;
+        const members = project.elements
+          .filter((candidate) => candidate.owner_id === element.id)
+          .sort((left, right) => left.name.localeCompare(right.name));
+        const contents = members.length
+          ? `<section class="compartment package-contents"><div class="compartment-title">Contents</div>${members.map((member) => `<div class="package-member">${escapeHtml(member.name)} : ${escapeHtml(member.kind)}</div>`).join('')}</section>`
+          : '';
+        presentation.innerHTML = `<span class="package-node-tab" aria-hidden="true"></span><span class="package-node-body"><span class="package-node-heading"><span class="package-node-stereotype">${stereotype}</span><span class="package-node-name">${escapeHtml(element.name)}</span></span>${contents}</span>`;
       } else {
         const stereotype = typeof classifierStereotype === 'function'
           ? classifierStereotype(element.kind)
@@ -494,15 +497,17 @@ window.addEventListener('DOMContentLoaded', () => {
     const source = elementById(relationship.source_id);
     const target = elementById(relationship.target_id);
     const importRelationship = ['PackageImport', 'ElementImport'].includes(relationship.kind);
+    const typeLabel = relationship.kind.replace(/([a-z])([A-Z])/g, '$1 $2');
     panel.innerHTML = `<section class="package-properties">
-      <div class="property-heading">${escapeHtml(relationship.kind.replace(/([a-z])([A-Z])/g, '$1 $2'))}</div>
-      <label>${relationship.kind === 'PackageMerge' ? 'Receiving package' : ['PackageImport', 'ElementImport'].includes(relationship.kind) ? 'Importing namespace' : 'Source'}<select id="pkg-relationship-source">${endpointOptions(diagram, project, relationship.source_id, relationship.kind, 'source')}</select></label>
+      <div class="property-heading">${escapeHtml(typeLabel)}</div>
+      <label>Type<input value="${escapeAttr(typeLabel)}" disabled></label>
+      <label>${relationship.kind === 'PackageImport' ? 'Importing Package' : relationship.kind === 'ElementImport' ? 'Importing Namespace' : 'Source'}<select id="pkg-relationship-source">${endpointOptions(diagram, project, relationship.source_id, relationship.kind, 'source')}</select></label>
       <div class="muted">${escapeHtml(qualifiedLabel(source))}</div>
-      <label>${relationship.kind === 'PackageMerge' ? 'Merged package' : relationship.kind === 'PackageImport' ? 'Imported package' : relationship.kind === 'ElementImport' ? 'Imported element' : 'Target'}<select id="pkg-relationship-target">${endpointOptions(diagram, project, relationship.target_id, relationship.kind, 'target')}</select></label>
+      <label>${relationship.kind === 'PackageImport' ? 'Imported Package' : relationship.kind === 'ElementImport' ? 'Imported Element' : 'Target'}<select id="pkg-relationship-target">${endpointOptions(diagram, project, relationship.target_id, relationship.kind, 'target')}</select></label>
       <div class="muted">${escapeHtml(qualifiedLabel(target))}</div>
       <label>Name<input id="pkg-relationship-name" value="${escapeAttr(relationship.name || '')}"></label>
       <label>Documentation<textarea id="pkg-relationship-documentation">${escapeHtml(relationship.documentation || '')}</textarea></label>
-      ${importRelationship ? `<label>Visibility<select id="pkg-relationship-visibility"><option value="public"${relationship.visibility !== 'private' ? ' selected' : ''}>public</option><option value="private"${relationship.visibility === 'private' ? ' selected' : ''}>private</option></select></label>` : ''}
+      ${importRelationship ? `<label>Visibility<select id="pkg-relationship-visibility"><option value="public"${relationship.visibility !== 'private' ? ' selected' : ''}>Public</option><option value="private"${relationship.visibility === 'private' ? ' selected' : ''}>Private</option></select></label>` : ''}
       ${relationship.kind === 'ElementImport' ? `<label>Alias<input id="pkg-element-import-alias" value="${escapeAttr(relationship.alias || '')}"></label>` : ''}
       <button id="pkg-apply-relationship" class="primary">Apply</button>
       <button id="pkg-delete-relationship" class="danger">Delete Relationship</button>

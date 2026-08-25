@@ -544,11 +544,12 @@ pub enum ModelError {
     MissingTraceabilityOwner,
     #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
     InvalidTraceabilityOwner(ElementId),
-    #[error("{relationship:?} has invalid endpoints: '{source_name}' -> '{target_name}'")]
+    #[error("{diagnostic}")]
     InvalidPackageRelationshipEndpoints {
         relationship: RelationshipKind,
         source_name: String,
         target_name: String,
+        diagnostic: String,
     },
     #[error("{relationship:?} cannot connect '{element}' to itself")]
     SelfPackageRelationship {
@@ -920,19 +921,6 @@ impl Project {
         relationship.visibility = visibility;
         relationship.alias = alias;
         Ok(id)
-    }
-
-    pub fn create_package_merge(
-        &mut self,
-        receiving_package_id: ElementId,
-        merged_package_id: ElementId,
-    ) -> Result<RelationshipId, ModelError> {
-        self.create_relationship(
-            RelationshipKind::PackageMerge,
-            receiving_package_id,
-            merged_package_id,
-            Some(receiving_package_id),
-        )
     }
 
     pub fn update_use_case(
@@ -1522,30 +1510,57 @@ fn validate_package_relationship_endpoints(
     source: &Element,
     target: &Element,
 ) -> Result<(), ModelError> {
-    let valid = match relationship {
-        RelationshipKind::PackageImport => {
-            package_namespace(&source.kind) && package_namespace(&target.kind)
+    let diagnostic = match relationship {
+        RelationshipKind::PackageImport if !package_namespace(&source.kind) => Some(format!(
+            "Package Import requires a Package-compatible importing namespace; '{}' is a {:?}.",
+            source.name, source.kind
+        )),
+        RelationshipKind::PackageImport if !package_namespace(&target.kind) => Some(format!(
+            "Package Import requires a Package-compatible imported namespace; '{}' is a {:?}.",
+            target.name, target.kind
+        )),
+        RelationshipKind::ElementImport if !package_namespace(&source.kind) => Some(format!(
+            "Element Import requires a Package-compatible importing namespace; '{}' is a {:?}.",
+            source.name, source.kind
+        )),
+        RelationshipKind::ElementImport if !target.is_packageable() => Some(format!(
+            "Element Import requires a packageable imported element; '{}' is a {:?}.",
+            target.name, target.kind
+        )),
+        RelationshipKind::PackageMerge
+            if !matches!(source.kind, ElementKind::Package | ElementKind::ModelLibrary) =>
+        {
+            Some(format!(
+                "UML Package Merge requires a receiving Package; '{}' is a {:?}.",
+                source.name, source.kind
+            ))
         }
-        RelationshipKind::ElementImport => {
-            package_namespace(&source.kind) && target.is_packageable()
+        RelationshipKind::PackageMerge
+            if !matches!(target.kind, ElementKind::Package | ElementKind::ModelLibrary) =>
+        {
+            Some(format!(
+                "UML Package Merge requires a merged Package; '{}' is a {:?}.",
+                target.name, target.kind
+            ))
         }
-        RelationshipKind::PackageMerge => {
-            matches!(source.kind, ElementKind::Package | ElementKind::ModelLibrary)
-                && matches!(target.kind, ElementKind::Package | ElementKind::ModelLibrary)
-        }
-        RelationshipKind::Dependency => {
-            package_namespace(&source.kind) && package_namespace(&target.kind)
-        }
-        _ => true,
+        RelationshipKind::Dependency if !package_namespace(&source.kind) => Some(format!(
+            "Package-level Dependency requires a Package-compatible source; '{}' is a {:?}.",
+            source.name, source.kind
+        )),
+        RelationshipKind::Dependency if !package_namespace(&target.kind) => Some(format!(
+            "Package-level Dependency requires a Package-compatible target; '{}' is a {:?}.",
+            target.name, target.kind
+        )),
+        _ => None,
     };
-    if valid {
-        Ok(())
-    } else {
-        Err(ModelError::InvalidPackageRelationshipEndpoints {
+    match diagnostic {
+        None => Ok(()),
+        Some(diagnostic) => Err(ModelError::InvalidPackageRelationshipEndpoints {
             relationship: relationship.clone(),
-            source_name: format!("{} ({:?})", source.name, source.kind),
-            target_name: format!("{} ({:?})", target.name, target.kind),
-        })
+            source_name: source.name.clone(),
+            target_name: target.name.clone(),
+            diagnostic,
+        }),
     }
 }
 
