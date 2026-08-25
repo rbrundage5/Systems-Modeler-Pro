@@ -1,4 +1,5 @@
 """PR26B Package Diagram semantic, palette, editing, and rendering contract."""
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,9 @@ shell = read("apps/desktop/frontend/ui-shell.js")
 workspace = read("apps/desktop/frontend/workspace-ux.js")
 repository = read("apps/desktop/frontend/repository-tree-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
+ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
+use_case_ui = read("apps/desktop/frontend/use-case-ui.js")
+parametric_ui = read("apps/desktop/frontend/parametric-ui.js")
 commands = read("apps/desktop/src-tauri/src/workspace/package_diagrams.rs")
 shared_workspace = read("apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
 standard_editing = read("apps/desktop/src-tauri/src/workspace/standard_editing.rs")
@@ -84,8 +88,30 @@ assert "validate_package_diagram(&project, diagram)" in commands
 assert "history::checkpoint_states" in commands
 assert "reroute(&mut diagrams[index])" in commands
 
-assert "? 'Package'" in app
+palette_map_source = app.split("const PALETTE_TYPE_BY_FAMILY = Object.freeze({", 1)[1].split("});", 1)[0]
+palette_types = {(quoted or bare): palette_type for quoted, bare, palette_type in re.findall(
+    r"(?:'([^']+)'|([a-z]+)):\s*'([^']+)'", palette_map_source
+)}
+assert palette_types == {
+    "bdd": "BDD",
+    "requirement": "Requirement",
+    "use-case": "UseCase",
+    "parametric": "Parametric",
+    "package": "Package",
+}
+assert "return 'IBD'" in app
+assert "const diagramType = resolvePaletteDiagramType(state.snapshot, diagramId)" in app
 assert "requireInvoke()('diagram_palette', { diagramType })" in app
+assert "request !== paletteLoadRequest || state.selectedDiagramId !== diagramId" in app
+assert "request !== diagramSelectionRequest || state.selectedDiagramId !== diagramId" in app
+for adapter in (ibd_ui, use_case_ui, parametric_ui):
+    assert "loadPalette =" not in adapter
+
+palette_switch = ["BDD", "Package", "Parametric", "Package", "IBD"]
+family_switch = ["bdd", "package", "parametric", "package"]
+assert [palette_types[family] for family in family_switch] + ["IBD"] == palette_switch
+
+package_palette = main.split('"Package" => Ok(vec![', 1)[1].split(']),\n        "UseCase"', 1)[0]
 for palette_item in (
     'element_item("package", "Package", "Package")',
     'element_item("model-library", "Model Library", "ModelLibrary")',
@@ -95,7 +121,17 @@ for palette_item in (
     'relationship_item("package-merge", "Package Merge", "PackageMerge")',
     'relationship_item("dependency", "Dependency", "Dependency")',
 ):
-    assert palette_item in main
+    assert palette_item in package_palette
+for bdd_only_kind in (
+    '"Block"',
+    '"AssociationBlock"',
+    '"ConstraintBlock"',
+    '"ValueType"',
+    '"PartProperty"',
+    '"ProxyPort"',
+    '"FullPort"',
+):
+    assert bdd_only_kind not in package_palette
 assert "create_package_element" in workspace
 assert "place_on_package_diagram" in workspace
 assert "element.packageable" in workspace

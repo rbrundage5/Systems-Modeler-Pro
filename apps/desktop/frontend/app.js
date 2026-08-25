@@ -18,18 +18,30 @@ function requireInvoke() {
   if (!invoke) throw new Error('Tauri command bridge is unavailable. Run this UI through the desktop application.');
   return invoke;
 }
+const PALETTE_TYPE_BY_FAMILY = Object.freeze({
+  bdd: 'BDD',
+  requirement: 'Requirement',
+  'use-case': 'UseCase',
+  parametric: 'Parametric',
+  package: 'Package',
+});
+let paletteLoadRequest = 0;
+let diagramSelectionRequest = 0;
+function resolvePaletteDiagramType(snapshot, diagramId) {
+  if (!diagramId) return null;
+  if ((snapshot?.ibd_diagrams || []).some((diagram) => diagram.id === diagramId)) return 'IBD';
+  const diagram = (snapshot?.diagrams || []).find((item) => item.id === diagramId);
+  return PALETTE_TYPE_BY_FAMILY[diagram?.family] || null;
+}
 async function loadPalette() {
-  if (!state.selectedDiagramId) {
-    state.paletteItems = [];
-    return;
-  }
-  const diagram = state.snapshot?.diagrams?.find((item) => item.id === state.selectedDiagramId);
-  const diagramType = diagram?.family === 'requirement'
-    ? 'Requirement'
-    : diagram?.family === 'package'
-      ? 'Package'
-      : 'BDD';
-  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType });
+  const diagramId = state.selectedDiagramId;
+  const diagramType = resolvePaletteDiagramType(state.snapshot, diagramId);
+  const request = ++paletteLoadRequest;
+  state.paletteItems = [];
+  if (!diagramType) return;
+  const items = await requireInvoke()('diagram_palette', { diagramType });
+  if (request !== paletteLoadRequest || state.selectedDiagramId !== diagramId) return;
+  state.paletteItems = items;
 }
 async function refresh() {
   state.snapshot = await requireInvoke()('workspace_snapshot');
@@ -220,6 +232,7 @@ function activatePaletteItem(item) {
   render();
 }
 async function selectDiagram(diagramId) {
+  const request = ++diagramSelectionRequest;
   Object.assign(state, {
     selectedDiagramId: diagramId,
     selectedRelationshipId: null,
@@ -237,6 +250,7 @@ async function selectDiagram(diagramId) {
     activityPendingFlow: null,
   });
   await loadPalette();
+  if (request !== diagramSelectionRequest || state.selectedDiagramId !== diagramId) return;
   const bdd = state.snapshot?.diagrams?.find((diagram) => diagram.id === diagramId);
   const ibd = state.snapshot?.ibd_diagrams?.find((diagram) => diagram.id === diagramId);
   await window.smpRendererHost?.activate({
@@ -245,6 +259,7 @@ async function selectDiagram(diagramId) {
     name: (ibd || bdd)?.name || 'Diagram',
     semanticContextId: ibd?.context_block_id || bdd?.semantic_context_id || bdd?.owner_id || '',
   });
+  if (request !== diagramSelectionRequest || state.selectedDiagramId !== diagramId) return;
   render();
 }
 function renderDiagramTabs() {

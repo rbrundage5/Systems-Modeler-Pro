@@ -11,7 +11,6 @@ model = read("crates/model-core/src/model.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/requirements.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
 frontend = read("apps/desktop/frontend/app.js")
-ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
 bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
 bdd_feature_editing = read("apps/desktop/frontend/bdd-feature-editing.js")
@@ -55,7 +54,7 @@ assert "TRACEABILITY_KINDS" in frontend
 assert "update_requirement" in frontend
 assert "selectedBehaviorDiagramId: null" in frontend
 assert "selectedActivityDiagramId: null" in frontend
-assert "diagram?.family === 'requirement' ? 'Requirement'" in ibd_ui
+assert "requirement: 'Requirement'" in frontend
 assert "diagram.family === 'requirement' ? 'REQ'" in bdd_completion
 assert "active?.family === 'requirement'" in bdd_completion
 assert "createStructuralPaletteElementAt(item, x, y)" in bdd_completion

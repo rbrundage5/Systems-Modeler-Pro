@@ -10,13 +10,6 @@
     );
   }
 
-  const baseLoadPalette = loadPalette;
-  loadPalette = async function loadUseCasePalette() {
-    const diagram = (state.snapshot?.diagrams || []).find((item) => item.id === state.selectedDiagramId);
-    if (diagram?.family !== 'use-case') return baseLoadPalette();
-    Object.assign(state, { paletteItems: await requireInvoke()('diagram_palette', { diagramType: 'UseCase' }) });
-  };
-
   function actorMarkup(element, node) {
     if (node.actor_notation === 'rectangle') {
       return `<div class="actor-rectangle"><div class="actor-stereotype">«actor»</div><div class="actor-name">${escapeHtml(element.name)}</div></div>`;

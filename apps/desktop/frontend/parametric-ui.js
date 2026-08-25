@@ -43,12 +43,6 @@
     return choices.map((choice) => `<option value="${escapeAttr(choice.id)}"${choice.id === selectedPresentationId ? ' selected' : ''}>${escapeHtml(choice.label)}</option>`).join('');
   }
 
-  const baseLoadPalette = loadPalette;
-  loadPalette = async function loadParametricPalette() {
-    if (!selectedParametricDiagram()) return baseLoadPalette();
-    state.paletteItems = await requireInvoke()('diagram_palette', { diagramType: 'Parametric' });
-  };
-
   async function completeBinding(diagram, presentationId, semanticId) {
     if (!state.pendingRelationship?.sourcePresentationId) {
       state.pendingRelationship.sourcePresentationId = presentationId;
