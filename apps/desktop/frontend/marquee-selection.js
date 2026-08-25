@@ -17,19 +17,9 @@
   `;
   document.head.appendChild(style);
 
-  let spacePressed = false;
   let drag = null;
 
-  document.addEventListener('keydown', (event) => {
-    if (event.code === 'Space') spacePressed = true;
-  }, true);
-  document.addEventListener('keyup', (event) => {
-    if (event.code === 'Space') spacePressed = false;
-  }, true);
-  window.addEventListener('blur', () => {
-    spacePressed = false;
-    cleanup();
-  });
+  window.addEventListener('blur', cleanup);
 
   function presentationTarget(target) {
     return target?.closest?.(
@@ -96,19 +86,20 @@
     return [...selected.values()];
   }
 
-  // The shared host emits this event for ESC/clear-selection. Keep the standard
-  // multi-selection layer synchronized so stale marquee outlines never survive
-  // an authoritative workspace clear.
+  // ESC and other authoritative clear operations emit this from the shared host.
   canvas.addEventListener('smp:selection-changed', () => {
     window.smpStandardEditing?.setSelections?.([]);
   });
 
+  // Space/Ctrl/Meta panning is intercepted by the shared workspace capture
+  // handler before this bubble listener. Marquee therefore does not own another
+  // keyboard controller and cannot compete with viewport panning.
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0
-      || spacePressed
       || event.ctrlKey
       || event.metaKey
       || canvas.classList.contains('pan-active')
+      || canvas.classList.contains('is-panning')
       || !emptyDiagramSurface(event.target)) return;
 
     const box = document.createElement('div');
