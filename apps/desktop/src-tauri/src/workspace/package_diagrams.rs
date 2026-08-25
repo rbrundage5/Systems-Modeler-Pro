@@ -74,13 +74,6 @@ fn package_presentable(element: &systems_modeler_core::Element) -> bool {
     element.is_packageable() || element.kind == ElementKind::Comment
 }
 
-fn package_endpoint_kind(kind: &ElementKind) -> bool {
-    matches!(
-        kind,
-        ElementKind::Model | ElementKind::Package | ElementKind::ModelLibrary
-    )
-}
-
 fn package_relationship_kind(kind: &RelationshipKind) -> bool {
     matches!(
         kind,
@@ -103,6 +96,22 @@ fn package_element_kind(value: &str) -> Result<ElementKind, String> {
     match value {
         "Package" => Ok(ElementKind::Package),
         "ModelLibrary" => Ok(ElementKind::ModelLibrary),
+        "Block" => Ok(ElementKind::Block),
+        "AssociationBlock" => Ok(ElementKind::AssociationBlock),
+        "InterfaceBlock" => Ok(ElementKind::InterfaceBlock),
+        "ConstraintBlock" => Ok(ElementKind::ConstraintBlock),
+        "ValueType" => Ok(ElementKind::ValueType),
+        "DataType" => Ok(ElementKind::DataType),
+        "PrimitiveType" => Ok(ElementKind::PrimitiveType),
+        "Enumeration" => Ok(ElementKind::Enumeration),
+        "Signal" => Ok(ElementKind::Signal),
+        "Unit" => Ok(ElementKind::Unit),
+        "QuantityKind" => Ok(ElementKind::QuantityKind),
+        "InstanceSpecification" => Ok(ElementKind::InstanceSpecification),
+        "Requirement" => Ok(ElementKind::Requirement),
+        "TestCase" => Ok(ElementKind::TestCase),
+        "Actor" => Ok(ElementKind::Actor),
+        "UseCase" => Ok(ElementKind::UseCase),
         "Comment" => Ok(ElementKind::Comment),
         _ => Err(format!("{value} is not creatable from a Package Diagram")),
     }
@@ -146,9 +155,9 @@ fn dependency_endpoints(
     let target = project
         .element(target_id)
         .map_err(|error| error.to_string())?;
-    if !package_endpoint_kind(&source.kind) || !package_endpoint_kind(&target.kind) {
+    if !source.is_packageable() || !target.is_packageable() {
         return Err(format!(
-            "Package-level Dependency requires Package, Model, or ModelLibrary endpoints; received '{}' ({:?}) -> '{}' ({:?})",
+            "Package-level Dependency requires packageable semantic endpoints; received '{}' ({:?}) -> '{}' ({:?})",
             source.name, source.kind, target.name, target.kind
         ));
     }
@@ -222,7 +231,11 @@ fn reconnect_candidate(
             .ok_or("Package relationship not found")?;
         relationship.source_id = source_id;
         relationship.target_id = target_id;
-        relationship.owner_id = Some(source_id);
+        relationship.owner_id = if kind == RelationshipKind::Dependency {
+            Some(parse_element_id(&diagram.owner_id)?)
+        } else {
+            Some(source_id)
+        };
     }
     project.validate().map_err(|error| error.to_string())?;
     let edge = diagram
@@ -410,6 +423,9 @@ pub fn create_package_element(
     diagram_id: String,
     kind: String,
     name: String,
+    requirement_id: Option<String>,
+    requirement_text: Option<String>,
+    documentation: Option<String>,
     x: f64,
     y: f64,
     workspace: tauri::State<'_, WorkspaceState>,
@@ -428,9 +444,21 @@ pub fn create_package_element(
     let (mut project, mut diagrams) = candidate_states(&workspace)?;
     let index = diagram_index(&diagrams, &diagram_id)?;
     let owner_id = parse_element_id(&diagrams[index].owner_id)?;
-    let element_id = project
-        .create_element(kind.clone(), name, owner_id)
-        .map_err(|error| error.to_string())?;
+    let element_id = if kind == ElementKind::Requirement {
+        project.create_requirement(
+            name,
+            requirement_id.unwrap_or_default(),
+            requirement_text.unwrap_or_default(),
+            owner_id,
+        )
+    } else {
+        project.create_element(kind.clone(), name, owner_id)
+    }
+    .map_err(|error| error.to_string())?;
+    project
+        .element_mut(element_id)
+        .map_err(|error| error.to_string())?
+        .documentation = documentation.unwrap_or_default();
     let (width, height) = if kind == ElementKind::Comment {
         (210.0, 90.0)
     } else {
@@ -551,7 +579,8 @@ pub fn create_package_relationship(
         }
         RelationshipKind::Dependency => {
             dependency_endpoints(&project, source_id, target_id)?;
-            project.create_relationship(kind, source_id, target_id, Some(source_id))
+            let owner_id = parse_element_id(&diagrams[index].owner_id)?;
+            project.create_relationship(kind, source_id, target_id, Some(owner_id))
         }
         _ => unreachable!(),
     }
@@ -735,12 +764,33 @@ mod tests {
             package_element_kind("ModelLibrary").unwrap(),
             ElementKind::ModelLibrary
         );
+        for kind in [
+            "Block",
+            "AssociationBlock",
+            "InterfaceBlock",
+            "ConstraintBlock",
+            "ValueType",
+            "DataType",
+            "PrimitiveType",
+            "Enumeration",
+            "Signal",
+            "Unit",
+            "QuantityKind",
+            "InstanceSpecification",
+            "Requirement",
+            "TestCase",
+            "Actor",
+            "UseCase",
+            "Comment",
+        ] {
+            assert!(package_element_kind(kind).is_ok(), "{kind} must be creatable");
+        }
         assert_eq!(
             package_relationship_semantic_kind("ElementImport").unwrap(),
             RelationshipKind::ElementImport
         );
         assert!(package_relationship_semantic_kind("PackageMerge").is_err());
-        assert!(package_element_kind("Block").is_err());
+        assert!(package_element_kind("PartProperty").is_err());
         assert!(package_relationship_semantic_kind("Association").is_err());
     }
 
@@ -758,6 +808,14 @@ mod tests {
         assert!(error.contains("Architecture"));
         assert!(error.contains("Note"));
         assert!(!error.contains(&comment.to_string()));
+
+        let block = project
+            .create_element(ElementKind::Block, "Vehicle", package)
+            .unwrap();
+        let requirement = project
+            .create_requirement("Power", "REQ-POWER", "Provide power", package)
+            .unwrap();
+        dependency_endpoints(&project, block, requirement).unwrap();
     }
 
     #[test]

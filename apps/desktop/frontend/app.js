@@ -312,6 +312,10 @@ function addEndpointLabel(svg, point, text, side) {
   label.textContent = text;
   svg.appendChild(label);
 }
+function requirementPresentationMarkup(element) {
+  return `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`;
+}
+window.smpRequirementPresentationMarkup = requirementPresentationMarkup;
 function traceabilityLabel(kind) {
   return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy', Include:'include', Extend:'extend' }[kind] || '';
 }
@@ -472,7 +476,7 @@ function renderCanvas() {
     box.style.width = `${node.width}px`;
     box.style.height = `${node.height}px`;
     box.innerHTML = element.kind === 'Requirement'
-      ? `<div class="stereotype">«requirement»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment"><div class="compartment-title">id</div><b>id</b> = ${escapeHtml(element.requirement_id || '')}</div><div class="compartment"><div class="compartment-title">text</div><b>text</b> = ${escapeHtml(element.requirement_text || '')}</div>${element.documentation ? `<div class="compartment"><div class="compartment-title">documentation</div>${escapeHtml(element.documentation)}</div>` : ''}`
+      ? requirementPresentationMarkup(element)
       : `<div class="stereotype">«${element.kind === 'TestCase' ? 'testCase' : 'block'}»</div><div class="block-name">${escapeHtml(element.name)}</div><div class="compartment">${element.kind === 'Block' ? 'values' : 'verification'}</div>`;
     box.onclick = async (event) => {
       event.stopPropagation();

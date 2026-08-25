@@ -173,19 +173,51 @@ fn reconnect_validation_rejects_duplicates_and_accepts_a_new_target() {
 #[test]
 fn package_level_dependency_is_validated_as_package_semantics() {
     let (mut project, source, target, library) = package_project();
+    let owner = project.root_id;
     project
-        .create_relationship(RelationshipKind::Dependency, source, target, Some(source))
+        .create_relationship(RelationshipKind::Dependency, source, target, Some(owner))
         .unwrap();
     assert!(matches!(
-        project.create_relationship(RelationshipKind::Dependency, source, target, Some(source)),
+        project.create_relationship(RelationshipKind::Dependency, source, target, Some(owner)),
         Err(ModelError::DuplicatePackageRelationship { .. })
     ));
+    let block = project
+        .create_element(ElementKind::Block, "Vehicle", library)
+        .unwrap();
+    let requirement = project
+        .create_requirement("Power", "REQ-POWER", "Provide power", library)
+        .unwrap();
+    project
+        .create_relationship(
+            RelationshipKind::Dependency,
+            block,
+            requirement,
+            Some(owner),
+        )
+        .unwrap();
     let comment = project
         .create_element(ElementKind::Comment, "Invalid dependency target", library)
         .unwrap();
     assert!(matches!(
-        project.create_relationship(RelationshipKind::Dependency, source, comment, Some(source)),
+        project.create_relationship(RelationshipKind::Dependency, source, comment, Some(owner)),
         Err(ModelError::InvalidPackageRelationshipEndpoints { .. })
     ));
     project.validate().unwrap();
+}
+
+#[test]
+fn general_dependency_policy_does_not_loosen_bdd_classifier_relationships() {
+    let (mut project, package, _, _) = package_project();
+    let block = project
+        .create_element(ElementKind::Block, "Vehicle", project.root_id)
+        .unwrap();
+    assert_eq!(
+        project.create_relationship(
+            RelationshipKind::Generalization,
+            package,
+            block,
+            Some(project.root_id),
+        ),
+        Err(ModelError::GeneralizationRequiresClassifiers)
+    );
 }

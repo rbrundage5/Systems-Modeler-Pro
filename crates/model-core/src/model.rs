@@ -774,8 +774,8 @@ impl Project {
     ) -> Result<RelationshipId, ModelError> {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
-        let package_relationship = is_package_relationship(&kind)
-            || (kind == RelationshipKind::Dependency && owner_id == Some(source_id));
+        let package_relationship =
+            is_package_relationship(&kind) || kind == RelationshipKind::Dependency;
         if package_relationship {
             validate_package_relationship_endpoints(&kind, source, target)?;
             if source_id == target_id {
@@ -795,7 +795,7 @@ impl Project {
                     target_name: target.name.clone(),
                 });
             }
-            if owner_id != Some(source_id) {
+            if kind != RelationshipKind::Dependency && owner_id != Some(source_id) {
                 let owner = owner_id
                     .and_then(|id| self.element(id).ok())
                     .map(|element| element.name.clone())
@@ -1328,8 +1328,7 @@ impl Project {
                 &target.kind,
             )?;
             let package_relationship = is_package_relationship(&relationship.kind)
-                || (relationship.kind == RelationshipKind::Dependency
-                    && relationship.owner_id == Some(relationship.source_id));
+                || relationship.kind == RelationshipKind::Dependency;
             if package_relationship {
                 validate_package_relationship_endpoints(&relationship.kind, source, target)?;
                 if relationship.source_id == relationship.target_id {
@@ -1338,7 +1337,9 @@ impl Project {
                         element: source.name.clone(),
                     });
                 }
-                if relationship.owner_id != Some(relationship.source_id) {
+                if relationship.kind != RelationshipKind::Dependency
+                    && relationship.owner_id != Some(relationship.source_id)
+                {
                     let owner = relationship
                         .owner_id
                         .and_then(|id| self.element(id).ok())
@@ -1543,12 +1544,12 @@ fn validate_package_relationship_endpoints(
                 target.name, target.kind
             ))
         }
-        RelationshipKind::Dependency if !package_namespace(&source.kind) => Some(format!(
-            "Package-level Dependency requires a Package-compatible source; '{}' is a {:?}.",
+        RelationshipKind::Dependency if !source.is_packageable() => Some(format!(
+            "Dependency requires a packageable source; '{}' is a {:?}.",
             source.name, source.kind
         )),
-        RelationshipKind::Dependency if !package_namespace(&target.kind) => Some(format!(
-            "Package-level Dependency requires a Package-compatible target; '{}' is a {:?}.",
+        RelationshipKind::Dependency if !target.is_packageable() => Some(format!(
+            "Dependency requires a packageable target; '{}' is a {:?}.",
             target.name, target.kind
         )),
         _ => None,

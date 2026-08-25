@@ -167,6 +167,12 @@ window.addEventListener('DOMContentLoaded', () => {
   'use strict';
 
   const PACKAGE_NODE_KINDS = new Set(['Package', 'ModelLibrary', 'Comment']);
+  const PACKAGE_CREATABLE_KINDS = new Set([
+    'Package', 'ModelLibrary', 'Block', 'AssociationBlock', 'InterfaceBlock',
+    'ConstraintBlock', 'ValueType', 'DataType', 'PrimitiveType', 'Enumeration',
+    'Signal', 'Unit', 'QuantityKind', 'InstanceSpecification', 'Requirement',
+    'TestCase', 'Actor', 'UseCase', 'Comment',
+  ]);
   const PACKAGE_RELATIONSHIPS = new Set([
     'PackageImport', 'ElementImport', 'Dependency',
   ]);
@@ -213,6 +219,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (kind === 'ElementImport') {
       return side === 'source' ? Boolean(element.namespace) : Boolean(element.packageable);
     }
+    if (kind === 'Dependency') return Boolean(element.packageable);
     return Boolean(element.namespace);
   }
 
@@ -226,7 +233,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
     const hint = $('palette').querySelector('.palette-hint');
     if (hint) {
-      hint.textContent = 'Drag Package, Model Library, or Comment onto the canvas. Select a relationship, then choose its source and target.';
+      hint.textContent = 'Drag a supported packageable element onto the canvas. Select a relationship, then choose its semantic source and target.';
     }
   };
 
@@ -234,17 +241,25 @@ window.addEventListener('DOMContentLoaded', () => {
   createPaletteElementAt = async function createPackagePaletteElementAt(item, x, y) {
     const diagram = selectedPackageDiagram();
     if (!diagram) return baseCreatePaletteElementAt(item, x, y);
-    if (item.category !== 'element' || !PACKAGE_NODE_KINDS.has(item.semantic_kind)) {
+    if (item.category !== 'element' || !PACKAGE_CREATABLE_KINDS.has(item.semantic_kind)) {
       throw new Error(`${item.label} is not a creatable Package Diagram element.`);
     }
+    const fields = [{
+      id: 'name',
+      label: item.semantic_kind === 'Comment' ? 'Comment title' : 'Name',
+      value: item.semantic_kind === 'Comment' ? 'Comment' : `New ${item.label}`,
+      required: true,
+    }];
+    if (item.semantic_kind === 'Requirement') fields.push(
+      { id: 'requirementId', label: 'Requirement ID', value: 'REQ-001', required: true },
+      { id: 'requirementText', label: 'Requirement text', value: 'The system shall ...', multiline: true, required: true },
+    );
+    if (item.semantic_kind === 'Comment') fields.push({
+      id: 'documentation', label: 'Comment body', value: '', multiline: true,
+    });
     const definition = await window.smpDialogs?.edit({
       title: `Create ${item.label}`,
-      fields: [{
-        id: 'name',
-        label: item.semantic_kind === 'Comment' ? 'Comment title' : 'Name',
-        value: item.semantic_kind === 'Comment' ? 'Comment' : `New ${item.label}`,
-        required: true,
-      }],
+      fields,
       confirmLabel: 'Create',
     });
     if (!definition) return;
@@ -252,6 +267,9 @@ window.addEventListener('DOMContentLoaded', () => {
       diagramId: diagram.id,
       kind: item.semantic_kind,
       name: definition.values.name,
+      requirementId: definition.values.requirementId || null,
+      requirementText: definition.values.requirementText || null,
+      documentation: definition.values.documentation || null,
       x,
       y,
     }));
@@ -376,7 +394,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!diagram.nodes?.length) {
       const hint = document.createElement('div');
       hint.className = 'package-hint';
-      hint.textContent = 'Drag a Package, Model Library, or Comment from the palette or repository.';
+      hint.textContent = 'Drag a supported packageable element from the palette or repository.';
       frame.appendChild(hint);
     }
 
@@ -387,9 +405,13 @@ window.addEventListener('DOMContentLoaded', () => {
       presentation.type = 'button';
       presentation.className = element.kind === 'Comment'
         ? 'bdd-block package-comment'
-        : ['Package', 'ModelLibrary'].includes(element.kind)
+        : ['Model', 'Package', 'ModelLibrary'].includes(element.kind)
           ? 'bdd-block package-node'
-          : 'bdd-block packageable-node';
+          : element.kind === 'Actor'
+            ? 'bdd-block packageable-node actor-presentation'
+            : element.kind === 'UseCase'
+              ? 'bdd-block packageable-node use-case-presentation'
+              : 'bdd-block packageable-node';
       presentation.dataset.semanticKind = element.kind;
       presentation.dataset.presentationId = node.id;
       if (element.id === state.selectedElementId) presentation.classList.add('selected');
@@ -405,12 +427,21 @@ window.addEventListener('DOMContentLoaded', () => {
       });
       if (element.kind === 'Comment') {
         presentation.textContent = element.documentation || element.name;
-      } else if (['Package', 'ModelLibrary'].includes(element.kind)) {
-        const stereotype = element.kind === 'ModelLibrary' ? '«modelLibrary»' : '';
+      } else if (element.kind === 'Actor') {
+        presentation.innerHTML = window.smpUseCasePresentation.actorMarkup(element, node);
+      } else if (element.kind === 'UseCase') {
+        presentation.innerHTML = window.smpUseCasePresentation.useCaseMarkup(element);
+      } else if (element.kind === 'Requirement') {
+        presentation.innerHTML = window.smpRequirementPresentationMarkup(element);
+      } else if (['Model', 'Package', 'ModelLibrary'].includes(element.kind)) {
+        const stereotype = element.kind === 'ModelLibrary'
+          ? '«modelLibrary»'
+          : element.kind === 'Model' ? '«model»' : '';
         const members = project.elements
           .filter((candidate) => candidate.owner_id === element.id)
           .sort((left, right) => left.name.localeCompare(right.name));
-        const contents = members.length
+        const showContents = window.smpCompartmentDisplay?.(element.id)?.shown('Contents') !== false;
+        const contents = members.length && showContents
           ? `<section class="compartment package-contents"><div class="compartment-title">Contents</div>${members.map((member) => `<div class="package-member">${escapeHtml(member.name)} : ${escapeHtml(member.kind)}</div>`).join('')}</section>`
           : '';
         presentation.innerHTML = `<span class="package-node-tab" aria-hidden="true"></span><span class="package-node-body"><span class="package-node-heading"><span class="package-node-stereotype">${stereotype}</span><span class="package-node-name">${escapeHtml(element.name)}</span></span>${contents}</span>`;
@@ -478,6 +509,7 @@ window.addEventListener('DOMContentLoaded', () => {
       <label>Qualified name<input value="${escapeAttr(element.qualified_name || element.name)}" disabled></label>
       <label>Visibility<select id="pkg-element-visibility"><option value="public"${element.visibility !== 'private' ? ' selected' : ''}>public</option><option value="private"${element.visibility === 'private' ? ' selected' : ''}>private</option></select></label>
       <label>Semantic type<input value="${escapeAttr(element.kind === 'ModelLibrary' ? 'Package «modelLibrary»' : element.kind)}" disabled></label>
+      <section class="bdd-compartment-controls"><div class="property-heading">Presentation Display</div><label class="compartment-visibility-toggle"><input id="pkg-display-contents" type="checkbox" ${window.smpCompartmentDisplay?.(element.id)?.shown('Contents') !== false ? 'checked' : ''}>Show Contents</label></section>
       <button id="pkg-apply-element" class="primary">Apply</button>
       <details><summary>Technical information</summary><div class="technical-id">Stable ID: ${escapeHtml(element.id)}</div></details>
     </section>`;
@@ -491,6 +523,10 @@ window.addEventListener('DOMContentLoaded', () => {
       }));
       await refresh();
     };
+    $('pkg-display-contents').onchange = () => {
+      window.smpCompartmentDisplay?.(element.id)?.set('Contents', $('pkg-display-contents').checked);
+      render();
+    };
   }
 
   function renderPackageRelationshipProperties(panel, diagram, project, relationship) {
@@ -501,7 +537,7 @@ window.addEventListener('DOMContentLoaded', () => {
     panel.innerHTML = `<section class="package-properties">
       <div class="property-heading">${escapeHtml(typeLabel)}</div>
       <label>Type<input value="${escapeAttr(typeLabel)}" disabled></label>
-      <label>${relationship.kind === 'PackageImport' ? 'Importing Package' : relationship.kind === 'ElementImport' ? 'Importing Namespace' : 'Source'}<select id="pkg-relationship-source">${endpointOptions(diagram, project, relationship.source_id, relationship.kind, 'source')}</select></label>
+      <label>${['PackageImport', 'ElementImport'].includes(relationship.kind) ? 'Importing Namespace' : 'Source'}<select id="pkg-relationship-source">${endpointOptions(diagram, project, relationship.source_id, relationship.kind, 'source')}</select></label>
       <div class="muted">${escapeHtml(qualifiedLabel(source))}</div>
       <label>${relationship.kind === 'PackageImport' ? 'Imported Package' : relationship.kind === 'ElementImport' ? 'Imported Element' : 'Target'}<select id="pkg-relationship-target">${endpointOptions(diagram, project, relationship.target_id, relationship.kind, 'target')}</select></label>
       <div class="muted">${escapeHtml(qualifiedLabel(target))}</div>

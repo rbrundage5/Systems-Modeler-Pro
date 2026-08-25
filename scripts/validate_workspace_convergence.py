@@ -14,6 +14,7 @@ shell_styles = read(frontend / "workspace-polish.css")
 ibd_ui = read(frontend / "ibd-ui.js")
 behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
 activity_ui = read(frontend / "activity-ui.js")
+package_ui = read(frontend / "workspace-ux.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
 shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
@@ -21,9 +22,13 @@ shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_work
 assert 'data-shared-workspace="true"' in index
 assert 'shared-workspace.js' in index and 'shared-workspace.css' in index
 family_contract = read(root / "crates/model-core/src/diagram_family.rs")
-for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "package", "state-machine", "sequence", "activity"]:
+for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "state-machine", "sequence", "activity"]:
     assert f'registerRenderer(\'{family}\'' in workspace
     assert f'"{family}"' in family_contract
+assert "registerSelectionRenderer?.(\n    'package'" in package_ui
+assert "{ renderCanvas: renderPackageCanvas }" in package_ui
+assert "registerRenderer('package'" not in workspace
+assert '"package"' in family_contract
 for abbreviation, context_kind in [("bdd", "Package"), ("ibd", "Block"), ("req", "Package"), ("uc", "Package"), ("par", "Block"), ("pkg", "Package"), ("stm", "StateMachine"), ("seq", "Interaction"), ("act", "Activity")]:
     assert f'"{abbreviation}"' in family_contract and f'"{context_kind}"' in family_contract
 assert "modelElementName" in workspace and "state.context.frameLabel" in workspace

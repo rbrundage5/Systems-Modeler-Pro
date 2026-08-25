@@ -13,6 +13,7 @@ index = read("apps/desktop/frontend/index.html")
 app = read("apps/desktop/frontend/app.js")
 shell = read("apps/desktop/frontend/ui-shell.js")
 workspace = read("apps/desktop/frontend/workspace-ux.js")
+shared_frontend = read("apps/desktop/frontend/shared-workspace.js")
 repository = read("apps/desktop/frontend/repository-tree-ui.js")
 bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
 ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
@@ -113,22 +114,41 @@ package_palette = main.split('"Package" => Ok(vec![', 1)[1].split(']),\n        
 for palette_item in (
     'element_item("package", "Package", "Package")',
     'element_item("model-library", "Model Library", "ModelLibrary")',
+    'element_item("block", "Block", "Block")',
+    'element_item("association-block", "Association Block", "AssociationBlock")',
+    'element_item("interface-block", "Interface Block", "InterfaceBlock")',
+    'element_item("constraint-block", "Constraint Block", "ConstraintBlock")',
+    'element_item("value-type", "Value Type", "ValueType")',
+    'element_item("data-type", "Data Type", "DataType")',
+    'element_item("primitive-type", "Primitive Type", "PrimitiveType")',
+    'element_item("enumeration", "Enumeration", "Enumeration")',
+    'element_item("signal", "Signal", "Signal")',
+    'element_item("unit", "Unit", "Unit")',
+    'element_item("quantity-kind", "Quantity Kind", "QuantityKind")',
+    'element_item("requirement", "Requirement", "Requirement")',
+    'element_item("test-case", "Test Case", "TestCase")',
+    'element_item("actor", "Actor", "Actor")',
+    'element_item("use-case", "Use Case", "UseCase")',
     'element_item("comment", "Comment", "Comment")',
     'relationship_item("package-import", "Package Import", "PackageImport")',
     'relationship_item("element-import", "Element Import", "ElementImport")',
     'relationship_item("dependency", "Dependency", "Dependency")',
 ):
     assert palette_item in package_palette
-for bdd_only_kind in (
-    '"Block"',
-    '"AssociationBlock"',
-    '"ConstraintBlock"',
-    '"ValueType"',
+for owned_feature_kind in (
     '"PartProperty"',
+    '"ReferenceProperty"',
+    '"ValueProperty"',
+    '"FlowProperty"',
+    '"ConstraintProperty"',
     '"ProxyPort"',
     '"FullPort"',
+    '"Operation"',
+    '"Parameter"',
+    '"EnumerationLiteral"',
+    '"Slot"',
 ):
-    assert bdd_only_kind not in package_palette
+    assert owned_feature_kind not in package_palette
 assert 'PackageMerge' not in package_palette
 assert 'package_relationship_semantic_kind("PackageMerge").is_err()' in commands
 assert "create_package_element" in workspace
@@ -137,6 +157,15 @@ assert "element.packageable" in workspace
 assert "Boolean(element.namespace)" in workspace
 assert "Boolean(element.packageable)" in workspace
 assert "create_package_relationship" in workspace
+package_selection = workspace.split("async function selectPackageNode", 1)[1].split(
+    "function renderPackageCanvas", 1
+)[0]
+assert "create_package_relationship" in package_selection
+assert "create_bdd_relationship" not in package_selection
+assert "create_bdd_relationship_complete" not in package_selection
+assert "registerRenderer('package'" not in shared_frontend
+assert "registerSelectionRenderer?.(\n    'package'" in workspace
+assert "{ renderCanvas: renderPackageCanvas }" in workspace
 assert "update_package_element" in workspace
 assert "update_package_relationship" in workspace
 assert "sourceElementId: sourceId" in workspace
@@ -145,7 +174,13 @@ assert "delete_package_relationship" in workspace
 assert "«modelLibrary»" in workspace
 assert "package-node-tab" in workspace
 assert "package-node-body" in workspace
+assert "['Model', 'Package', 'ModelLibrary'].includes(element.kind)" in workspace
 assert "package-contents" in workspace
+assert "window.smpRequirementPresentationMarkup(element)" in workspace
+assert "window.smpUseCasePresentation.actorMarkup(element, node)" in workspace
+assert "window.smpUseCasePresentation.useCaseMarkup(element)" in workspace
+assert "window.smpRequirementPresentationMarkup = requirementPresentationMarkup" in app
+assert "window.smpUseCasePresentation = Object.freeze({ actorMarkup, useCaseMarkup })" in use_case_ui
 assert "candidate.owner_id === element.id" in workspace
 assert "pkg [package]" in workspace
 assert "node.dataset.smpInternalDrag = 'true'" in workspace
@@ -165,10 +200,16 @@ assert "relationship.visibility === 'private' ? 'access' : 'import'" in app
 assert "edge.label_anchor" in app
 assert "['Dependency', 'PackageImport', 'ElementImport'" in app
 assert "PackageMerge" not in workspace
-assert "Importing Package" in workspace
+assert "Importing Namespace" in workspace
 assert "Imported Package" in workspace
+assert "kind === 'Dependency') return Boolean(element.packageable)" in workspace
+assert "requirementId: definition.values.requirementId || null" in workspace
+assert "pkg-display-contents" in workspace
 assert '>Public</option>' in workspace
 assert '>Private</option>' in workspace
 assert "await refresh();" in workspace
+bdd_commands = read("apps/desktop/src-tauri/src/workspace/bdd_elements.rs")
+assert "!source.is_classifier() || !target.is_classifier()" in bdd_commands
+assert "requires classifier endpoints on a BDD" in bdd_commands
 
 print("PR26B Package Diagram semantic and workspace integration contract passed")

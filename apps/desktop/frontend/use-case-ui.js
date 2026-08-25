@@ -25,6 +25,8 @@
     return `<div class="use-case-name">${escapeHtml(element.name)}</div>${points.length ? `<div class="extension-point-compartment"><div class="compartment-title">extension points</div>${points.map((point) => `<div>${escapeHtml(point)}</div>`).join('')}</div>` : ''}`;
   }
 
+  window.smpUseCasePresentation = Object.freeze({ actorMarkup, useCaseMarkup });
+
   function subjectBoundary(frame, diagram, project) {
     const geometry = diagram.subject_boundary;
     if (!geometry) return;
