@@ -6,6 +6,12 @@ include!("model.rs");
 pub mod activity;
 pub use activity::*;
 
+pub mod execution;
+pub use execution::*;
+
+pub mod namespace;
+pub use namespace::*;
+
 pub mod diagram_family;
 pub use diagram_family::{
     DiagramCapability, DiagramFamilyDescriptor, DiagramFamilyId, DiagramFamilyRegistry,
