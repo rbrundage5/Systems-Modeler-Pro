@@ -134,6 +134,14 @@ pub enum RuntimeEventKind {
     Internal,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeEventAddress {
+    pub source_semantic_id: Option<ElementId>,
+    pub target_semantic_id: Option<ElementId>,
+    pub source_runtime_instance_id: Option<RuntimeInstanceId>,
+    pub target_runtime_instance_id: Option<RuntimeInstanceId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeEvent {
     pub sequence: u64,
@@ -705,55 +713,38 @@ impl ExecutionSession {
             self.simulation_time,
             kind,
             name,
-            source_semantic_id,
-            target_semantic_id,
-            None,
-            None,
+            RuntimeEventAddress {
+                source_semantic_id,
+                target_semantic_id,
+                ..RuntimeEventAddress::default()
+            },
             payload,
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn queue_event_after(
         &mut self,
         project: &Project,
         delay_nanos: u64,
         kind: RuntimeEventKind,
         name: impl Into<String>,
-        source_semantic_id: Option<ElementId>,
-        target_semantic_id: Option<ElementId>,
-        source_runtime_instance_id: Option<RuntimeInstanceId>,
-        target_runtime_instance_id: Option<RuntimeInstanceId>,
+        address: RuntimeEventAddress,
         payload: Vec<(String, RuntimeValue)>,
     ) -> Result<u64, ExecutionError> {
         let due_time = self
             .simulation_time
             .checked_add(delay_nanos)
             .ok_or(ExecutionError::SimulationTimeOverflow)?;
-        self.queue_event_at(
-            project,
-            due_time,
-            kind,
-            name,
-            source_semantic_id,
-            target_semantic_id,
-            source_runtime_instance_id,
-            target_runtime_instance_id,
-            payload,
-        )
+        self.queue_event_at(project, due_time, kind, name, address, payload)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn queue_event_at(
         &mut self,
         project: &Project,
         due_time: SimulationTime,
         kind: RuntimeEventKind,
         name: impl Into<String>,
-        source_semantic_id: Option<ElementId>,
-        target_semantic_id: Option<ElementId>,
-        source_runtime_instance_id: Option<RuntimeInstanceId>,
-        target_runtime_instance_id: Option<RuntimeInstanceId>,
+        address: RuntimeEventAddress,
         payload: Vec<(String, RuntimeValue)>,
     ) -> Result<u64, ExecutionError> {
         self.require_project(project)?;
@@ -762,15 +753,23 @@ impl ExecutionSession {
                 limit: self.configuration.max_queued_events,
             });
         }
-        for id in source_semantic_id.into_iter().chain(target_semantic_id) {
+        for id in address
+            .source_semantic_id
+            .into_iter()
+            .chain(address.target_semantic_id)
+        {
             if !project.elements.contains_key(&id) {
                 return Err(ExecutionError::SemanticElementNotFound);
             }
         }
-        let source_semantic_id =
-            self.resolve_instance_semantic(source_runtime_instance_id, source_semantic_id)?;
-        let target_semantic_id =
-            self.resolve_instance_semantic(target_runtime_instance_id, target_semantic_id)?;
+        let source_semantic_id = self.resolve_instance_semantic(
+            address.source_runtime_instance_id,
+            address.source_semantic_id,
+        )?;
+        let target_semantic_id = self.resolve_instance_semantic(
+            address.target_runtime_instance_id,
+            address.target_semantic_id,
+        )?;
         for (_, value) in &payload {
             validate_runtime_payload_value(project, value)?;
         }
@@ -783,20 +782,20 @@ impl ExecutionSession {
             name: name.into(),
             source_semantic_id,
             target_semantic_id,
-            source_runtime_instance_id,
-            target_runtime_instance_id,
+            source_runtime_instance_id: address.source_runtime_instance_id,
+            target_runtime_instance_id: address.target_runtime_instance_id,
             payload,
         };
         self.push_trace(
             TraceKind::EventQueued,
             TraceContext {
                 semantic_element_id: target_semantic_id,
-                runtime_instance_id: target_runtime_instance_id,
+                runtime_instance_id: address.target_runtime_instance_id,
                 event_sequence: Some(sequence),
                 source_semantic_id,
                 target_semantic_id,
-                source_runtime_instance_id,
-                target_runtime_instance_id,
+                source_runtime_instance_id: address.source_runtime_instance_id,
+                target_runtime_instance_id: address.target_runtime_instance_id,
             },
             format!("Queued {} event '{}'", event_kind_name(kind), event.name),
         );
