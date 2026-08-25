@@ -570,8 +570,14 @@ mod shared_resize_tests {
         *workspace.diagrams.lock().expect("diagram lock") = resized.clone();
 
         let snapshot = workspace.diagrams.lock().expect("diagram lock").clone();
-        assert_eq!((snapshot[0].nodes[0].width, snapshot[0].nodes[0].height), (320.0, 170.0));
-        assert_eq!((snapshot[1].nodes[0].width, snapshot[1].nodes[0].height), (280.0, 150.0));
+        assert_eq!(
+            (snapshot[0].nodes[0].width, snapshot[0].nodes[0].height),
+            (320.0, 170.0)
+        );
+        assert_eq!(
+            (snapshot[1].nodes[0].width, snapshot[1].nodes[0].height),
+            (280.0, 150.0)
+        );
 
         let path = std::env::temp_dir().join(format!(
             "systems-modeler-shared-resize-{}.smproj",
@@ -596,18 +602,36 @@ mod shared_resize_tests {
                 .expect("diagram metadata");
             let reopened: Vec<super::super::BddDiagram> =
                 serde_json::from_str(&payload).expect("deserialize diagrams");
-            assert_eq!((reopened[0].nodes[0].width, reopened[0].nodes[0].height), (320.0, 170.0));
-            assert_eq!((reopened[1].nodes[0].width, reopened[1].nodes[0].height), (280.0, 150.0));
+            assert_eq!(
+                (reopened[0].nodes[0].width, reopened[0].nodes[0].height),
+                (320.0, 170.0)
+            );
+            assert_eq!(
+                (reopened[1].nodes[0].width, reopened[1].nodes[0].height),
+                (280.0, 150.0)
+            );
         }
         let _ = std::fs::remove_file(path);
 
         assert!(history::undo_states(&workspace, &activity, &history).expect("undo resize"));
         let undone = workspace.diagrams.lock().expect("diagram lock").clone();
-        assert_eq!((undone[0].nodes[0].width, undone[0].nodes[0].height), (180.0, 90.0));
-        assert_eq!((undone[1].nodes[0].width, undone[1].nodes[0].height), (180.0, 90.0));
+        assert_eq!(
+            (undone[0].nodes[0].width, undone[0].nodes[0].height),
+            (180.0, 90.0)
+        );
+        assert_eq!(
+            (undone[1].nodes[0].width, undone[1].nodes[0].height),
+            (180.0, 90.0)
+        );
         assert!(history::redo_states(&workspace, &activity, &history).expect("redo resize"));
         let redone = workspace.diagrams.lock().expect("diagram lock").clone();
-        assert_eq!((redone[0].nodes[0].width, redone[0].nodes[0].height), (320.0, 170.0));
-        assert_eq!((redone[1].nodes[0].width, redone[1].nodes[0].height), (280.0, 150.0));
+        assert_eq!(
+            (redone[0].nodes[0].width, redone[0].nodes[0].height),
+            (320.0, 170.0)
+        );
+        assert_eq!(
+            (redone[1].nodes[0].width, redone[1].nodes[0].height),
+            (280.0, 150.0)
+        );
     }
 }
