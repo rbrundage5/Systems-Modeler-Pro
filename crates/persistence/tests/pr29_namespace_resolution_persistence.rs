@@ -40,5 +40,8 @@ fn imported_names_and_aliases_resolve_after_project_round_trip() {
         restored.resolve_name(consumer, "CarType").unwrap(),
         vehicle_type
     );
-    assert_eq!(restored.element(vehicle_type).unwrap().owner_id, original_owner);
+    assert_eq!(
+        restored.element(vehicle_type).unwrap().owner_id,
+        original_owner
+    );
 }
