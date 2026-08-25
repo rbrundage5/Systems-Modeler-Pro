@@ -191,7 +191,7 @@ window.addEventListener('DOMContentLoaded', () => {
     .package-diagram .package-node.selected,.package-diagram .package-comment.selected{outline:2px solid currentColor;outline-offset:2px}
     .package-diagram .package-comment{position:absolute;box-sizing:border-box;border:1.5px solid #555;background:#fffbe8;padding:12px;text-align:left;white-space:pre-wrap;overflow:hidden}
     .package-diagram .package-comment::after{content:"";position:absolute;right:-1px;top:-1px;width:16px;height:16px;background:linear-gradient(225deg,#fff 49%,#777 50%,#777 54%,#fffbe8 55%)}
-    .package-diagram .package-hint{position:absolute;left:24px;top:54px;color:#666;font-size:12px;pointer-events:none}
+    .package-diagram .package-hint{position:absolute;left:24px;top:24px;color:#666;font-size:12px;pointer-events:none}
     .package-diagram .relationship-packageimport,.package-diagram .relationship-elementimport,.package-diagram .relationship-dependency{stroke-dasharray:7 5}
     .package-diagram .relationship-label{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
     .package-properties .technical-id{font-size:11px;color:#666;overflow-wrap:anywhere}
@@ -210,6 +210,23 @@ window.addEventListener('DOMContentLoaded', () => {
     ? `${element.qualified_name || element.name} (${element.kind})`
     : 'Missing semantic element';
 
+  const baseSelectDiagramWithPackageContext = selectDiagram;
+  selectDiagram = async function selectPackageAwareDiagram(diagramId) {
+    await baseSelectDiagramWithPackageContext(diagramId);
+    const diagram = state.snapshot?.diagrams?.find(
+      (candidate) => String(candidate.id) === String(diagramId) && candidate.family === 'package',
+    );
+    if (!diagram || String(state.selectedDiagramId) !== String(diagramId)) return;
+    const owner = elementById(diagram.owner_id);
+    await window.smpRendererHost?.activate({
+      diagramId: diagram.id,
+      familyId: 'package',
+      name: diagram.name,
+      modelElementName: owner?.name || state.snapshot?.project?.name || diagram.name,
+      semanticContextId: diagram.owner_id || '',
+    });
+  };
+
   const packagePresentable = (element) => Boolean(
     element && (element.packageable || element.kind === 'Comment'),
   );
@@ -221,6 +238,50 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     if (kind === 'Dependency') return Boolean(element.packageable);
     return Boolean(element.namespace);
+  }
+
+  function drillDownCandidates(element) {
+    const candidates = [];
+    for (const diagram of state.snapshot?.diagrams || []) {
+      if (String(diagram.id) === String(state.selectedDiagramId)) continue;
+      if (String(diagram.owner_id || '') === String(element.id)
+        || String(diagram.semantic_context_id || '') === String(element.id)) {
+        candidates.push({ id: diagram.id, label: `${diagram.name} (${String(diagram.family || '').toUpperCase()})`, open: () => selectDiagram(diagram.id) });
+      }
+    }
+    for (const diagram of state.snapshot?.ibd_diagrams || []) {
+      if (String(diagram.context_block_id || '') === String(element.id)) {
+        candidates.push({ id: diagram.id, label: `${diagram.name} (IBD)`, open: () => selectDiagram(diagram.id) });
+      }
+    }
+    for (const diagram of state.behaviorSnapshot?.diagrams || []) {
+      if (String(diagram.context_id || '') === String(element.id)) {
+        candidates.push({ id: diagram.id, label: `${diagram.name} (${diagram.kind === 'Sequence' ? 'SEQ' : 'STM'})`, open: () => window.smpSelectBehaviorDiagram?.(diagram.id) });
+      }
+    }
+    for (const diagram of state.activitySnapshot?.diagrams || []) {
+      if (String(diagram.context_id || diagram.owner_id || '') === String(element.id)) {
+        candidates.push({ id: diagram.id, label: `${diagram.name} (ACT)`, open: () => window.smpSelectActivityDiagram?.(diagram.id) });
+      }
+    }
+    return candidates;
+  }
+
+  async function drillDown(element) {
+    const candidates = drillDownCandidates(element).filter((candidate) => typeof candidate.open === 'function');
+    if (!candidates.length) return;
+    if (candidates.length === 1) {
+      await candidates[0].open();
+      return;
+    }
+    const choice = await window.smpDialogs?.choose?.({
+      title: `Open diagram for ${element.name}`,
+      description: 'Choose an existing owned/context diagram. No diagram will be created automatically.',
+      candidates: candidates.map((candidate) => ({ id: candidate.id, label: candidate.label })),
+      confirmLabel: 'Open',
+    });
+    const selected = candidates.find((candidate) => String(candidate.id) === String(choice?.selectedId));
+    if (selected) await selected.open();
   }
 
   const baseRenderPalette = renderPalette;
@@ -374,12 +435,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const canvas = $('canvas');
     const project = state.snapshot?.project;
     if (!project) return;
-    const owner = elementById(diagram.owner_id);
     const elements = new Map(project.elements.map((element) => [element.id, element]));
     canvas.innerHTML = '';
     const frame = document.createElement('div');
     frame.className = 'diagram-frame package-diagram';
-    frame.innerHTML = `<div class="diagram-header">pkg [package] ${escapeHtml(owner?.name || project.name)} [${escapeHtml(diagram.name)}]</div>`;
     canvas.appendChild(frame);
     createRelationshipLayer(frame, diagram, project);
 
@@ -437,6 +496,8 @@ window.addEventListener('DOMContentLoaded', () => {
           ? `<section class="compartment package-contents"><div class="compartment-title">Contents</div>${members.map((member) => `<div class="package-member">${escapeHtml(member.name)} : ${escapeHtml(member.kind)}</div>`).join('')}</section>`
           : '';
         presentation.innerHTML = `<span class="package-node-tab" aria-hidden="true"></span><span class="package-node-body"><span class="package-node-heading"><span class="package-node-stereotype">${stereotype}</span><span class="package-node-name">${escapeHtml(element.name)}</span></span>${contents}</span>`;
+      } else if (typeof extendedElementMarkup === 'function') {
+        presentation.innerHTML = extendedElementMarkup(project, element);
       } else {
         const stereotype = typeof classifierStereotype === 'function'
           ? classifierStereotype(element.kind)
@@ -444,7 +505,13 @@ window.addEventListener('DOMContentLoaded', () => {
         const compartments = typeof classifierCompartments === 'function'
           ? classifierCompartments(project, element)
           : '';
-        presentation.innerHTML = `<div class="stereotype">«${escapeHtml(stereotype)}»</div><div class="block-name">${escapeHtml(element.name)}</div>${compartments}`;
+        const stereotypeMarkup = stereotype
+          ? `<div class="stereotype">«${escapeHtml(stereotype)}»</div>`
+          : '';
+        const displayedName = element.kind === 'InstanceSpecification' && element.type_id && typeof typeName === 'function'
+          ? `${element.name} : ${typeName(project, element)}`
+          : element.name;
+        presentation.innerHTML = `${stereotypeMarkup}<div class="block-name">${escapeHtml(displayedName)}</div>${compartments}`;
       }
       presentation.onclick = async (event) => {
         event.stopPropagation();
@@ -453,6 +520,16 @@ window.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
           window.smpDialogs?.notify?.(error?.message || String(error), 'error');
           await refresh();
+        }
+      };
+      presentation.ondblclick = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (state.pendingRelationship || state.paletteTool) return;
+        try {
+          await drillDown(element);
+        } catch (error) {
+          window.smpDialogs?.notify?.(error?.message || String(error), 'error');
         }
       };
       frame.appendChild(presentation);
