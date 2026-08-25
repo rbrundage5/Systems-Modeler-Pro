@@ -151,6 +151,9 @@ assert "move_repository_element" in workspace
 assert '"bdd" | "requirement" | "use-case" | "package"' in shared_workspace
 assert "super::route_bdd_with_bounds" in shared_workspace
 assert "super::layout_bdd_with_bounds" in shared_workspace
+assert '"bdd" | "requirement" | "package" => rename_owner_owned_diagram(' in shared_workspace
+assert "package_header_apply_renames_the_rust_owner_and_diagram" in shared_workspace
+assert "await renderer()?.refresh?.()" in read("apps/desktop/frontend/shared-workspace.js")
 assert "EditingFamily::Package" in standard_editing
 assert "duplicate.owner_id = duplicate" in standard_editing
 assert "relationship.visibility === 'private' ? 'access' : 'import'" in app

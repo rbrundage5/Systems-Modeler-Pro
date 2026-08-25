@@ -42,6 +42,12 @@ assert ".canvas.space-pan .workspace-renderer-surface" in styles
 assert "state.frameElement.style.transform=transform" in workspace
 assert "frame.dataset.diagramId=state.context.diagramId" in workspace
 assert "rename_active_diagram_header" in workspace and "editFrameHeader" in workspace
+rename_contract = shared_workspace.split("pub fn rename_active_diagram_header", 1)[1].split(
+    "pub fn workspace_interaction_snapshot", 1
+)[0]
+for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "package", "state-machine", "sequence", "activity"]:
+    assert f'"{family}"' in rename_contract
+assert "await renderer()?.refresh?.()" in workspace
 assert "root?.getBBox" in workspace and "Math.max(320,bounds.width" in workspace
 for command in ["select", "clearSelection", "zoomIn", "zoomOut", "actualSize", "fitDiagram", "pan", "route", "cleanLayout"]:
     assert f'id: "{command}"' in theme
