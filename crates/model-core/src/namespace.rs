@@ -8,6 +8,8 @@ pub enum NamespaceResolutionError {
     ElementNotFound,
     #[error("'{name}' ({kind:?}) is not a namespace")]
     NotNamespace { name: String, kind: ElementKind },
+    #[error("'{name}' has no enclosing namespace")]
+    NoEnclosingNamespace { name: String },
     #[error("name to resolve cannot be empty")]
     EmptyName,
     #[error("'{name}' is not visible from '{context}'")]
@@ -98,6 +100,9 @@ impl Project {
         if requested.is_empty() {
             return Err(NamespaceResolutionError::EmptyName);
         }
+        if requested.contains("::") {
+            return self.resolve_qualified_name(requested);
+        }
         let namespace = self.require_namespace(namespace_id)?;
         let context = self
             .qualified_name(namespace_id)
@@ -122,6 +127,56 @@ impl Project {
             context,
             name: requested.to_string(),
         })
+    }
+
+    /// Returns the nearest semantic namespace at or above an element. This keeps
+    /// callers such as importers and execution engines from reimplementing owner
+    /// walking when they need to resolve a type or member from an element context.
+    pub fn enclosing_namespace(
+        &self,
+        context_element_id: ElementId,
+    ) -> Result<ElementId, NamespaceResolutionError> {
+        let context = self
+            .elements
+            .get(&context_element_id)
+            .ok_or(NamespaceResolutionError::ElementNotFound)?;
+        let context_name = context.name.clone();
+        let mut current = Some(context_element_id);
+        let mut visited = HashSet::new();
+        while let Some(id) = current {
+            if !visited.insert(id) {
+                break;
+            }
+            let element = self
+                .elements
+                .get(&id)
+                .ok_or(NamespaceResolutionError::ElementNotFound)?;
+            if element.is_namespace() {
+                return Ok(id);
+            }
+            current = element.owner_id;
+        }
+        Err(NamespaceResolutionError::NoEnclosingNamespace {
+            name: context_name,
+        })
+    }
+
+    /// Resolves a visible name from any semantic element by first locating the
+    /// element's nearest enclosing namespace. Qualified names are also accepted.
+    pub fn resolve_from_context(
+        &self,
+        context_element_id: ElementId,
+        name: &str,
+    ) -> Result<ElementId, NamespaceResolutionError> {
+        let requested = name.trim();
+        if requested.is_empty() {
+            return Err(NamespaceResolutionError::EmptyName);
+        }
+        if requested.contains("::") {
+            return self.resolve_qualified_name(requested);
+        }
+        let namespace_id = self.enclosing_namespace(context_element_id)?;
+        self.resolve_name(namespace_id, requested)
     }
 
     /// Returns all distinct semantic elements locally visible from a namespace.
@@ -151,6 +206,14 @@ impl Project {
                 .then_with(|| left.to_string().cmp(&right.to_string()))
         });
         Ok(result)
+    }
+
+    pub fn visible_members_from_context(
+        &self,
+        context_element_id: ElementId,
+    ) -> Result<Vec<ElementId>, NamespaceResolutionError> {
+        let namespace_id = self.enclosing_namespace(context_element_id)?;
+        self.visible_members(namespace_id)
     }
 
     fn require_namespace(
