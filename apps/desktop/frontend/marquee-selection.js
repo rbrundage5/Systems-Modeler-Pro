@@ -96,6 +96,13 @@
     return [...selected.values()];
   }
 
+  // The shared host emits this event for ESC/clear-selection. Keep the standard
+  // multi-selection layer synchronized so stale marquee outlines never survive
+  // an authoritative workspace clear.
+  canvas.addEventListener('smp:selection-changed', () => {
+    window.smpStandardEditing?.setSelections?.([]);
+  });
+
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0
       || spacePressed
