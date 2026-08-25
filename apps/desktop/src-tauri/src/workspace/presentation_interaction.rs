@@ -51,33 +51,7 @@ fn apply_bdd_presentation_geometry(
     node.height = height;
     use_cases::fit_use_case_subject_boundary(diagram, project, false);
 
-    let routes: Vec<_> = diagram
-        .edges
-        .iter()
-        .map(|edge| {
-            let source = diagram
-                .nodes
-                .iter()
-                .find(|node| node.id == edge.source_node_id)
-                .cloned()
-                .ok_or("BDD edge source presentation not found")?;
-            let target = diagram
-                .nodes
-                .iter()
-                .find(|node| node.id == edge.target_node_id)
-                .cloned()
-                .ok_or("BDD edge target presentation not found")?;
-            Ok((
-                edge.id.clone(),
-                route_relationship(&source, &target, &diagram.nodes)?,
-            ))
-        })
-        .collect::<Result<_, String>>()?;
-    for (edge_id, points) in routes {
-        if let Some(edge) = diagram.edges.iter_mut().find(|edge| edge.id == edge_id) {
-            edge.points = points;
-        }
-    }
+    diagram.edges = routed_bdd_edges(diagram, None)?;
     validate_loaded_diagrams(project, diagrams)
 }
 

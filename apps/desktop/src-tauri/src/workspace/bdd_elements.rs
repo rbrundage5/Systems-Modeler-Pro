@@ -7,6 +7,9 @@ pub struct CompleteElementSnapshot {
     pub kind: String,
     pub name: String,
     pub owner_id: Option<String>,
+    pub qualified_name: String,
+    pub packageable: bool,
+    pub visibility: String,
     pub documentation: String,
     pub type_id: Option<String>,
     pub multiplicity: Option<String>,
@@ -134,6 +137,9 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
             kind: format!("{:?}", element.kind),
             name: element.name.clone(),
             owner_id: element.owner_id.map(|id| id.to_string()),
+            qualified_name: qualified_element_name(project, element.id),
+            packageable: element.is_packageable(),
+            visibility: visibility_name(element.visibility).to_string(),
             documentation: element.documentation.clone(),
             type_id: element.type_id.map(|id| id.to_string()),
             multiplicity: element.multiplicity.map(|value| value.notation()),
@@ -173,8 +179,13 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
             id: relationship.id.to_string(),
             external_id: relationship.external_id.clone(),
             kind: relationship_display_kind(relationship).to_string(),
+            name: relationship.name.clone(),
+            owner_id: relationship.owner_id.map(|id| id.to_string()),
             source_id: relationship.source_id.to_string(),
             target_id: relationship.target_id.to_string(),
+            documentation: relationship.documentation.clone(),
+            visibility: visibility_name(relationship.visibility).to_string(),
+            alias: relationship.alias.clone(),
             association_ends: relationship
                 .association_ends
                 .iter()
@@ -294,7 +305,10 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
             let element = project
                 .element(parse_element_id(&node.element_id)?)
                 .map_err(|error| error.to_string())?;
-            if diagram.family == "package" && element.kind != ElementKind::Package {
+            if diagram.family == "package"
+                && !element.is_packageable()
+                && element.kind != ElementKind::Comment
+            {
                 return Err(format!(
                     "element kind {:?} is not valid on a Package Diagram",
                     element.kind
@@ -405,11 +419,6 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 ));
             }
         }
-        if diagram.family == "package" && !diagram.edges.is_empty() {
-            return Err(
-                "Package Diagram relationships are not part of the PR26A foundation".into(),
-            );
-        }
         for edge in &diagram.edges {
             if uuid::Uuid::parse_str(&edge.id).is_err() {
                 return Err(format!("invalid diagram edge id: {}", edge.id));
@@ -492,6 +501,9 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
             if edge.points.len() < 2 {
                 return Err(format!("diagram edge has no usable route: {}", edge.id));
             }
+        }
+        if diagram.family == "package" {
+            package_diagrams::validate_package_diagram(project, diagram)?;
         }
     }
     Ok(())

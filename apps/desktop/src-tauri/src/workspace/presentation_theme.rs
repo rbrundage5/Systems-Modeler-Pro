@@ -201,6 +201,7 @@ const SEQUENCE_INVARIANT: PresentationStyle = PresentationStyle {
 const PRESENTATIONS: &[(&str, PresentationStyle)] = &[
     ("Model", FRAME),
     ("Package", FRAME),
+    ("ModelLibrary", FRAME),
     ("Block", STRUCTURAL),
     ("AssociationBlock", STRUCTURAL_ASSOCIATION),
     ("InstanceSpecification", STRUCTURAL_INSTANCE),
@@ -328,6 +329,7 @@ const ALL_DIAGRAMS: &[&str] = &[
     "Sequence",
     "Activity",
     "Parametric",
+    "Package",
 ];
 
 pub fn resolve_diagram_commands(
@@ -444,6 +446,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
                 "Sequence",
                 "Activity",
                 "Parametric",
+                "Package",
             ],
             rust_adapter: Some("active_diagram_router"),
             unavailable_reason: Some("Routing is not applicable to this diagram type."),
@@ -462,6 +465,7 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
                 "Sequence",
                 "Activity",
                 "Parametric",
+                "Package",
             ],
             rust_adapter: Some("active_diagram_layout"),
             unavailable_reason: Some("Automatic layout is not available for this diagram type."),
@@ -585,6 +589,7 @@ mod tests {
         let required = [
             "Model",
             "Package",
+            "ModelLibrary",
             "Block",
             "AssociationBlock",
             "InterfaceBlock",
@@ -629,7 +634,7 @@ mod tests {
                 "zoomIn" | "zoomOut" | "actualSize" | "fitDiagram" | "pan"
             )
         }) {
-            assert_eq!(command.supported_diagrams.len(), 8);
+            assert_eq!(command.supported_diagrams.len(), 9);
         }
     }
 

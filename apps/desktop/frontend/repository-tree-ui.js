@@ -37,7 +37,7 @@
 
   function repositoryNamespaces(project) {
     return (project.elements || [])
-      .filter((element) => element.kind === 'Model' || element.kind === 'Package')
+      .filter((element) => ['Model', 'Package', 'ModelLibrary'].includes(element.kind))
       .sort((left, right) => String(left.name).localeCompare(String(right.name)));
   }
 
@@ -279,7 +279,7 @@
       });
       row.addEventListener('click', () => clearRepositorySelection(), true);
 
-      if (element.kind === 'Model' || element.kind === 'Package') {
+      if (['Model', 'Package', 'ModelLibrary'].includes(element.kind)) {
         installDropTarget(row, element.id);
       }
 

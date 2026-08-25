@@ -30,6 +30,7 @@ require(
     [
         "enum EditingFamily",
         "Bdd,",
+        "Package,",
         "Requirement,",
         "UseCase,",
         "Ibd,",
@@ -158,7 +159,7 @@ require(
 )
 
 print(
-    "PR22/PR24/PR25 standard editing integration contract passed: all eight diagram families retain "
+    "PR22/PR24/PR25/PR26B standard editing integration contract passed: all nine diagram families retain "
     "Rust-owned clipboard/remove/move authority, shared selection synchronization, "
     "presentation persistence, model-vs-diagram deletion separation, and qualified "
     "Behavior/Activity model-deletion history wiring"

@@ -24,7 +24,12 @@ async function loadPalette() {
     return;
   }
   const diagram = state.snapshot?.diagrams?.find((item) => item.id === state.selectedDiagramId);
-  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType: diagram?.family === 'requirement' ? 'Requirement' : 'BDD' });
+  const diagramType = diagram?.family === 'requirement'
+    ? 'Requirement'
+    : diagram?.family === 'package'
+      ? 'Package'
+      : 'BDD';
+  state.paletteItems = await requireInvoke()('diagram_palette', { diagramType });
 }
 async function refresh() {
   state.snapshot = await requireInvoke()('workspace_snapshot');
@@ -295,19 +300,30 @@ function addEndpointLabel(svg, point, text, side) {
 function traceabilityLabel(kind) {
   return { DeriveRequirement:'deriveReqt', Satisfy:'satisfy', Verify:'verify', Refine:'refine', Trace:'trace', Copy:'copy', Include:'include', Extend:'extend' }[kind] || '';
 }
-function addRelationshipStereotype(svg, points, kind) {
-  const stereotype=traceabilityLabel(kind); if(!stereotype||!points.length)return;
+function addRelationshipStereotype(svg, points, relationship, labelAnchor) {
+  const packageLabel = {
+    PackageImport: relationship.visibility === 'private' ? 'access' : 'import',
+    ElementImport: 'elementImport',
+    PackageMerge: 'merge',
+  }[relationship.kind];
+  const stereotype = packageLabel || traceabilityLabel(relationship.kind);
+  const suffix = relationship.kind === 'ElementImport' && relationship.alias ? ` ${relationship.alias}` : '';
+  const plainLabel = relationship.kind === 'Dependency' ? relationship.name : '';
+  if ((!stereotype && !plainLabel) || !points.length) return;
   const middle=points[Math.floor((points.length-1)/2)],next=points[Math.min(points.length-1,Math.floor((points.length-1)/2)+1)];
+  const anchor = Number.isFinite(labelAnchor?.x) && Number.isFinite(labelAnchor?.y)
+    ? labelAnchor
+    : { x: (middle.x + next.x) / 2, y: (middle.y + next.y) / 2 };
   const label=document.createElementNS(SVG_NS,'text'); label.classList.add('relationship-label','traceability-label');
-  label.setAttribute('x',String((middle.x+next.x)/2)); label.setAttribute('y',String((middle.y+next.y)/2-7));
-  label.setAttribute('text-anchor','middle'); label.textContent=`«${stereotype}»`; svg.appendChild(label);
+  label.setAttribute('x',String(anchor.x)); label.setAttribute('y',String(anchor.y-7));
+  label.setAttribute('text-anchor','middle'); label.textContent=stereotype ? `«${stereotype}»${suffix}` : plainLabel; svg.appendChild(label);
 }
 function createRelationshipLayer(frame, diagram, project) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('relationship-layer');
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');
-  svg.setAttribute('aria-label', 'BDD relationships');
+  svg.setAttribute('aria-label', 'Diagram relationships');
   const defs = document.createElementNS(SVG_NS, 'defs');
   marker(defs, 'open-triangle', 'M 1 1 L 11 6 L 1 11 Z', { fill: '#f8f8f6', refX: '11' });
   marker(defs, 'open-arrow', 'M 1 1 L 11 6 L 1 11', { fill: 'none', refX: '11' });
@@ -326,7 +342,7 @@ function createRelationshipLayer(frame, diagram, project) {
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
     applyAssociationEndDecoration(polyline, relationship);
     if (relationship.kind === 'Generalization' || relationship.kind === 'Realization') polyline.setAttribute('marker-end', 'url(#open-triangle)');
-    if (['Dependency', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
+    if (['Dependency', 'PackageImport', 'ElementImport', 'PackageMerge', 'DeriveRequirement', 'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend'].includes(relationship.kind)) polyline.setAttribute('marker-end', 'url(#open-arrow)');
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;
@@ -339,7 +355,7 @@ function createRelationshipLayer(frame, diagram, project) {
     title.textContent = relationship.kind;
     polyline.appendChild(title);
     svg.appendChild(polyline);
-    addRelationshipStereotype(svg, edge.points, relationship.kind);
+    addRelationshipStereotype(svg, edge.points, relationship, edge.label_anchor);
     if (relationship.association_ends?.length === 2) {
       addEndpointLabel(svg, edge.points[0], endpointLabel(relationship.association_ends[0]), 'start');
       addEndpointLabel(svg, edge.points[edge.points.length - 1], endpointLabel(relationship.association_ends[1]), 'end');

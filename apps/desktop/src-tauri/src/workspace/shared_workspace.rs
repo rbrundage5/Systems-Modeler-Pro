@@ -307,7 +307,7 @@ fn dispatch_route(
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<bool, String> {
     match family {
-        "bdd" | "requirement" | "use-case" => {
+        "bdd" | "requirement" | "use-case" | "package" => {
             super::route_bdd_with_bounds(diagram_id, workspace, bounds)
         }
         "parametric" => {
@@ -334,7 +334,7 @@ fn dispatch_layout(
     bounds: Option<super::routing::RouteRect>,
 ) -> Result<bool, String> {
     match family {
-        "bdd" | "requirement" | "use-case" => {
+        "bdd" | "requirement" | "use-case" | "package" => {
             super::layout_bdd_with_bounds(diagram_id, workspace, bounds)
         }
         "parametric" => {
