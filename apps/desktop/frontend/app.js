@@ -41,7 +41,10 @@ function render() {
   renderRepository();
   renderPalette();
   renderDiagramTabs();
-  renderCanvas();
+  const structuralDiagram = state.snapshot?.diagrams?.find((diagram) => diagram.id === state.selectedDiagramId);
+  const activeFamily = structuralDiagram?.family
+    || (state.snapshot?.ibd_diagrams?.some((diagram) => diagram.id === state.selectedDiagramId) ? 'ibd' : null);
+  if (!window.smpRendererHost?.renderFamilyCanvas?.(activeFamily)) renderCanvas();
   renderProperties();
   window.smpRepositoryEditing?.renderProperties?.();
   renderContext();

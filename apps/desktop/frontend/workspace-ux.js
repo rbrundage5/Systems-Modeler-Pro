@@ -143,7 +143,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const baseLoadPalette = loadPalette;
   loadPalette = async function loadPackagePalette() {
     if (selectedPackageDiagram()) {
-      state.paletteItems = [];
+      Object.assign(state, { paletteItems: [] });
       return;
     }
     return baseLoadPalette();
@@ -176,13 +176,12 @@ window.addEventListener('DOMContentLoaded', () => {
     await refresh();
   };
 
-  const baseRenderCanvas = renderCanvas;
-  renderCanvas = function renderPackageCanvas() {
+  function renderPackageCanvas() {
     const diagram = selectedPackageDiagram();
-    if (!diagram) return baseRenderCanvas();
+    if (!diagram) return;
     const canvas = $('canvas');
     const project = state.snapshot?.project;
-    if (!project) return baseRenderCanvas();
+    if (!project) return;
     const owner = project.elements.find((element) => element.id === diagram.owner_id);
     const elements = new Map(project.elements.map((element) => [element.id, element]));
     canvas.innerHTML = '';
@@ -206,7 +205,7 @@ window.addEventListener('DOMContentLoaded', () => {
       presentation.className = 'bdd-block package-node';
       presentation.dataset.semanticKind = 'Package';
       presentation.dataset.presentationId = node.id;
-      if (state.selectedElementId === element.id) presentation.classList.add('selected');
+      if (element.id === state.selectedElementId) presentation.classList.add('selected');
       Object.assign(presentation.style, {
         left: `${node.x}px`,
         top: `${node.y}px`,
@@ -238,7 +237,7 @@ window.addEventListener('DOMContentLoaded', () => {
       });
       render();
     };
-  };
+  }
 
   const baseRenderContext = renderContext;
   renderContext = function renderPackageContext() {
@@ -313,21 +312,12 @@ window.addEventListener('DOMContentLoaded', () => {
     await selectDiagram(diagramId);
   };
 
-  window.smpRendererHost?.registerRenderer?.('package', {
-    selection: () => {
-      const standard = window.smpStandardEditing?.selections?.() || window.smpStandardSelections;
-      if (Array.isArray(standard) && standard.length) return standard;
-      return [state.selectedElementId].filter(Boolean);
-    },
-    clearSelection: () => {
-      Object.assign(state, { selectedElementId: null, selectedRelationshipId: null });
-    },
-    activeTool: () => null,
-    cancelInteraction: () => {
-      Object.assign(state, { pendingRelationship: null, paletteTool: null });
-    },
-    refresh: async () => { await refresh(); },
-  });
+  window.smpRendererHost?.registerSelectionRenderer?.(
+    'package',
+    ['selectedElementId', 'selectedRelationshipId'],
+    ['paletteTool', 'pendingRelationship'],
+    { renderCanvas: renderPackageCanvas },
+  );
 
   render();
 });
