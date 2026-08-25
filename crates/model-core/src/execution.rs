@@ -343,7 +343,10 @@ impl ExecutionSession {
         project: &Project,
         configuration: ExecutionConfiguration,
     ) -> Result<Self, ExecutionError> {
-        if !project.elements.contains_key(&configuration.root_semantic_id) {
+        if !project
+            .elements
+            .contains_key(&configuration.root_semantic_id)
+        {
             return Err(ExecutionError::ExecutionRootNotFound(
                 configuration.root_semantic_id,
             ));
@@ -526,6 +529,7 @@ impl ExecutionSession {
         }
         let sequence = self.steps_executed;
         self.steps_executed += 1;
+        self.touch();
         Ok(sequence)
     }
 
@@ -762,14 +766,10 @@ impl ExecutionSession {
                 return Err(ExecutionError::SemanticElementNotFound);
             }
         }
-        let source_semantic_id = self.resolve_instance_semantic(
-            source_runtime_instance_id,
-            source_semantic_id,
-        )?;
-        let target_semantic_id = self.resolve_instance_semantic(
-            target_runtime_instance_id,
-            target_semantic_id,
-        )?;
+        let source_semantic_id =
+            self.resolve_instance_semantic(source_runtime_instance_id, source_semantic_id)?;
+        let target_semantic_id =
+            self.resolve_instance_semantic(target_runtime_instance_id, target_semantic_id)?;
         for (_, value) in &payload {
             validate_runtime_payload_value(project, value)?;
         }
@@ -1083,10 +1083,7 @@ fn runtime_value_matches_type(expected: &crate::Element, value: &RuntimeValue) -
     }
 }
 
-fn runtime_value_key_sort(
-    left: &RuntimeValueKey,
-    right: &RuntimeValueKey,
-) -> std::cmp::Ordering {
+fn runtime_value_key_sort(left: &RuntimeValueKey, right: &RuntimeValueKey) -> std::cmp::Ordering {
     left.instance_id
         .map(|id| id.to_string())
         .cmp(&right.instance_id.map(|id| id.to_string()))
