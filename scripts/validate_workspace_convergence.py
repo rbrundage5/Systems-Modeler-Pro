@@ -94,6 +94,9 @@ assert "get_diagram_frame_preference" in main and "set_diagram_frame_preference"
 assert "fit_diagram_viewport" in main and "fit_diagram_viewport" in workspace
 assert "zoom_diagram_viewport" in main and "zoom_diagram_viewport" in workspace
 assert "workspace-transform-spacer" in workspace and "setPointerCapture" in workspace
+assert "diagramSurfaceCandidate" in workspace and "workspaceOverlay" in workspace
+assert "framePreference:state.frame" in workspace
+assert "framePreference:state.frame?{...state.frame,manuallySized:false}" not in workspace
 for interaction_command in ["workspace_interaction_snapshot", "set_workspace_interaction", "clear_workspace_interaction"]:
     assert interaction_command in main
     assert interaction_command in shared_workspace
