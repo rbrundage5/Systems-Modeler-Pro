@@ -22,12 +22,14 @@
 
   window.addEventListener('blur', cleanup);
 
+  const RESIZE_CONTROL_SELECTOR = '.smp-resize-handle, .smp-svg-resize-handle, .lifeline-resize-handle, .sysml-frame-resize';
+
   function presentationTarget(target) {
     return target?.closest?.(
       '[data-smp-presentation-id], .bdd-block, .ibd-property, .ibd-port, '
       + '.activity-node, .activity-edge, [data-vertex-id], [data-transition-id], '
       + '[data-lifeline-id], [data-message-id], [data-execution-id], [data-fragment-id], '
-      + '[data-invariant-id], .sysml-frame-label, .sysml-frame-resize',
+      + `[data-invariant-id], ${RESIZE_CONTROL_SELECTOR}, .sysml-frame-label`,
     );
   }
 
@@ -87,6 +89,23 @@
     return [...selected.values()];
   }
 
+  // An explicit resize handle is stronger user intent than a pending placement or
+  // relationship tool. Cancel only those transient authoring modes before the
+  // established family resize handler receives the pointerdown. This prevents
+  // stale cross-family tool state from silently disabling resize while retaining
+  // the existing BDD/IBD/Parametric/Behavior/Activity resize implementations.
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!event.target.closest?.(RESIZE_CONTROL_SELECTOR)) return;
+    Object.assign(state, {
+      paletteTool: null,
+      pendingRelationship: null,
+      behaviorTool: null,
+      behaviorPending: null,
+      activityTool: null,
+      activityPendingFlow: null,
+    });
+  }, true);
+
   // ESC and other authoritative clear operations emit this from the shared host.
   canvas.addEventListener('smp:selection-changed', () => {
     window.smpStandardEditing?.setSelections?.([]);
@@ -105,6 +124,10 @@
   // Space/Ctrl/Meta panning is intercepted by the shared workspace capture
   // handler before this bubble listener. Marquee therefore does not own another
   // keyboard controller and cannot compete with viewport panning.
+  //
+  // Critically, do not capture the pointer here. Palette click-to-place relies on
+  // the family renderer receiving the ordinary click on its SVG/frame. Pointer
+  // capture begins only after the user has actually crossed the marquee threshold.
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0
       || event.ctrlKey
@@ -113,9 +136,6 @@
       || canvas.classList.contains('is-panning')
       || !emptyDiagramSurface(event.target)) return;
 
-    const box = document.createElement('div');
-    box.className = 'smp-marquee-selection';
-    document.body.appendChild(box);
     drag = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -124,10 +144,8 @@
       lastY: event.clientY,
       moved: false,
       additive: event.shiftKey,
-      box,
+      box: null,
     };
-    canvas.setPointerCapture?.(event.pointerId);
-    renderBox();
   }, false);
 
   canvas.addEventListener('pointermove', (event) => {
@@ -136,6 +154,11 @@
     drag.lastY = event.clientY;
     if (!drag.moved && Math.hypot(drag.lastX - drag.startX, drag.lastY - drag.startY) >= 4) {
       drag.moved = true;
+      const box = document.createElement('div');
+      box.className = 'smp-marquee-selection';
+      document.body.appendChild(box);
+      drag.box = box;
+      canvas.setPointerCapture?.(event.pointerId);
     }
     if (!drag.moved) return;
     event.preventDefault();
@@ -147,7 +170,7 @@
     if (!drag || event.pointerId !== drag.pointerId) return;
     const completed = drag;
     drag = null;
-    completed.box.remove();
+    completed.box?.remove();
     if (!completed.moved) return;
 
     event.preventDefault();

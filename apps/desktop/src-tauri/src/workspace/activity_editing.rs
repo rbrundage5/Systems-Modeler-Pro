@@ -48,6 +48,61 @@ fn operation_pins(project: &Project, operation_id: ElementId) -> Result<Vec<Pin>
     Ok(pins)
 }
 
+fn validate_activity_node_reference(
+    repository: &systems_modeler_core::ActivityRepository,
+    project: &Project,
+    node: &ActivityNode,
+) -> Result<(), String> {
+    match &node.kind {
+        ActivityNodeKind::Action(action) => match &action.kind {
+            ActionKind::CallBehavior { activity_id } => {
+                if !repository.activities.contains_key(activity_id) {
+                    return Err("CallBehaviorAction references an unknown Activity".into());
+                }
+            }
+            ActionKind::CallOperation { operation_id } => {
+                let operation = project
+                    .element(*operation_id)
+                    .map_err(|error| error.to_string())?;
+                if operation.kind != ElementKind::Operation {
+                    return Err("CallOperationAction requires an Operation stable ID".into());
+                }
+            }
+            ActionKind::SendSignal { signal_id } => {
+                let signal = project
+                    .element(*signal_id)
+                    .map_err(|error| error.to_string())?;
+                if signal.kind != ElementKind::Signal {
+                    return Err("SendSignalAction requires a Signal stable ID".into());
+                }
+            }
+            ActionKind::AcceptEvent {
+                signal_id: Some(signal_id),
+            } => {
+                let signal = project
+                    .element(*signal_id)
+                    .map_err(|error| error.to_string())?;
+                if signal.kind != ElementKind::Signal {
+                    return Err("AcceptEventAction requires a Signal stable ID".into());
+                }
+            }
+            ActionKind::AcceptEvent { signal_id: None }
+            | ActionKind::Opaque { .. }
+            | ActionKind::AcceptTimeEvent { .. } => {}
+        },
+        ActivityNodeKind::ActivityParameter(parameter) => {
+            let element = project
+                .element(parameter.parameter_id)
+                .map_err(|error| error.to_string())?;
+            if element.kind != ElementKind::Parameter {
+                return Err("ActivityParameterNode requires a Parameter stable ID".into());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn push_presented_node(
     diagram: &mut activity_workspace::ActivityDiagram,
     node: &ActivityNode,
@@ -147,13 +202,11 @@ pub fn add_activity_action(
         partition_id: None,
         structured_node_id: None,
     };
+    validate_activity_node_reference(&repository, project, &node)?;
     let id = node.id;
     activity_for_diagram(&mut repository, diagram)?
         .nodes
         .push(node.clone());
-    repository
-        .validate(project)
-        .map_err(|error| error.to_string())?;
     push_presented_node(diagram, &node, x, y);
     Ok(id.to_string())
 }
@@ -204,13 +257,11 @@ pub fn add_activity_parameter_node(
         partition_id: None,
         structured_node_id: None,
     };
+    validate_activity_node_reference(&repository, project, &node)?;
     let id = node.id;
     activity_for_diagram(&mut repository, diagram)?
         .nodes
         .push(node.clone());
-    repository
-        .validate(project)
-        .map_err(|error| error.to_string())?;
     push_presented_node(diagram, &node, x, y);
     Ok(id.to_string())
 }
@@ -403,6 +454,8 @@ pub fn update_activity_node_semantics(
     decision_input: Option<String>,
     join_specification: Option<String>,
     time_expression: Option<String>,
+    action_reference_id: Option<String>,
+    update_action_reference: bool,
     workspace: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<(), String> {
@@ -420,49 +473,117 @@ pub fn update_activity_node_semantics(
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
+    let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
     let mut repository = activity_state
         .repository
         .lock()
         .map_err(|_| "Activity repository lock poisoned")?;
-    let activity = activity_for_diagram(&mut repository, diagram)?;
-    let node = activity
-        .nodes
-        .iter_mut()
-        .find(|node| node.id == node_id)
+    let original = repository
+        .activities
+        .get(&activity_id)
+        .cloned()
+        .ok_or("Activity not found")?;
+
+    let mutation = (|| -> Result<(), String> {
+        let activity = repository
+            .activities
+            .get_mut(&activity_id)
+            .ok_or("Activity not found")?;
+        let node = activity
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+            .ok_or("Activity node not found")?;
+        if let Some(name) = name {
+            node.name = name;
+        }
+
+        if update_action_reference {
+            let action = match &mut node.kind {
+                ActivityNodeKind::Action(action) => action,
+                _ => return Err("only Activity actions can update an action reference".into()),
+            };
+            match &mut action.kind {
+                ActionKind::CallBehavior { activity_id } => {
+                    let reference = action_reference_id
+                        .as_deref()
+                        .ok_or("CallBehaviorAction requires a referenced Activity")?;
+                    *activity_id = activity_workspace::parse_activity_id(reference)?;
+                }
+                ActionKind::CallOperation { operation_id } => {
+                    let reference = action_reference_id
+                        .as_deref()
+                        .ok_or("CallOperationAction requires a referenced Operation")?;
+                    let next_operation_id = parse_element_id(reference)?;
+                    let next_pins = operation_pins(project, next_operation_id)?;
+                    *operation_id = next_operation_id;
+                    action.pins = next_pins;
+                }
+                ActionKind::SendSignal { signal_id } => {
+                    let reference = action_reference_id
+                        .as_deref()
+                        .ok_or("SendSignalAction requires a Signal")?;
+                    *signal_id = parse_element_id(reference)?;
+                }
+                ActionKind::AcceptEvent { signal_id } => {
+                    *signal_id = action_reference_id
+                        .as_deref()
+                        .map(parse_element_id)
+                        .transpose()?;
+                }
+                ActionKind::Opaque { .. } | ActionKind::AcceptTimeEvent { .. } => {
+                    return Err(
+                        "this Activity action does not use a referenced model element".into(),
+                    );
+                }
+            }
+        }
+
+        match &mut node.kind {
+            ActivityNodeKind::Action(Action {
+                kind: ActionKind::Opaque { body },
+                ..
+            }) => {
+                if let Some(value) = opaque_body {
+                    *body = value;
+                }
+            }
+            ActivityNodeKind::Action(Action {
+                kind: ActionKind::AcceptTimeEvent { expression },
+                ..
+            }) => {
+                if let Some(value) = time_expression {
+                    *expression = value;
+                }
+            }
+            ActivityNodeKind::Decision {
+                decision_input: value,
+            } if decision_input.is_some() => {
+                *value = decision_input.filter(|text| !text.is_empty());
+            }
+            ActivityNodeKind::Join {
+                join_specification: value,
+            } if join_specification.is_some() => {
+                *value = join_specification.filter(|text| !text.is_empty());
+            }
+            _ => {}
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = mutation {
+        repository.activities.insert(activity_id, original);
+        return Err(error);
+    }
+    let updated = repository
+        .activities
+        .get(&activity_id)
+        .and_then(|activity| activity.nodes.iter().find(|node| node.id == node_id))
+        .cloned()
         .ok_or("Activity node not found")?;
-    if let Some(name) = name {
-        node.name = name;
+    if let Err(error) = validate_activity_node_reference(&repository, project, &updated) {
+        repository.activities.insert(activity_id, original);
+        return Err(error);
     }
-    match &mut node.kind {
-        ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body },
-            ..
-        }) => {
-            if let Some(value) = opaque_body {
-                *body = value;
-            }
-        }
-        ActivityNodeKind::Action(Action {
-            kind: ActionKind::AcceptTimeEvent { expression },
-            ..
-        }) => {
-            if let Some(value) = time_expression {
-                *expression = value;
-            }
-        }
-        ActivityNodeKind::Decision {
-            decision_input: value,
-        } if decision_input.is_some() => {
-            *value = decision_input.filter(|text| !text.is_empty());
-        }
-        ActivityNodeKind::Join {
-            join_specification: value,
-        } if join_specification.is_some() => {
-            *value = join_specification.filter(|text| !text.is_empty());
-        }
-        _ => {}
-    }
-    repository
-        .validate(project)
-        .map_err(|error| error.to_string())
+    Ok(())
 }

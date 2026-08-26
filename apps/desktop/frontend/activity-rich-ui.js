@@ -154,6 +154,7 @@
       render();
     } catch (error) {
       console.error('Activity rich semantic creation failed', error);
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
     }
   }, true);
 
@@ -169,6 +170,38 @@
     return activeActivity()?.nodes?.find(
       (node) => String(node.id) === String(state.selectedActivityNodeId),
     ) || null;
+  }
+
+  function currentActionReference(action, kind) {
+    if (!action?.kind || typeof action.kind === 'string') return null;
+    if (kind === 'CallBehavior') return action.kind.CallBehavior?.activity_id || null;
+    if (kind === 'CallOperation') return action.kind.CallOperation?.operation_id || null;
+    if (kind === 'SendSignal') return action.kind.SendSignal?.signal_id || null;
+    if (kind === 'AcceptEvent') return action.kind.AcceptEvent?.signal_id || null;
+    return null;
+  }
+
+  function actionReferenceCandidates(kind) {
+    if (kind === 'CallBehavior') {
+      return Object.values(state.activitySnapshot?.repository?.activities || {});
+    }
+    if (kind === 'CallOperation') return projectElements('Operation');
+    if (kind === 'SendSignal' || kind === 'AcceptEvent') return projectElements('Signal');
+    return [];
+  }
+
+  function actionReferenceEditor(action, kind) {
+    if (!['CallBehavior', 'CallOperation', 'SendSignal', 'AcceptEvent'].includes(kind)) return '';
+    const current = String(currentActionReference(action, kind) || '');
+    const label = kind === 'CallBehavior' ? 'Referenced Activity'
+      : kind === 'CallOperation' ? 'Referenced Operation'
+        : kind === 'SendSignal' ? 'Signal' : 'Accepted Signal/Event';
+    const allowNone = kind === 'AcceptEvent';
+    const options = actionReferenceCandidates(kind).map((item) => {
+      const selected = String(item.id) === current ? 'selected' : '';
+      return `<option value="${escapeAttr(item.id)}" ${selected}>${escapeHtml(item.name)}</option>`;
+    }).join('');
+    return `<label>${label}<select id="activity-action-reference">${allowNone ? '<option value="">Any receive event</option>' : ''}${options}</select></label>`;
   }
 
   const baseRenderProperties = renderProperties;
@@ -190,7 +223,8 @@
     panel.innerHTML = `<div class="property-heading">${escapeHtml(kind || 'Activity Node')}</div>
       <label>Name<input id="activity-property-name" value="${escapeAttr(node.name || '')}"></label>
       <label>Semantic ID<input value="${escapeAttr(node.id)}" disabled></label>
-      ${kind === 'Opaque' ? `<label>Body<textarea id="activity-opaque-body">${escapeHtml(action.kind.Opaque.body || '')}</textarea></label>` : ''}
+      ${kind === 'Opaque' ? `<label>Execution expression/body<textarea id="activity-opaque-body">${escapeHtml(action.kind.Opaque.body || '')}</textarea></label>` : ''}
+      ${actionReferenceEditor(action, kind)}
       ${kind === 'AcceptTimeEvent' ? `<label>Time expression<input id="activity-time-expression" value="${escapeAttr(action.kind.AcceptTimeEvent.expression || '')}"></label>` : ''}
       ${decision ? `<label>Decision input<input id="activity-decision-input" value="${escapeAttr(decision.decision_input || '')}"></label>` : ''}
       ${join ? `<label>Join specification<input id="activity-join-spec" value="${escapeAttr(join.join_specification || '')}"></label>` : ''}
@@ -200,6 +234,7 @@
       <button id="activity-apply-semantics" class="primary">Apply Activity Semantics</button>`;
 
     $('activity-apply-semantics').onclick = async () => {
+      const referenceEditor = $('activity-action-reference');
       await runCommand('Updating Activity semantics…', () => requireInvoke()('update_activity_node_semantics', {
         diagramId: diagram.id,
         activityNodeId: node.id,
@@ -208,6 +243,8 @@
         decisionInput: $('activity-decision-input')?.value ?? null,
         joinSpecification: $('activity-join-spec')?.value ?? null,
         timeExpression: $('activity-time-expression')?.value ?? null,
+        actionReferenceId: referenceEditor?.value || null,
+        updateActionReference: Boolean(referenceEditor),
       }));
       await requireInvoke()('assign_activity_node_partition', {
         diagramId: diagram.id,
@@ -316,15 +353,254 @@
     }
   }
 
+  Object.assign(state, {
+    activityExecutionSnapshot: null,
+    activityExecutionRunning: false,
+  });
+  let executionRunGeneration = 0;
+
+  function executionSnapshot() {
+    const snapshot = state.activityExecutionSnapshot;
+    return snapshot && String(snapshot.root_activity_id) === String(activeDiagram()?.activity_id)
+      ? snapshot
+      : null;
+  }
+
+  function executionState() {
+    return executionSnapshot()?.execution?.state || 'Not initialized';
+  }
+
+  function clearExecutionVisualization(svg) {
+    if (!svg) return;
+    for (const node of svg.querySelectorAll('.activity-node[data-activity-node-id]')) {
+      node.classList.remove('runtime-active', 'runtime-enabled', 'runtime-waiting', 'runtime-completed', 'runtime-failed');
+    }
+    for (const edge of svg.querySelectorAll('.activity-flow[data-activity-edge-id]')) {
+      edge.classList.remove('runtime-active', 'runtime-completed');
+    }
+    svg.querySelectorAll('.activity-runtime-token-badge').forEach((badge) => badge.remove());
+  }
+
+  async function invokeExecution(command) {
+    const diagram = activeDiagram();
+    if (!diagram) throw new Error('Open an Activity Diagram first.');
+    const snapshot = await requireInvoke()(command, { diagramId: diagram.id });
+    Object.assign(state, { activityExecutionSnapshot: snapshot });
+    refreshExecutionUi();
+    return snapshot;
+  }
+
+  async function initializeExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    await invokeExecution('initialize_activity_execution');
+  }
+
+  async function stepExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (!executionSnapshot()) await initializeExecution();
+    await invokeExecution('step_activity_execution');
+  }
+
+  async function runExecution(resume) {
+    if (!executionSnapshot()) await initializeExecution();
+    const command = resume ? 'resume_activity_execution' : 'run_activity_execution';
+    await invokeExecution(command);
+    const generation = ++executionRunGeneration;
+    Object.assign(state, { activityExecutionRunning: true });
+    while (generation === executionRunGeneration && executionState() === 'Running') {
+      await invokeExecution('step_activity_execution');
+      if (executionState() !== 'Running') break;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    if (generation === executionRunGeneration) {
+      Object.assign(state, { activityExecutionRunning: false });
+      refreshExecutionUi();
+    }
+  }
+
+  async function pauseExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (executionState() === 'Running') await invokeExecution('pause_activity_execution');
+  }
+
+  async function resetExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (!executionSnapshot()) return initializeExecution();
+    return invokeExecution('reset_activity_execution');
+  }
+
+  async function terminateExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (executionSnapshot()) await invokeExecution('terminate_activity_execution');
+  }
+
+  function ensureExecutionRibbon(visible) {
+    const ribbon = document.querySelector('.ribbon');
+    if (!ribbon) return;
+    let group = ribbon.querySelector('.activity-execution-ribbon-group');
+    if (!group) {
+      group = document.createElement('section');
+      group.className = 'ribbon-group activity-execution-ribbon-group';
+      group.innerHTML = `<div class="ribbon-actions activity-execution-actions">
+        <button class="ribbon-command" data-activity-execution="initialize"><span class="command-icon">◇</span><span>Initialize</span></button>
+        <button class="ribbon-command" data-activity-execution="run"><span class="command-icon">▶</span><span>Run</span></button>
+        <button class="ribbon-command" data-activity-execution="step"><span class="command-icon">▸</span><span>Step</span></button>
+        <button class="ribbon-command" data-activity-execution="pause"><span class="command-icon">Ⅱ</span><span>Pause</span></button>
+        <button class="ribbon-command" data-activity-execution="resume"><span class="command-icon">▷</span><span>Resume</span></button>
+        <button class="ribbon-command" data-activity-execution="reset"><span class="command-icon">↺</span><span>Reset</span></button>
+        <button class="ribbon-command" data-activity-execution="terminate"><span class="command-icon">■</span><span>Terminate</span></button>
+      </div><div class="ribbon-label">Activity Execution</div>`;
+      group.onclick = async (event) => {
+        const command = event.target.closest?.('[data-activity-execution]')?.dataset.activityExecution;
+        if (!command) return;
+        try {
+          if (command === 'initialize') await initializeExecution();
+          else if (command === 'run') await runExecution(false);
+          else if (command === 'step') await stepExecution();
+          else if (command === 'pause') await pauseExecution();
+          else if (command === 'resume') await runExecution(true);
+          else if (command === 'reset') await resetExecution();
+          else if (command === 'terminate') await terminateExecution();
+        } catch (error) {
+          Object.assign(state, { activityExecutionRunning: false });
+          window.smpDialogs?.notify?.(error?.message || String(error), 'error');
+          refreshExecutionUi();
+        }
+      };
+      ribbon.insertBefore(group, ribbon.querySelector('.ribbon-context'));
+    }
+    group.hidden = !visible;
+    const current = executionState();
+    const initialized = current !== 'Not initialized';
+    const running = current === 'Running';
+    const paused = current === 'Paused';
+    for (const button of group.querySelectorAll('[data-activity-execution]')) {
+      const command = button.dataset.activityExecution;
+      button.disabled = !visible
+        || (command === 'run' && (!initialized || !['Initialized', 'Paused'].includes(current)))
+        || (command === 'step' && (!initialized || running || ['Completed', 'Failed', 'Terminated'].includes(current)))
+        || (command === 'pause' && !running)
+        || (command === 'resume' && !paused)
+        || (['reset', 'terminate'].includes(command) && !initialized);
+    }
+  }
+
+  function runtimeEndpointId(endpoint) {
+    return endpoint?.Node || endpoint?.Pin || null;
+  }
+
+  function applyExecutionVisualization(svg, activity) {
+    clearExecutionVisualization(svg);
+    const snapshot = executionSnapshot();
+    if (!snapshot) return;
+    const rootNodes = snapshot.nodes.filter(
+      (node) => String(node.activity_id) === String(snapshot.root_activity_id),
+    );
+    const nodeStates = new Map(rootNodes.map((node) => [String(node.node_id), node.state]));
+    const activeNodes = new Set((snapshot.active_node_ids || []).map(String));
+    const activeEdges = new Set((snapshot.active_edge_ids || []).map(String));
+    const completedEdges = new Set((snapshot.completed_edge_ids || []).map(String));
+    for (const node of svg.querySelectorAll('.activity-node[data-activity-node-id]')) {
+      const id = String(node.dataset.activityNodeId);
+      node.classList.toggle('runtime-active', activeNodes.has(id));
+      for (const runtimeState of ['Enabled', 'Waiting', 'Completed', 'Failed']) {
+        node.classList.toggle(`runtime-${runtimeState.toLowerCase()}`, nodeStates.get(id) === runtimeState);
+      }
+    }
+    for (const edge of svg.querySelectorAll('.activity-flow[data-activity-edge-id]')) {
+      const id = String(edge.dataset.activityEdgeId);
+      edge.classList.toggle('runtime-active', activeEdges.has(id));
+      edge.classList.toggle('runtime-completed', completedEdges.has(id));
+    }
+
+    const nodeTokenCounts = new Map();
+    for (const store of snapshot.token_stores || []) {
+      if (String(store.activity_id) !== String(snapshot.root_activity_id)) continue;
+      const endpointId = runtimeEndpointId(store.endpoint);
+      if (!endpointId) continue;
+      const ownerNode = activity.nodes.find((node) => {
+        if (String(node.id) === String(endpointId)) return true;
+        return (node.kind?.Action?.pins || []).some((pin) => String(pin.id) === String(endpointId));
+      });
+      if (!ownerNode) continue;
+      const key = String(ownerNode.id);
+      nodeTokenCounts.set(key, (nodeTokenCounts.get(key) || 0) + (store.tokens?.length || 0));
+    }
+    for (const [nodeId, count] of nodeTokenCounts) {
+      const presentation = presentationForNode(activeDiagram(), nodeId);
+      if (!presentation) continue;
+      const badge = svgElement('g', { class: 'activity-runtime-token-badge' });
+      badge.appendChild(svgElement('circle', {
+        cx: presentation.x + presentation.width - 5,
+        cy: presentation.y + 5,
+        r: 10,
+      }));
+      const label = svgElement('text', {
+        x: presentation.x + presentation.width - 5,
+        y: presentation.y + 9,
+        'text-anchor': 'middle',
+      });
+      label.textContent = String(count);
+      badge.appendChild(label);
+      svg.appendChild(badge);
+    }
+  }
+
+  function renderExecutionPanel() {
+    const host = document.querySelector('.diagram-workspace');
+    const snapshot = executionSnapshot();
+    let panel = document.querySelector('.activity-execution-panel');
+    if (!host || !snapshot) {
+      panel?.remove();
+      return;
+    }
+    if (!panel) {
+      panel = document.createElement('aside');
+      panel.className = 'activity-execution-panel';
+      panel.dataset.workspaceOverlay = 'true';
+      host.appendChild(panel);
+    } else if (panel.parentElement !== host) {
+      host.appendChild(panel);
+    }
+    const execution = snapshot.execution;
+    const diagnostics = (execution.diagnostics || []).slice(-4);
+    const trace = (execution.trace || []).slice(-6);
+    panel.innerHTML = `<div class="activity-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div>
+      <div class="activity-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.call_frames?.length || 0} frame(s)</span><span>${(snapshot.token_stores || []).reduce((sum, store) => sum + (store.tokens?.length || 0), 0)} token(s)</span></div>
+      ${diagnostics.length ? `<div class="activity-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
+      <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>`;
+  }
+
+  function refreshExecutionUi() {
+    const diagram = activeDiagram();
+    const activity = activeActivity();
+    const svg = document.querySelector('.activity-svg');
+    ensureExecutionRibbon(Boolean(diagram));
+    if (svg) clearExecutionVisualization(svg);
+    if (diagram && activity && svg) applyExecutionVisualization(svg, activity);
+    renderExecutionPanel();
+  }
+
   const baseRenderCanvas = renderCanvas;
   renderCanvas = function renderRichActivityCanvas() {
     baseRenderCanvas();
     const diagram = activeDiagram();
     const activity = activeActivity();
     const svg = document.querySelector('.activity-svg');
-    if (!diagram || !activity || !svg) return;
+    ensureExecutionRibbon(Boolean(diagram));
+    if (!diagram || !activity || !svg) {
+      renderExecutionPanel();
+      return;
+    }
     renderSemanticRegions(svg, diagram, activity);
     renderPins(svg, diagram, activity);
+    applyExecutionVisualization(svg, activity);
+    renderExecutionPanel();
   };
 
   document.addEventListener('click', async (event) => {
@@ -360,6 +636,7 @@
       render();
     } catch (error) {
       console.error('Activity pin ObjectFlow creation failed', error);
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
     }
   }, true);
 })();

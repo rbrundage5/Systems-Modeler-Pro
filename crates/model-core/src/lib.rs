@@ -9,6 +9,12 @@ pub use activity::*;
 pub mod execution;
 pub use execution::*;
 
+pub mod execution_expression;
+pub use execution_expression::*;
+
+pub mod activity_execution;
+pub use activity_execution::*;
+
 pub mod namespace;
 pub use namespace::*;
 

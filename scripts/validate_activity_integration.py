@@ -5,11 +5,13 @@ main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-
 workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text(encoding="utf-8")
 editing_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_editing.rs").read_text(encoding="utf-8")
 mutation_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_mutation.rs").read_text(encoding="utf-8")
+execution_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_execution.rs").read_text(encoding="utf-8")
 frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text(encoding="utf-8")
 rich_frontend = (root / "apps/desktop/frontend/activity-rich-ui.js").read_text(encoding="utf-8")
 navigation_frontend = (root / "apps/desktop/frontend/activity-navigation-ui.js").read_text(encoding="utf-8")
 mutation_frontend = (root / "apps/desktop/frontend/activity-mutation-ui.js").read_text(encoding="utf-8")
 index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
+styles = (root / "apps/desktop/frontend/activity.css").read_text(encoding="utf-8")
 
 base_commands = [
     "activity_snapshot",
@@ -47,6 +49,55 @@ for command in mutation_commands:
     assert command in main_rs, f"Activity mutation command is not registered: {command}"
     assert command in mutation_rs, f"Activity mutation implementation is missing: {command}"
     assert command in mutation_frontend, f"Activity mutation command is not forwarded by the frontend: {command}"
+
+execution_commands = [
+    "initialize_activity_execution",
+    "activity_execution_snapshot",
+    "run_activity_execution",
+    "step_activity_execution",
+    "pause_activity_execution",
+    "resume_activity_execution",
+    "reset_activity_execution",
+    "terminate_activity_execution",
+]
+for command in execution_commands:
+    assert command in main_rs, f"Activity execution command is not registered: {command}"
+    assert command in execution_rs, f"Activity execution command implementation is missing: {command}"
+    assert command in rich_frontend or command in frontend, f"Activity execution command is not forwarded by the frontend: {command}"
+
+assert "ActivityExecutionEngine" in execution_rs and "ExecutionManager" in execution_rs, "Desktop execution does not use the Rust execution subsystem"
+assert "source_fingerprints" in execution_rs and "source_fingerprint" in execution_rs, "Activity execution does not track the authored source model used to initialize a session"
+assert "ensure_current_execution" in execution_rs, "Activity execution can reuse stale semantic state after authored-model changes"
+assert "registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint)" in execution_rs, "Activity execution snapshot does not invalidate stale sessions after authored-model changes"
+for command in ["run_activity_execution", "step_activity_execution", "resume_activity_execution", "reset_activity_execution"]:
+    section = execution_rs.split(f"pub fn {command}", 1)[1].split("#[tauri::command]", 1)[0]
+    assert "activity_state" in section and "ensure_current_execution" in section, f"{command} can execute a stale Activity repository"
+assert "activityExecutionSnapshot" in rich_frontend, "Activity runtime visualization does not consume an execution snapshot"
+assert "runtime-active" in styles and "runtime-waiting" in styles and "runtime-failed" in styles, "Runtime states are not visually distinct"
+assert ".activity-node.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their active runtime indication"
+assert ".activity-node.runtime-failed:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their failed runtime indication"
+assert ".activity-flow.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity flows lose their active runtime indication"
+assert "eval(" not in rich_frontend, "Activity frontend must not execute model expressions"
+
+# Runtime snapshots may update overlays, ribbon state, trace and token badges, but
+# must not rebuild the authored workspace on every Initialize/Step/Run tick. A
+# full render remounts the shared surface and can disturb pointer authority/frame
+# geometry across diagram families.
+invoke_execution = rich_frontend.split("async function invokeExecution(command)", 1)[1].split(
+    "async function initializeExecution", 1
+)[0]
+assert "refreshExecutionUi();" in invoke_execution, "Activity execution does not use the targeted runtime overlay refresh"
+assert "render();" not in invoke_execution, "Activity execution still rebuilds the authored workspace on every runtime snapshot"
+assert "document.querySelector('.diagram-workspace')" in rich_frontend, "Activity execution panel is not hosted outside the diagram surface"
+assert "dataset.workspaceOverlay" in rich_frontend, "Activity execution panel is not marked as a non-authoritative workspace overlay"
+
+# Executable action references must remain editable after creation through the
+# Rust semantic mutation boundary, not only through creation-time prompts.
+assert "actionReferenceId" in rich_frontend and "updateActionReference" in rich_frontend, "Activity action reference editing is not forwarded to Rust"
+assert "action_reference_id" in editing_rs and "update_action_reference" in editing_rs, "Rust Activity action reference mutation is missing"
+for action_kind in ["CallBehavior", "CallOperation", "SendSignal", "AcceptEvent"]:
+    assert action_kind in editing_rs and action_kind in rich_frontend, f"Activity Properties cannot edit {action_kind} semantics"
+assert "let original = repository" in editing_rs and "repository.activities.insert(activity_id, original)" in editing_rs, "Activity semantic edits are not transactionally recoverable"
 
 for semantic_kind in [
     "CallBehaviorAction",

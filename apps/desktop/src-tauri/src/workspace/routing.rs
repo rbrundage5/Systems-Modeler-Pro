@@ -89,6 +89,17 @@ pub fn label_rect(anchor: DiagramPoint) -> RouteRect {
     }
 }
 
+fn clamp_label_anchor(anchor: DiagramPoint, bounds: RouteRect) -> DiagramPoint {
+    let min_x = bounds.x + LABEL_WIDTH / 2.0;
+    let max_x = (bounds.x + bounds.width - LABEL_WIDTH / 2.0).max(min_x);
+    let min_y = bounds.y + LABEL_HEIGHT;
+    let max_y = (bounds.y + bounds.height).max(min_y);
+    DiagramPoint {
+        x: anchor.x.clamp(min_x, max_x),
+        y: anchor.y.clamp(min_y, max_y),
+    }
+}
+
 pub fn route_label_anchor_avoiding(
     points: &[DiagramPoint],
     obstacles: &[RouteRect],
@@ -102,6 +113,13 @@ pub fn route_label_anchor_avoiding(
     segments.sort_by(|left, right| {
         segment_length(right[0], right[1]).total_cmp(&segment_length(left[0], left[1]))
     });
+
+    // Label placement is deliberately softer than relationship geometry. Route
+    // and Clean Layout are recovery commands: exhausting ideal label slots must
+    // not roll back an otherwise obstacle-clear relationship route. Keep the
+    // first deterministic least-colliding candidate as a recovery placement.
+    let mut best_fallback: Option<(usize, usize, usize, DiagramPoint)> = None;
+    let mut candidate_order = 0usize;
     for segment in segments {
         let horizontal = (segment[0].y - segment[1].y).abs() < 0.001;
         for ratio in [0.5, 0.25, 0.75, 0.125, 0.875] {
@@ -124,21 +142,38 @@ pub fn route_label_anchor_avoiding(
                 };
                 let rect = label_rect(anchor);
                 let inside_bounds = bounds.is_none_or(|frame| rect_inside(rect, frame));
-                let clears_obstacles = obstacles
+                let obstacle_hits = obstacles
                     .iter()
-                    .all(|obstacle| !rects_overlap(rect, *obstacle));
-                let clears_routes = reserved_routes.iter().all(|route| {
-                    route.windows(2).all(|reserved| {
-                        !segment_intersects_rect_exact(reserved[0], reserved[1], rect)
+                    .filter(|obstacle| rects_overlap(rect, **obstacle))
+                    .count();
+                let route_hits = reserved_routes
+                    .iter()
+                    .flat_map(|route| route.windows(2))
+                    .filter(|reserved| {
+                        segment_intersects_rect_exact(reserved[0], reserved[1], rect)
                     })
-                });
-                if inside_bounds && clears_obstacles && clears_routes {
+                    .count();
+                if inside_bounds && obstacle_hits == 0 && route_hits == 0 {
                     return Ok(anchor);
                 }
+                if inside_bounds {
+                    let candidate = (obstacle_hits, route_hits, candidate_order, anchor);
+                    if best_fallback.as_ref().is_none_or(|best| {
+                        candidate.0 < best.0 || (candidate.0 == best.0 && candidate.1 < best.1)
+                    }) {
+                        best_fallback = Some(candidate);
+                    }
+                }
+                candidate_order = candidate_order.saturating_add(1);
             }
         }
     }
-    Err("no legal label position is available without overlapping diagram content; existing geometry was preserved".into())
+    if let Some((_, _, _, anchor)) = best_fallback {
+        return Ok(anchor);
+    }
+
+    let anchor = route_label_anchor(points);
+    Ok(bounds.map_or(anchor, |frame| clamp_label_anchor(anchor, frame)))
 }
 
 fn segment_length(start: DiagramPoint, end: DiagramPoint) -> f64 {
@@ -228,11 +263,12 @@ pub fn route_diagram_geometry(
     route_diagram(&edges, &obstacles)
 }
 
-/// Shared deterministic orthogonal router for BDD and IBD presentations.
-/// It never intentionally returns a segment through an obstacle. If the direct
-/// dogleg is blocked, perpendicular outer channels are searched in deterministic
-/// order. Horizontal relationships detour above/below obstacles; vertical
-/// relationships detour left/right.
+/// Shared deterministic orthogonal router for all diagram family adapters.
+/// It never intentionally returns a segment through an obstacle. Preferred
+/// routes also avoid overlapping reserved relationship segments. If dense edge
+/// geometry exhausts those preferred lanes, the final recovery stage still
+/// requires obstacle-clear orthogonal geometry but permits relationship
+/// crossings/segment reuse rather than making Route/Clean Layout fail.
 pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, String> {
     if request.source == request.target {
         return self_transition_route(&request);
@@ -276,10 +312,6 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
             ]));
         }
 
-        // A left/right relationship blocked between its endpoints must escape
-        // perpendicular to the relationship, then traverse above or below all
-        // blocking geometry. Searching another x channel cannot help because
-        // the final horizontal segment would still cross the obstacle.
         let min_y = request
             .obstacles
             .iter()
@@ -331,7 +363,6 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
             ]));
         }
 
-        // A top/bottom relationship detours left or right of blocking geometry.
         let min_x = request
             .obstacles
             .iter()
@@ -376,9 +407,15 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
         });
     }
     candidates.sort_by(|left, right| route_cost(left).total_cmp(&route_cost(right)));
+    if let Some(candidate) = candidates
+        .iter()
+        .find(|candidate| route_is_valid(candidate, &request))
+    {
+        return Ok(candidate.clone());
+    }
     candidates
         .into_iter()
-        .find(|candidate| route_is_valid(candidate, &request))
+        .find(|candidate| route_is_recovery_valid(candidate, &request))
         .ok_or_else(|| route_failure(&request))
 }
 
@@ -473,9 +510,15 @@ fn self_transition_route(request: &RouteRequest<'_>) -> Result<Vec<DiagramPoint>
         ],
     ];
     candidates.sort_by(|left, right| route_cost(left).total_cmp(&route_cost(right)));
+    if let Some(candidate) = candidates
+        .iter()
+        .find(|candidate| route_is_valid(candidate, request))
+    {
+        return Ok(candidate.clone());
+    }
     candidates
         .into_iter()
-        .find(|candidate| route_is_valid(candidate, request))
+        .find(|candidate| route_is_recovery_valid(candidate, request))
         .ok_or_else(|| route_failure(request))
 }
 
@@ -486,7 +529,7 @@ fn route_failure(request: &RouteRequest<'_>) -> String {
         ""
     };
     format!(
-        "no validated obstacle-clear route is available{scope}; existing geometry was preserved"
+        "no obstacle-clear orthogonal route is available{scope}; existing geometry was preserved"
     )
 }
 
@@ -593,7 +636,7 @@ fn route_cost(points: &[DiagramPoint]) -> f64 {
     length + points.len().saturating_sub(2) as f64 * LANE_SPACING
 }
 
-fn route_is_valid(points: &[DiagramPoint], request: &RouteRequest<'_>) -> bool {
+fn route_geometry_is_valid(points: &[DiagramPoint], request: &RouteRequest<'_>) -> bool {
     points.len() >= 2
         && points
             .iter()
@@ -602,14 +645,22 @@ fn route_is_valid(points: &[DiagramPoint], request: &RouteRequest<'_>) -> bool {
             .windows(2)
             .all(|segment| is_orthogonal(segment[0], segment[1]))
         && route_is_clear(points, request.obstacles)
+        && request
+            .bounds
+            .is_none_or(|bounds| points.iter().all(|point| point_inside(*point, bounds)))
+}
+
+fn route_is_valid(points: &[DiagramPoint], request: &RouteRequest<'_>) -> bool {
+    route_geometry_is_valid(points, request)
         && route_avoids_reserved(
             points,
             request.reserved_routes,
             request.allow_shared_departure,
         )
-        && request
-            .bounds
-            .is_none_or(|bounds| points.iter().all(|point| point_inside(*point, bounds)))
+}
+
+fn route_is_recovery_valid(points: &[DiagramPoint], request: &RouteRequest<'_>) -> bool {
+    route_geometry_is_valid(points, request)
 }
 
 fn is_orthogonal(start: DiagramPoint, end: DiagramPoint) -> bool {
@@ -643,6 +694,11 @@ pub fn route_avoids_reserved(
     allow_shared_departure: bool,
 ) -> bool {
     reserved_routes.iter().all(|reserved| {
+        // Sharing the first or last segment is a qualified branch/merge exception.
+        // An identical whole route is not a branch or merge: it is complete route
+        // overlap and must remain a preferred-routing conflict. Recovery may still
+        // reuse that corridor after all separated obstacle-clear candidates fail.
+        let identical_route = candidate == reserved.as_slice();
         let candidate_last = candidate.len().saturating_sub(2);
         let reserved_last = reserved.len().saturating_sub(2);
         candidate
@@ -653,11 +709,13 @@ pub fn route_avoids_reserved(
                     .windows(2)
                     .enumerate()
                     .all(|(reserved_index, reserved_segment)| {
-                        let shared_departure = allow_shared_departure
+                        let shared_departure = !identical_route
+                            && allow_shared_departure
                             && candidate_index == 0
                             && reserved_index == 0
                             && candidate_segment[0] == reserved_segment[0];
-                        let shared_arrival = candidate_index == candidate_last
+                        let shared_arrival = !identical_route
+                            && candidate_index == candidate_last
                             && reserved_index == reserved_last
                             && candidate_segment[1] == reserved_segment[1];
                         shared_departure
@@ -911,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn unrelated_routes_cannot_overlap_reserved_segments() {
+    fn unrelated_routes_cannot_overlap_reserved_segments_when_a_clear_lane_exists() {
         let reserved = vec![vec![
             DiagramPoint { x: 120.0, y: 50.0 },
             DiagramPoint { x: 240.0, y: 50.0 },
@@ -992,6 +1050,55 @@ mod tests {
             .expect("clear quarter-segment label position");
         assert_eq!(anchor.x, 75.0);
         assert!(!rects_overlap(label_rect(anchor), midpoint_obstacle));
+    }
+
+    #[test]
+    fn label_search_returns_a_deterministic_recovery_position_in_dense_geometry() {
+        let points = vec![
+            DiagramPoint { x: 0.0, y: 50.0 },
+            DiagramPoint { x: 300.0, y: 50.0 },
+        ];
+        let dense_obstacle = RouteRect {
+            x: -100.0,
+            y: -100.0,
+            width: 500.0,
+            height: 300.0,
+        };
+        let first = route_label_anchor_avoiding(&points, &[dense_obstacle], &[], None)
+            .expect("recovery label position");
+        let second = route_label_anchor_avoiding(&points, &[dense_obstacle], &[], None)
+            .expect("repeat recovery label position");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn recovery_geometry_may_reuse_a_reserved_relationship_but_never_an_obstacle() {
+        let candidate = vec![
+            DiagramPoint { x: 120.0, y: 50.0 },
+            DiagramPoint { x: 240.0, y: 50.0 },
+        ];
+        let reserved = vec![candidate.clone()];
+        let request = RouteRequest {
+            source: RouteRect {
+                x: 20.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            target: RouteRect {
+                x: 240.0,
+                y: 20.0,
+                width: 100.0,
+                height: 60.0,
+            },
+            obstacles: &[],
+            lane_index: 0,
+            reserved_routes: &reserved,
+            allow_shared_departure: false,
+            bounds: None,
+        };
+        assert!(!route_is_valid(&candidate, &request));
+        assert!(route_is_recovery_valid(&candidate, &request));
     }
 
     #[test]
@@ -1082,7 +1189,7 @@ mod tests {
     }
 
     #[test]
-    fn router_rejects_unproven_geometry_instead_of_returning_a_fallback() {
+    fn router_rejects_only_when_no_obstacle_clear_geometry_exists() {
         let source = RouteRect {
             x: 140.0,
             y: 140.0,
