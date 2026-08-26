@@ -142,6 +142,7 @@
 
   function installRuntimeInteractionFixes() {
     bindSequenceConnectedDrag();
+    void window.smpSynchronizeSelectedDiagramContext?.();
   }
 
   const baseRender = render;
@@ -353,12 +354,6 @@
   }
 
   window.smpSynchronizeSelectedDiagramContext = synchronizeSelectedDiagramContext;
-
-  const baseRender = render;
-  render = function renderWithSharedContextSynchronization() {
-    baseRender();
-    queueMicrotask(() => void synchronizeSelectedDiagramContext());
-  };
 
   // If an Edit command is clicked during the brief interval between local
   // selection and shared-host activation, synchronize first instead of issuing
