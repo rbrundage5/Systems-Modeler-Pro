@@ -15,6 +15,7 @@ ibd_ui = read(frontend / "ibd-ui.js")
 behavior_ui = read(frontend / "behavior-authoritative-renderer.js")
 activity_ui = read(frontend / "activity-ui.js")
 package_ui = read(frontend / "workspace-ux.js")
+runtime_fixes = read(frontend / "interaction-runtime-fixes.js")
 theme = read(root / "apps/desktop/src-tauri/src/workspace/presentation_theme.rs")
 main = read(root / "apps/desktop/src-tauri/src/main.rs")
 shared_workspace = read(root / "apps/desktop/src-tauri/src/workspace/shared_workspace.rs")
@@ -119,6 +120,23 @@ assert 'storedRoute?.label_anchor||' in behavior_ui
 assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
 assert 'container-type:inline-size' in styles and 'font-size:clamp(' in styles
 assert 'sequence-message-hit' in behavior_ui and 'Moving Message occurrence' in behavior_ui
+
+# A new/local diagram selection must converge with the shared host before frame
+# rendering or standard Edit commands. This protects new Requirement/BDD/Activity
+# diagrams from stale host ids that previously broke Copy/Paste and frame labels.
+for token in [
+    "smpSynchronizeSelectedDiagramContext",
+    "selectedActivityDiagramId",
+    "selectedBehaviorDiagramId",
+    "selectedDiagramId",
+    "modelElementName: activity?.name || diagram.name",
+    "semanticContextId: diagram.activity_id || ''",
+    "window.smpStandardEditing.run(command)",
+]:
+    assert token in runtime_fixes
+assert "void window.smpSynchronizeSelectedDiagramContext?.();" in runtime_fixes
+assert runtime_fixes.count("render = function") == 1
+
 for kind in ["PartProperty", "ReferenceProperty", "ProxyPort", "FullPort", "ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
     assert f'("{kind}",' in theme
 for kind in ["ExecutionSpecification", "CombinedFragment", "StateInvariant"]:
