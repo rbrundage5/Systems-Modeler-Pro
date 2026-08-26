@@ -299,19 +299,22 @@ fn endpoint_is_incident(
     }
 }
 
+fn validate_delete_integrity(activity: &Activity) -> Result<(), String> {
+    for edge in &activity.edges {
+        endpoint_owner(activity, edge.source)?;
+        endpoint_owner(activity, edge.target)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn delete_activity_item(
     diagram_id: String,
     item_kind: String,
     item_id: String,
-    workspace: tauri::State<'_, WorkspaceState>,
+    _workspace: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<(), String> {
-    let project_guard = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_ref().ok_or("no project open")?;
     let mut diagrams = activity_state
         .diagrams
         .lock()
@@ -387,10 +390,11 @@ pub fn delete_activity_item(
         }
     }
 
-    if let Err(error) = repository
-        .validate(project)
-        .map_err(|error| error.to_string())
-    {
+    let activity = repository
+        .activities
+        .get(&activity_id)
+        .ok_or("Activity not found")?;
+    if let Err(error) = validate_delete_integrity(activity) {
         repository.activities.insert(activity_id, original_activity);
         *diagram = original_diagram;
         return Err(error);
