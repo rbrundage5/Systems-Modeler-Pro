@@ -154,6 +154,7 @@
       render();
     } catch (error) {
       console.error('Activity rich semantic creation failed', error);
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
     }
   }, true);
 
@@ -169,6 +170,38 @@
     return activeActivity()?.nodes?.find(
       (node) => String(node.id) === String(state.selectedActivityNodeId),
     ) || null;
+  }
+
+  function currentActionReference(action, kind) {
+    if (!action?.kind || typeof action.kind === 'string') return null;
+    if (kind === 'CallBehavior') return action.kind.CallBehavior?.activity_id || null;
+    if (kind === 'CallOperation') return action.kind.CallOperation?.operation_id || null;
+    if (kind === 'SendSignal') return action.kind.SendSignal?.signal_id || null;
+    if (kind === 'AcceptEvent') return action.kind.AcceptEvent?.signal_id || null;
+    return null;
+  }
+
+  function actionReferenceCandidates(kind) {
+    if (kind === 'CallBehavior') {
+      return Object.values(state.activitySnapshot?.repository?.activities || {});
+    }
+    if (kind === 'CallOperation') return projectElements('Operation');
+    if (kind === 'SendSignal' || kind === 'AcceptEvent') return projectElements('Signal');
+    return [];
+  }
+
+  function actionReferenceEditor(action, kind) {
+    if (!['CallBehavior', 'CallOperation', 'SendSignal', 'AcceptEvent'].includes(kind)) return '';
+    const current = String(currentActionReference(action, kind) || '');
+    const label = kind === 'CallBehavior' ? 'Referenced Activity'
+      : kind === 'CallOperation' ? 'Referenced Operation'
+        : kind === 'SendSignal' ? 'Signal' : 'Accepted Signal/Event';
+    const allowNone = kind === 'AcceptEvent';
+    const options = actionReferenceCandidates(kind).map((item) => {
+      const selected = String(item.id) === current ? 'selected' : '';
+      return `<option value="${escapeAttr(item.id)}" ${selected}>${escapeHtml(item.name)}</option>`;
+    }).join('');
+    return `<label>${label}<select id="activity-action-reference">${allowNone ? '<option value="">Any receive event</option>' : ''}${options}</select></label>`;
   }
 
   const baseRenderProperties = renderProperties;
@@ -190,7 +223,8 @@
     panel.innerHTML = `<div class="property-heading">${escapeHtml(kind || 'Activity Node')}</div>
       <label>Name<input id="activity-property-name" value="${escapeAttr(node.name || '')}"></label>
       <label>Semantic ID<input value="${escapeAttr(node.id)}" disabled></label>
-      ${kind === 'Opaque' ? `<label>Body<textarea id="activity-opaque-body">${escapeHtml(action.kind.Opaque.body || '')}</textarea></label>` : ''}
+      ${kind === 'Opaque' ? `<label>Execution expression/body<textarea id="activity-opaque-body">${escapeHtml(action.kind.Opaque.body || '')}</textarea></label>` : ''}
+      ${actionReferenceEditor(action, kind)}
       ${kind === 'AcceptTimeEvent' ? `<label>Time expression<input id="activity-time-expression" value="${escapeAttr(action.kind.AcceptTimeEvent.expression || '')}"></label>` : ''}
       ${decision ? `<label>Decision input<input id="activity-decision-input" value="${escapeAttr(decision.decision_input || '')}"></label>` : ''}
       ${join ? `<label>Join specification<input id="activity-join-spec" value="${escapeAttr(join.join_specification || '')}"></label>` : ''}
@@ -200,6 +234,7 @@
       <button id="activity-apply-semantics" class="primary">Apply Activity Semantics</button>`;
 
     $('activity-apply-semantics').onclick = async () => {
+      const referenceEditor = $('activity-action-reference');
       await runCommand('Updating Activity semantics…', () => requireInvoke()('update_activity_node_semantics', {
         diagramId: diagram.id,
         activityNodeId: node.id,
@@ -208,6 +243,8 @@
         decisionInput: $('activity-decision-input')?.value ?? null,
         joinSpecification: $('activity-join-spec')?.value ?? null,
         timeExpression: $('activity-time-expression')?.value ?? null,
+        actionReferenceId: referenceEditor?.value || null,
+        updateActionReference: Boolean(referenceEditor),
       }));
       await requireInvoke()('assign_activity_node_partition', {
         diagramId: diagram.id,
@@ -333,12 +370,23 @@
     return executionSnapshot()?.execution?.state || 'Not initialized';
   }
 
+  function clearExecutionVisualization(svg) {
+    if (!svg) return;
+    for (const node of svg.querySelectorAll('.activity-node[data-activity-node-id]')) {
+      node.classList.remove('runtime-active', 'runtime-enabled', 'runtime-waiting', 'runtime-completed', 'runtime-failed');
+    }
+    for (const edge of svg.querySelectorAll('.activity-flow[data-activity-edge-id]')) {
+      edge.classList.remove('runtime-active', 'runtime-completed');
+    }
+    svg.querySelectorAll('.activity-runtime-token-badge').forEach((badge) => badge.remove());
+  }
+
   async function invokeExecution(command) {
     const diagram = activeDiagram();
     if (!diagram) throw new Error('Open an Activity Diagram first.');
     const snapshot = await requireInvoke()(command, { diagramId: diagram.id });
     Object.assign(state, { activityExecutionSnapshot: snapshot });
-    render();
+    refreshExecutionUi();
     return snapshot;
   }
 
@@ -368,7 +416,7 @@
     }
     if (generation === executionRunGeneration) {
       Object.assign(state, { activityExecutionRunning: false });
-      render();
+      refreshExecutionUi();
     }
   }
 
@@ -421,7 +469,7 @@
         } catch (error) {
           Object.assign(state, { activityExecutionRunning: false });
           window.smpDialogs?.notify?.(error?.message || String(error), 'error');
-          render();
+          refreshExecutionUi();
         }
       };
       ribbon.insertBefore(group, ribbon.querySelector('.ribbon-context'));
@@ -447,6 +495,7 @@
   }
 
   function applyExecutionVisualization(svg, activity) {
+    clearExecutionVisualization(svg);
     const snapshot = executionSnapshot();
     if (!snapshot) return;
     const rootNodes = snapshot.nodes.filter(
@@ -503,19 +552,38 @@
   }
 
   function renderExecutionPanel() {
-    const host = $('canvas');
+    const host = document.querySelector('.diagram-workspace');
     const snapshot = executionSnapshot();
-    if (!host || !snapshot) return;
+    let panel = document.querySelector('.activity-execution-panel');
+    if (!host || !snapshot) {
+      panel?.remove();
+      return;
+    }
+    if (!panel) {
+      panel = document.createElement('aside');
+      panel.className = 'activity-execution-panel';
+      panel.dataset.workspaceOverlay = 'true';
+      host.appendChild(panel);
+    } else if (panel.parentElement !== host) {
+      host.appendChild(panel);
+    }
     const execution = snapshot.execution;
     const diagnostics = (execution.diagnostics || []).slice(-4);
     const trace = (execution.trace || []).slice(-6);
-    const panel = document.createElement('aside');
-    panel.className = 'activity-execution-panel';
     panel.innerHTML = `<div class="activity-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div>
       <div class="activity-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.call_frames?.length || 0} frame(s)</span><span>${(snapshot.token_stores || []).reduce((sum, store) => sum + (store.tokens?.length || 0), 0)} token(s)</span></div>
       ${diagnostics.length ? `<div class="activity-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
       <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>`;
-    host.appendChild(panel);
+  }
+
+  function refreshExecutionUi() {
+    const diagram = activeDiagram();
+    const activity = activeActivity();
+    const svg = document.querySelector('.activity-svg');
+    ensureExecutionRibbon(Boolean(diagram));
+    if (svg) clearExecutionVisualization(svg);
+    if (diagram && activity && svg) applyExecutionVisualization(svg, activity);
+    renderExecutionPanel();
   }
 
   const baseRenderCanvas = renderCanvas;
@@ -525,7 +593,10 @@
     const activity = activeActivity();
     const svg = document.querySelector('.activity-svg');
     ensureExecutionRibbon(Boolean(diagram));
-    if (!diagram || !activity || !svg) return;
+    if (!diagram || !activity || !svg) {
+      renderExecutionPanel();
+      return;
+    }
     renderSemanticRegions(svg, diagram, activity);
     renderPins(svg, diagram, activity);
     applyExecutionVisualization(svg, activity);
@@ -565,6 +636,7 @@
       render();
     } catch (error) {
       console.error('Activity pin ObjectFlow creation failed', error);
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
     }
   }, true);
 })();
