@@ -68,6 +68,9 @@ for command in execution_commands:
 assert "ActivityExecutionEngine" in execution_rs and "ExecutionManager" in execution_rs, "Desktop execution does not use the Rust execution subsystem"
 assert "activityExecutionSnapshot" in rich_frontend, "Activity runtime visualization does not consume an execution snapshot"
 assert "runtime-active" in styles and "runtime-waiting" in styles and "runtime-failed" in styles, "Runtime states are not visually distinct"
+assert ".activity-node.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their active runtime indication"
+assert ".activity-node.runtime-failed:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their failed runtime indication"
+assert ".activity-flow.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity flows lose their active runtime indication"
 assert "eval(" not in rich_frontend, "Activity frontend must not execute model expressions"
 
 # Runtime snapshots may update overlays, ribbon state, trace and token badges, but
