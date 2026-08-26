@@ -44,8 +44,14 @@
     const contextLabel=document.getElementById('workspace-diagram-context');contextLabel.textContent=context?.family.displayName||'Select a diagram from the repository';contextLabel.title=context?.semanticContextId?`Semantic context: ${context.semanticContextId}`:'';
     canvas.setAttribute('aria-label',context?.family.accessibilityName||'Diagram canvas'); canvas.dataset.family=context?.family.id||''; document.getElementById('workspace-header').dataset.family=context?.family.id||'';
   }
+  function diagramSurfaceCandidate() {
+    return [...canvas.children].find((node) =>
+      !node.classList.contains('workspace-transform-spacer')
+      && node.dataset?.workspaceOverlay !== 'true'
+    );
+  }
   function mountSurface() {
-    const root = [...canvas.children].find((node) => !node.classList.contains('workspace-transform-spacer'));
+    const root = diagramSurfaceCandidate();
     if (!root) return; if(root===state.surface){if(!state.frameElement?.isConnected||state.frameElement.dataset.diagramId!==state.context?.diagramId)mountDiagramFrame();applyViewport();return;}
     const spacer=document.createElement('div'); spacer.className='workspace-transform-spacer'; canvas.insertBefore(spacer,root); spacer.appendChild(root);
     state.surface = root; state.spacer = spacer;
@@ -83,7 +89,7 @@
   function mountSurfaceIfNeeded() {
     if (!state.surface?.isConnected) {
       state.surface = null; state.spacer = null;
-      const root = [...canvas.children].find((node) => !node.classList.contains('workspace-transform-spacer'));
+      const root = diagramSurfaceCandidate();
       if (root) {
         const spacer = document.createElement('div'); spacer.className = 'workspace-transform-spacer';
         canvas.insertBefore(spacer, root); spacer.appendChild(root); state.surface = root; state.spacer = spacer;
@@ -98,7 +104,7 @@
     if (!invoke || !state.context || !state.viewport) return Promise.resolve();
     clearTimeout(persistTimer);
     return invoke('set_viewport_preference', { diagramId: state.context.diagramId, preference: state.viewport })
-      .catch((error) => notify(String(error), 'error'));
+      .catch((error) => notify(String(error),'error'));
   }
   function scheduleViewportPersistence() { clearTimeout(persistTimer); persistTimer = setTimeout(persistViewport, 120); }
 
@@ -184,7 +190,10 @@
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
     try {
       await publishInteraction();
-      const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
+      // The SysML frame is notation, not a hard workspace/routing box. Preserve
+      // its authored geometry, but Route/Clean Layout must be free to repair the
+      // diagram using the usable canvas rather than fail at the frame edge.
+      const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame?{...state.frame,manuallySized:false}:null,...args}:args;
       await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
       // Use the same authoritative refresh path for every family. The Behavior
       // refresh wrapper hydrates STM/Sequence state before render, while the
