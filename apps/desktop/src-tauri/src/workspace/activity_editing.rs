@@ -48,6 +48,61 @@ fn operation_pins(project: &Project, operation_id: ElementId) -> Result<Vec<Pin>
     Ok(pins)
 }
 
+fn validate_activity_node_reference(
+    repository: &systems_modeler_core::ActivityRepository,
+    project: &Project,
+    node: &ActivityNode,
+) -> Result<(), String> {
+    match &node.kind {
+        ActivityNodeKind::Action(action) => match &action.kind {
+            ActionKind::CallBehavior { activity_id } => {
+                if !repository.activities.contains_key(activity_id) {
+                    return Err("CallBehaviorAction references an unknown Activity".into());
+                }
+            }
+            ActionKind::CallOperation { operation_id } => {
+                let operation = project
+                    .element(*operation_id)
+                    .map_err(|error| error.to_string())?;
+                if operation.kind != ElementKind::Operation {
+                    return Err("CallOperationAction requires an Operation stable ID".into());
+                }
+            }
+            ActionKind::SendSignal { signal_id } => {
+                let signal = project
+                    .element(*signal_id)
+                    .map_err(|error| error.to_string())?;
+                if signal.kind != ElementKind::Signal {
+                    return Err("SendSignalAction requires a Signal stable ID".into());
+                }
+            }
+            ActionKind::AcceptEvent {
+                signal_id: Some(signal_id),
+            } => {
+                let signal = project
+                    .element(*signal_id)
+                    .map_err(|error| error.to_string())?;
+                if signal.kind != ElementKind::Signal {
+                    return Err("AcceptEventAction requires a Signal stable ID".into());
+                }
+            }
+            ActionKind::AcceptEvent { signal_id: None }
+            | ActionKind::Opaque { .. }
+            | ActionKind::AcceptTimeEvent { .. } => {}
+        },
+        ActivityNodeKind::ActivityParameter(parameter) => {
+            let element = project
+                .element(parameter.parameter_id)
+                .map_err(|error| error.to_string())?;
+            if element.kind != ElementKind::Parameter {
+                return Err("ActivityParameterNode requires a Parameter stable ID".into());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn push_presented_node(
     diagram: &mut activity_workspace::ActivityDiagram,
     node: &ActivityNode,
@@ -147,13 +202,11 @@ pub fn add_activity_action(
         partition_id: None,
         structured_node_id: None,
     };
+    validate_activity_node_reference(&repository, project, &node)?;
     let id = node.id;
     activity_for_diagram(&mut repository, diagram)?
         .nodes
         .push(node.clone());
-    repository
-        .validate(project)
-        .map_err(|error| error.to_string())?;
     push_presented_node(diagram, &node, x, y);
     Ok(id.to_string())
 }
@@ -204,13 +257,11 @@ pub fn add_activity_parameter_node(
         partition_id: None,
         structured_node_id: None,
     };
+    validate_activity_node_reference(&repository, project, &node)?;
     let id = node.id;
     activity_for_diagram(&mut repository, diagram)?
         .nodes
         .push(node.clone());
-    repository
-        .validate(project)
-        .map_err(|error| error.to_string())?;
     push_presented_node(diagram, &node, x, y);
     Ok(id.to_string())
 }
@@ -524,9 +575,15 @@ pub fn update_activity_node_semantics(
         repository.activities.insert(activity_id, original);
         return Err(error);
     }
-    if let Err(error) = repository.validate(project) {
+    let updated = repository
+        .activities
+        .get(&activity_id)
+        .and_then(|activity| activity.nodes.iter().find(|node| node.id == node_id))
+        .cloned()
+        .ok_or("Activity node not found")?;
+    if let Err(error) = validate_activity_node_reference(&repository, project, &updated) {
         repository.activities.insert(activity_id, original);
-        return Err(error.to_string());
+        return Err(error);
     }
     Ok(())
 }
