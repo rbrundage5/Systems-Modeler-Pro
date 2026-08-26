@@ -5,11 +5,13 @@ main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-
 workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text(encoding="utf-8")
 editing_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_editing.rs").read_text(encoding="utf-8")
 mutation_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_mutation.rs").read_text(encoding="utf-8")
+execution_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_execution.rs").read_text(encoding="utf-8")
 frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text(encoding="utf-8")
 rich_frontend = (root / "apps/desktop/frontend/activity-rich-ui.js").read_text(encoding="utf-8")
 navigation_frontend = (root / "apps/desktop/frontend/activity-navigation-ui.js").read_text(encoding="utf-8")
 mutation_frontend = (root / "apps/desktop/frontend/activity-mutation-ui.js").read_text(encoding="utf-8")
 index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
+styles = (root / "apps/desktop/frontend/activity.css").read_text(encoding="utf-8")
 
 base_commands = [
     "activity_snapshot",
@@ -47,6 +49,26 @@ for command in mutation_commands:
     assert command in main_rs, f"Activity mutation command is not registered: {command}"
     assert command in mutation_rs, f"Activity mutation implementation is missing: {command}"
     assert command in mutation_frontend, f"Activity mutation command is not forwarded by the frontend: {command}"
+
+execution_commands = [
+    "initialize_activity_execution",
+    "activity_execution_snapshot",
+    "run_activity_execution",
+    "step_activity_execution",
+    "pause_activity_execution",
+    "resume_activity_execution",
+    "reset_activity_execution",
+    "terminate_activity_execution",
+]
+for command in execution_commands:
+    assert command in main_rs, f"Activity execution command is not registered: {command}"
+    assert command in execution_rs, f"Activity execution command implementation is missing: {command}"
+    assert command in rich_frontend or command in frontend, f"Activity execution command is not forwarded by the frontend: {command}"
+
+assert "ActivityExecutionEngine" in execution_rs and "ExecutionManager" in execution_rs, "Desktop execution does not use the Rust execution subsystem"
+assert "activityExecutionSnapshot" in rich_frontend, "Activity runtime visualization does not consume an execution snapshot"
+assert "runtime-active" in styles and "runtime-waiting" in styles and "runtime-failed" in styles, "Runtime states are not visually distinct"
+assert "eval(" not in rich_frontend, "Activity frontend must not execute model expressions"
 
 for semantic_kind in [
     "CallBehaviorAction",

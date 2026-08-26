@@ -316,15 +316,220 @@
     }
   }
 
+  Object.assign(state, {
+    activityExecutionSnapshot: null,
+    activityExecutionRunning: false,
+  });
+  let executionRunGeneration = 0;
+
+  function executionSnapshot() {
+    const snapshot = state.activityExecutionSnapshot;
+    return snapshot && String(snapshot.root_activity_id) === String(activeDiagram()?.activity_id)
+      ? snapshot
+      : null;
+  }
+
+  function executionState() {
+    return executionSnapshot()?.execution?.state || 'Not initialized';
+  }
+
+  async function invokeExecution(command) {
+    const diagram = activeDiagram();
+    if (!diagram) throw new Error('Open an Activity Diagram first.');
+    const snapshot = await requireInvoke()(command, { diagramId: diagram.id });
+    Object.assign(state, { activityExecutionSnapshot: snapshot });
+    render();
+    return snapshot;
+  }
+
+  async function initializeExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    await invokeExecution('initialize_activity_execution');
+  }
+
+  async function stepExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (!executionSnapshot()) await initializeExecution();
+    await invokeExecution('step_activity_execution');
+  }
+
+  async function runExecution(resume) {
+    if (!executionSnapshot()) await initializeExecution();
+    const command = resume ? 'resume_activity_execution' : 'run_activity_execution';
+    await invokeExecution(command);
+    const generation = ++executionRunGeneration;
+    Object.assign(state, { activityExecutionRunning: true });
+    while (generation === executionRunGeneration && executionState() === 'Running') {
+      await invokeExecution('step_activity_execution');
+      if (executionState() !== 'Running') break;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    if (generation === executionRunGeneration) {
+      Object.assign(state, { activityExecutionRunning: false });
+      render();
+    }
+  }
+
+  async function pauseExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (executionState() === 'Running') await invokeExecution('pause_activity_execution');
+  }
+
+  async function resetExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (!executionSnapshot()) return initializeExecution();
+    return invokeExecution('reset_activity_execution');
+  }
+
+  async function terminateExecution() {
+    executionRunGeneration += 1;
+    Object.assign(state, { activityExecutionRunning: false });
+    if (executionSnapshot()) await invokeExecution('terminate_activity_execution');
+  }
+
+  function ensureExecutionRibbon(visible) {
+    const ribbon = document.querySelector('.ribbon');
+    if (!ribbon) return;
+    let group = ribbon.querySelector('.activity-execution-ribbon-group');
+    if (!group) {
+      group = document.createElement('section');
+      group.className = 'ribbon-group activity-execution-ribbon-group';
+      group.innerHTML = `<div class="ribbon-actions activity-execution-actions">
+        <button class="ribbon-command" data-activity-execution="initialize"><span class="command-icon">◇</span><span>Initialize</span></button>
+        <button class="ribbon-command" data-activity-execution="run"><span class="command-icon">▶</span><span>Run</span></button>
+        <button class="ribbon-command" data-activity-execution="step"><span class="command-icon">▸</span><span>Step</span></button>
+        <button class="ribbon-command" data-activity-execution="pause"><span class="command-icon">Ⅱ</span><span>Pause</span></button>
+        <button class="ribbon-command" data-activity-execution="resume"><span class="command-icon">▷</span><span>Resume</span></button>
+        <button class="ribbon-command" data-activity-execution="reset"><span class="command-icon">↺</span><span>Reset</span></button>
+        <button class="ribbon-command" data-activity-execution="terminate"><span class="command-icon">■</span><span>Terminate</span></button>
+      </div><div class="ribbon-label">Activity Execution</div>`;
+      group.onclick = async (event) => {
+        const command = event.target.closest?.('[data-activity-execution]')?.dataset.activityExecution;
+        if (!command) return;
+        try {
+          if (command === 'initialize') await initializeExecution();
+          else if (command === 'run') await runExecution(false);
+          else if (command === 'step') await stepExecution();
+          else if (command === 'pause') await pauseExecution();
+          else if (command === 'resume') await runExecution(true);
+          else if (command === 'reset') await resetExecution();
+          else if (command === 'terminate') await terminateExecution();
+        } catch (error) {
+          Object.assign(state, { activityExecutionRunning: false });
+          window.smpDialogs?.notify?.(error?.message || String(error), 'error');
+          render();
+        }
+      };
+      ribbon.insertBefore(group, ribbon.querySelector('.ribbon-context'));
+    }
+    group.hidden = !visible;
+    const current = executionState();
+    const initialized = current !== 'Not initialized';
+    const running = current === 'Running';
+    const paused = current === 'Paused';
+    for (const button of group.querySelectorAll('[data-activity-execution]')) {
+      const command = button.dataset.activityExecution;
+      button.disabled = !visible
+        || (command === 'run' && (!initialized || !['Initialized', 'Paused'].includes(current)))
+        || (command === 'step' && (!initialized || running || ['Completed', 'Failed', 'Terminated'].includes(current)))
+        || (command === 'pause' && !running)
+        || (command === 'resume' && !paused)
+        || (['reset', 'terminate'].includes(command) && !initialized);
+    }
+  }
+
+  function runtimeEndpointId(endpoint) {
+    return endpoint?.Node || endpoint?.Pin || null;
+  }
+
+  function applyExecutionVisualization(svg, activity) {
+    const snapshot = executionSnapshot();
+    if (!snapshot) return;
+    const rootNodes = snapshot.nodes.filter(
+      (node) => String(node.activity_id) === String(snapshot.root_activity_id),
+    );
+    const nodeStates = new Map(rootNodes.map((node) => [String(node.node_id), node.state]));
+    const activeNodes = new Set((snapshot.active_node_ids || []).map(String));
+    const activeEdges = new Set((snapshot.active_edge_ids || []).map(String));
+    const completedEdges = new Set((snapshot.completed_edge_ids || []).map(String));
+    for (const node of svg.querySelectorAll('.activity-node[data-activity-node-id]')) {
+      const id = String(node.dataset.activityNodeId);
+      node.classList.toggle('runtime-active', activeNodes.has(id));
+      for (const runtimeState of ['Enabled', 'Waiting', 'Completed', 'Failed']) {
+        node.classList.toggle(`runtime-${runtimeState.toLowerCase()}`, nodeStates.get(id) === runtimeState);
+      }
+    }
+    for (const edge of svg.querySelectorAll('.activity-flow[data-activity-edge-id]')) {
+      const id = String(edge.dataset.activityEdgeId);
+      edge.classList.toggle('runtime-active', activeEdges.has(id));
+      edge.classList.toggle('runtime-completed', completedEdges.has(id));
+    }
+
+    const nodeTokenCounts = new Map();
+    for (const store of snapshot.token_stores || []) {
+      if (String(store.activity_id) !== String(snapshot.root_activity_id)) continue;
+      const endpointId = runtimeEndpointId(store.endpoint);
+      if (!endpointId) continue;
+      const ownerNode = activity.nodes.find((node) => {
+        if (String(node.id) === String(endpointId)) return true;
+        return (node.kind?.Action?.pins || []).some((pin) => String(pin.id) === String(endpointId));
+      });
+      if (!ownerNode) continue;
+      const key = String(ownerNode.id);
+      nodeTokenCounts.set(key, (nodeTokenCounts.get(key) || 0) + (store.tokens?.length || 0));
+    }
+    for (const [nodeId, count] of nodeTokenCounts) {
+      const presentation = presentationForNode(activeDiagram(), nodeId);
+      if (!presentation) continue;
+      const badge = svgElement('g', { class: 'activity-runtime-token-badge' });
+      badge.appendChild(svgElement('circle', {
+        cx: presentation.x + presentation.width - 5,
+        cy: presentation.y + 5,
+        r: 10,
+      }));
+      const label = svgElement('text', {
+        x: presentation.x + presentation.width - 5,
+        y: presentation.y + 9,
+        'text-anchor': 'middle',
+      });
+      label.textContent = String(count);
+      badge.appendChild(label);
+      svg.appendChild(badge);
+    }
+  }
+
+  function renderExecutionPanel() {
+    const host = $('canvas');
+    const snapshot = executionSnapshot();
+    if (!host || !snapshot) return;
+    const execution = snapshot.execution;
+    const diagnostics = (execution.diagnostics || []).slice(-4);
+    const trace = (execution.trace || []).slice(-6);
+    const panel = document.createElement('aside');
+    panel.className = 'activity-execution-panel';
+    panel.innerHTML = `<div class="activity-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div>
+      <div class="activity-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.call_frames?.length || 0} frame(s)</span><span>${(snapshot.token_stores || []).reduce((sum, store) => sum + (store.tokens?.length || 0), 0)} token(s)</span></div>
+      ${diagnostics.length ? `<div class="activity-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
+      <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>`;
+    host.appendChild(panel);
+  }
+
   const baseRenderCanvas = renderCanvas;
   renderCanvas = function renderRichActivityCanvas() {
     baseRenderCanvas();
     const diagram = activeDiagram();
     const activity = activeActivity();
     const svg = document.querySelector('.activity-svg');
+    ensureExecutionRibbon(Boolean(diagram));
     if (!diagram || !activity || !svg) return;
     renderSemanticRegions(svg, diagram, activity);
     renderPins(svg, diagram, activity);
+    applyExecutionVisualization(svg, activity);
+    renderExecutionPanel();
   };
 
   document.addEventListener('click', async (event) => {

@@ -3,8 +3,9 @@ use crate::{
     ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository,
     DiagnosticSeverity, ElementId, EngineStepOutcome, ExecutionEngine, ExecutionError,
     ExecutionSession, ExecutionSnapshot, ObjectNodeKind, ObjectNodeOrdering, ParameterDirection,
-    Pin, PinDirection, Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind, RuntimeValue,
-    StructuredActivityNodeKind, evaluate_execution_expression,
+    Pin, PinDirection, Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind,
+    RuntimeEventRequest, RuntimeValue, StructuredActivityNodeKind,
+    evaluate_execution_expression,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -303,6 +304,20 @@ impl ActivityExecutionEngine {
             .map_err(|error| engine_error(format!("Cannot initialize Activity execution: {error}")))?;
         let activity = self.activity(self.root_activity_id)?.clone();
         self.warn_for_structured_semantics(&activity, session);
+        let authored_defaults: Vec<_> = project
+            .elements
+            .values()
+            .filter_map(|element| {
+                element
+                    .default_value
+                    .as_deref()
+                    .and_then(parse_authored_value)
+                    .map(|value| (element.id, value))
+            })
+            .collect();
+        for (element_id, value) in authored_defaults {
+            session.set_value(project, None, element_id, value)?;
+        }
         let inputs = self.initial_inputs.clone();
         let frame = self.make_frame(project, session, &activity, None, &inputs)?;
         session.record_engine_trace(
@@ -742,15 +757,17 @@ impl ActivityExecutionEngine {
                     .map_err(|error| engine_error(error.to_string()))?;
                 session.queue_typed_event_at(
                     project,
-                    session.simulation_time,
-                    RuntimeEventKind::Signal,
-                    signal.name.clone(),
-                    Some(*signal_id),
-                    RuntimeEventAddress {
-                        source_semantic_id: activity.context_id,
-                        ..RuntimeEventAddress::default()
+                    RuntimeEventRequest {
+                        due_time: session.simulation_time,
+                        kind: RuntimeEventKind::Signal,
+                        name: signal.name.clone(),
+                        semantic_event_id: Some(*signal_id),
+                        address: RuntimeEventAddress {
+                            source_semantic_id: activity.context_id,
+                            ..RuntimeEventAddress::default()
+                        },
+                        payload: inputs,
                     },
-                    inputs,
                 )?;
             }
             ActionKind::AcceptEvent { .. } => {
@@ -814,7 +831,6 @@ impl ActivityExecutionEngine {
                     project,
                     session,
                     frame_index,
-                    activity,
                     action,
                     &local,
                     result,
@@ -867,11 +883,13 @@ impl ActivityExecutionEngine {
         project: &Project,
         session: &ExecutionSession,
         frame_index: usize,
-        activity: &Activity,
         action: &Action,
         local: &HashMap<String, RuntimeValue>,
         body_result: Option<RuntimeValue>,
     ) -> Result<(), ExecutionError> {
+        let activity = self
+            .activity(self.frames[frame_index].activity_id)?
+            .clone();
         let output_pins: Vec<_> = action
             .pins
             .iter()
@@ -886,7 +904,7 @@ impl ActivityExecutionEngine {
                 None
             };
             if let Some(value) = value {
-                self.emit_pin_value(frame_index, activity, pin, value)?;
+                self.emit_pin_value(frame_index, &activity, pin, value)?;
             }
         }
         Ok(())

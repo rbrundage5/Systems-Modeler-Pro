@@ -69,6 +69,8 @@
     await loadActivityPalette();
     const diagram = state.activitySnapshot?.diagrams?.find((candidate) => String(candidate.id) === String(id));
     await window.smpRendererHost?.activate({ diagramId:id, familyId:'activity', name:diagram?.name || 'Activity Diagram', semanticContextId:diagram?.activity_id || '' });
+    const execution = await requireInvoke()('activity_execution_snapshot', { diagramId: id });
+    Object.assign(state, { activityExecutionSnapshot: execution, activityExecutionRunning: false });
     render();
   }
   window.smpSelectActivityDiagram = selectActivityDiagram;
@@ -245,6 +247,7 @@
     if (points.length < 2) return;
     const path = makeSvg('polyline', {
       class: `activity-flow ${semantic?.kind === 'ObjectFlow' ? 'object-flow' : 'control-flow'}`,
+      'data-activity-edge-id': semantic?.id || '',
       points: points.map((point) => `${point.x},${point.y}`).join(' '),
       'marker-end': 'url(#activity-arrow)',
     });
@@ -376,16 +379,22 @@
 
   if ($('new-project')) $('new-project').onclick = async () => {
     await originalNewProject?.();
-    if (state.snapshot?.project) await requireInvoke()('reset_activity_workspace');
+    if (state.snapshot?.project) {
+      await requireInvoke()('reset_activity_workspace');
+      await requireInvoke()('clear_activity_executions');
+    }
     state.activitySnapshot = { repository: { activities: {} }, diagrams: [] };
     state.selectedActivityDiagramId = null;
+    Object.assign(state, { activityExecutionSnapshot: null, activityExecutionRunning: false });
     render();
   };
   if ($('open-project')) $('open-project').onclick = async () => {
     await originalOpenProject?.();
     if (state.snapshot?.current_file) {
+      await requireInvoke()('clear_activity_executions');
       await requireInvoke()('load_activity_workspace', { path: state.snapshot.current_file });
       await loadActivitySnapshot();
+      Object.assign(state, { activityExecutionSnapshot: null, activityExecutionRunning: false });
       render();
     }
   };

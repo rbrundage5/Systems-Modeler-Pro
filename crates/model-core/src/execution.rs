@@ -159,6 +159,16 @@ pub struct RuntimeEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeEventRequest {
+    pub due_time: SimulationTime,
+    pub kind: RuntimeEventKind,
+    pub name: String,
+    pub semantic_event_id: Option<ElementId>,
+    pub address: RuntimeEventAddress,
+    pub payload: Vec<(String, RuntimeValue)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScheduledEvent {
     pub due_time: SimulationTime,
     pub event: RuntimeEvent,
@@ -797,18 +807,23 @@ impl ExecutionSession {
         address: RuntimeEventAddress,
         payload: Vec<(String, RuntimeValue)>,
     ) -> Result<u64, ExecutionError> {
-        self.queue_typed_event_at(project, due_time, kind, name, None, address, payload)
+        self.queue_typed_event_at(
+            project,
+            RuntimeEventRequest {
+                due_time,
+                kind,
+                name: name.into(),
+                semantic_event_id: None,
+                address,
+                payload,
+            },
+        )
     }
 
     pub fn queue_typed_event_at(
         &mut self,
         project: &Project,
-        due_time: SimulationTime,
-        kind: RuntimeEventKind,
-        name: impl Into<String>,
-        semantic_event_id: Option<ElementId>,
-        address: RuntimeEventAddress,
-        payload: Vec<(String, RuntimeValue)>,
+        request: RuntimeEventRequest,
     ) -> Result<u64, ExecutionError> {
         self.require_project(project)?;
         if self.event_queue.len() >= self.configuration.max_queued_events {
@@ -816,27 +831,31 @@ impl ExecutionSession {
                 limit: self.configuration.max_queued_events,
             });
         }
-        for id in address
+        for id in request
+            .address
             .source_semantic_id
             .into_iter()
-            .chain(address.target_semantic_id)
+            .chain(request.address.target_semantic_id)
         {
             if !project.elements.contains_key(&id) {
                 return Err(ExecutionError::SemanticElementNotFound);
             }
         }
-        if semantic_event_id.is_some_and(|id| !project.elements.contains_key(&id)) {
+        if request
+            .semantic_event_id
+            .is_some_and(|id| !project.elements.contains_key(&id))
+        {
             return Err(ExecutionError::SemanticElementNotFound);
         }
         let source_semantic_id = self.resolve_instance_semantic(
-            address.source_runtime_instance_id,
-            address.source_semantic_id,
+            request.address.source_runtime_instance_id,
+            request.address.source_semantic_id,
         )?;
         let target_semantic_id = self.resolve_instance_semantic(
-            address.target_runtime_instance_id,
-            address.target_semantic_id,
+            request.address.target_runtime_instance_id,
+            request.address.target_semantic_id,
         )?;
-        for (_, value) in &payload {
+        for (_, value) in &request.payload {
             validate_runtime_payload_value(project, value)?;
         }
 
@@ -844,29 +863,36 @@ impl ExecutionSession {
         self.next_event_sequence += 1;
         let event = RuntimeEvent {
             sequence,
-            kind,
-            name: name.into(),
-            semantic_event_id,
+            kind: request.kind,
+            name: request.name,
+            semantic_event_id: request.semantic_event_id,
             source_semantic_id,
             target_semantic_id,
-            source_runtime_instance_id: address.source_runtime_instance_id,
-            target_runtime_instance_id: address.target_runtime_instance_id,
-            payload,
+            source_runtime_instance_id: request.address.source_runtime_instance_id,
+            target_runtime_instance_id: request.address.target_runtime_instance_id,
+            payload: request.payload,
         };
         self.push_trace(
             TraceKind::EventQueued,
             TraceContext {
                 semantic_element_id: target_semantic_id,
-                runtime_instance_id: address.target_runtime_instance_id,
+                runtime_instance_id: request.address.target_runtime_instance_id,
                 event_sequence: Some(sequence),
                 source_semantic_id,
                 target_semantic_id,
-                source_runtime_instance_id: address.source_runtime_instance_id,
-                target_runtime_instance_id: address.target_runtime_instance_id,
+                source_runtime_instance_id: request.address.source_runtime_instance_id,
+                target_runtime_instance_id: request.address.target_runtime_instance_id,
             },
-            format!("Queued {} event '{}'", event_kind_name(kind), event.name),
+            format!(
+                "Queued {} event '{}'",
+                event_kind_name(request.kind),
+                event.name
+            ),
         );
-        self.insert_scheduled_event(ScheduledEvent { due_time, event });
+        self.insert_scheduled_event(ScheduledEvent {
+            due_time: request.due_time,
+            event,
+        });
         self.touch();
         Ok(sequence)
     }
