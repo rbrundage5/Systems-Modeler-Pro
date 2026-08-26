@@ -22,6 +22,8 @@ authored ActivityRepository
 The frontend requests Rust state and renders it. It does not select flows,
 evaluate guards, move tokens, dispatch events, or advance simulation time.
 
+Execution sessions are tied to the authored Project + ActivityRepository used to initialize them. If the authored Activity changes after initialization, the desktop execution boundary invalidates the stale engine/session and rebuilds from the current authored model before Run, Step, Resume, or Reset can advance execution. A stale runtime snapshot is not returned as if it still matched the edited Activity.
+
 ## Implemented semantics
 
 - Control tokens for Initial, Action, Decision, Merge, Fork, Join, Flow Final,
@@ -89,5 +91,6 @@ or creating a project clears transient sessions; save data is unchanged.
 7. Change the OpaqueAction body to `x = 1`, initialize, and step. Confirm the
    session fails with a bounded-expression diagnostic rather than executing the
    assignment.
-8. Save, close, and reopen the project. Confirm the authored Activity remains
+8. Edit or delete that Action from the authored model, then Run/Step/Reset again. Confirm the stale `x = 1` runtime does not survive the authored-model change.
+9. Save, close, and reopen the project. Confirm the authored Activity remains
    present and no prior runtime token, highlight, value, or trace was persisted.
