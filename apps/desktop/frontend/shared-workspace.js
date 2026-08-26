@@ -190,10 +190,10 @@
     if (!invoke || !command.rustAdapter) { notify(`${command.label} is unavailable in this context.`, 'warning'); return false; }
     try {
       await publishInteraction();
-      // The SysML frame is notation, not a hard workspace/routing box. Preserve
-      // its authored geometry, but Route/Clean Layout must be free to repair the
-      // diagram using the usable canvas rather than fail at the frame edge.
-      const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame?{...state.frame,manuallySized:false}:null,...args}:args;
+      // Preserve the committed SysML frame contract. Automatic frames continue
+      // to follow content, while a manually sized frame remains the authoritative
+      // Route/Clean Layout boundary in the shared Rust workspace.
+      const committedArgs=(id==='route'||id==='cleanLayout')?{framePreference:state.frame,...args}:args;
       await invoke(command.rustAdapter, { diagramId: state.context.diagramId, ...committedArgs });
       // Use the same authoritative refresh path for every family. The Behavior
       // refresh wrapper hydrates STM/Sequence state before render, while the
