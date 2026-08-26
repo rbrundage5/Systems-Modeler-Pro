@@ -208,10 +208,12 @@ require(
         "if (distance < 5) return;",
         "await createPaletteElementAt(payload.item, point.x, point.y);",
         "await placeExistingElementAt(payload.elementId, point.x, point.y);",
+        "frame.onclick = async (event) => {",
+        "await createPaletteElementAt(state.paletteTool, point.x, point.y);",
         "create_package_element",
         "place_on_package_diagram",
     ],
-    "shared drag/drop and Package Diagram authoring",
+    "shared drag/drop and effective Package Diagram authoring",
 )
 require(
     use_case_ui,
