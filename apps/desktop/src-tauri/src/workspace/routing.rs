@@ -694,6 +694,11 @@ pub fn route_avoids_reserved(
     allow_shared_departure: bool,
 ) -> bool {
     reserved_routes.iter().all(|reserved| {
+        // Sharing the first or last segment is a qualified branch/merge exception.
+        // An identical whole route is not a branch or merge: it is complete route
+        // overlap and must remain a preferred-routing conflict. Recovery may still
+        // reuse that corridor after all separated obstacle-clear candidates fail.
+        let identical_route = candidate == reserved.as_slice();
         let candidate_last = candidate.len().saturating_sub(2);
         let reserved_last = reserved.len().saturating_sub(2);
         candidate
@@ -704,11 +709,13 @@ pub fn route_avoids_reserved(
                     .windows(2)
                     .enumerate()
                     .all(|(reserved_index, reserved_segment)| {
-                        let shared_departure = allow_shared_departure
+                        let shared_departure = !identical_route
+                            && allow_shared_departure
                             && candidate_index == 0
                             && reserved_index == 0
                             && candidate_segment[0] == reserved_segment[0];
-                        let shared_arrival = candidate_index == candidate_last
+                        let shared_arrival = !identical_route
+                            && candidate_index == candidate_last
                             && reserved_index == reserved_last
                             && candidate_segment[1] == reserved_segment[1];
                         shared_departure
