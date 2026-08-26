@@ -1,4 +1,4 @@
-"""Validate the PR22 cross-diagram standard editing boundary."""
+"""Validate the PR22 cross-diagram standard editing and authoring boundary."""
 
 from pathlib import Path
 
@@ -22,6 +22,15 @@ ui = read("apps/desktop/frontend/standard-editing-ui.js")
 marquee = read("apps/desktop/frontend/marquee-selection.js")
 index = read("apps/desktop/frontend/index.html")
 shared = read("apps/desktop/frontend/shared-workspace.js")
+app = read("apps/desktop/frontend/app.js")
+workspace_ux = read("apps/desktop/frontend/workspace-ux.js")
+ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
+use_case_ui = read("apps/desktop/frontend/use-case-ui.js")
+parametric_ui = read("apps/desktop/frontend/parametric-ui.js")
+behavior_completion_ui = read("apps/desktop/frontend/behavior-completion-ui.js")
+behavior_sequence_input = read("apps/desktop/frontend/behavior-sequence-input.js")
+activity_ui = read("apps/desktop/frontend/activity-ui.js")
+activity_rich_ui = read("apps/desktop/frontend/activity-rich-ui.js")
 main = read("apps/desktop/src-tauri/src/main.rs")
 behavior = read("apps/desktop/src-tauri/src/workspace/behavior_workspace.rs")
 repository = read("apps/desktop/src-tauri/src/workspace/repository_editing.rs")
@@ -129,6 +138,31 @@ for forbidden in (
             "marquee-selection.js must not own a keyboard controller; "
             "Space/Ctrl/Meta panning belongs to shared-workspace.js"
         )
+
+# A simple palette click on an empty renderer surface must remain a renderer click.
+# Capturing the pointer during pointerdown can retarget the synthetic click to the
+# shared canvas and silently disable click-to-place in every family that authors by
+# clicking its SVG/frame. Marquee may capture only after the drag threshold is met.
+marquee_pointerdown = marquee.split("canvas.addEventListener('pointerdown'", 1)[1].split(
+    "canvas.addEventListener('pointermove'", 1
+)[0]
+if "setPointerCapture" in marquee_pointerdown:
+    raise SystemExit(
+        "marquee-selection.js captures on pointerdown and can steal palette click-to-place from diagram renderers"
+    )
+marquee_pointermove = marquee.split("canvas.addEventListener('pointermove'", 1)[1].split(
+    "canvas.addEventListener('pointerup'", 1
+)[0]
+require(
+    marquee_pointermove,
+    [
+        "Math.hypot(drag.lastX - drag.startX, drag.lastY - drag.startY) >= 4",
+        "drag.moved = true;",
+        "canvas.setPointerCapture?.(event.pointerId);",
+    ],
+    "marquee drag-threshold pointer capture",
+)
+
 if '<script src="standard-editing-ui.js"></script>\n  <script src="marquee-selection.js"></script>' not in index:
     raise SystemExit("marquee-selection.js must load after standard-editing-ui.js")
 
@@ -137,6 +171,111 @@ if "itemType: edge ? 'Edge' : 'Node'" in ui:
         "standard-editing-ui.js: Activity model deletion must use the qualified "
         "delete_activity_item itemKind contract with lowercase edge/node values"
     )
+
+# Cross-family authoring preservation. These assertions intentionally validate the
+# established family adapters rather than inventing a new generic authoring system.
+# PR31 execution must coexist with the same palette/canvas/repository paths that
+# were already qualified before execution was introduced.
+require(
+    app,
+    [
+        "button.onclick = () => activatePaletteItem(item);",
+        "frame.onclick = async (event) => {",
+        "await createPaletteElementAt(state.paletteTool, point.x, point.y);",
+        "frame.ondrop = async (event) => {",
+        "await placeExistingElementAt(elementId, point.x, point.y);",
+        "place_element_on_bdd",
+        "place_on_requirement_diagram",
+    ],
+    "BDD/Requirement palette and repository authoring",
+)
+require(
+    workspace_ux,
+    [
+        "if (distance < 5) return;",
+        "await createPaletteElementAt(payload.item, point.x, point.y);",
+        "await placeExistingElementAt(payload.elementId, point.x, point.y);",
+        "create_package_element",
+        "place_on_package_diagram",
+    ],
+    "shared drag/drop and Package Diagram authoring",
+)
+require(
+    use_case_ui,
+    [
+        "frame.onclick = async (event) => {",
+        "await createPaletteElementAt(state.paletteTool, point.x, point.y);",
+        "frame.ondrop = async (event) => {",
+        "create_use_case_element",
+        "place_on_use_case_diagram",
+    ],
+    "Use Case palette and repository authoring",
+)
+require(
+    parametric_ui,
+    [
+        "frame.onclick = async (event) => {",
+        "await createPaletteElementAt(state.paletteTool, point.x, point.y);",
+        "frame.ondrop = async (event) => {",
+        "create_parametric_constraint_property",
+        "create_parametric_value_property",
+        "place_on_parametric_diagram",
+    ],
+    "Parametric palette and repository authoring",
+)
+require(
+    ibd_ui,
+    [
+        "populate_ibd_from_context",
+        "add_nested_port_to_ibd",
+        "create_ibd_connector",
+    ],
+    "IBD qualified context/population authoring",
+)
+require(
+    behavior_completion_ui,
+    [
+        "button.onclick = () => activateBehaviorTool(item.id);",
+        "frame.addEventListener('click', async (event) => {",
+        "await createStateToolAt(frame, diagram, event);",
+        "add_state_vertex",
+        "add_composite_state",
+    ],
+    "State Machine palette click-to-place authoring",
+)
+require(
+    behavior_sequence_input,
+    [
+        "event.target.closest?.('.sequence-frame')",
+        "state.behaviorTool !== 'Lifeline'",
+        "behavior_lifeline_candidates",
+        "add_sequence_lifeline",
+    ],
+    "Sequence Lifeline click-to-place authoring",
+)
+require(
+    activity_ui,
+    [
+        "button.onclick = () => {",
+        "svg.onclick = async (event) => {",
+        "if (!state.activityTool) return;",
+        "add_activity_node",
+        "add_activity_edge",
+    ],
+    "Activity base palette click-to-place authoring",
+)
+require(
+    activity_rich_ui,
+    [
+        "RICH_NODE_TOOLS",
+        "STRUCTURED_TOOLS",
+        "document.addEventListener('click', async (event) => {",
+        "add_activity_action",
+        "add_activity_parameter_node",
+        "add_structured_activity_node",
+    ],
+    "Activity rich palette click-to-place authoring",
+)
 
 require(
     shared,
@@ -197,8 +336,8 @@ require(
 )
 
 print(
-    "PR22/PR24/PR25/PR26B standard editing integration contract passed: all nine diagram families retain "
-    "Rust-owned clipboard/remove/move authority, shared click/marquee selection synchronization, "
-    "shared pan ownership, presentation persistence, model-vs-diagram deletion separation, and qualified "
-    "Behavior/Activity model-deletion history wiring"
+    "PR22/PR24/PR25/PR26B/PR31 standard editing and authoring integration contract passed: all nine "
+    "diagram families retain their qualified creation/placement paths plus Rust-owned clipboard/remove/move "
+    "authority, shared click/marquee selection synchronization, shared pan ownership, presentation persistence, "
+    "model-vs-diagram deletion separation, and qualified Behavior/Activity model-deletion history wiring"
 )
