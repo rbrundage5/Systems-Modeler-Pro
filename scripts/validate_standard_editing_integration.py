@@ -23,6 +23,7 @@ marquee = read("apps/desktop/frontend/marquee-selection.js")
 index = read("apps/desktop/frontend/index.html")
 shared = read("apps/desktop/frontend/shared-workspace.js")
 app = read("apps/desktop/frontend/app.js")
+bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
 workspace_ux = read("apps/desktop/frontend/workspace-ux.js")
 ibd_ui = read("apps/desktop/frontend/ibd-ui.js")
 use_case_ui = read("apps/desktop/frontend/use-case-ui.js")
@@ -184,10 +185,22 @@ require(
         "await createPaletteElementAt(state.paletteTool, point.x, point.y);",
         "frame.ondrop = async (event) => {",
         "await placeExistingElementAt(elementId, point.x, point.y);",
-        "place_element_on_bdd",
         "place_on_requirement_diagram",
     ],
-    "BDD/Requirement palette and repository authoring",
+    "base palette/Requirement authoring",
+)
+require(
+    bdd_completion,
+    [
+        "button.onclick = () => activatePaletteItem(item);",
+        "createPaletteElementAt = async function createPaletteElementAtComplete",
+        "create_bdd_element",
+        "place_bdd_element",
+        "placeExistingElementAt = async function placeExistingElementAtComplete",
+        "frame.onclick = async (event) => {",
+        "await createPaletteElementAt(state.paletteTool, point.x, point.y);",
+    ],
+    "effective BDD classifier creation and placement",
 )
 require(
     workspace_ux,
