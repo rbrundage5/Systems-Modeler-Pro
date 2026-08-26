@@ -66,6 +66,12 @@ for command in execution_commands:
     assert command in rich_frontend or command in frontend, f"Activity execution command is not forwarded by the frontend: {command}"
 
 assert "ActivityExecutionEngine" in execution_rs and "ExecutionManager" in execution_rs, "Desktop execution does not use the Rust execution subsystem"
+assert "source_fingerprints" in execution_rs and "source_fingerprint" in execution_rs, "Activity execution does not track the authored source model used to initialize a session"
+assert "ensure_current_execution" in execution_rs, "Activity execution can reuse stale semantic state after authored-model changes"
+assert "registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint)" in execution_rs, "Activity execution snapshot does not invalidate stale sessions after authored-model changes"
+for command in ["run_activity_execution", "step_activity_execution", "resume_activity_execution", "reset_activity_execution"]:
+    section = execution_rs.split(f"pub fn {command}", 1)[1].split("#[tauri::command]", 1)[0]
+    assert "activity_state" in section and "ensure_current_execution" in section, f"{command} can execute a stale Activity repository"
 assert "activityExecutionSnapshot" in rich_frontend, "Activity runtime visualization does not consume an execution snapshot"
 assert "runtime-active" in styles and "runtime-waiting" in styles and "runtime-failed" in styles, "Runtime states are not visually distinct"
 assert ".activity-node.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their active runtime indication"
