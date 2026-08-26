@@ -158,10 +158,9 @@ pub fn route_label_anchor_avoiding(
                 }
                 if inside_bounds {
                     let candidate = (obstacle_hits, route_hits, candidate_order, anchor);
-                    if best_fallback
-                        .as_ref()
-                        .is_none_or(|best| candidate.0 < best.0 || (candidate.0 == best.0 && candidate.1 < best.1))
-                    {
+                    if best_fallback.as_ref().is_none_or(|best| {
+                        candidate.0 < best.0 || (candidate.0 == best.0 && candidate.1 < best.1)
+                    }) {
                         best_fallback = Some(candidate);
                     }
                 }
