@@ -252,6 +252,7 @@
 // selection before activating the shared host, leaving Copy/Paste, frames and
 // interaction revisions pointed at the previous diagram.
 (() => {
+  const EDIT_COMMANDS = new Set(['copy', 'paste', 'duplicate', 'delete']);
   let activationSerial = 0;
 
   function projectElement(id) {
@@ -365,10 +366,25 @@
     const current = window.smpRendererHost?.context?.();
     if (!desired || sameContext(current, desired)) return;
     const command = control.dataset.standardRibbon || control.dataset.standardCommand;
-    if (!command || !window.smpStandardEditing?.run) return;
+    if (!EDIT_COMMANDS.has(command) || !window.smpStandardEditing?.run) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     void synchronizeSelectedDiagramContext().then(() => window.smpStandardEditing.run(command));
+  }, true);
+
+  // Shared-workspace owns Ctrl/Cmd editing shortcuts. This listener only handles
+  // the stale-context race and then delegates to that same shared command path.
+  window.addEventListener('keydown', (event) => {
+    const editable = event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="dialog"]');
+    if (editable || !(event.ctrlKey || event.metaKey)) return;
+    const command = { c: 'copy', v: 'paste', d: 'duplicate' }[event.key.toLowerCase()];
+    if (!command) return;
+    const desired = selectedDiagramContext();
+    const current = window.smpRendererHost?.context?.();
+    if (!desired || sameContext(current, desired)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void synchronizeSelectedDiagramContext().then(() => window.smpRendererHost?.execute?.(command));
   }, true);
 
   queueMicrotask(() => void synchronizeSelectedDiagramContext());
