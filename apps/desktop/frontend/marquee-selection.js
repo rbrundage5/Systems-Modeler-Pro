@@ -27,7 +27,8 @@
       '[data-smp-presentation-id], .bdd-block, .ibd-property, .ibd-port, '
       + '.activity-node, .activity-edge, [data-vertex-id], [data-transition-id], '
       + '[data-lifeline-id], [data-message-id], [data-execution-id], [data-fragment-id], '
-      + '[data-invariant-id], .sysml-frame-label, .sysml-frame-resize',
+      + '[data-invariant-id], .smp-resize-handle, .smp-svg-resize-handle, '
+      + '.lifeline-resize-handle, .sysml-frame-label, .sysml-frame-resize',
     );
   }
 
