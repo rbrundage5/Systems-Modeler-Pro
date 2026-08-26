@@ -158,12 +158,13 @@ fn tokenize(expression: &str) -> Result<Vec<Token>, ExecutionExpressionError> {
             }
             let literal = &expression[start..cursor];
             let kind = if has_decimal || has_exponent {
-                let value = literal.parse::<f64>().map_err(|_| {
-                    ExecutionExpressionError::InvalidToken {
-                        position,
-                        message: format!("invalid numeric literal '{literal}'"),
-                    }
-                })?;
+                let value =
+                    literal
+                        .parse::<f64>()
+                        .map_err(|_| ExecutionExpressionError::InvalidToken {
+                            position,
+                            message: format!("invalid numeric literal '{literal}'"),
+                        })?;
                 if !value.is_finite() {
                     return Err(ExecutionExpressionError::NonFiniteResult);
                 }
@@ -259,11 +260,8 @@ where
             };
             self.advance();
             let right = self.parse_comparison()?;
-            let equal = values_equal(&left, &right).ok_or_else(|| invalid_binary(
-                operator,
-                &left,
-                &right,
-            ))?;
+            let equal = values_equal(&left, &right)
+                .ok_or_else(|| invalid_binary(operator, &left, &right))?;
             left = RuntimeValue::Boolean(if operator == "==" { equal } else { !equal });
         }
         Ok(left)
@@ -346,9 +344,10 @@ where
         if matches!(self.current().kind, TokenKind::Minus) {
             self.advance();
             return match self.parse_unary()? {
-                RuntimeValue::Integer(value) => value.checked_neg().map(RuntimeValue::Integer).ok_or(
-                    ExecutionExpressionError::NumericOverflow { operator: "-" },
-                ),
+                RuntimeValue::Integer(value) => value
+                    .checked_neg()
+                    .map(RuntimeValue::Integer)
+                    .ok_or(ExecutionExpressionError::NumericOverflow { operator: "-" }),
                 RuntimeValue::Real(value) => finite_real(-value),
                 actual => Err(ExecutionExpressionError::InvalidUnaryOperand {
                     operator: "-",
@@ -377,8 +376,9 @@ where
             TokenKind::Boolean(value) => Ok(RuntimeValue::Boolean(value)),
             TokenKind::Integer(value) => Ok(RuntimeValue::Integer(value)),
             TokenKind::Real(value) => Ok(RuntimeValue::Real(value)),
-            TokenKind::Identifier(name) => (self.resolver)(&name)
-                .ok_or(ExecutionExpressionError::UnresolvedReference { name }),
+            TokenKind::Identifier(name) => {
+                (self.resolver)(&name).ok_or(ExecutionExpressionError::UnresolvedReference { name })
+            }
             TokenKind::LeftParen => {
                 let value = self.parse_or()?;
                 if !matches!(self.current().kind, TokenKind::RightParen) {
@@ -463,12 +463,8 @@ fn numeric_pair(
 
 fn values_equal(left: &RuntimeValue, right: &RuntimeValue) -> Option<bool> {
     match (left, right) {
-        (RuntimeValue::Integer(left), RuntimeValue::Real(right)) => {
-            Some((*left as f64) == *right)
-        }
-        (RuntimeValue::Real(left), RuntimeValue::Integer(right)) => {
-            Some(*left == (*right as f64))
-        }
+        (RuntimeValue::Integer(left), RuntimeValue::Real(right)) => Some((*left as f64) == *right),
+        (RuntimeValue::Real(left), RuntimeValue::Integer(right)) => Some(*left == (*right as f64)),
         (RuntimeValue::Boolean(left), RuntimeValue::Boolean(right)) => Some(left == right),
         (RuntimeValue::Integer(left), RuntimeValue::Integer(right)) => Some(left == right),
         (RuntimeValue::Real(left), RuntimeValue::Real(right)) => Some(left == right),
@@ -511,14 +507,15 @@ mod tests {
 
     #[test]
     fn evaluates_precedence_boolean_and_runtime_references() {
-        let result = evaluate_execution_expression("speed >= 20 && enabled && 2 + 3 * 4 == 14", |name| {
-            match name {
-                "speed" => Some(RuntimeValue::Real(27.5)),
-                "enabled" => Some(RuntimeValue::Boolean(true)),
-                _ => None,
-            }
-        })
-        .unwrap();
+        let result =
+            evaluate_execution_expression("speed >= 20 && enabled && 2 + 3 * 4 == 14", |name| {
+                match name {
+                    "speed" => Some(RuntimeValue::Real(27.5)),
+                    "enabled" => Some(RuntimeValue::Boolean(true)),
+                    _ => None,
+                }
+            })
+            .unwrap();
         assert_eq!(result, RuntimeValue::Boolean(true));
     }
 

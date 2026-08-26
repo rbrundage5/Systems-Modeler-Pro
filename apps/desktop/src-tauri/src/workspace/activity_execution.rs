@@ -30,7 +30,13 @@ fn project_snapshot(workspace: &WorkspaceState) -> Result<systems_modeler_core::
 fn activity_for_diagram(
     activity_state: &ActivityWorkspaceState,
     diagram_id: &str,
-) -> Result<(systems_modeler_core::ActivityRepository, systems_modeler_core::ActivityId), String> {
+) -> Result<
+    (
+        systems_modeler_core::ActivityRepository,
+        systems_modeler_core::ActivityId,
+    ),
+    String,
+> {
     let activity_id = activity_state
         .diagrams
         .lock()
@@ -118,9 +124,7 @@ pub fn initialize_activity_execution(
         )
         .map_err(|error| error.to_string())?;
     registry.engines.insert(session_id, engine);
-    registry
-        .sessions_by_diagram
-        .insert(diagram_id, session_id);
+    registry.sessions_by_diagram.insert(diagram_id, session_id);
     snapshot_for(&registry, session_id)
 }
 

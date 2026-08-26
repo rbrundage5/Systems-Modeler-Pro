@@ -4,8 +4,7 @@ use crate::{
     DiagnosticSeverity, ElementId, EngineStepOutcome, ExecutionEngine, ExecutionError,
     ExecutionSession, ExecutionSnapshot, ObjectNodeKind, ObjectNodeOrdering, ParameterDirection,
     Pin, PinDirection, Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind,
-    RuntimeEventRequest, RuntimeValue, StructuredActivityNodeKind,
-    evaluate_execution_expression,
+    RuntimeEventRequest, RuntimeValue, StructuredActivityNodeKind, evaluate_execution_expression,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -250,11 +249,7 @@ impl ActivityExecutionEngine {
                         .get(&node.id)
                         .copied()
                         .unwrap_or(ActivityNodeExecutionState::Idle),
-                    activation_count: frame
-                        .activation_counts
-                        .get(&node.id)
-                        .copied()
-                        .unwrap_or(0),
+                    activation_count: frame.activation_counts.get(&node.id).copied().unwrap_or(0),
                 });
             }
             let mut stores: Vec<_> = frame.stores.iter().collect();
@@ -299,9 +294,9 @@ impl ActivityExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
-        self.repository
-            .validate(project)
-            .map_err(|error| engine_error(format!("Cannot initialize Activity execution: {error}")))?;
+        self.repository.validate(project).map_err(|error| {
+            engine_error(format!("Cannot initialize Activity execution: {error}"))
+        })?;
         let activity = self.activity(self.root_activity_id)?.clone();
         self.warn_for_structured_semantics(&activity, session);
         let authored_defaults: Vec<_> = project
@@ -357,14 +352,24 @@ impl ActivityExecutionEngine {
             let parameter = project
                 .element(parameter_node.parameter_id)
                 .map_err(|error| engine_error(error.to_string()))?;
-            let direction = parameter.parameter_direction.unwrap_or(ParameterDirection::In);
-            if !matches!(direction, ParameterDirection::In | ParameterDirection::InOut) {
+            let direction = parameter
+                .parameter_direction
+                .unwrap_or(ParameterDirection::In);
+            if !matches!(
+                direction,
+                ParameterDirection::In | ParameterDirection::InOut
+            ) {
                 continue;
             }
             let values = inputs
                 .get(&parameter.id)
                 .cloned()
-                .or_else(|| session.value(None, parameter.id).cloned().map(|value| vec![value]))
+                .or_else(|| {
+                    session
+                        .value(None, parameter.id)
+                        .cloned()
+                        .map(|value| vec![value])
+                })
                 .or_else(|| {
                     parameter
                         .default_value
@@ -385,11 +390,7 @@ impl ActivityExecutionEngine {
         Ok(frame)
     }
 
-    fn warn_for_structured_semantics(
-        &self,
-        activity: &Activity,
-        session: &mut ExecutionSession,
-    ) {
+    fn warn_for_structured_semantics(&self, activity: &Activity, session: &mut ExecutionSession) {
         for structured in &activity.structured_nodes {
             let limitation = match structured.kind {
                 StructuredActivityNodeKind::ExpansionRegion => Some(
@@ -404,7 +405,10 @@ impl ActivityExecutionEngine {
                 session.add_diagnostic(
                     DiagnosticSeverity::Warning,
                     activity.context_id.or(Some(activity.owner_id)),
-                    format!("Activity '{}', structured node '{}': {limitation}", activity.name, structured.name),
+                    format!(
+                        "Activity '{}', structured node '{}': {limitation}",
+                        activity.name, structured.name
+                    ),
                 );
             }
         }
@@ -476,7 +480,9 @@ impl ActivityExecutionEngine {
                 }),
                 _ => store.is_some_and(|tokens| !tokens.is_empty()),
             };
-            return Ok(has_token && self.has_outgoing(activity, node.id, ActivityEdgeKind::ObjectFlow));
+            return Ok(
+                has_token && self.has_outgoing(activity, node.id, ActivityEdgeKind::ObjectFlow)
+            );
         }
         if matches!(node.kind, ActivityNodeKind::ActivityParameter(_)) {
             return Ok(frame
@@ -530,10 +536,16 @@ impl ActivityExecutionEngine {
         Ok(true)
     }
 
-    fn has_outgoing(&self, activity: &Activity, node_id: ActivityNodeId, kind: ActivityEdgeKind) -> bool {
-        activity.edges.iter().any(|edge| {
-            edge.kind == kind && edge.source == ActivityEndpoint::Node(node_id)
-        })
+    fn has_outgoing(
+        &self,
+        activity: &Activity,
+        node_id: ActivityNodeId,
+        kind: ActivityEdgeKind,
+    ) -> bool {
+        activity
+            .edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == ActivityEndpoint::Node(node_id))
     }
 
     fn edge_token_count(
@@ -565,12 +577,20 @@ impl ActivityExecutionEngine {
         frame: &ActivityFrame,
         edge: &ActivityEdge,
     ) -> Result<usize, ExecutionError> {
-        let Some(weight) = edge.weight.as_deref().filter(|value| !value.trim().is_empty()) else {
+        let Some(weight) = edge
+            .weight
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        else {
             return Ok(1);
         };
         match self.evaluate(project, session, frame, &HashMap::new(), weight)? {
-            RuntimeValue::Integer(value) if value > 0 => usize::try_from(value)
-                .map_err(|_| engine_error(format!("Activity edge '{}' weight is too large.", edge.name))),
+            RuntimeValue::Integer(value) if value > 0 => usize::try_from(value).map_err(|_| {
+                engine_error(format!(
+                    "Activity edge '{}' weight is too large.",
+                    edge.name
+                ))
+            }),
             value => Err(engine_error(format!(
                 "Activity edge '{}' weight must evaluate to a positive integer, but evaluated to {}.",
                 edge.name,
@@ -588,40 +608,49 @@ impl ActivityExecutionEngine {
         expression: &str,
     ) -> Result<RuntimeValue, ExecutionError> {
         evaluate_execution_expression(expression, |name| {
-            local.get(name).cloned().or_else(|| {
-                session.values.iter().find_map(|(key, value)| {
-                    let element = project.elements.get(&key.semantic_element_id)?;
-                    let qualified = project.qualified_name(element.id).ok();
-                    (element.name == name || qualified.as_deref() == Some(name)).then(|| value.clone())
-                })
-            }).or_else(|| {
-                frame.stores.iter().find_map(|(endpoint, tokens)| {
-                    let pin_name = match endpoint {
-                        ActivityEndpoint::Pin(pin_id) => self
-                            .activity(frame.activity_id)
-                            .ok()?
-                            .nodes
-                            .iter()
-                            .filter_map(|node| match &node.kind {
-                                ActivityNodeKind::Action(action) => Some(&action.pins),
-                                _ => None,
-                            })
-                            .flatten()
-                            .find(|pin| pin.id == *pin_id)
-                            .map(|pin| pin.name.as_str()),
-                        ActivityEndpoint::Node(_) => None,
-                    }?;
-                    if pin_name != name {
-                        return None;
-                    }
-                    tokens.iter().find_map(|token| match &token.value {
-                        ActivityTokenValue::Object(value) => Some(value.clone()),
-                        ActivityTokenValue::Control => None,
+            local
+                .get(name)
+                .cloned()
+                .or_else(|| {
+                    session.values.iter().find_map(|(key, value)| {
+                        let element = project.elements.get(&key.semantic_element_id)?;
+                        let qualified = project.qualified_name(element.id).ok();
+                        (element.name == name || qualified.as_deref() == Some(name))
+                            .then(|| value.clone())
                     })
                 })
-            })
+                .or_else(|| {
+                    frame.stores.iter().find_map(|(endpoint, tokens)| {
+                        let pin_name = match endpoint {
+                            ActivityEndpoint::Pin(pin_id) => self
+                                .activity(frame.activity_id)
+                                .ok()?
+                                .nodes
+                                .iter()
+                                .filter_map(|node| match &node.kind {
+                                    ActivityNodeKind::Action(action) => Some(&action.pins),
+                                    _ => None,
+                                })
+                                .flatten()
+                                .find(|pin| pin.id == *pin_id)
+                                .map(|pin| pin.name.as_str()),
+                            ActivityEndpoint::Node(_) => None,
+                        }?;
+                        if pin_name != name {
+                            return None;
+                        }
+                        tokens.iter().find_map(|token| match &token.value {
+                            ActivityTokenValue::Object(value) => Some(value.clone()),
+                            ActivityTokenValue::Control => None,
+                        })
+                    })
+                })
         })
-        .map_err(|error| engine_error(format!("Cannot evaluate Activity expression '{expression}': {error}")))
+        .map_err(|error| {
+            engine_error(format!(
+                "Cannot evaluate Activity expression '{expression}': {error}"
+            ))
+        })
     }
 
     fn fire_node(
@@ -644,7 +673,11 @@ impl ActivityExecutionEngine {
             .or_default() += 1;
         session.record_engine_trace(
             activity.context_id.or(Some(activity.owner_id)),
-            format!("Activity '{}': executed node '{}'", activity.name, display_node_name(node)),
+            format!(
+                "Activity '{}': executed node '{}'",
+                activity.name,
+                display_node_name(node)
+            ),
         );
 
         match &node.kind {
@@ -740,13 +773,19 @@ impl ActivityExecutionEngine {
                 let called = self.activity(*activity_id)?.clone();
                 let parameter_inputs = self.call_parameter_inputs(project, action, &local, &called);
                 let caller = (self.frames[frame_index].id, node.id);
-                let child = self.make_frame(project, session, &called, Some(caller), &parameter_inputs)?;
+                let child =
+                    self.make_frame(project, session, &called, Some(caller), &parameter_inputs)?;
                 self.frames[frame_index]
                     .node_states
                     .insert(node.id, ActivityNodeExecutionState::Waiting);
                 session.record_engine_trace(
                     activity.context_id.or(Some(activity.owner_id)),
-                    format!("Activity '{}': '{}' called Activity '{}'", activity.name, display_node_name(node), called.name),
+                    format!(
+                        "Activity '{}': '{}' called Activity '{}'",
+                        activity.name,
+                        display_node_name(node),
+                        called.name
+                    ),
                 );
                 self.frames.push(child);
                 return Ok(EngineStepOutcome::Progressed);
@@ -777,7 +816,12 @@ impl ActivityExecutionEngine {
                 return Ok(EngineStepOutcome::Progressed);
             }
             ActionKind::AcceptTimeEvent { expression } => {
-                let delay = self.evaluate_duration(project, session, &self.frames[frame_index], expression)?;
+                let delay = self.evaluate_duration(
+                    project,
+                    session,
+                    &self.frames[frame_index],
+                    expression,
+                )?;
                 let sequence = session.queue_event_after(
                     project,
                     delay,
@@ -806,7 +850,10 @@ impl ActivityExecutionEngine {
                     arguments: inputs,
                 };
                 let outputs = self.operation_runtime.invoke(&request).map_err(|message| {
-                    session.fail(activity.context_id.or(Some(activity.owner_id)), message.clone());
+                    session.fail(
+                        activity.context_id.or(Some(activity.owner_id)),
+                        message.clone(),
+                    );
                     engine_error(message)
                 })?;
                 self.emit_named_outputs(project, session, frame_index, activity, action, &outputs)?;
@@ -854,10 +901,15 @@ impl ActivityExecutionEngine {
             .filter(|pin| matches!(pin.direction, PinDirection::Input | PinDirection::Value))
         {
             if pin.direction == PinDirection::Value {
-                if let Some(expression) = pin.value.as_deref().filter(|value| !value.trim().is_empty()) {
-                    let value = evaluate_execution_expression(expression, |_| None).map_err(|error| {
-                        engine_error(format!("ValuePin '{}': {error}", pin.name))
-                    })?;
+                if let Some(expression) = pin
+                    .value
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    let value =
+                        evaluate_execution_expression(expression, |_| None).map_err(|error| {
+                            engine_error(format!("ValuePin '{}': {error}", pin.name))
+                        })?;
                     values.push((pin.name.clone(), value));
                 }
                 continue;
@@ -868,7 +920,10 @@ impl ActivityExecutionEngine {
                 .or_default();
             for _ in 0..pin.multiplicity.lower {
                 let token = store.pop_front().ok_or_else(|| {
-                    engine_error(format!("InputPin '{}' has insufficient object tokens.", pin.name))
+                    engine_error(format!(
+                        "InputPin '{}' has insufficient object tokens.",
+                        pin.name
+                    ))
                 })?;
                 if let ActivityTokenValue::Object(value) = token.value {
                     values.push((pin.name.clone(), value));
@@ -887,17 +942,25 @@ impl ActivityExecutionEngine {
         local: &HashMap<String, RuntimeValue>,
         body_result: Option<RuntimeValue>,
     ) -> Result<(), ExecutionError> {
-        let activity = self
-            .activity(self.frames[frame_index].activity_id)?
-            .clone();
+        let activity = self.activity(self.frames[frame_index].activity_id)?.clone();
         let output_pins: Vec<_> = action
             .pins
             .iter()
             .filter(|pin| pin.direction == PinDirection::Output)
             .collect();
         for pin in &output_pins {
-            let value = if let Some(expression) = pin.value.as_deref().filter(|value| !value.trim().is_empty()) {
-                Some(self.evaluate(project, session, &self.frames[frame_index], local, expression)?)
+            let value = if let Some(expression) = pin
+                .value
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                Some(self.evaluate(
+                    project,
+                    session,
+                    &self.frames[frame_index],
+                    local,
+                    expression,
+                )?)
             } else if output_pins.len() == 1 {
                 body_result.clone()
             } else {
@@ -957,12 +1020,7 @@ impl ActivityExecutionEngine {
         if let Some(edge) = edges.first() {
             self.offer_token(frame_index, activity, edge, token)?;
         } else {
-            self.push_store_token(
-                frame_index,
-                activity,
-                ActivityEndpoint::Pin(pin.id),
-                token,
-            )?;
+            self.push_store_token(frame_index, activity, ActivityEndpoint::Pin(pin.id), token)?;
         }
         Ok(())
     }
@@ -983,7 +1041,9 @@ impl ActivityExecutionEngine {
                 continue;
             };
             if !matches!(
-                parameter.parameter_direction.unwrap_or(ParameterDirection::In),
+                parameter
+                    .parameter_direction
+                    .unwrap_or(ParameterDirection::In),
                 ParameterDirection::In | ParameterDirection::InOut
             ) {
                 continue;
@@ -1019,18 +1079,25 @@ impl ActivityExecutionEngine {
             .iter()
             .position(|frame| frame.id == caller_frame_id)
             .ok_or_else(|| engine_error("Activity call frame lost its caller.".into()))?;
-        let caller_activity = self.activity(self.frames[caller_index].activity_id)?.clone();
+        let caller_activity = self
+            .activity(self.frames[caller_index].activity_id)?
+            .clone();
         let caller_node = caller_activity
             .nodes
             .iter()
             .find(|node| node.id == caller_node_id)
             .cloned()
-            .ok_or_else(|| engine_error("Activity call frame references a missing caller node.".into()))?;
+            .ok_or_else(|| {
+                engine_error("Activity call frame references a missing caller node.".into())
+            })?;
         let ActivityNodeKind::Action(caller_action) = &caller_node.kind else {
-            return Err(engine_error("Activity call frame caller is not an Action.".into()));
+            return Err(engine_error(
+                "Activity call frame caller is not an Action.".into(),
+            ));
         };
         for parameter_node in &child_activity.nodes {
-            let ActivityNodeKind::ActivityParameter(parameter_node_kind) = &parameter_node.kind else {
+            let ActivityNodeKind::ActivityParameter(parameter_node_kind) = &parameter_node.kind
+            else {
                 continue;
             };
             let parameter = project
@@ -1038,7 +1105,11 @@ impl ActivityExecutionEngine {
                 .map_err(|error| engine_error(error.to_string()))?;
             if !matches!(
                 parameter.parameter_direction,
-                Some(ParameterDirection::Out | ParameterDirection::Return | ParameterDirection::InOut)
+                Some(
+                    ParameterDirection::Out
+                        | ParameterDirection::Return
+                        | ParameterDirection::InOut
+                )
             ) {
                 continue;
             }
@@ -1070,7 +1141,9 @@ impl ActivityExecutionEngine {
         )?;
         self.complete_node(caller_index, caller_node.id);
         session.record_engine_trace(
-            caller_activity.context_id.or(Some(caller_activity.owner_id)),
+            caller_activity
+                .context_id
+                .or(Some(caller_activity.owner_id)),
             format!(
                 "Activity '{}': call to Activity '{}' completed",
                 caller_activity.name, child_activity.name
@@ -1144,7 +1217,9 @@ impl ActivityExecutionEngine {
         event: &RuntimeEvent,
     ) -> Result<(), ExecutionError> {
         let ActivityNodeKind::Action(action) = &node.kind else {
-            return Err(engine_error("waiting Activity node is not an Action.".into()));
+            return Err(engine_error(
+                "waiting Activity node is not an Action.".into(),
+            ));
         };
         for pin in action
             .pins
@@ -1172,10 +1247,15 @@ impl ActivityExecutionEngine {
     ) -> Result<(), ExecutionError> {
         let mut local = HashMap::new();
         if let Some(input) = decision_input.filter(|value| !value.trim().is_empty()) {
-            let value = self.evaluate(project, session, &self.frames[frame_index], &local, input)?;
+            let value =
+                self.evaluate(project, session, &self.frames[frame_index], &local, input)?;
             local.insert("decisionInput".into(), value);
         }
-        let outgoing = outgoing_edges(activity, ActivityEndpoint::Node(node.id), ActivityEdgeKind::ControlFlow);
+        let outgoing = outgoing_edges(
+            activity,
+            ActivityEndpoint::Node(node.id),
+            ActivityEdgeKind::ControlFlow,
+        );
         let mut selected = None;
         let mut otherwise = None;
         for edge in outgoing {
@@ -1230,7 +1310,11 @@ impl ActivityExecutionEngine {
         .cloned()
         .collect();
         for edge in &outgoing {
-            let enabled = match edge.guard.as_deref().filter(|guard| !guard.trim().is_empty()) {
+            let enabled = match edge
+                .guard
+                .as_deref()
+                .filter(|guard| !guard.trim().is_empty())
+            {
                 None => true,
                 Some(guard) if guard.trim().eq_ignore_ascii_case("else") => true,
                 Some(guard) => matches!(
@@ -1292,11 +1376,7 @@ impl ActivityExecutionEngine {
     ) -> Result<(), ExecutionError> {
         let (upper, unique, endpoint_name) = endpoint_constraints(activity, endpoint)?;
         let store = self.frames[frame_index].stores.entry(endpoint).or_default();
-        if unique
-            && store
-                .iter()
-                .any(|existing| existing.value == token.value)
-        {
+        if unique && store.iter().any(|existing| existing.value == token.value) {
             return Ok(());
         }
         if upper.is_some_and(|limit| store.len() >= limit as usize) {
@@ -1339,7 +1419,9 @@ impl ActivityExecutionEngine {
                 return Ok(());
             }
         }
-        Err(engine_error("required control token is unavailable.".into()))
+        Err(engine_error(
+            "required control token is unavailable.".into(),
+        ))
     }
 
     fn remove_edge_token(
@@ -1422,7 +1504,9 @@ impl ActivityExecutionEngine {
                 .entry(endpoint)
                 .or_default()
                 .pop_front()
-                .ok_or_else(|| engine_error("ActivityParameterNode has no token to forward.".into()))?,
+                .ok_or_else(|| {
+                    engine_error("ActivityParameterNode has no token to forward.".into())
+                })?,
             _ => return Err(engine_error("node is not object-capable.".into())),
         };
         self.offer_token(frame_index, activity, edge, token)
@@ -1461,7 +1545,9 @@ impl ActivityExecutionEngine {
         };
         let nanos = number * multiplier;
         if !nanos.is_finite() || nanos < 0.0 || nanos > u64::MAX as f64 {
-            return Err(engine_error("AcceptTimeEvent delay is outside the supported simulation-time range.".into()));
+            return Err(engine_error(
+                "AcceptTimeEvent delay is outside the supported simulation-time range.".into(),
+            ));
         }
         Ok(nanos.round() as u64)
     }
@@ -1488,7 +1574,10 @@ impl ActivityExecutionEngine {
             display_node_name(node),
             activity.name
         );
-        session.fail(activity.context_id.or(Some(activity.owner_id)), message.clone());
+        session.fail(
+            activity.context_id.or(Some(activity.owner_id)),
+            message.clone(),
+        );
         Err(engine_error(message))
     }
 
@@ -1578,7 +1667,14 @@ impl ExecutionEngine for ActivityExecutionEngine {
                     && self.node_accepts_event(project, &self.frames[frame_index], node, event)
             }) {
                 self.active_node_ids.push(node.id);
-                self.complete_waiting_action(project, session, frame_index, &activity, node, event)?;
+                self.complete_waiting_action(
+                    project,
+                    session,
+                    frame_index,
+                    &activity,
+                    node,
+                    event,
+                )?;
                 session.record_engine_trace(
                     activity.context_id.or(Some(activity.owner_id)),
                     format!(

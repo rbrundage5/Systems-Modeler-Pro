@@ -94,7 +94,12 @@ fn control_fixture() -> (Project, ActivityRepository, ActivityId, ElementId) {
 
     let mut repository = ActivityRepository::default();
     let activity_id = repository
-        .create_activity(&project, behavior, Some(controller), "Deterministic Control")
+        .create_activity(
+            &project,
+            behavior,
+            Some(controller),
+            "Deterministic Control",
+        )
         .unwrap();
     let activity = repository.activities.get_mut(&activity_id).unwrap();
     let initial = node("Initial", ActivityNodeKind::Initial);
@@ -143,17 +148,7 @@ fn control_fixture() -> (Project, ActivityRepository, ActivityId, ElementId) {
         control(&join, &final_node),
     ]);
     activity.nodes.extend([
-        initial,
-        initialize,
-        decision,
-        high,
-        low,
-        merge,
-        fork,
-        task_one,
-        task_two,
-        join,
-        final_node,
+        initial, initialize, decision, high, low, merge, fork, task_one, task_two, join, final_node,
     ]);
     repository.validate(&project).unwrap();
     (project, repository, activity_id, speed)
@@ -195,15 +190,22 @@ fn executes_control_nodes_deterministically_and_reset_replays_initial_state() {
     assert_eq!(first.nodes, second.nodes);
     assert_eq!(first.token_stores, second.token_stores);
     assert_eq!(first_trace, second_trace);
-    assert!(first
-        .nodes
-        .iter()
-        .any(|node| node.name == "A" && node.activation_count == 1));
-    assert!(first
-        .nodes
-        .iter()
-        .any(|node| node.name == "B" && node.activation_count == 0));
-    assert_eq!(project.element(speed).unwrap().default_value.as_deref(), Some("0"));
+    assert!(
+        first
+            .nodes
+            .iter()
+            .any(|node| node.name == "A" && node.activation_count == 1)
+    );
+    assert!(
+        first
+            .nodes
+            .iter()
+            .any(|node| node.name == "B" && node.activation_count == 0)
+    );
+    assert_eq!(
+        project.element(speed).unwrap().default_value.as_deref(),
+        Some("0")
+    );
 }
 
 #[test]
@@ -335,7 +337,9 @@ fn signal_and_time_actions_wait_for_deterministic_runtime_events() {
         control(&accept, &timer),
         control(&timer, &final_node),
     ]);
-    activity.nodes.extend([initial, send, accept, timer, final_node]);
+    activity
+        .nodes
+        .extend([initial, send, accept, timer, final_node]);
     repository.validate(&project).unwrap();
 
     let mut session = ExecutionSession::new(&project);
@@ -343,7 +347,10 @@ fn signal_and_time_actions_wait_for_deterministic_runtime_events() {
     engine.initialize(&project, &mut session).unwrap();
     run_to_completion(&project, &mut engine, &mut session);
     assert_eq!(session.state, ExecutionState::Completed);
-    assert_eq!(session.simulation_time, SimulationTime::from_nanos(5_000_000));
+    assert_eq!(
+        session.simulation_time,
+        SimulationTime::from_nanos(5_000_000)
+    );
     assert!(session.trace.iter().any(|entry| {
         entry.message.contains("Wait for Start") && entry.message.contains("accepted signal")
     }));
@@ -364,7 +371,9 @@ fn call_behavior_uses_a_nested_frame_and_returns_to_the_caller() {
         control(&child_initial, &child_action),
         control(&child_action, &child_final),
     ]);
-    child.nodes.extend([child_initial, child_action, child_final]);
+    child
+        .nodes
+        .extend([child_initial, child_action, child_final]);
 
     let root_id = repository
         .create_activity(&project, behavior, Some(controller), "Parent")
@@ -381,7 +390,8 @@ fn call_behavior_uses_a_nested_frame_and_returns_to_the_caller() {
         }),
     );
     let final_node = node("Final", ActivityNodeKind::ActivityFinal);
-    root.edges.extend([control(&initial, &call), control(&call, &final_node)]);
+    root.edges
+        .extend([control(&initial, &call), control(&call, &final_node)]);
     root.nodes.extend([initial, call, final_node]);
     repository.validate(&project).unwrap();
 
@@ -390,10 +400,12 @@ fn call_behavior_uses_a_nested_frame_and_returns_to_the_caller() {
     engine.initialize(&project, &mut session).unwrap();
     run_to_completion(&project, &mut engine, &mut session);
     assert_eq!(session.state, ExecutionState::Completed);
-    assert!(session
-        .trace
-        .iter()
-        .any(|entry| entry.message.contains("call to Activity 'Child' completed")));
+    assert!(
+        session
+            .trace
+            .iter()
+            .any(|entry| entry.message.contains("call to Activity 'Child' completed"))
+    );
 }
 
 #[test]
@@ -408,7 +420,9 @@ fn unsafe_opaque_text_and_intentional_loop_fail_with_useful_limits() {
     let unsafe_action = node(
         "Assignment",
         ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body: "x = 1".into() },
+            kind: ActionKind::Opaque {
+                body: "x = 1".into(),
+            },
             pins: Vec::new(),
         }),
     );
@@ -422,7 +436,10 @@ fn unsafe_opaque_text_and_intentional_loop_fail_with_useful_limits() {
     let mut session = ExecutionSession::new(&project);
     let mut engine = ActivityExecutionEngine::new(repository, activity_id);
     engine.initialize(&project, &mut session).unwrap();
-    assert_eq!(engine.advance(&project, &mut session).unwrap(), ActivityAdvanceOutcome::Progressed);
+    assert_eq!(
+        engine.advance(&project, &mut session).unwrap(),
+        ActivityAdvanceOutcome::Progressed
+    );
     let error = engine.advance(&project, &mut session).unwrap_err();
     assert!(error.to_string().contains("only bounded pure expressions"));
     assert_eq!(session.state, ExecutionState::Failed);
