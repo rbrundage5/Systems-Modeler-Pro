@@ -403,6 +403,8 @@ pub fn update_activity_node_semantics(
     decision_input: Option<String>,
     join_specification: Option<String>,
     time_expression: Option<String>,
+    action_reference_id: Option<String>,
+    update_action_reference: bool,
     workspace: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<(), String> {
@@ -420,49 +422,109 @@ pub fn update_activity_node_semantics(
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
+    let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
     let mut repository = activity_state
         .repository
         .lock()
         .map_err(|_| "Activity repository lock poisoned")?;
-    let activity = activity_for_diagram(&mut repository, diagram)?;
-    let node = activity
-        .nodes
-        .iter_mut()
-        .find(|node| node.id == node_id)
-        .ok_or("Activity node not found")?;
-    if let Some(name) = name {
-        node.name = name;
-    }
-    match &mut node.kind {
-        ActivityNodeKind::Action(Action {
-            kind: ActionKind::Opaque { body },
-            ..
-        }) => {
-            if let Some(value) = opaque_body {
-                *body = value;
+    let original = repository
+        .activities
+        .get(&activity_id)
+        .cloned()
+        .ok_or("Activity not found")?;
+
+    let mutation = (|| -> Result<(), String> {
+        let activity = repository
+            .activities
+            .get_mut(&activity_id)
+            .ok_or("Activity not found")?;
+        let node = activity
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+            .ok_or("Activity node not found")?;
+        if let Some(name) = name {
+            node.name = name;
+        }
+
+        if update_action_reference {
+            let action = match &mut node.kind {
+                ActivityNodeKind::Action(action) => action,
+                _ => return Err("only Activity actions can update an action reference".into()),
+            };
+            match &mut action.kind {
+                ActionKind::CallBehavior { activity_id } => {
+                    let reference = action_reference_id
+                        .as_deref()
+                        .ok_or("CallBehaviorAction requires a referenced Activity")?;
+                    *activity_id = activity_workspace::parse_activity_id(reference)?;
+                }
+                ActionKind::CallOperation { operation_id } => {
+                    let reference = action_reference_id
+                        .as_deref()
+                        .ok_or("CallOperationAction requires a referenced Operation")?;
+                    let next_operation_id = parse_element_id(reference)?;
+                    let next_pins = operation_pins(project, next_operation_id)?;
+                    *operation_id = next_operation_id;
+                    action.pins = next_pins;
+                }
+                ActionKind::SendSignal { signal_id } => {
+                    let reference = action_reference_id
+                        .as_deref()
+                        .ok_or("SendSignalAction requires a Signal")?;
+                    *signal_id = parse_element_id(reference)?;
+                }
+                ActionKind::AcceptEvent { signal_id } => {
+                    *signal_id = action_reference_id
+                        .as_deref()
+                        .map(parse_element_id)
+                        .transpose()?;
+                }
+                ActionKind::Opaque { .. } | ActionKind::AcceptTimeEvent { .. } => {
+                    return Err("this Activity action does not use a referenced model element".into());
+                }
             }
         }
-        ActivityNodeKind::Action(Action {
-            kind: ActionKind::AcceptTimeEvent { expression },
-            ..
-        }) => {
-            if let Some(value) = time_expression {
-                *expression = value;
+
+        match &mut node.kind {
+            ActivityNodeKind::Action(Action {
+                kind: ActionKind::Opaque { body },
+                ..
+            }) => {
+                if let Some(value) = opaque_body {
+                    *body = value;
+                }
             }
+            ActivityNodeKind::Action(Action {
+                kind: ActionKind::AcceptTimeEvent { expression },
+                ..
+            }) => {
+                if let Some(value) = time_expression {
+                    *expression = value;
+                }
+            }
+            ActivityNodeKind::Decision {
+                decision_input: value,
+            } if decision_input.is_some() => {
+                *value = decision_input.filter(|text| !text.is_empty());
+            }
+            ActivityNodeKind::Join {
+                join_specification: value,
+            } if join_specification.is_some() => {
+                *value = join_specification.filter(|text| !text.is_empty());
+            }
+            _ => {}
         }
-        ActivityNodeKind::Decision {
-            decision_input: value,
-        } if decision_input.is_some() => {
-            *value = decision_input.filter(|text| !text.is_empty());
-        }
-        ActivityNodeKind::Join {
-            join_specification: value,
-        } if join_specification.is_some() => {
-            *value = join_specification.filter(|text| !text.is_empty());
-        }
-        _ => {}
+        Ok(())
+    })();
+
+    if let Err(error) = mutation {
+        repository.activities.insert(activity_id, original);
+        return Err(error);
     }
-    repository
-        .validate(project)
-        .map_err(|error| error.to_string())
+    if let Err(error) = repository.validate(project) {
+        repository.activities.insert(activity_id, original);
+        return Err(error.to_string());
+    }
+    Ok(())
 }
