@@ -52,7 +52,10 @@ fn activity_for_diagram(
     Ok((repository, activity_id))
 }
 
-fn source_fingerprint(project: &Project, repository: &ActivityRepository) -> Result<String, String> {
+fn source_fingerprint(
+    project: &Project,
+    repository: &ActivityRepository,
+) -> Result<String, String> {
     serde_json::to_string(&(project, repository))
         .map_err(|error| format!("failed to fingerprint Activity execution source model: {error}"))
 }
