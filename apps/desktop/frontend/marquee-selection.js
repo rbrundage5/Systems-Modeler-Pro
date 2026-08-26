@@ -22,13 +22,14 @@
 
   window.addEventListener('blur', cleanup);
 
+  const RESIZE_CONTROL_SELECTOR = '.smp-resize-handle, .smp-svg-resize-handle, .lifeline-resize-handle, .sysml-frame-resize';
+
   function presentationTarget(target) {
     return target?.closest?.(
       '[data-smp-presentation-id], .bdd-block, .ibd-property, .ibd-port, '
       + '.activity-node, .activity-edge, [data-vertex-id], [data-transition-id], '
       + '[data-lifeline-id], [data-message-id], [data-execution-id], [data-fragment-id], '
-      + '[data-invariant-id], .smp-resize-handle, .smp-svg-resize-handle, '
-      + '.lifeline-resize-handle, .sysml-frame-label, .sysml-frame-resize',
+      + `[data-invariant-id], ${RESIZE_CONTROL_SELECTOR}, .sysml-frame-label`,
     );
   }
 
@@ -87,6 +88,23 @@
     });
     return [...selected.values()];
   }
+
+  // An explicit resize handle is stronger user intent than a pending placement or
+  // relationship tool. Cancel only those transient authoring modes before the
+  // established family resize handler receives the pointerdown. This prevents
+  // stale cross-family tool state from silently disabling resize while retaining
+  // the existing BDD/IBD/Parametric/Behavior/Activity resize implementations.
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!event.target.closest?.(RESIZE_CONTROL_SELECTOR)) return;
+    Object.assign(state, {
+      paletteTool: null,
+      pendingRelationship: null,
+      behaviorTool: null,
+      behaviorPending: null,
+      activityTool: null,
+      activityPendingFlow: null,
+    });
+  }, true);
 
   // ESC and other authoritative clear operations emit this from the shared host.
   canvas.addEventListener('smp:selection-changed', () => {
