@@ -481,7 +481,9 @@ pub fn update_activity_node_semantics(
                         .transpose()?;
                 }
                 ActionKind::Opaque { .. } | ActionKind::AcceptTimeEvent { .. } => {
-                    return Err("this Activity action does not use a referenced model element".into());
+                    return Err(
+                        "this Activity action does not use a referenced model element".into(),
+                    );
                 }
             }
         }
