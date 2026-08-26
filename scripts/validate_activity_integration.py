@@ -70,6 +70,26 @@ assert "activityExecutionSnapshot" in rich_frontend, "Activity runtime visualiza
 assert "runtime-active" in styles and "runtime-waiting" in styles and "runtime-failed" in styles, "Runtime states are not visually distinct"
 assert "eval(" not in rich_frontend, "Activity frontend must not execute model expressions"
 
+# Runtime snapshots may update overlays, ribbon state, trace and token badges, but
+# must not rebuild the authored workspace on every Initialize/Step/Run tick. A
+# full render remounts the shared surface and can disturb pointer authority/frame
+# geometry across diagram families.
+invoke_execution = rich_frontend.split("async function invokeExecution(command)", 1)[1].split(
+    "async function initializeExecution", 1
+)[0]
+assert "refreshExecutionUi();" in invoke_execution, "Activity execution does not use the targeted runtime overlay refresh"
+assert "render();" not in invoke_execution, "Activity execution still rebuilds the authored workspace on every runtime snapshot"
+assert "document.querySelector('.diagram-workspace')" in rich_frontend, "Activity execution panel is not hosted outside the diagram surface"
+assert "dataset.workspaceOverlay" in rich_frontend, "Activity execution panel is not marked as a non-authoritative workspace overlay"
+
+# Executable action references must remain editable after creation through the
+# Rust semantic mutation boundary, not only through creation-time prompts.
+assert "actionReferenceId" in rich_frontend and "updateActionReference" in rich_frontend, "Activity action reference editing is not forwarded to Rust"
+assert "action_reference_id" in editing_rs and "update_action_reference" in editing_rs, "Rust Activity action reference mutation is missing"
+for action_kind in ["CallBehavior", "CallOperation", "SendSignal", "AcceptEvent"]:
+    assert action_kind in editing_rs and action_kind in rich_frontend, f"Activity Properties cannot edit {action_kind} semantics"
+assert "let original = repository" in editing_rs and "repository.activities.insert(activity_id, original)" in editing_rs, "Activity semantic edits are not transactionally recoverable"
+
 for semantic_kind in [
     "CallBehaviorAction",
     "CallOperationAction",
