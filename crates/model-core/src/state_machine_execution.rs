@@ -838,9 +838,9 @@ impl StateMachineExecutionEngine {
             .iter()
             .filter_map(|id| index.get(id))
             .filter(|location| {
-                exit_roots.iter().any(|root| {
-                    location.vertex.id == *root || location.ancestry.contains(root)
-                })
+                exit_roots
+                    .iter()
+                    .any(|root| location.vertex.id == *root || location.ancestry.contains(root))
             })
             .map(|location| location.vertex.id)
             .collect())
