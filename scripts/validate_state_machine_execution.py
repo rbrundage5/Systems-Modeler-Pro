@@ -11,6 +11,7 @@ def read(relative: str) -> str:
 
 
 core = read("crates/model-core/src/state_machine_execution.rs")
+activity_bridge = read("crates/model-core/src/state_machine_execution/activity_bridge.rs")
 base_tests = read("crates/model-core/tests/pr32_state_machine_execution.rs")
 event_tests = read("crates/model-core/tests/pr32_state_machine_event_semantics.rs")
 closure_tests = read("crates/model-core/tests/pr32_state_machine_semantic_closure.rs")
@@ -86,6 +87,31 @@ for token in (
 ):
     if token not in desktop:
         raise SystemExit(f"State Activity reference/fingerprint boundary is missing: {token}")
+
+for token in (
+    "mod activity_bridge",
+    "state_activity_runtime",
+    "advance_state_do_activities",
+    "activate_state_activities",
+    "exit_state_activities",
+):
+    if token not in core:
+        raise SystemExit(f"State Activity execution bridge is not wired into the State Machine engine: {token}")
+
+for token in (
+    "StateActivityRuntime",
+    "ActivityExecutionEngine",
+    "with_activity_repository",
+    "shared ActivityRepository runtime source",
+    "step_embedded_activity",
+    "execute_synchronous_state_activity",
+    "started doActivity",
+    "terminated doActivity on exit",
+    "completed doActivity",
+    "time_event_sequences",
+):
+    if token not in activity_bridge:
+        raise SystemExit(f"State Activity execution bridge is incomplete: {token}")
 
 commands = (
     "state_machine_execution_snapshot",
@@ -196,13 +222,12 @@ for token in (
 ):
     if token not in submachine_ui:
         raise SystemExit(f"State behavior Activity-reference authoring is missing: {token}")
-if "PR32 does not yet execute State Activity references" not in core:
-    raise SystemExit("State Activity execution limitation must remain explicit until the bridge is implemented")
 
 print(
     "PR32 State Machine execution integration contract passed: Rust owns deterministic runtime "
     "semantics, Fork/Join is qualified across orthogonal Regions without implicit sibling-default "
-    "entry, stable Activity/Signal references are checked at the Rust boundary, shared "
-    "time/events/expressions are reused, qualified unsupported semantics remain explicit, runtime "
-    "UI is presentation-only, and the PR31 all-nine-family authoring contract remains present"
+    "entry, State entry/doActivity/exit reuse the PR31 Activity engine and shared ExecutionSession, "
+    "stable Activity/Signal references are checked at the Rust boundary, shared time/events/values/"
+    "trace/expressions are reused, qualified unsupported semantics remain explicit, runtime UI is "
+    "presentation-only, and the PR31 all-nine-family authoring contract remains present"
 )
