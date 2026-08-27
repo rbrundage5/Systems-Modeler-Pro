@@ -580,6 +580,9 @@ impl StateMachineExecutionEngine {
 
         if let Some(submachine_id) = state.submachine {
             let mut child = Self::new_embedded(self.repository.clone(), submachine_id);
+            if let Some(activities) = self.shared_activity_repository() {
+                child = child.with_activity_repository(activities);
+            }
             child.initialize_embedded(project, session)?;
             let child_completed = child.embedded_completed;
             self.submachine_engines.insert(vertex.id, Box::new(child));
