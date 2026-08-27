@@ -24,7 +24,7 @@ pub struct RuntimeReferenceBindingDecision {
     pub target_runtime_paths: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuralRuntimeConfiguration {
     /// Optional engineer-facing name for a Block root occurrence. A Block
     /// remains a classifier; this names the configured root occurrence only.
@@ -37,17 +37,6 @@ pub struct StructuralRuntimeConfiguration {
     /// composite root but can be reference targets.
     #[serde(default)]
     pub configured_instance_specification_ids: Vec<ElementId>,
-}
-
-impl Default for StructuralRuntimeConfiguration {
-    fn default() -> Self {
-        Self {
-            root_instance_name: None,
-            populations: Vec::new(),
-            reference_bindings: Vec::new(),
-            configured_instance_specification_ids: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -819,8 +808,7 @@ impl<'a> StructuralRuntimeBuilder<'a> {
                 });
             }
             if let Some(authored) = property.default_value.as_deref() {
-                let value = evaluate_execution_expression(authored, |_| None)
-                    .unwrap_or_else(|_| RuntimeValue::Text(authored.to_string()));
+                let value = parse_authored_runtime_default(authored);
                 self.runtime.initial_values.insert(
                     RuntimeValueKey {
                         instance_id: Some(instance_id),
@@ -1380,6 +1368,16 @@ fn readable_element_name(project: &Project, id: ElementId) -> String {
         .element(id)
         .map(|element| element.name.clone())
         .unwrap_or_else(|_| id.to_string())
+}
+
+fn parse_authored_runtime_default(authored: &str) -> RuntimeValue {
+    if let Ok(value) = evaluate_execution_expression(authored, |_| None) {
+        return value;
+    }
+    if let Ok(text) = serde_json::from_str::<String>(authored) {
+        return RuntimeValue::Text(text);
+    }
+    RuntimeValue::Text(authored.to_string())
 }
 
 fn endpoint_key(endpoint: &RuntimeEndpoint) -> Option<RuntimePortKey> {
