@@ -272,10 +272,12 @@ fn local_transition_from_composite_to_descendant_retains_composite() {
     engine.advance(&project, &mut execution).unwrap();
 
     assert_eq!(active_names(&engine, &execution), ["Parent", "Second"]);
-    assert!(!execution
-        .trace
-        .iter()
-        .any(|entry| entry.message == "Exited State 'Parent'"));
+    assert!(
+        !execution
+            .trace
+            .iter()
+            .any(|entry| entry.message == "Exited State 'Parent'")
+    );
 }
 
 #[test]
@@ -350,9 +352,12 @@ fn same_priority_conflicting_transitions_fail_with_ambiguity_diagnostic() {
     let right = vertex("Right", VertexKind::State(State::default()));
 
     let machine = repository.state_machines.get_mut(&machine_id).unwrap();
-    machine.regions[0]
-        .vertices
-        .extend([initial.clone(), idle.clone(), left.clone(), right.clone()]);
+    machine.regions[0].vertices.extend([
+        initial.clone(),
+        idle.clone(),
+        left.clone(),
+        right.clone(),
+    ]);
     machine.regions[0].transitions.extend([
         transition(&initial, &idle),
         signal_transition(&idle, &left, choose, TransitionKind::External),
@@ -366,7 +371,11 @@ fn same_priority_conflicting_transitions_fail_with_ambiguity_diagnostic() {
         .queue_signal(&project, &mut execution, choose, "Choose", Vec::new())
         .unwrap();
     let error = engine.advance(&project, &mut execution).unwrap_err();
-    assert!(error.to_string().contains("Ambiguous State Machine transition"));
+    assert!(
+        error
+            .to_string()
+            .contains("Ambiguous State Machine transition")
+    );
 }
 
 #[test]
