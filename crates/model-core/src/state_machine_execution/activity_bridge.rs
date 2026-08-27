@@ -1,9 +1,8 @@
 use super::StateMachineExecutionEngine;
 use crate::{
     ActionKind, ActivityExecutionEngine, ActivityId, ActivityNodeExecutionState, ActivityNodeKind,
-    ActivityRepository, DiagnosticSeverity, EngineStepOutcome, ExecutionEngine, ExecutionError,
-    ExecutionSession, ExecutionState, Project, RuntimeEvent, RuntimeEventKind, RuntimeValue,
-    State, Vertex, VertexId,
+    ActivityRepository, EngineStepOutcome, ExecutionEngine, ExecutionError, ExecutionSession,
+    ExecutionState, Project, RuntimeEvent, RuntimeEventKind, State, Vertex, VertexId,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -41,16 +40,14 @@ impl StateMachineExecutionEngine {
         state: &State,
     ) -> Result<(), ExecutionError> {
         if let Some(reference) = non_empty(state.entry.as_deref()) {
-            self.execute_synchronous_state_activity(
-                project,
-                session,
-                vertex,
-                reference,
-                "entry",
-            )?;
+            self.execute_synchronous_state_activity(project, session, vertex, reference, "entry")?;
         }
         if let Some(reference) = non_empty(state.do_activity.as_deref()) {
             let activity_id = self.parse_state_activity_id(vertex, "doActivity", reference)?;
+            let activity_name = self
+                .activity_name(activity_id)
+                .unwrap_or("unresolved Activity")
+                .to_string();
             let engine = self.build_embedded_activity_engine(project, session, activity_id)?;
             self.state_activity_runtime
                 .do_activities
@@ -61,7 +58,6 @@ impl StateMachineExecutionEngine {
             self.state_activity_runtime
                 .time_event_sequences
                 .remove(&vertex.id);
-            let activity_name = self.activity_name(activity_id).unwrap_or("unresolved Activity");
             session.record_engine_trace(
                 Some(self.machine()?.context_id),
                 format!(
@@ -92,13 +88,7 @@ impl StateMachineExecutionEngine {
             );
         }
         if let Some(reference) = non_empty(state.exit.as_deref()) {
-            self.execute_synchronous_state_activity(
-                project,
-                session,
-                vertex,
-                reference,
-                "exit",
-            )?;
+            self.execute_synchronous_state_activity(project, session, vertex, reference, "exit")?;
         }
         Ok(())
     }
@@ -126,7 +116,9 @@ impl StateMachineExecutionEngine {
             session.consume_step_budget()?;
             let before = time_event_sequences(session);
             let context_id = self.machine()?.context_id;
-            let state_name = self.state_name(state_id).unwrap_or("unresolved State").to_string();
+            let state_name = self
+                .state_name(state_id)
+                .unwrap_or_else(|| "unresolved State".into());
             let outcome = {
                 let engine = self
                     .state_activity_runtime
@@ -298,7 +290,10 @@ impl StateMachineExecutionEngine {
         role: &str,
     ) -> Result<(), ExecutionError> {
         let activity_id = self.parse_state_activity_id(vertex, role, reference)?;
-        let activity_name = self.activity_name(activity_id).unwrap_or("unresolved Activity").to_string();
+        let activity_name = self
+            .activity_name(activity_id)
+            .unwrap_or("unresolved Activity")
+            .to_string();
         let context_id = self.machine()?.context_id;
         let mut engine = self.build_embedded_activity_engine(project, session, activity_id)?;
         let mut scheduled_time_events = HashSet::new();
@@ -385,13 +380,11 @@ impl StateMachineExecutionEngine {
             .map(|activity| activity.name.as_str())
     }
 
-    fn state_name(&self, id: VertexId) -> Option<&str> {
+    fn state_name(&self, id: VertexId) -> Option<String> {
         let machine = self.machine().ok()?;
         super::build_vertex_index(machine)
             .get(&id)
-            .map(|location| location.vertex.name.as_str())
-            .map(str::to_owned)
-            .as_deref()
+            .map(|location| location.vertex.name.clone())
     }
 
     fn track_new_time_events(
@@ -474,16 +467,19 @@ impl StateMachineExecutionEngine {
             let ActivityNodeKind::Action(action) = &node.kind else {
                 return false;
             };
-            let ActionKind::AcceptEvent { signal_id } = action.kind else {
+            let ActionKind::AcceptEvent { signal_id } = &action.kind else {
                 return false;
             };
-            signal_id.is_none_or(|id| {
-                event.semantic_event_id == Some(id)
-                    || (event.semantic_event_id.is_none()
-                        && project
-                            .element(id)
-                            .is_ok_and(|signal| signal.name == event.name))
-            })
+            match signal_id {
+                None => true,
+                Some(id) => {
+                    event.semantic_event_id == Some(*id)
+                        || (event.semantic_event_id.is_none()
+                            && project
+                                .element(*id)
+                                .is_ok_and(|signal| signal.name == event.name))
+                }
+            }
         })
     }
 }
