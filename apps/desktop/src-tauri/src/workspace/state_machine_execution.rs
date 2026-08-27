@@ -231,7 +231,7 @@ fn state_machine_runtime_context(
         .element(root_semantic_id)
         .map_err(|error| format!("Execution runtime root is invalid: {error}"))?;
     if !matches!(
-        root.kind,
+        &root.kind,
         ElementKind::Block
             | ElementKind::AssociationBlock
             | ElementKind::PartProperty

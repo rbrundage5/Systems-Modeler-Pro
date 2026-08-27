@@ -2,7 +2,7 @@ use super::{ActivityWorkspaceState, WorkspaceState, activity_workspace::parse_ac
 use std::collections::HashMap;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    ActivityExecutionEngine, ActivityExecutionSnapshot, ActivityId, ActivityRepository, ElementId,
+    ActivityExecutionEngine, ActivityExecutionSnapshot, ActivityId, ActivityRepository,
     ElementKind, ExecutionConfiguration, ExecutionEngine, ExecutionManager,
     ExecutionRuntimePreview, ExecutionRuntimeSelection, ExecutionSessionId, ExecutionState,
     Project, RuntimeInstanceId, StructuralRuntime,
@@ -88,7 +88,7 @@ fn snapshot_for(
     Ok(engine.snapshot(session))
 }
 
-fn is_structural_root(kind: ElementKind) -> bool {
+fn is_structural_root(kind: &ElementKind) -> bool {
     matches!(
         kind,
         ElementKind::Block
@@ -114,7 +114,7 @@ fn activity_runtime_context(
     let root = project
         .element(root_semantic_id)
         .map_err(|error| format!("Execution runtime root is invalid: {error}"))?;
-    if !is_structural_root(root.kind) {
+    if !is_structural_root(&root.kind) {
         if selection.root_semantic_id.is_some() {
             return Err(format!(
                 "Execution runtime root '{}' ({:?}) is not a Block, PartProperty, AssociationBlock, or typed InstanceSpecification.",
@@ -141,7 +141,7 @@ fn activity_runtime_context(
     let expected_classifier = activity.context_id.filter(|context_id| {
         project.element(*context_id).is_ok_and(|element| {
             matches!(
-                element.kind,
+                &element.kind,
                 ElementKind::Block | ElementKind::AssociationBlock
             )
         })
