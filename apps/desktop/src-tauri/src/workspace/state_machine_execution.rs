@@ -2,9 +2,9 @@ use super::{WorkspaceState, behavior_workspace::BehaviorDiagramKind};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    BehaviorRepository, ElementId, ExecutionConfiguration, ExecutionEngine, ExecutionManager,
-    ExecutionSessionId, ExecutionState, Project, RuntimeValue, StateMachineExecutionEngine,
-    StateMachineExecutionSnapshot, StateMachineId,
+    BehaviorRepository, ElementId, ElementKind, ExecutionConfiguration, ExecutionEngine,
+    ExecutionManager, ExecutionSessionId, ExecutionState, Project, RuntimeValue,
+    StateMachineExecutionEngine, StateMachineExecutionSnapshot, StateMachineId,
 };
 
 #[derive(Default)]
@@ -404,6 +404,16 @@ pub fn queue_state_machine_signal(
     let signal_id = uuid::Uuid::parse_str(&signal_id)
         .map(ElementId)
         .map_err(|_| "invalid Signal stable ID".to_string())?;
+    let signal = project
+        .element(signal_id)
+        .map_err(|error| error.to_string())?;
+    if signal.kind != ElementKind::Signal {
+        return Err(format!(
+            "queued State Machine SignalEvent must reference a Signal; '{}' is {:?}",
+            signal.name, signal.kind
+        ));
+    }
+    let signal_name = signal.name.clone();
     let mut registry = execution_state
         .registry
         .lock()
@@ -425,11 +435,6 @@ pub fn queue_state_machine_signal(
     let engine = engines
         .get(&session_id)
         .ok_or("State Machine execution engine is unavailable")?;
-    let signal_name = project
-        .element(signal_id)
-        .map_err(|error| error.to_string())?
-        .name
-        .clone();
     engine
         .queue_signal(
             &project,
