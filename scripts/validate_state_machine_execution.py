@@ -11,14 +11,17 @@ def read(relative: str) -> str:
 
 
 core = read("crates/model-core/src/state_machine_execution.rs")
-tests = read("crates/model-core/tests/pr32_state_machine_execution.rs")
+base_tests = read("crates/model-core/tests/pr32_state_machine_execution.rs")
+event_tests = read("crates/model-core/tests/pr32_state_machine_event_semantics.rs")
+closure_tests = read("crates/model-core/tests/pr32_state_machine_semantic_closure.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/state_machine_execution.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
-ui = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
-ui = ui[
-    ui.index("PR32_STATE_MACHINE_EXECUTION_BEGIN") :
-    ui.index("PR32_STATE_MACHINE_EXECUTION_END")
+ui_file = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
+ui = ui_file[
+    ui_file.index("PR32_STATE_MACHINE_EXECUTION_BEGIN") :
+    ui_file.index("PR32_STATE_MACHINE_EXECUTION_END")
 ]
+submachine_ui = read("apps/desktop/frontend/behavior-submachine.js")
 styles = read("apps/desktop/frontend/behavior.css")
 index = read("apps/desktop/frontend/index.html")
 standard = read("scripts/validate_standard_editing_integration.py")
@@ -43,6 +46,8 @@ for token in (
     "PseudostateKind::Join",
     "PseudostateKind::ShallowHistory",
     "PseudostateKind::DeepHistory",
+    "PseudostateKind::EntryPoint",
+    "PseudostateKind::ExitPoint",
     "Event::Signal",
     "Event::Call",
     "Event::Time",
@@ -53,6 +58,14 @@ for token in (
     source = desktop if token == "source_fingerprint" else core
     if token not in source:
         raise SystemExit(f"State Machine execution contract is missing {token}")
+
+for diagnostic in (
+    "connection-point owner/entry-exit mapping",
+    "history default/restoration policy",
+    "state-machine-time:",
+):
+    if diagnostic not in core:
+        raise SystemExit(f"State Machine qualified limitation/identity is missing: {diagnostic}")
 
 commands = (
     "state_machine_execution_snapshot",
@@ -70,7 +83,7 @@ for command in commands:
     if command not in desktop or command not in main:
         raise SystemExit(f"State Machine execution command is not fully registered: {command}")
 
-for scenario in (
+base_scenarios = (
     "basic_signal_lifecycle_is_deterministic_and_completes",
     "guarded_choice_uses_shared_expression_evaluator_and_event_payload",
     "composite_and_orthogonal_regions_maintain_active_configuration",
@@ -79,9 +92,31 @@ for scenario in (
     "identical_inputs_produce_identical_semantic_trace",
     "reset_matches_fresh_initialization_and_does_not_mutate_authored_model",
     "pseudostate_cycle_fails_at_bounded_run_to_completion_limit",
-):
-    if scenario not in tests:
+)
+for scenario in base_scenarios:
+    if scenario not in base_tests:
         raise SystemExit(f"State Machine execution test scenario is missing: {scenario}")
+
+for scenario in (
+    "authored_defaults_are_available_to_state_machine_guards",
+    "change_event_fires_only_on_false_to_true_edge",
+    "stale_time_event_cannot_fire_after_exit_and_reentry",
+    "event_for_another_runtime_target_does_not_block_relevant_signal",
+):
+    if scenario not in event_tests:
+        raise SystemExit(f"State Machine event-semantics scenario is missing: {scenario}")
+
+for scenario in (
+    "one_signal_fires_non_conflicting_transitions_in_two_orthogonal_regions",
+    "cross_hierarchy_external_transition_exits_child_then_parent",
+    "local_transition_from_composite_to_descendant_retains_composite",
+    "entering_nested_target_initializes_other_orthogonal_regions",
+    "same_priority_conflicting_transitions_fail_with_ambiguity_diagnostic",
+    "submachine_state_executes_child_machine_and_completes_back_into_parent",
+    "entry_point_execution_is_explicitly_rejected_until_connection_point_semantics_exist",
+):
+    if scenario not in closure_tests:
+        raise SystemExit(f"State Machine semantic-closure scenario is missing: {scenario}")
 
 for control in ("Initialize", "Run", "Step", "Pause", "Resume", "Reset", "Terminate"):
     if control not in ui:
@@ -100,8 +135,12 @@ for forbidden in (
     if forbidden in ui:
         raise SystemExit(f"State Machine execution UI owns forbidden semantics/input: {forbidden}")
 
-if "render();" in ui[ui.find("async function invokeExecution"):ui.find("async function initializeExecution")]:
+invoke_start = ui.index("async function invokeStateMachineExecution")
+invoke_end = ui.index("async function initializeStateMachineExecution")
+if "render();" in ui[invoke_start:invoke_end]:
     raise SystemExit("State Machine runtime snapshots must not rebuild the authored workspace")
+if "requestAnimationFrame" not in ui or "step_state_machine_execution" not in ui:
+    raise SystemExit("State Machine Run must remain a thin frontend loop over Rust Step")
 if "pointer-events:none" not in styles or ".state-machine-execution-panel" not in styles:
     raise SystemExit("State Machine execution overlay is not input-transparent")
 if '<script src="behavior-authoritative-renderer.js"></script>' not in index:
@@ -109,8 +148,21 @@ if '<script src="behavior-authoritative-renderer.js"></script>' not in index:
 if "all nine" not in standard:
     raise SystemExit("PR31 all-nine-family authoring regression contract is missing")
 
+for token in (
+    "Entry Activity",
+    "Do Activity",
+    "Exit Activity",
+    "update_state_behaviors",
+    "stable Activity IDs",
+):
+    if token not in submachine_ui:
+        raise SystemExit(f"State behavior Activity-reference authoring is missing: {token}")
+if "PR32 does not yet execute State Activity references" not in core:
+    raise SystemExit("State Activity execution limitation must remain explicit until the bridge is implemented")
+
 print(
     "PR32 State Machine execution integration contract passed: Rust owns deterministic runtime "
-    "semantics, shared time/events/expressions are reused, runtime UI is presentation-only, and "
-    "the PR31 all-nine-family authoring contract remains present"
+    "semantics, shared time/events/expressions are reused, qualified unsupported semantics remain "
+    "explicit, runtime UI is presentation-only, and the PR31 all-nine-family authoring contract "
+    "remains present"
 )
