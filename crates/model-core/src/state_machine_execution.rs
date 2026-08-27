@@ -1073,6 +1073,41 @@ impl StateMachineExecutionEngine {
             .collect())
     }
 
+    fn cancel_state_time_events(
+        &self,
+        session: &mut ExecutionSession,
+        vertex_id: VertexId,
+    ) -> Result<(), ExecutionError> {
+        let Some(generation) = self.state_activation_generations.get(&vertex_id).copied() else {
+            return Ok(());
+        };
+        let context_id = self.machine()?.context_id;
+        let event_names: HashSet<_> = self
+            .transitions_from(vertex_id)
+            .into_iter()
+            .filter(|outgoing| {
+                matches!(
+                    outgoing
+                        .transition
+                        .trigger
+                        .as_ref()
+                        .map(|trigger| &trigger.event),
+                    Some(Event::Time { .. })
+                )
+            })
+            .map(|outgoing| time_event_name(outgoing.transition.id, generation))
+            .collect();
+        if event_names.is_empty() {
+            return Ok(());
+        }
+        session.event_queue.retain(|scheduled| {
+            scheduled.event.kind != RuntimeEventKind::Time
+                || scheduled.event.target_semantic_id != Some(context_id)
+                || !event_names.contains(&scheduled.event.name)
+        });
+        Ok(())
+    }
+
     fn exit_for_transition(
         &mut self,
         session: &mut ExecutionSession,
@@ -1119,6 +1154,7 @@ impl StateMachineExecutionEngine {
                     self.change_event_values.remove(&outgoing.transition.id);
                 }
             }
+            self.cancel_state_time_events(session, location.vertex.id)?;
             self.state_activation_generations
                 .remove(&location.vertex.id);
             self.submachine_engines.remove(&location.vertex.id);
