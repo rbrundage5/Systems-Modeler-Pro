@@ -64,8 +64,7 @@ fn active_names(snapshot: &StateMachineExecutionSnapshot) -> Vec<String> {
 
 #[test]
 fn basic_signal_lifecycle_is_deterministic_and_completes() {
-    let (mut project, mut repository, machine_id, context) =
-        project_and_machine("Lifecycle");
+    let (mut project, mut repository, machine_id, context) = project_and_machine("Lifecycle");
     let start = project
         .create_element(ElementKind::Signal, "Start", project.root_id)
         .unwrap();
@@ -83,7 +82,9 @@ fn basic_signal_lifecycle_is_deterministic_and_completes() {
         signal_transition(&idle, &running, start),
         signal_transition(&running, &final_state, stop),
     ]);
-    region.vertices.extend([initial, idle, running, final_state]);
+    region
+        .vertices
+        .extend([initial, idle, running, final_state]);
 
     let mut engine = StateMachineExecutionEngine::new(repository, machine_id);
     let mut execution = session(&project, context);
@@ -105,7 +106,12 @@ fn basic_signal_lifecycle_is_deterministic_and_completes() {
         EngineStepOutcome::Completed
     );
     assert_eq!(execution.state, ExecutionState::Completed);
-    assert!(execution.trace.iter().any(|entry| entry.message == "Entered State 'Running'"));
+    assert!(
+        execution
+            .trace
+            .iter()
+            .any(|entry| entry.message == "Entered State 'Running'")
+    );
 }
 
 #[test]
@@ -157,9 +163,15 @@ fn composite_and_orthogonal_regions_maintain_active_configuration() {
     let machine = repository.state_machines.get_mut(&machine_id).unwrap();
     let root = &mut machine.regions[0];
     let initial = vertex("Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
-    let left_initial = vertex("Left Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
+    let left_initial = vertex(
+        "Left Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
     let left = vertex("Left Active", VertexKind::State(State::default()));
-    let right_initial = vertex("Right Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
+    let right_initial = vertex(
+        "Right Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
     let right = vertex("Right Active", VertexKind::State(State::default()));
     let parent = vertex(
         "Parent",
@@ -188,7 +200,10 @@ fn composite_and_orthogonal_regions_maintain_active_configuration() {
     let mut execution = session(&project, context);
     engine.initialize(&project, &mut execution).unwrap();
     let snapshot = engine.snapshot(&execution);
-    assert_eq!(active_names(&snapshot), ["Parent", "Left Active", "Right Active"]);
+    assert_eq!(
+        active_names(&snapshot),
+        ["Parent", "Left Active", "Right Active"]
+    );
     assert_eq!(snapshot.active_region_ids.len(), 3);
 }
 
@@ -207,14 +222,19 @@ fn time_event_uses_simulation_time_not_wall_clock() {
             is_relative: true,
         },
     });
-    region.transitions.extend([transition(&initial, &waiting), timed]);
+    region
+        .transitions
+        .extend([transition(&initial, &waiting), timed]);
     region.vertices.extend([initial, waiting, elapsed]);
 
     let mut engine = StateMachineExecutionEngine::new(repository, machine_id);
     let mut execution = session(&project, context);
     engine.initialize(&project, &mut execution).unwrap();
     engine.advance(&project, &mut execution).unwrap();
-    assert_eq!(execution.simulation_time, SimulationTime::from_nanos(5_000_000_000));
+    assert_eq!(
+        execution.simulation_time,
+        SimulationTime::from_nanos(5_000_000_000)
+    );
     assert_eq!(active_names(&engine.snapshot(&execution)), ["Elapsed"]);
 }
 
@@ -244,7 +264,10 @@ fn fork_and_join_synchronize_concurrent_paths() {
     let mut engine = StateMachineExecutionEngine::new(repository, machine_id);
     let mut execution = session(&project, context);
     engine.initialize(&project, &mut execution).unwrap();
-    assert_eq!(active_names(&engine.snapshot(&execution)), ["Left", "Right"]);
+    assert_eq!(
+        active_names(&engine.snapshot(&execution)),
+        ["Left", "Right"]
+    );
     assert_eq!(
         engine.advance(&project, &mut execution).unwrap(),
         EngineStepOutcome::Progressed
@@ -343,6 +366,10 @@ fn pseudostate_cycle_fails_at_bounded_run_to_completion_limit() {
     let mut engine = StateMachineExecutionEngine::new(repository, machine_id);
     let mut execution = session(&project, context);
     let error = engine.initialize(&project, &mut execution).unwrap_err();
-    assert!(error.to_string().contains("run-to-completion step limit exceeded"));
+    assert!(
+        error
+            .to_string()
+            .contains("run-to-completion step limit exceeded")
+    );
     assert_eq!(execution.state, ExecutionState::Failed);
 }
