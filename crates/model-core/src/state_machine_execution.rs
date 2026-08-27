@@ -480,7 +480,8 @@ impl StateMachineExecutionEngine {
         vertex: &Vertex,
     ) -> Result<(), ExecutionError> {
         let generation = self.next_state_activation_generation;
-        self.next_state_activation_generation = self.next_state_activation_generation.saturating_add(1);
+        self.next_state_activation_generation =
+            self.next_state_activation_generation.saturating_add(1);
         self.state_activation_generations
             .insert(vertex.id, generation);
         self.schedule_time_events(project, session, vertex, generation)?;
@@ -593,7 +594,8 @@ impl StateMachineExecutionEngine {
                 {
                     None => self.source_is_complete(state_id),
                     Some(Event::Change { expression }) => {
-                        let current = self.expression_is_true(project, session, expression, None)?;
+                        let current =
+                            self.expression_is_true(project, session, expression, None)?;
                         let previous = self
                             .change_event_values
                             .insert(transition.transition.id, current)
@@ -979,7 +981,11 @@ impl StateMachineExecutionEngine {
             }
             for outgoing in self.transitions_from(location.vertex.id) {
                 if matches!(
-                    outgoing.transition.trigger.as_ref().map(|trigger| &trigger.event),
+                    outgoing
+                        .transition
+                        .trigger
+                        .as_ref()
+                        .map(|trigger| &trigger.event),
                     Some(Event::Change { .. })
                 ) {
                     self.change_event_values.remove(&outgoing.transition.id);
@@ -1287,7 +1293,7 @@ fn find_region(regions: &[Region], wanted: RegionId) -> Option<&Region> {
         if region.id == wanted {
             return Some(region);
         }
-        for vertex in &region.vertices {
+        for vertex in region.vertices.iter() {
             if let VertexKind::State(state) = &vertex.kind
                 && let Some(found) = find_region(&state.regions, wanted)
             {
