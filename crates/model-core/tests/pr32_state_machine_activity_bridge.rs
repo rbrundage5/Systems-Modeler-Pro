@@ -217,8 +217,7 @@ fn entry_and_exit_activities_execute_in_parent_session_without_completing_it() {
     );
     let final_state = vertex("Final", VertexKind::FinalState);
     let machine = behaviors.state_machines.get_mut(&machine_id).unwrap();
-    machine
-        .regions[0]
+    machine.regions[0]
         .vertices
         .extend([initial.clone(), active.clone(), final_state.clone()]);
     machine.regions[0].transitions.extend([
@@ -276,14 +275,12 @@ fn do_activity_waits_for_shared_signal_then_allows_completion_transition() {
     );
     let done = vertex("Done", VertexKind::State(State::default()));
     let machine = behaviors.state_machines.get_mut(&machine_id).unwrap();
-    machine
-        .regions[0]
+    machine.regions[0]
         .vertices
         .extend([initial.clone(), working.clone(), done.clone()]);
-    machine.regions[0].transitions.extend([
-        transition(&initial, &working),
-        transition(&working, &done),
-    ]);
+    machine.regions[0]
+        .transitions
+        .extend([transition(&initial, &working), transition(&working, &done)]);
     activities.validate(&project).unwrap();
     behaviors.validate(&project).unwrap();
 
@@ -335,8 +332,7 @@ fn exiting_state_cancels_do_activity_time_event_from_shared_queue() {
     );
     let stopped = vertex("Stopped", VertexKind::State(State::default()));
     let machine = behaviors.state_machines.get_mut(&machine_id).unwrap();
-    machine
-        .regions[0]
+    machine.regions[0]
         .vertices
         .extend([initial.clone(), working.clone(), stopped.clone()]);
     machine.regions[0].transitions.extend([
@@ -371,7 +367,10 @@ fn exiting_state_cancels_do_activity_time_event_from_shared_queue() {
 
     assert_eq!(active_names(&engine, &session), ["Stopped"]);
     assert_eq!(engine.snapshot(&session).pending_event_count, 0);
-    assert!(session.trace.iter().any(|entry| {
-        entry.message == "State 'Working' terminated doActivity on exit"
-    }));
+    assert!(
+        session
+            .trace
+            .iter()
+            .any(|entry| { entry.message == "State 'Working' terminated doActivity on exit" })
+    );
 }
