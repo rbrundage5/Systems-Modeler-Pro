@@ -60,7 +60,10 @@ fn active_names(engine: &StateMachineExecutionEngine, execution: &ExecutionSessi
 fn fork_targets_orthogonal_regions_without_entering_sibling_defaults_and_join_completes() {
     let (project, mut repository, machine_id, context) = fixture();
 
-    let root_initial = vertex("Root Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
+    let root_initial = vertex(
+        "Root Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
     let fork = vertex("Fork", VertexKind::Pseudostate(PseudostateKind::Fork));
     let root_final = vertex("Root Final", VertexKind::FinalState);
 
@@ -98,7 +101,11 @@ fn fork_targets_orthogonal_regions_without_entering_sibling_defaults_and_join_co
     let right_region = Region {
         id: RegionId::new(),
         name: "Right Region".into(),
-        vertices: vec![right_initial.clone(), right_default.clone(), right_target.clone()],
+        vertices: vec![
+            right_initial.clone(),
+            right_default.clone(),
+            right_target.clone(),
+        ],
         transitions: vec![transition(&right_initial, &right_default)],
     };
     let parent = vertex(
