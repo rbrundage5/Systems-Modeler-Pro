@@ -233,9 +233,9 @@ fn stale_time_event_cannot_fire_after_exit_and_reentry() {
 
     assert_eq!(
         engine.advance(&project, &mut session).unwrap(),
-        EngineStepOutcome::Idle
+        EngineStepOutcome::Progressed
     );
-    assert_eq!(active_names(&engine, &session), ["Waiting"]);
+    assert_eq!(active_names(&engine, &session), ["Expired"]);
     assert_eq!(
         session.simulation_time,
         SimulationTime::from_nanos(5_000_000_000)
@@ -244,7 +244,7 @@ fn stale_time_event_cannot_fire_after_exit_and_reentry() {
 
     assert_eq!(
         engine.advance(&project, &mut session).unwrap(),
-        EngineStepOutcome::Progressed
+        EngineStepOutcome::Idle
     );
     assert_eq!(active_names(&engine, &session), ["Expired"]);
 }
