@@ -10,6 +10,10 @@
     return state.behaviorSnapshot?.repository?.state_machines || {};
   }
 
+  function activities() {
+    return state.activitySnapshot?.repository?.activities || {};
+  }
+
   function flattenVertices(regions, output = []) {
     for (const region of regions || []) {
       for (const vertex of region.vertices || []) {
@@ -73,6 +77,43 @@
     });
   }
 
+  function activityOptions(selected) {
+    const choices = Object.entries(activities())
+      .sort((left, right) => String(left[1]?.name || left[0]).localeCompare(String(right[1]?.name || right[0])));
+    const options = ['<option value="">(none)</option>'];
+    for (const [id, activity] of choices) {
+      const isSelected = String(id) === String(selected || '');
+      options.push(`<option value="${escapeAttr(id)}"${isSelected ? ' selected' : ''}>${escapeHtml(activity?.name || id)}</option>`);
+    }
+    return options.join('');
+  }
+
+  function appendExecutableStateBehaviorProperties(panel, diagram, vertex) {
+    const stateSemantic = vertex?.kind?.State;
+    if (!stateSemantic || !panel) return;
+    const section = document.createElement('div');
+    section.className = 'state-executable-behavior-editor';
+    section.innerHTML = `<div class="property-heading">Executable State Behaviors</div>
+      <label>Entry Activity<select id="state-entry-activity">${activityOptions(stateSemantic.entry)}</select></label>
+      <label>Do Activity<select id="state-do-activity">${activityOptions(stateSemantic.do_activity)}</select></label>
+      <label>Exit Activity<select id="state-exit-activity">${activityOptions(stateSemantic.exit)}</select></label>
+      <button id="state-behavior-apply" class="primary">Apply State Behaviors</button>
+      <div class="muted">These fields store stable Activity IDs. Runtime execution never interprets arbitrary state text as code.</div>`;
+    panel.appendChild(section);
+    const apply = document.getElementById('state-behavior-apply');
+    if (!apply) return;
+    apply.onclick = async () => {
+      await runCommand('Updating State behaviors…', () => requireInvoke()('update_state_behaviors', {
+        diagramId: diagram.id,
+        stateVertexId: vertex.id,
+        entry: document.getElementById('state-entry-activity')?.value || null,
+        doActivity: document.getElementById('state-do-activity')?.value || null,
+        exit: document.getElementById('state-exit-activity')?.value || null,
+      }));
+      await refresh();
+    };
+  }
+
   const baseRenderPalette = renderPalette;
   renderPalette = function renderPaletteWithSubmachineState() {
     const result = baseRenderPalette();
@@ -85,6 +126,16 @@
         render();
       };
     }
+    return result;
+  };
+
+  const baseRenderProperties = renderProperties;
+  renderProperties = function renderPropertiesWithExecutableStateBehaviors() {
+    const result = baseRenderProperties();
+    const diagram = activeStateMachineDiagram();
+    const item = state.selectedBehaviorItem;
+    if (!diagram || item?.type !== 'Vertex' || item.semantic?.kind?.State == null) return result;
+    appendExecutableStateBehaviorProperties(document.getElementById('properties'), diagram, item.semantic);
     return result;
   };
 
