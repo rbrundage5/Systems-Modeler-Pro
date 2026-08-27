@@ -1227,3 +1227,22 @@ fn structural_runtime_snapshot_is_json_safe_and_deterministic() {
 
 #[allow(dead_code)]
 fn pr33_semantic_hardening_tests_marker() {}
+
+#[test]
+fn runtime_selection_preview_supports_repeated_classifier_occurrences() {
+    let fixture = vehicle_fixture();
+    let runtime = build_vehicle(&fixture);
+    let paths = runtime.compatible_instance_paths(&fixture.project, fixture.sensor);
+    assert_eq!(paths, vec!["vehicle.leftSensor", "vehicle.rightSensor"]);
+    let selection = ExecutionRuntimeSelection {
+        root_semantic_id: Some(fixture.vehicle),
+        structural_configuration: StructuralRuntimeConfiguration {
+            root_instance_name: Some("vehicle".into()),
+            ..StructuralRuntimeConfiguration::default()
+        },
+        runtime_instance_path: Some("vehicle.rightSensor".into()),
+    };
+    let encoded = serde_json::to_string(&selection).unwrap();
+    let decoded: ExecutionRuntimeSelection = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, selection);
+}

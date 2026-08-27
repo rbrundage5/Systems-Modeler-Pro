@@ -484,7 +484,7 @@
     if (!group) {
       group = document.createElement('section');
       group.className = 'ribbon-group state-machine-execution-ribbon-group';
-      const controls = [['initialize','◇','Initialize'],['run','▶','Run'],['step','▸','Step'],['pause','Ⅱ','Pause'],['resume','▷','Resume'],['reset','↺','Reset'],['terminate','■','Terminate'],['signal','⇢','Signal']];
+      const controls = [['runtime','◎','Runtime'],['initialize','◇','Initialize'],['run','▶','Run'],['step','▸','Step'],['pause','Ⅱ','Pause'],['resume','▷','Resume'],['reset','↺','Reset'],['terminate','■','Terminate'],['signal','⇢','Signal']];
       group.innerHTML = `<div class="ribbon-actions state-machine-execution-actions">${controls.map(([command, icon, label]) => `<button class="ribbon-command" data-state-machine-execution="${command}"><span class="command-icon">${icon}</span><span>${label}</span></button>`).join('')}</div><div class="ribbon-label">State Machine Execution</div>`;
       group.addEventListener('click', handleStateMachineExecutionCommand);
       document.querySelector('.ribbon')?.insertBefore(group, document.querySelector('.ribbon-context'));
@@ -545,7 +545,11 @@
     const command = event.target.closest?.('[data-state-machine-execution]')?.dataset.stateMachineExecution;
     if (!command) return;
     try {
-      if (command === 'initialize') await initializeStateMachineExecution();
+      if (command === 'runtime') {
+        await window.smpOpenStructuralRuntimeConfiguration?.('stateMachine', executionDiagram().id);
+        Object.assign(state, { stateMachineExecutionSnapshot: null });
+        refreshStateMachineExecution();
+      } else if (command === 'initialize') await initializeStateMachineExecution();
       else if (command === 'run') await runStateMachineExecution(false);
       else if (command === 'step') {
         stateMachineRunGeneration += 1;
@@ -738,3 +742,137 @@
   };
 })();
 // PR33_STRUCTURAL_RUNTIME_INSPECTOR_END
+
+
+// PR33_STRUCTURAL_RUNTIME_CONFIGURATION_BEGIN
+(() => {
+  'use strict';
+
+  const invoke = () => {
+    const command = window.__TAURI__?.core?.invoke;
+    if (!command) throw new Error('Tauri command bridge is unavailable.');
+    return command;
+  };
+  const esc = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+
+  function parseArray(text, label) {
+    const source = String(text || '').trim();
+    if (!source) return [];
+    let value;
+    try { value = JSON.parse(source); } catch (error) {
+      throw new Error(`${label} must be valid JSON: ${error.message}`);
+    }
+    if (!Array.isArray(value)) throw new Error(`${label} must be a JSON array.`);
+    return value;
+  }
+
+  function selectionFromDialog(dialog) {
+    return {
+      root_semantic_id: dialog.querySelector('[data-runtime-root]').value || null,
+      structural_configuration: {
+        root_instance_name: dialog.querySelector('[data-runtime-root-name]').value.trim() || null,
+        populations: parseArray(dialog.querySelector('[data-runtime-populations]').value, 'Population decisions'),
+        reference_bindings: parseArray(dialog.querySelector('[data-runtime-references]').value, 'Reference bindings'),
+        configured_instance_specification_ids: parseArray(dialog.querySelector('[data-runtime-instances]').value, 'Configured InstanceSpecification IDs'),
+      },
+      runtime_instance_path: dialog.querySelector('[data-runtime-path]').value.trim() || null,
+    };
+  }
+
+  function commands(kind) {
+    if (kind === 'activity') return {
+      get: 'activity_execution_runtime_selection',
+      preview: 'preview_activity_execution_runtime',
+      configure: 'configure_activity_execution_runtime',
+      label: 'Activity',
+    };
+    return {
+      get: 'state_machine_execution_runtime_selection',
+      preview: 'preview_state_machine_execution_runtime',
+      configure: 'configure_state_machine_execution_runtime',
+      label: 'State Machine',
+    };
+  }
+
+  function runtimeRootOptions(current) {
+    const elements = window.smpState?.snapshot?.project?.elements || [];
+    const supported = new Set(['Block', 'AssociationBlock', 'PartProperty', 'InstanceSpecification']);
+    return elements
+      .filter((element) => supported.has(element.kind))
+      .sort((left, right) => `${left.name}:${left.kind}`.localeCompare(`${right.name}:${right.kind}`))
+      .map((element) => `<option value="${esc(element.id)}" ${String(current || '') === String(element.id) ? 'selected' : ''}>${esc(element.name)} · ${esc(element.kind)}</option>`)
+      .join('');
+  }
+
+  window.smpOpenStructuralRuntimeConfiguration = async function openStructuralRuntimeConfiguration(kind, diagramId) {
+    const api = commands(kind);
+    const existing = await invoke()(api.get, { diagramId });
+    document.querySelector('.structural-runtime-config-backdrop')?.remove();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'structural-runtime-config-backdrop';
+    const structural = existing?.structural_configuration || {};
+    backdrop.innerHTML = `<section class="structural-runtime-config-dialog" role="dialog" aria-modal="true" aria-label="${esc(api.label)} runtime configuration">
+      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this behavior executes on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>
+      <label>Structural execution root<select data-runtime-root><option value="">Behavior context (default)</option>${runtimeRootOptions(existing?.root_semantic_id)}</select></label>
+      <label>Root occurrence name<input data-runtime-root-name value="${esc(structural.root_instance_name || '')}" placeholder="Optional engineer-facing runtime root name" /></label>
+      <label>Behavior runtime occurrence<input data-runtime-path list="structural-runtime-compatible-paths" value="${esc(existing?.runtime_instance_path || '')}" placeholder="Auto-select when exactly one compatible occurrence exists" /><datalist id="structural-runtime-compatible-paths"></datalist></label>
+      <details><summary>Advanced structural configuration</summary>
+        <p class="muted">These are transient runtime decisions. They do not modify PartProperty multiplicity, ReferenceProperty ownership, or authored InstanceSpecifications.</p>
+        <label>Population decisions (JSON array)<textarea data-runtime-populations rows="4">${esc(JSON.stringify(structural.populations || [], null, 2))}</textarea></label>
+        <label>Reference bindings (JSON array)<textarea data-runtime-references rows="5">${esc(JSON.stringify(structural.reference_bindings || [], null, 2))}</textarea></label>
+        <label>Additional configured InstanceSpecification IDs (JSON array)<textarea data-runtime-instances rows="3">${esc(JSON.stringify(structural.configured_instance_specification_ids || [], null, 2))}</textarea></label>
+      </details>
+      <div class="structural-runtime-config-preview" data-runtime-preview>Preview has not been run.</div>
+      <footer><button type="button" data-runtime-preview-button>Preview</button><button type="button" data-runtime-apply>Apply Runtime Context</button><button type="button" data-runtime-close>Cancel</button></footer>
+    </section>`;
+    document.body.appendChild(backdrop);
+    const dialog = backdrop.querySelector('.structural-runtime-config-dialog');
+    const previewHost = dialog.querySelector('[data-runtime-preview]');
+    const list = dialog.querySelector('#structural-runtime-compatible-paths');
+    const close = () => backdrop.remove();
+    dialog.querySelectorAll('[data-runtime-close]').forEach((button) => button.onclick = close);
+    backdrop.addEventListener('click', (event) => { if (event.target === backdrop) close(); });
+
+    async function preview() {
+      const selection = selectionFromDialog(dialog);
+      const result = await invoke()(api.preview, { diagramId, selection });
+      list.innerHTML = (result.compatible_runtime_instance_paths || [])
+        .map((path) => `<option value="${esc(path)}"></option>`).join('');
+      const runtime = result.structural_runtime;
+      previewHost.innerHTML = runtime
+        ? `<b>${runtime.instances?.length || 0} runtime instance(s)</b> · ${runtime.ports?.length || 0} Port(s) · ${runtime.connector_links?.length || 0} connector link(s)<br/>Compatible behavior occurrence(s): ${esc((result.compatible_runtime_instance_paths || []).join(', ') || 'none')}`
+        : 'This behavior has no structural runtime context. Existing non-structural execution will be preserved.';
+      if (!dialog.querySelector('[data-runtime-path]').value && result.selected_runtime_instance_path) {
+        dialog.querySelector('[data-runtime-path]').value = result.selected_runtime_instance_path;
+      }
+      return result;
+    }
+
+    dialog.querySelector('[data-runtime-preview-button]').onclick = async () => {
+      try { await preview(); }
+      catch (error) { previewHost.textContent = error?.message || String(error); previewHost.classList.add('runtime-error'); }
+    };
+    dialog.querySelector('[data-runtime-apply]').onclick = async () => {
+      try {
+        const selection = selectionFromDialog(dialog);
+        await invoke()(api.configure, { diagramId, selection });
+        if (kind === 'activity') {
+          window.smpState.activityExecutionSnapshot = null;
+          window.smpRefreshActivityExecution?.();
+        } else {
+          window.smpState.stateMachineExecutionSnapshot = null;
+          window.smpRefreshStateMachineExecution?.();
+        }
+        window.smpDialogs?.notify?.('Runtime context configured. Initialize execution to build the validated structural runtime.', 'info');
+        close();
+      } catch (error) {
+        previewHost.textContent = error?.message || String(error);
+        previewHost.classList.add('runtime-error');
+      }
+    };
+    try { await preview(); } catch (error) { previewHost.textContent = error?.message || String(error); }
+  };
+})();
+// PR33_STRUCTURAL_RUNTIME_CONFIGURATION_END

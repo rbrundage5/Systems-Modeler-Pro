@@ -2,9 +2,10 @@ use super::{ActivityWorkspaceState, WorkspaceState, activity_workspace::parse_ac
 use std::collections::HashMap;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    ActivityExecutionEngine, ActivityExecutionSnapshot, ActivityId, ActivityRepository,
-    ExecutionConfiguration, ExecutionEngine, ExecutionManager, ExecutionSessionId, ExecutionState,
-    Project,
+    ActivityExecutionEngine, ActivityExecutionSnapshot, ActivityId, ActivityRepository, ElementId,
+    ElementKind, ExecutionConfiguration, ExecutionEngine, ExecutionManager,
+    ExecutionRuntimePreview, ExecutionRuntimeSelection, ExecutionSessionId, ExecutionState,
+    Project, RuntimeInstanceId, StructuralRuntime,
 };
 
 #[derive(Default)]
@@ -13,6 +14,7 @@ struct ActivityExecutionRegistry {
     engines: HashMap<ExecutionSessionId, ActivityExecutionEngine>,
     sessions_by_diagram: HashMap<String, ExecutionSessionId>,
     source_fingerprints: HashMap<String, String>,
+    runtime_selections: HashMap<String, ExecutionRuntimeSelection>,
 }
 
 #[derive(Default)]
@@ -86,6 +88,131 @@ fn snapshot_for(
     Ok(engine.snapshot(session))
 }
 
+fn is_structural_root(kind: ElementKind) -> bool {
+    matches!(
+        kind,
+        ElementKind::Block
+            | ElementKind::AssociationBlock
+            | ElementKind::PartProperty
+            | ElementKind::InstanceSpecification
+    )
+}
+
+fn activity_runtime_context(
+    project: &Project,
+    repository: &ActivityRepository,
+    activity_id: ActivityId,
+    selection: &ExecutionRuntimeSelection,
+    require_unambiguous_selection: bool,
+) -> Result<(ExecutionRuntimePreview, Option<RuntimeInstanceId>), String> {
+    let activity = repository
+        .activities
+        .get(&activity_id)
+        .ok_or("Activity was not found")?;
+    let default_root = activity.context_id.unwrap_or(activity.owner_id);
+    let root_semantic_id = selection.root_semantic_id.unwrap_or(default_root);
+    let root = project
+        .element(root_semantic_id)
+        .map_err(|error| format!("Execution runtime root is invalid: {error}"))?;
+    if !is_structural_root(root.kind) {
+        if selection.root_semantic_id.is_some() {
+            return Err(format!(
+                "Execution runtime root '{}' ({:?}) is not a Block, PartProperty, AssociationBlock, or typed InstanceSpecification.",
+                root.name, root.kind
+            ));
+        }
+        return Ok((
+            ExecutionRuntimePreview {
+                root_semantic_id,
+                structural_runtime: None,
+                compatible_runtime_instance_paths: Vec::new(),
+                selected_runtime_instance_path: None,
+            },
+            None,
+        ));
+    }
+
+    let runtime = StructuralRuntime::build(
+        project,
+        root_semantic_id,
+        &selection.structural_configuration,
+    )
+    .map_err(|error| error.to_string())?;
+    let expected_classifier = activity.context_id.filter(|context_id| {
+        project.element(*context_id).is_ok_and(|element| {
+            matches!(
+                element.kind,
+                ElementKind::Block | ElementKind::AssociationBlock
+            )
+        })
+    });
+    let compatible_runtime_instance_paths = expected_classifier
+        .map(|classifier| runtime.compatible_instance_paths(project, classifier))
+        .unwrap_or_default();
+    let selected_runtime_instance_path = match selection
+        .runtime_instance_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        Some(path) => {
+            if !compatible_runtime_instance_paths
+                .iter()
+                .any(|candidate| candidate == path)
+            {
+                return Err(format!(
+                    "Runtime occurrence '{path}' is not compatible with Activity '{}'. Compatible occurrence path(s): {}",
+                    activity.name,
+                    if compatible_runtime_instance_paths.is_empty() {
+                        "none".to_string()
+                    } else {
+                        compatible_runtime_instance_paths.join(", ")
+                    }
+                ));
+            }
+            Some(path.to_string())
+        }
+        None if compatible_runtime_instance_paths.len() == 1 => {
+            compatible_runtime_instance_paths.first().cloned()
+        }
+        None if require_unambiguous_selection && compatible_runtime_instance_paths.len() > 1 => {
+            return Err(format!(
+                "Activity '{}' has {} compatible runtime occurrences under '{}'. Choose one runtime occurrence before initialization: {}",
+                activity.name,
+                compatible_runtime_instance_paths.len(),
+                root.name,
+                compatible_runtime_instance_paths.join(", ")
+            ));
+        }
+        None => None,
+    };
+    let selected_runtime_instance_id =
+        selected_runtime_instance_path
+            .as_deref()
+            .and_then(|runtime_path| {
+                runtime
+                    .instance_by_path(runtime_path)
+                    .map(|instance| instance.id)
+            });
+    Ok((
+        ExecutionRuntimePreview {
+            root_semantic_id,
+            structural_runtime: Some(runtime.snapshot()),
+            compatible_runtime_instance_paths,
+            selected_runtime_instance_path,
+        },
+        selected_runtime_instance_id,
+    ))
+}
+
+fn invalidate_activity_execution(registry: &mut ActivityExecutionRegistry, diagram_id: &str) {
+    if let Some(previous) = registry.sessions_by_diagram.remove(diagram_id) {
+        registry.engines.remove(&previous);
+        registry.manager.remove_session(previous);
+    }
+    registry.source_fingerprints.remove(diagram_id);
+}
+
 fn start_execution(
     project: &Project,
     repository: ActivityRepository,
@@ -94,26 +221,34 @@ fn start_execution(
     fingerprint: String,
     registry: &mut ActivityExecutionRegistry,
 ) -> Result<ExecutionSessionId, String> {
-    let activity = repository
-        .activities
-        .get(&activity_id)
-        .ok_or("Activity was not found")?;
+    let selection = registry
+        .runtime_selections
+        .get(diagram_id)
+        .cloned()
+        .unwrap_or_default();
+    let (preview, runtime_instance_id) =
+        activity_runtime_context(project, &repository, activity_id, &selection, true)?;
     let configuration = ExecutionConfiguration {
-        root_semantic_id: activity.context_id.unwrap_or(activity.owner_id),
+        root_semantic_id: preview.root_semantic_id,
         random_seed: 0,
         max_steps: 100_000,
         max_queued_events: 10_000,
     };
-    if let Some(previous) = registry.sessions_by_diagram.remove(diagram_id) {
-        registry.engines.remove(&previous);
-        registry.manager.remove_session(previous);
-    }
-    registry.source_fingerprints.remove(diagram_id);
+    invalidate_activity_execution(registry, diagram_id);
     let session_id = registry
         .manager
         .create_session(project, configuration)
         .map_err(|error| error.to_string())?;
+    registry
+        .manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?
+        .set_structural_configuration(selection.structural_configuration.clone())
+        .map_err(|error| error.to_string())?;
     let mut engine = ActivityExecutionEngine::new(repository, activity_id);
+    if let Some(runtime_instance_id) = runtime_instance_id {
+        engine = engine.with_runtime_instance(runtime_instance_id);
+    }
     engine
         .initialize(
             project,
@@ -154,6 +289,56 @@ fn ensure_current_execution(
         registry,
     )?;
     Ok((refreshed, true))
+}
+
+#[tauri::command]
+pub fn activity_execution_runtime_selection(
+    diagram_id: String,
+    execution_state: tauri::State<'_, ActivityExecutionState>,
+) -> Result<ExecutionRuntimeSelection, String> {
+    let registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "Activity execution lock poisoned")?;
+    Ok(registry
+        .runtime_selections
+        .get(&diagram_id)
+        .cloned()
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn preview_activity_execution_runtime(
+    diagram_id: String,
+    selection: ExecutionRuntimeSelection,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity_state: tauri::State<'_, ActivityWorkspaceState>,
+) -> Result<ExecutionRuntimePreview, String> {
+    let project = project_snapshot(&workspace)?;
+    let (repository, activity_id) = activity_for_diagram(&activity_state, &diagram_id)?;
+    activity_runtime_context(&project, &repository, activity_id, &selection, false)
+        .map(|(preview, _)| preview)
+}
+
+#[tauri::command]
+pub fn configure_activity_execution_runtime(
+    diagram_id: String,
+    selection: ExecutionRuntimeSelection,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity_state: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, ActivityExecutionState>,
+) -> Result<ExecutionRuntimePreview, String> {
+    let project = project_snapshot(&workspace)?;
+    let (repository, activity_id) = activity_for_diagram(&activity_state, &diagram_id)?;
+    let (preview, _) =
+        activity_runtime_context(&project, &repository, activity_id, &selection, true)?;
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "Activity execution lock poisoned")?;
+    invalidate_activity_execution(&mut registry, &diagram_id);
+    registry.runtime_selections.insert(diagram_id, selection);
+    Ok(preview)
 }
 
 #[tauri::command]

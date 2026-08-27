@@ -40,6 +40,26 @@ pub struct StructuralRuntimeConfiguration {
     pub configured_instance_specification_ids: Vec<ElementId>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionRuntimeSelection {
+    /// Optional structural execution root. `None` preserves the behavior's
+    /// existing context root.
+    pub root_semantic_id: Option<ElementId>,
+    #[serde(default)]
+    pub structural_configuration: StructuralRuntimeConfiguration,
+    /// Qualified runtime occurrence path. Required when the behavior classifier
+    /// appears more than once below the selected structural root.
+    pub runtime_instance_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionRuntimePreview {
+    pub root_semantic_id: ElementId,
+    pub structural_runtime: Option<StructuralRuntimeSnapshot>,
+    pub compatible_runtime_instance_paths: Vec<String>,
+    pub selected_runtime_instance_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuntimePortKey {
     pub instance_id: RuntimeInstanceId,
@@ -197,6 +217,36 @@ impl StructuralRuntime {
 
     pub fn root_instance_id(&self) -> Option<RuntimeInstanceId> {
         self.root_instance_ids.first().copied()
+    }
+
+    pub fn instance_conforms_to(
+        &self,
+        project: &Project,
+        instance_id: RuntimeInstanceId,
+        expected_classifier_id: ElementId,
+    ) -> bool {
+        self.instances
+            .get(&instance_id)
+            .and_then(|instance| instance.classifier_id)
+            .is_some_and(|actual| classifier_conforms(project, actual, expected_classifier_id))
+    }
+
+    pub fn compatible_instance_paths(
+        &self,
+        project: &Project,
+        expected_classifier_id: ElementId,
+    ) -> Vec<String> {
+        let mut paths: Vec<_> = self
+            .instances
+            .values()
+            .filter(|instance| {
+                self.instance_conforms_to(project, instance.id, expected_classifier_id)
+            })
+            .map(|instance| instance.qualified_path.clone())
+            .collect();
+        paths.sort();
+        paths.dedup();
+        paths
     }
 
     pub fn snapshot(&self) -> StructuralRuntimeSnapshot {
