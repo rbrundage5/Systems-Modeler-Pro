@@ -415,13 +415,7 @@ impl StateMachineExecutionEngine {
                 self.suppressed_initial_regions.extend(target_regions);
                 let result: Result<(), ExecutionError> = (|| {
                     for transition in &enabled {
-                        self.fire_transition_inner(
-                            project,
-                            session,
-                            transition,
-                            event,
-                            rtc_steps,
-                        )?;
+                        self.fire_transition_inner(project, session, transition, event, rtc_steps)?;
                     }
                     Ok(())
                 })();
