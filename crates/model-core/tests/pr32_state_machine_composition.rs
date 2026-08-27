@@ -79,7 +79,9 @@ fn synchronous_activity(
         }),
     );
     let final_node = activity_node("Final", ActivityNodeKind::ActivityFinal);
-    activity.nodes.extend([initial.clone(), action.clone(), final_node.clone()]);
+    activity
+        .nodes
+        .extend([initial.clone(), action.clone(), final_node.clone()]);
     activity.edges.extend([
         activity_control(&initial, &action),
         activity_control(&action, &final_node),
@@ -119,19 +121,17 @@ fn submachine_state_inherits_shared_activity_repository_for_child_state_behavior
         .create_element(ElementKind::Block, "Controller", behavior)
         .unwrap();
     let mut activities = ActivityRepository::default();
-    let child_entry = synchronous_activity(
-        &project,
-        &mut activities,
-        behavior,
-        context,
-        "Child Entry",
-    );
+    let child_entry =
+        synchronous_activity(&project, &mut activities, behavior, context, "Child Entry");
 
     let mut behaviors = BehaviorRepository::default();
     let child_id = behaviors
         .create_state_machine(&project, context, "Child Machine")
         .unwrap();
-    let child_initial = vertex("Child Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
+    let child_initial = vertex(
+        "Child Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
     let child_active = vertex(
         "Child Active",
         VertexKind::State(State {
@@ -154,7 +154,10 @@ fn submachine_state_inherits_shared_activity_repository_for_child_state_behavior
     let parent_id = behaviors
         .create_state_machine(&project, context, "Parent Machine")
         .unwrap();
-    let parent_initial = vertex("Parent Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
+    let parent_initial = vertex(
+        "Parent Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
     let child_state = vertex(
         "Run Child",
         VertexKind::State(State {
@@ -176,8 +179,8 @@ fn submachine_state_inherits_shared_activity_repository_for_child_state_behavior
     activities.validate(&project).unwrap();
     behaviors.validate(&project).unwrap();
 
-    let mut engine = StateMachineExecutionEngine::new(behaviors, parent_id)
-        .with_activity_repository(activities);
+    let mut engine =
+        StateMachineExecutionEngine::new(behaviors, parent_id).with_activity_repository(activities);
     let mut session = execution_session(&project, context);
     engine.initialize(&project, &mut session).unwrap();
 
@@ -247,7 +250,9 @@ fn future_state_time_event_does_not_preempt_zero_time_do_activity_progress() {
     for _ in 0..8 {
         engine.advance(&project, &mut session).unwrap();
         activity_completed_at_zero = session.trace.iter().any(|entry| {
-            entry.message.contains("State 'Working' doActivity completed")
+            entry
+                .message
+                .contains("State 'Working' doActivity completed")
                 && entry.simulation_time == SimulationTime::ZERO
         });
         if activity_completed_at_zero {
@@ -265,5 +270,8 @@ fn future_state_time_event_does_not_preempt_zero_time_do_activity_progress() {
         }
     }
     assert_eq!(active_names(&engine, &session), ["Elapsed"]);
-    assert_eq!(session.simulation_time, SimulationTime::from_nanos(5_000_000_000));
+    assert_eq!(
+        session.simulation_time,
+        SimulationTime::from_nanos(5_000_000_000)
+    );
 }
