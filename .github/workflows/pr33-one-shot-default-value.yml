@@ -1,4 +1,4 @@
-name: PR33 one-shot default value fix
+name: PR33 one-shot semantic and lint fix
 
 on:
   push:
@@ -19,36 +19,59 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-      - name: Parse authored quoted text defaults semantically
+          components: rustfmt, clippy
+      - name: Fix authored defaults and derivable configuration default
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+
           path = Path('crates/model-core/src/structural_runtime.rs')
           text = path.read_text()
+
           old = "                let value = evaluate_execution_expression(authored, |_| None)\n                    .unwrap_or_else(|_| RuntimeValue::Text(authored.to_string()));"
           new = "                let value = parse_authored_runtime_default(authored);"
           if text.count(old) != 1:
               raise SystemExit(f'expected one authored-default parser occurrence, found {text.count(old)}')
           text = text.replace(old, new, 1)
+
           anchor = "fn endpoint_key(endpoint: &RuntimeEndpoint) -> Option<RuntimePortKey> {"
           helper = "fn parse_authored_runtime_default(authored: &str) -> RuntimeValue {\n    if let Ok(value) = evaluate_execution_expression(authored, |_| None) {\n        return value;\n    }\n    if let Ok(text) = serde_json::from_str::<String>(authored) {\n        return RuntimeValue::Text(text);\n    }\n    RuntimeValue::Text(authored.to_string())\n}\n\n"
           if text.count(anchor) != 1:
               raise SystemExit(f'expected one helper anchor, found {text.count(anchor)}')
           text = text.replace(anchor, helper + anchor, 1)
+
+          derive_old = "#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub struct StructuralRuntimeConfiguration {"
+          derive_new = "#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]\npub struct StructuralRuntimeConfiguration {"
+          if text.count(derive_old) != 1:
+              raise SystemExit(f'expected one StructuralRuntimeConfiguration derive, found {text.count(derive_old)}')
+          text = text.replace(derive_old, derive_new, 1)
+
+          manual_default = "impl Default for StructuralRuntimeConfiguration {\n    fn default() -> Self {\n        Self {\n            root_instance_name: None,\n            populations: Vec::new(),\n            reference_bindings: Vec::new(),\n            configured_instance_specification_ids: Vec::new(),\n        }\n    }\n}\n\n"
+          if text.count(manual_default) != 1:
+              raise SystemExit(f'expected one manual StructuralRuntimeConfiguration default, found {text.count(manual_default)}')
+          text = text.replace(manual_default, '', 1)
           path.write_text(text)
+
+          cargo = Path('crates/model-core/Cargo.toml')
+          cargo_text = cargo.read_text()
+          dependency_old = "uuid.workspace = true\n\n[dev-dependencies]\nserde_json.workspace = true\n"
+          dependency_new = "uuid.workspace = true\nserde_json.workspace = true\n"
+          if cargo_text.count(dependency_old) != 1:
+              raise SystemExit(f'expected one serde_json dev dependency block, found {cargo_text.count(dependency_old)}')
+          cargo.write_text(cargo_text.replace(dependency_old, dependency_new, 1))
           PY
-      - name: Format and qualify focused PR33 runtime
+      - name: Format and qualify PR33 semantic fix
         run: |
           cargo fmt --all
           cargo test -p systems-modeler-core --test pr33_structural_runtime
-      - name: Remove one-shot workflow and publish semantic fix
+          cargo clippy -p systems-modeler-core --all-targets -- -D warnings
+      - name: Remove one-shot workflow and publish fixes
         shell: bash
         run: |
           rm .github/workflows/pr33-one-shot-default-value.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'PR33: parse authored text defaults for runtime values'
+          git commit -m 'PR33: fix structural runtime defaults and lint'
           git push origin HEAD:agent/pr33-structural-runtime
