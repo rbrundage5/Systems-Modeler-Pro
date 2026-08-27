@@ -1,0 +1,68 @@
+name: PR33 one-shot cleanup
+
+on:
+  push:
+    branches:
+      - agent/pr33-structural-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.ref == 'refs/heads/agent/pr33-structural-runtime'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr33-structural-runtime
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fold structural runtime inspector into existing renderer
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          renderer = Path('apps/desktop/frontend/behavior-authoritative-renderer.js')
+          inspector = Path('apps/desktop/frontend/structural-runtime-inspector.js')
+          index = Path('apps/desktop/frontend/index.html')
+
+          renderer_text = renderer.read_text()
+          inspector_text = inspector.read_text()
+          marker = '// PR33_STRUCTURAL_RUNTIME_INSPECTOR_BEGIN'
+          if marker not in renderer_text:
+              renderer_text = renderer_text.rstrip() + '\n\n' + marker + '\n' + inspector_text.rstrip() + '\n// PR33_STRUCTURAL_RUNTIME_INSPECTOR_END\n'
+              renderer.write_text(renderer_text)
+
+          index_text = index.read_text()
+          script = '  <script src="structural-runtime-inspector.js"></script>\n'
+          if script not in index_text:
+              raise SystemExit('structural runtime inspector script tag was not found exactly once')
+          index.write_text(index_text.replace(script, '', 1))
+          inspector.unlink()
+          PY
+      - name: Format Rust workspace
+        run: cargo fmt --all
+      - name: Validate changed frontend syntax
+        run: |
+          node --check apps/desktop/frontend/behavior-authoritative-renderer.js
+          node --check apps/desktop/frontend/activity-rich-ui.js
+      - name: Remove one-shot workflow and publish cleanup
+        shell: bash
+        run: |
+          rm .github/workflows/pr33-one-shot-cleanup.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to publish.'
+            exit 0
+          fi
+          git commit -m 'PR33: format runtime and preserve frontend authority ceiling'
+          git push origin HEAD:agent/pr33-structural-runtime
