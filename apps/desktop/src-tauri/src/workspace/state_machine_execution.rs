@@ -38,7 +38,9 @@ fn machine_for_diagram(
         .lock()
         .map_err(|_| "behavior diagram lock poisoned")?
         .iter()
-        .find(|diagram| diagram.id == diagram_id && diagram.kind == BehaviorDiagramKind::StateMachine)
+        .find(|diagram| {
+            diagram.id == diagram_id && diagram.kind == BehaviorDiagramKind::StateMachine
+        })
         .ok_or_else(|| format!("State Machine diagram was not found: {diagram_id}"))?
         .semantic_id
         .clone();
@@ -56,7 +58,10 @@ fn machine_for_diagram(
     Ok((repository, machine_id))
 }
 
-fn source_fingerprint(project: &Project, repository: &BehaviorRepository) -> Result<String, String> {
+fn source_fingerprint(
+    project: &Project,
+    repository: &BehaviorRepository,
+) -> Result<String, String> {
     serde_json::to_string(&(project, repository)).map_err(|error| {
         format!("failed to fingerprint State Machine execution source model: {error}")
     })
