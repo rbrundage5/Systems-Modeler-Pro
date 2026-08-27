@@ -573,7 +573,8 @@
     panel.innerHTML = `<div class="activity-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div>
       <div class="activity-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.call_frames?.length || 0} frame(s)</span><span>${(snapshot.token_stores || []).reduce((sum, store) => sum + (store.tokens?.length || 0), 0)} token(s)</span></div>
       ${diagnostics.length ? `<div class="activity-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
-      <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>`;
+      <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>
+      ${window.renderStructuralRuntimeInspector?.(snapshot) || ''}`;
   }
 
   function refreshExecutionUi() {

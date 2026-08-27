@@ -9,6 +9,9 @@ pub use activity::*;
 pub mod execution;
 pub use execution::*;
 
+pub mod structural_runtime;
+pub use structural_runtime::*;
+
 pub mod execution_expression;
 pub use execution_expression::*;
 

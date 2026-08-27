@@ -6,7 +6,8 @@ use crate::behavior::{
 use crate::{
     DiagnosticSeverity, EngineStepOutcome, ExecutionEngine, ExecutionError, ExecutionSession,
     ExecutionSnapshot, Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind,
-    RuntimeEventRequest, RuntimeValue, SimulationTime, evaluate_execution_expression,
+    RuntimeEventRequest, RuntimeInstanceId, RuntimeValue, SimulationTime,
+    evaluate_execution_expression,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -27,6 +28,7 @@ pub struct ActiveStateSnapshot {
 pub struct StateMachineExecutionSnapshot {
     pub execution: ExecutionSnapshot,
     pub state_machine_id: StateMachineId,
+    pub runtime_instance_id: Option<RuntimeInstanceId>,
     pub active_states: Vec<ActiveStateSnapshot>,
     pub active_region_ids: Vec<RegionId>,
     pub final_region_ids: Vec<RegionId>,
@@ -70,6 +72,7 @@ pub struct StateMachineExecutionEngine {
     state_activity_runtime: activity_bridge::StateActivityRuntime,
     embedded: bool,
     embedded_completed: bool,
+    runtime_instance_id: Option<RuntimeInstanceId>,
 }
 
 impl StateMachineExecutionEngine {
@@ -94,6 +97,7 @@ impl StateMachineExecutionEngine {
             state_activity_runtime: activity_bridge::StateActivityRuntime::default(),
             embedded: false,
             embedded_completed: false,
+            runtime_instance_id: None,
         }
     }
 
@@ -105,6 +109,15 @@ impl StateMachineExecutionEngine {
 
     pub fn state_machine_id(&self) -> StateMachineId {
         self.state_machine_id
+    }
+
+    pub fn with_runtime_instance(mut self, runtime_instance_id: RuntimeInstanceId) -> Self {
+        self.runtime_instance_id = Some(runtime_instance_id);
+        self
+    }
+
+    pub fn runtime_instance_id(&self) -> Option<RuntimeInstanceId> {
+        self.runtime_instance_id
     }
 
     pub fn authored_repository(&self) -> &BehaviorRepository {
@@ -147,6 +160,7 @@ impl StateMachineExecutionEngine {
         StateMachineExecutionSnapshot {
             execution: session.snapshot(),
             state_machine_id: self.state_machine_id,
+            runtime_instance_id: self.runtime_instance_id,
             active_states,
             active_region_ids,
             final_region_ids,
@@ -165,7 +179,10 @@ impl StateMachineExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
         session.reset(project)?;
-        initialize_authored_defaults(project, session)?;
+        if self.runtime_instance_id.is_none() {
+            self.runtime_instance_id = session.root_runtime_instance_id();
+        }
+        initialize_authored_defaults(project, session, self.runtime_instance_id)?;
         self.clear_runtime();
         self.establish_initial_configuration(project, session)
     }
@@ -251,6 +268,7 @@ impl StateMachineExecutionEngine {
                 semantic_event_id: Some(signal_id),
                 address: RuntimeEventAddress {
                     target_semantic_id: Some(self.machine()?.context_id),
+                    target_runtime_instance_id: self.runtime_instance_id,
                     ..RuntimeEventAddress::default()
                 },
                 payload,
@@ -580,6 +598,7 @@ impl StateMachineExecutionEngine {
 
         if let Some(submachine_id) = state.submachine {
             let mut child = Self::new_embedded(self.repository.clone(), submachine_id);
+            child.runtime_instance_id = self.runtime_instance_id;
             if let Some(activities) = self.shared_activity_repository() {
                 child = child.with_activity_repository(activities);
             }
@@ -642,6 +661,7 @@ impl StateMachineExecutionEngine {
                     semantic_event_id: None,
                     address: RuntimeEventAddress {
                         target_semantic_id: Some(self.machine()?.context_id),
+                        target_runtime_instance_id: self.runtime_instance_id,
                         ..RuntimeEventAddress::default()
                     },
                     payload: Vec::new(),
@@ -790,8 +810,19 @@ impl StateMachineExecutionEngine {
         let Ok(machine) = self.machine() else {
             return false;
         };
-        let own_address = event.target_semantic_id.is_none()
-            || event.target_semantic_id == Some(machine.context_id);
+        let runtime_address = event.target_runtime_instance_id.is_none()
+            || event.target_runtime_instance_id == self.runtime_instance_id;
+        let semantic_address = event.target_semantic_id.is_none()
+            || event.target_semantic_id == Some(machine.context_id)
+            || self.runtime_instance_id.is_some_and(|instance_id| {
+                session
+                    .instances
+                    .get(&instance_id)
+                    .is_some_and(|instance| {
+                        event.target_semantic_id == Some(instance.semantic_element_id)
+                    })
+            });
+        let own_address = runtime_address && semantic_address;
         if own_address && self.trigger_candidates(event).next().is_some() {
             return true;
         }
@@ -1102,6 +1133,7 @@ impl StateMachineExecutionEngine {
         session.event_queue.retain(|scheduled| {
             scheduled.event.kind != RuntimeEventKind::Time
                 || scheduled.event.target_semantic_id != Some(context_id)
+                || scheduled.event.target_runtime_instance_id != self.runtime_instance_id
                 || !event_names.contains(&scheduled.event.name)
         });
         Ok(())
@@ -1240,9 +1272,11 @@ impl StateMachineExecutionEngine {
                         .filter(|element| element.name == name)
                         .collect();
                     matching.sort_by_key(|element| element.id.to_string());
-                    matching
-                        .into_iter()
-                        .find_map(|element| session.value(None, element.id).cloned())
+                    matching.into_iter().find_map(|element| {
+                        session
+                            .value_in_instance_context(self.runtime_instance_id, element.id)
+                            .cloned()
+                    })
                 })
         })
         .map_err(|error| {
@@ -1362,7 +1396,16 @@ impl ExecutionEngine for StateMachineExecutionEngine {
             ))
         })?;
         session.initialize(project)?;
-        initialize_authored_defaults(project, session)?;
+        if self.runtime_instance_id.is_none() {
+            self.runtime_instance_id = session.root_runtime_instance_id();
+        }
+        if let Some(instance_id) = self.runtime_instance_id {
+            session
+                .instances
+                .get(&instance_id)
+                .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
+        }
+        initialize_authored_defaults(project, session, self.runtime_instance_id)?;
         self.clear_runtime();
         self.establish_initial_configuration(project, session)
     }
@@ -1554,6 +1597,7 @@ fn outgoing_transitions(machine: Option<&StateMachine>, source_id: VertexId) -> 
 fn initialize_authored_defaults(
     project: &Project,
     session: &mut ExecutionSession,
+    runtime_instance_id: Option<RuntimeInstanceId>,
 ) -> Result<(), ExecutionError> {
     let mut defaults: Vec<_> = project
         .elements
@@ -1569,7 +1613,20 @@ fn initialize_authored_defaults(
     for (element_id, authored) in defaults {
         let value = evaluate_execution_expression(&authored, |_| None)
             .unwrap_or(RuntimeValue::Text(authored));
-        session.set_value(project, None, element_id, value)?;
+        let element = project
+            .element(element_id)
+            .map_err(|error| engine_error(error.to_string()))?;
+        let instance_id = if element.kind == crate::ElementKind::ValueProperty {
+            runtime_instance_id
+        } else {
+            None
+        };
+        if session
+            .value_in_instance_context(instance_id, element_id)
+            .is_none()
+        {
+            session.set_value(project, instance_id, element_id, value)?;
+        }
     }
     Ok(())
 }

@@ -1,10 +1,11 @@
 use crate::{
     Action, ActionKind, Activity, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint,
     ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository,
-    DiagnosticSeverity, ElementId, EngineStepOutcome, ExecutionEngine, ExecutionError,
+    DiagnosticSeverity, ElementId, ElementKind, EngineStepOutcome, ExecutionEngine, ExecutionError,
     ExecutionSession, ExecutionSnapshot, ObjectNodeKind, ObjectNodeOrdering, ParameterDirection,
     Pin, PinDirection, Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind,
-    RuntimeEventRequest, RuntimeValue, StructuredActivityNodeKind, evaluate_execution_expression,
+    RuntimeEventRequest, RuntimeInstanceId, RuntimeValue, StructuredActivityNodeKind,
+    evaluate_execution_expression,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -63,6 +64,7 @@ pub struct ActivityCallFrameSnapshot {
 pub struct ActivityExecutionSnapshot {
     pub execution: ExecutionSnapshot,
     pub root_activity_id: ActivityId,
+    pub runtime_instance_id: Option<RuntimeInstanceId>,
     pub nodes: Vec<ActivityNodeExecutionSnapshot>,
     pub token_stores: Vec<ActivityTokenStoreSnapshot>,
     pub call_frames: Vec<ActivityCallFrameSnapshot>,
@@ -152,6 +154,7 @@ pub struct ActivityExecutionEngine {
     active_edge_ids: Vec<ActivityEdgeId>,
     completed_edge_ids: HashSet<ActivityEdgeId>,
     operation_runtime: Box<dyn OperationCallRuntime>,
+    runtime_instance_id: Option<RuntimeInstanceId>,
 }
 
 impl ActivityExecutionEngine {
@@ -168,6 +171,7 @@ impl ActivityExecutionEngine {
             active_edge_ids: Vec::new(),
             completed_edge_ids: HashSet::new(),
             operation_runtime: Box::<UnavailableOperationRuntime>::default(),
+            runtime_instance_id: None,
         }
     }
 
@@ -181,6 +185,15 @@ impl ActivityExecutionEngine {
         self
     }
 
+    pub fn with_runtime_instance(mut self, runtime_instance_id: RuntimeInstanceId) -> Self {
+        self.runtime_instance_id = Some(runtime_instance_id);
+        self
+    }
+
+    pub fn runtime_instance_id(&self) -> Option<RuntimeInstanceId> {
+        self.runtime_instance_id
+    }
+
     pub fn root_activity_id(&self) -> ActivityId {
         self.root_activity_id
     }
@@ -191,6 +204,9 @@ impl ActivityExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
         session.reset(project)?;
+        if self.runtime_instance_id.is_none() {
+            self.runtime_instance_id = session.root_runtime_instance_id();
+        }
         self.clear_runtime();
         self.initialize_root_frame(project, session)
     }
@@ -270,6 +286,7 @@ impl ActivityExecutionEngine {
         ActivityExecutionSnapshot {
             execution: session.snapshot(),
             root_activity_id: self.root_activity_id,
+            runtime_instance_id: self.runtime_instance_id,
             nodes,
             token_stores,
             call_frames,
@@ -311,7 +328,20 @@ impl ActivityExecutionEngine {
             })
             .collect();
         for (element_id, value) in authored_defaults {
-            session.set_value(project, None, element_id, value)?;
+            let element = project
+                .element(element_id)
+                .map_err(|error| engine_error(error.to_string()))?;
+            let instance_id = if element.kind == ElementKind::ValueProperty {
+                self.runtime_instance_id
+            } else {
+                None
+            };
+            if session
+                .value_in_instance_context(instance_id, element_id)
+                .is_none()
+            {
+                session.set_value(project, instance_id, element_id, value)?;
+            }
         }
         let inputs = self.initial_inputs.clone();
         let frame = self.make_frame(project, session, &activity, None, &inputs)?;
@@ -612,11 +642,21 @@ impl ActivityExecutionEngine {
                 .get(name)
                 .cloned()
                 .or_else(|| {
-                    session.values.iter().find_map(|(key, value)| {
-                        let element = project.elements.get(&key.semantic_element_id)?;
-                        let qualified = project.qualified_name(element.id).ok();
-                        (element.name == name || qualified.as_deref() == Some(name))
-                            .then(|| value.clone())
+                    let mut matching: Vec<_> = project
+                        .elements
+                        .values()
+                        .filter(|element| {
+                            element.name == name
+                                || project
+                                    .qualified_name(element.id)
+                                    .is_ok_and(|qualified| qualified == name)
+                        })
+                        .collect();
+                    matching.sort_by_key(|element| element.id.to_string());
+                    matching.into_iter().find_map(|element| {
+                        session
+                            .value_in_instance_context(self.runtime_instance_id, element.id)
+                            .cloned()
                     })
                 })
                 .or_else(|| {
@@ -803,6 +843,7 @@ impl ActivityExecutionEngine {
                         semantic_event_id: Some(*signal_id),
                         address: RuntimeEventAddress {
                             source_semantic_id: activity.context_id,
+                            source_runtime_instance_id: self.runtime_instance_id,
                             ..RuntimeEventAddress::default()
                         },
                         payload: inputs,
@@ -829,6 +870,7 @@ impl ActivityExecutionEngine {
                     format!("Timer for {}", display_node_name(node)),
                     RuntimeEventAddress {
                         target_semantic_id: activity.context_id,
+                        target_runtime_instance_id: self.runtime_instance_id,
                         ..RuntimeEventAddress::default()
                     },
                     Vec::new(),
@@ -1183,6 +1225,12 @@ impl ActivityExecutionEngine {
         node: &ActivityNode,
         event: &RuntimeEvent,
     ) -> bool {
+        if event
+            .target_runtime_instance_id
+            .is_some_and(|target| Some(target) != self.runtime_instance_id)
+        {
+            return false;
+        }
         let ActivityNodeKind::Action(action) = &node.kind else {
             return false;
         };
@@ -1607,6 +1655,15 @@ impl ExecutionEngine for ActivityExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
         session.initialize(project)?;
+        if self.runtime_instance_id.is_none() {
+            self.runtime_instance_id = session.root_runtime_instance_id();
+        }
+        if let Some(instance_id) = self.runtime_instance_id {
+            session
+                .instances
+                .get(&instance_id)
+                .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
+        }
         self.clear_runtime();
         self.initialize_root_frame(project, session)
     }

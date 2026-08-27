@@ -195,9 +195,18 @@ impl StateMachineExecutionEngine {
         {
             return true;
         }
+        let instance_semantic_id = self.runtime_instance_id.and_then(|instance_id| {
+            session
+                .instances
+                .get(&instance_id)
+                .map(|instance| instance.semantic_element_id)
+        });
         if event.kind != RuntimeEventKind::Signal
             || (event.target_semantic_id.is_some()
-                && event.target_semantic_id != Some(machine.context_id))
+                && event.target_semantic_id != Some(machine.context_id)
+                && event.target_semantic_id != instance_semantic_id)
+            || (event.target_runtime_instance_id.is_some()
+                && event.target_runtime_instance_id != self.runtime_instance_id)
         {
             return false;
         }
@@ -266,6 +275,9 @@ impl StateMachineExecutionEngine {
             .iter()
             .filter(|scheduled| {
                 scheduled.due_time <= session.simulation_time
+                    && (scheduled.event.target_runtime_instance_id.is_none()
+                        || scheduled.event.target_runtime_instance_id
+                            == self.runtime_instance_id)
                     && (scheduled.event.target_semantic_id.is_none()
                         || scheduled.event.target_semantic_id == Some(context_id))
             })
@@ -303,11 +315,20 @@ impl StateMachineExecutionEngine {
             ))
         })?;
         let mut engine = ActivityExecutionEngine::new(repository.clone(), activity_id);
+        if let Some(runtime_instance_id) = self.runtime_instance_id {
+            engine = engine.with_runtime_instance(runtime_instance_id);
+        }
         for node in &activity.nodes {
             let ActivityNodeKind::ActivityParameter(parameter_node) = &node.kind else {
                 continue;
             };
-            if let Some(value) = session.value(None, parameter_node.parameter_id).cloned() {
+            if let Some(value) = session
+                .value_in_instance_context(
+                    self.runtime_instance_id,
+                    parameter_node.parameter_id,
+                )
+                .cloned()
+            {
                 engine = engine.with_input(parameter_node.parameter_id, vec![value]);
             }
         }
