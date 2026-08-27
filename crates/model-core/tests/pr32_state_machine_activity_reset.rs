@@ -66,7 +66,9 @@ fn waiting_time_activity(
         }),
     );
     let final_node = activity_node("Final", ActivityNodeKind::ActivityFinal);
-    activity.nodes.extend([initial.clone(), timer.clone(), final_node.clone()]);
+    activity
+        .nodes
+        .extend([initial.clone(), timer.clone(), final_node.clone()]);
     activity.edges.extend([
         activity_control(&initial, &timer),
         activity_control(&timer, &final_node),
@@ -96,7 +98,9 @@ fn waiting_signal_activity(
         }),
     );
     let final_node = activity_node("Final", ActivityNodeKind::ActivityFinal);
-    activity.nodes.extend([initial.clone(), accept.clone(), final_node.clone()]);
+    activity
+        .nodes
+        .extend([initial.clone(), accept.clone(), final_node.clone()]);
     activity.edges.extend([
         activity_control(&initial, &accept),
         activity_control(&accept, &final_node),
@@ -215,7 +219,9 @@ fn reset_replays_state_activity_runtime_without_leaking_pending_events() {
     let mut fresh_engine = StateMachineExecutionEngine::new(fresh_behaviors, machine_id)
         .with_activity_repository(fresh_activities);
     let mut fresh_session = execution_session(&project, context);
-    fresh_engine.initialize(&project, &mut fresh_session).unwrap();
+    fresh_engine
+        .initialize(&project, &mut fresh_session)
+        .unwrap();
     advance_until_event(&mut fresh_engine, &project, &mut fresh_session);
 
     assert_eq!(
