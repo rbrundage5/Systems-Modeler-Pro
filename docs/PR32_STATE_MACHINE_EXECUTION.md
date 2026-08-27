@@ -28,30 +28,41 @@ workspace surface.
   Terminate.
 - Deterministic signal, call, time, change, completion, and any-receive trigger
   matching where the authored model provides the required semantic data.
-- Bounded run-to-completion traversal with deterministic transition priority.
+- Bounded run-to-completion traversal with deterministic transition priority and
+  explicit ambiguity diagnostics instead of container/hash-order selection.
 - Shared bounded expression evaluation for guards and pure transition effects.
 - External, local, and internal transition handling.
-- State entry/exit ordering, active composite ancestry, nested regions, and
-  simultaneous orthogonal-region configuration.
-- Initial, Choice, Junction, Fork, Join, EntryPoint, ExitPoint, Terminate, and
-  FinalState traversal.
+- Active composite ancestry, nested regions, simultaneous orthogonal-region
+  configuration, cross-hierarchy exits, and nested-target entry.
+- Initial, Choice, Junction, Fork, Join, Terminate, and FinalState execution.
+- Executable Submachine States using the same ExecutionSession, event queue,
+  SimulationTime, runtime values, and deterministic trace as the parent machine.
 - Shared SimulationTime scheduling for relative and absolute TimeEvents; no
-  browser or wall-clock timing.
+  browser or wall-clock timing. Activation generations prevent an exited
+  state's stale TimeEvent from firing after re-entry.
 - Authored-model fingerprint invalidation, reset/reinitialization, transient
   runtime isolation, deterministic traces, and bounded failure diagnostics.
 - Runtime visualization for active/waiting/final states, active regions,
   enabled/last-fired transitions, events, time, status, diagnostics, and trace.
+- State Properties can select modeled Activities for entry, doActivity, and
+  exit by stable Activity ID; the frontend does not interpret those references.
 
 ## Partial or explicitly unsupported
 
-- `State.entry`, `State.exit`, and `State.do_activity` are currently stored as
-  plain text. They are not stable Behavior/Activity references. PR32 preserves
-  authoring and emits a diagnostic instead of interpreting arbitrary text or
-  guessing an Activity by name. Consequently, typed PR31 Activity call-frame
-  integration remains partial until the metamodel adds stable references.
+- State entry, doActivity, and exit now author stable Activity IDs, but the
+  State Machine execution engine does not yet invoke the PR31
+  ActivityExecutionEngine for those references. Until that bridge is qualified,
+  execution emits a diagnostic and never interprets arbitrary model text.
+- EntryPoint and ExitPoint vertices are authorable, but the current metamodel
+  does not identify a qualified connection-point owner and entry/exit mapping.
+  Reaching either is therefore rejected with an engineer-readable diagnostic.
 - ShallowHistory and DeepHistory vertices exist, but the authored metamodel has
   no qualified default/history restoration policy. Reaching either produces a
   bounded engineer-readable diagnostic instead of approximate behavior.
+- An obsolete TimeEvent is prevented from firing by activation-generation
+  matching, but the obsolete queue record is not yet purged. Repeated exit and
+  re-entry can therefore accumulate inert timer records and must be closed
+  before PR32 is considered runtime-complete.
 - Full structural runtime instances, ports, connectors, distributed targets,
   Parametric solving, and Sequence execution remain outside PR32 and belong to
   later work.
@@ -59,6 +70,8 @@ workspace surface.
 ## Qualification
 
 - `crates/model-core/tests/pr32_state_machine_execution.rs`
+- `crates/model-core/tests/pr32_state_machine_event_semantics.rs`
+- `crates/model-core/tests/pr32_state_machine_semantic_closure.rs`
 - `scripts/validate_state_machine_execution.py`
 - Existing PR31 Activity, behavior, shared workspace, routing/frame,
   presentation interaction, Rust-authority, and all-nine-family standard
