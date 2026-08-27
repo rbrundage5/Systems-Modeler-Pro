@@ -28,6 +28,10 @@ impl StateMachineExecutionEngine {
         self
     }
 
+    pub(super) fn shared_activity_repository(&self) -> Option<ActivityRepository> {
+        self.state_activity_runtime.repository.clone()
+    }
+
     pub(super) fn clear_state_activity_execution(&mut self) {
         self.state_activity_runtime.clear_execution();
     }
@@ -98,10 +102,11 @@ impl StateMachineExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<Option<EngineStepOutcome>, ExecutionError> {
-        // A doActivity is asynchronous with respect to its owning State. If an event is
-        // already queued that enables an owning State Machine transition, yield before
+        // A doActivity is asynchronous with respect to its owning State. If an event that
+        // is due now already enables an owning State Machine transition, yield before
         // consuming another Activity step so a continuously progressing doActivity
-        // cannot starve an interrupting transition.
+        // cannot starve an interrupting transition. Future events do not preempt zero-time
+        // Activity progress before their SimulationTime is reached.
         if self.queued_state_transition_event_exists(project, session)? {
             return Ok(None);
         }
@@ -261,8 +266,9 @@ impl StateMachineExecutionEngine {
             .event_queue
             .iter()
             .filter(|scheduled| {
-                scheduled.event.target_semantic_id.is_none()
-                    || scheduled.event.target_semantic_id == Some(context_id)
+                scheduled.due_time <= session.simulation_time
+                    && (scheduled.event.target_semantic_id.is_none()
+                        || scheduled.event.target_semantic_id == Some(context_id))
             })
             .map(|scheduled| scheduled.event.clone())
             .collect();
