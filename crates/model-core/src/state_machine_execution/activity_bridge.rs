@@ -98,6 +98,14 @@ impl StateMachineExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<Option<EngineStepOutcome>, ExecutionError> {
+        // A doActivity is asynchronous with respect to its owning State. If an event is
+        // already queued that enables an owning State Machine transition, yield before
+        // consuming another Activity step so a continuously progressing doActivity
+        // cannot starve an interrupting transition.
+        if self.queued_state_transition_event_exists(project, session)? {
+            return Ok(None);
+        }
+
         let mut state_ids: Vec<_> = self
             .state_activity_runtime
             .do_activities
@@ -237,6 +245,32 @@ impl StateMachineExecutionEngine {
                 sequences.remove(&event.sequence);
             }
             if outcome != EngineStepOutcome::Idle {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn queued_state_transition_event_exists(
+        &mut self,
+        project: &Project,
+        session: &ExecutionSession,
+    ) -> Result<bool, ExecutionError> {
+        let context_id = self.machine()?.context_id;
+        let events: Vec<_> = session
+            .event_queue
+            .iter()
+            .filter(|scheduled| {
+                scheduled.event.target_semantic_id.is_none()
+                    || scheduled.event.target_semantic_id == Some(context_id)
+            })
+            .map(|scheduled| scheduled.event.clone())
+            .collect();
+        for event in events {
+            if !self
+                .select_event_transition_set(project, session, &event)?
+                .is_empty()
+            {
                 return Ok(true);
             }
         }
