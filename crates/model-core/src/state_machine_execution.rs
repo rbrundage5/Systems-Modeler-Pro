@@ -306,7 +306,13 @@ impl StateMachineExecutionEngine {
                 }
                 for transition in outgoing {
                     if self.guard_allows(project, session, &transition.transition.guard, event)? {
-                        self.fire_transition_inner(project, session, &transition, event, rtc_steps)?;
+                        self.fire_transition_inner(
+                            project,
+                            session,
+                            &transition,
+                            event,
+                            rtc_steps,
+                        )?;
                     }
                 }
                 Ok(())
@@ -541,12 +547,7 @@ impl StateMachineExecutionEngine {
         for transition in outgoing {
             if transition.transition.guard.as_deref() == Some("else") {
                 fallback = Some(transition);
-            } else if self.guard_allows(
-                project,
-                session,
-                &transition.transition.guard,
-                event,
-            )? {
+            } else if self.guard_allows(project, session, &transition.transition.guard, event)? {
                 return Ok(Some(transition));
             }
         }
