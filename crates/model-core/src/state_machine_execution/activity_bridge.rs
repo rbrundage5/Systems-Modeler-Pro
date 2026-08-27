@@ -126,7 +126,6 @@ impl StateMachineExecutionEngine {
             {
                 continue;
             }
-            session.consume_step_budget()?;
             let before = time_event_sequences(session);
             let context_id = self.machine()?.context_id;
             let state_name = self
@@ -340,7 +339,6 @@ impl StateMachineExecutionEngine {
         let mut engine = self.build_embedded_activity_engine(project, session, activity_id)?;
         let mut scheduled_time_events = HashSet::new();
         for _ in 0..super::MAX_RUN_TO_COMPLETION_STEPS {
-            session.consume_step_budget()?;
             let before = time_event_sequences(session);
             let outcome = step_embedded_activity(
                 &mut engine,
