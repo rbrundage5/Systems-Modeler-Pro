@@ -263,10 +263,9 @@ fn fork_and_join_synchronize_concurrent_paths() {
     let mut engine = StateMachineExecutionEngine::new(repository, machine_id);
     let mut execution = session(&project, context);
     engine.initialize(&project, &mut execution).unwrap();
-    assert_eq!(
-        active_names(&engine.snapshot(&execution)),
-        ["Left", "Right"]
-    );
+    let mut names = active_names(&engine.snapshot(&execution));
+    names.sort();
+    assert_eq!(names, ["Left", "Right"]);
     assert_eq!(
         engine.advance(&project, &mut execution).unwrap(),
         EngineStepOutcome::Progressed
