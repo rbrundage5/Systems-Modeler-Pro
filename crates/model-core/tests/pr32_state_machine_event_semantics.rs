@@ -110,9 +110,12 @@ fn authored_defaults_are_available_to_state_machine_guards() {
     low_transition.guard = Some("else".into());
 
     let machine = repository.state_machines.get_mut(&machine_id).unwrap();
-    machine.regions[0]
-        .vertices
-        .extend([initial.clone(), choice.clone(), high.clone(), low.clone()]);
+    machine.regions[0].vertices.extend([
+        initial.clone(),
+        choice.clone(),
+        high.clone(),
+        low.clone(),
+    ]);
     machine.regions[0].transitions.extend([
         transition(&initial, &choice),
         high_transition,
@@ -152,13 +155,19 @@ fn change_event_fires_only_on_false_to_true_edge() {
     let mut session = execution_session(&project, context);
     engine.initialize(&project, &mut session).unwrap();
 
-    assert_eq!(engine.advance(&project, &mut session).unwrap(), EngineStepOutcome::Idle);
+    assert_eq!(
+        engine.advance(&project, &mut session).unwrap(),
+        EngineStepOutcome::Idle
+    );
     assert_eq!(active_names(&engine, &session), ["Watching"]);
 
     session
         .set_value(&project, None, flag, RuntimeValue::Real(0.0))
         .unwrap();
-    assert_eq!(engine.advance(&project, &mut session).unwrap(), EngineStepOutcome::Idle);
+    assert_eq!(
+        engine.advance(&project, &mut session).unwrap(),
+        EngineStepOutcome::Idle
+    );
     assert_eq!(active_names(&engine, &session), ["Watching"]);
 
     session
@@ -222,9 +231,15 @@ fn stale_time_event_cannot_fire_after_exit_and_reentry() {
     engine.advance(&project, &mut session).unwrap();
     assert_eq!(active_names(&engine, &session), ["Waiting"]);
 
-    assert_eq!(engine.advance(&project, &mut session).unwrap(), EngineStepOutcome::Idle);
+    assert_eq!(
+        engine.advance(&project, &mut session).unwrap(),
+        EngineStepOutcome::Idle
+    );
     assert_eq!(active_names(&engine, &session), ["Waiting"]);
-    assert_eq!(session.simulation_time, SimulationTime::from_nanos(5_000_000_000));
+    assert_eq!(
+        session.simulation_time,
+        SimulationTime::from_nanos(5_000_000_000)
+    );
     assert_eq!(engine.snapshot(&session).pending_event_count, 1);
 
     assert_eq!(
