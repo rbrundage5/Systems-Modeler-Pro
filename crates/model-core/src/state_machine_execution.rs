@@ -54,6 +54,7 @@ pub struct StateMachineExecutionEngine {
     active_states: HashSet<VertexId>,
     active_regions: HashSet<RegionId>,
     final_regions: HashSet<RegionId>,
+    suppressed_initial_regions: HashSet<RegionId>,
     completed_transitions: HashSet<TransitionId>,
     join_arrivals: HashMap<VertexId, HashSet<TransitionId>>,
     enabled_transition_ids: Vec<TransitionId>,
@@ -76,6 +77,7 @@ impl StateMachineExecutionEngine {
             active_states: HashSet::new(),
             active_regions: HashSet::new(),
             final_regions: HashSet::new(),
+            suppressed_initial_regions: HashSet::new(),
             completed_transitions: HashSet::new(),
             join_arrivals: HashMap::new(),
             enabled_transition_ids: Vec::new(),
@@ -273,6 +275,7 @@ impl StateMachineExecutionEngine {
         self.active_states.clear();
         self.active_regions.clear();
         self.final_regions.clear();
+        self.suppressed_initial_regions.clear();
         self.completed_transitions.clear();
         self.join_arrivals.clear();
         self.enabled_transition_ids.clear();
@@ -386,26 +389,44 @@ impl StateMachineExecutionEngine {
                         vertex.name
                     )));
                 }
-                let mut fired = 0;
+                let mut enabled = Vec::new();
                 for transition in outgoing {
                     if self.guard_allows(project, session, &transition.transition.guard, event)? {
-                        self.fire_transition_inner(
-                            project,
-                            session,
-                            &transition,
-                            event,
-                            rtc_steps,
-                        )?;
-                        fired += 1;
+                        enabled.push(transition);
                     }
                 }
-                if fired < 2 {
+                if enabled.len() < 2 {
                     return Err(engine_error(format!(
                         "Fork '{}' requires at least two enabled outgoing transitions during execution",
                         vertex.name
                     )));
                 }
-                Ok(())
+
+                let index = build_vertex_index(self.machine()?);
+                let mut target_regions = HashSet::new();
+                for transition in &enabled {
+                    let target = index
+                        .get(&transition.transition.target_id)
+                        .ok_or_else(|| engine_error("Fork transition target cannot be resolved"))?;
+                    target_regions.insert(target.region_id);
+                }
+
+                let previous_suppressed = self.suppressed_initial_regions.clone();
+                self.suppressed_initial_regions.extend(target_regions);
+                let result: Result<(), ExecutionError> = (|| {
+                    for transition in &enabled {
+                        self.fire_transition_inner(
+                            project,
+                            session,
+                            transition,
+                            event,
+                            rtc_steps,
+                        )?;
+                    }
+                    Ok(())
+                })();
+                self.suppressed_initial_regions = previous_suppressed;
+                result
             }
             PseudostateKind::Join => {
                 let arrived_via = arrived_via.ok_or_else(|| {
@@ -494,6 +515,8 @@ impl StateMachineExecutionEngine {
                     if region_contains_vertex(region, next_vertex_id) {
                         self.active_regions.insert(region.id);
                         self.final_regions.remove(&region.id);
+                    } else if self.suppressed_initial_regions.contains(&region.id) {
+                        continue;
                     } else {
                         self.enter_region_initial(project, session, region.id, rtc_steps)?;
                     }
