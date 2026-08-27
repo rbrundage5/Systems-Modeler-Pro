@@ -419,6 +419,204 @@
     canvas.appendChild(frame);
   }
 
+  // PR32_STATE_MACHINE_EXECUTION_BEGIN
+  Object.assign(state, { stateMachineExecutionSnapshot: null, stateMachineExecutionRunning: false });
+  let stateMachineRunGeneration = 0;
+
+  function executionDiagram() {
+    return state.behaviorSnapshot?.diagrams?.find((item) =>
+      String(item.id) === String(state.selectedBehaviorDiagramId) && item.kind === 'StateMachine') || null;
+  }
+
+  function executionSnapshot() {
+    const diagram = executionDiagram();
+    const snapshot = state.stateMachineExecutionSnapshot;
+    return snapshot && diagram && String(snapshot.state_machine_id) === String(diagram.semantic_id)
+      ? snapshot
+      : null;
+  }
+
+  function visualizeStateMachineExecution() {
+    document.querySelectorAll('.state-vertex').forEach((node) =>
+      node.classList.remove('runtime-active-state', 'runtime-waiting-state', 'runtime-final-state'));
+    document.querySelectorAll('.state-transition').forEach((edge) =>
+      edge.classList.remove('runtime-enabled-transition', 'runtime-fired-transition'));
+    const snapshot = executionSnapshot();
+    if (!snapshot) return;
+    const active = new Set((snapshot.active_states || []).map((item) => String(item.state_id)));
+    const waiting = new Set((snapshot.waiting_state_ids || []).map(String));
+    const enabled = new Set((snapshot.enabled_transition_ids || []).map(String));
+    const finalRegions = new Set((snapshot.final_region_ids || []).map(String));
+    document.querySelectorAll('.state-vertex[data-vertex-id]').forEach((node) => {
+      const id = String(node.dataset.vertexId);
+      node.classList.toggle('runtime-active-state', active.has(id));
+      node.classList.toggle('runtime-waiting-state', waiting.has(id));
+      node.classList.toggle('runtime-final-state',
+        node.dataset.semanticKind === 'FinalState' && finalRegions.has(String(node.dataset.regionId)));
+    });
+    document.querySelectorAll('.state-transition[data-transition-id]').forEach((edge) => {
+      const id = String(edge.dataset.transitionId);
+      edge.classList.toggle('runtime-enabled-transition', enabled.has(id));
+      edge.classList.toggle('runtime-fired-transition', id === String(snapshot.last_transition_id || ''));
+    });
+  }
+
+  function renderStateMachineExecutionPanel() {
+    const host = document.querySelector('.diagram-workspace');
+    const snapshot = executionSnapshot();
+    let panel = document.querySelector('.state-machine-execution-panel');
+    if (!host || !snapshot) { panel?.remove(); return; }
+    if (!panel) {
+      panel = document.createElement('aside');
+      panel.className = 'state-machine-execution-panel';
+      panel.dataset.workspaceOverlay = 'true';
+      host.appendChild(panel);
+    }
+    const execution = snapshot.execution;
+    const diagnostics = (execution.diagnostics || []).slice(-4);
+    const trace = (execution.trace || []).slice(-6);
+    panel.innerHTML = `<div class="state-machine-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div><div class="state-machine-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.pending_event_count || 0} pending</span><span>${snapshot.active_region_ids?.length || 0} region(s)</span></div><div class="state-machine-current-event">Current event: ${escapeHtml(snapshot.current_event?.name || 'None')}</div>${diagnostics.length ? `<div class="state-machine-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}<div class="state-machine-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>`;
+  }
+
+  function refreshStateMachineExecution() {
+    const visible = Boolean(executionDiagram());
+    let group = document.querySelector('.state-machine-execution-ribbon-group');
+    if (!group) {
+      group = document.createElement('section');
+      group.className = 'ribbon-group state-machine-execution-ribbon-group';
+      const controls = [['initialize','◇','Initialize'],['run','▶','Run'],['step','▸','Step'],['pause','Ⅱ','Pause'],['resume','▷','Resume'],['reset','↺','Reset'],['terminate','■','Terminate'],['signal','⇢','Signal']];
+      group.innerHTML = `<div class="ribbon-actions state-machine-execution-actions">${controls.map(([command, icon, label]) => `<button class="ribbon-command" data-state-machine-execution="${command}"><span class="command-icon">${icon}</span><span>${label}</span></button>`).join('')}</div><div class="ribbon-label">State Machine Execution</div>`;
+      group.addEventListener('click', handleStateMachineExecutionCommand);
+      document.querySelector('.ribbon')?.insertBefore(group, document.querySelector('.ribbon-context'));
+    }
+    group.hidden = !visible;
+    const current = executionSnapshot()?.execution?.state || 'Not initialized';
+    const initialized = current !== 'Not initialized';
+    group.querySelectorAll('[data-state-machine-execution]').forEach((button) => {
+      const command = button.dataset.stateMachineExecution;
+      button.disabled = !visible
+        || (command === 'run' && (!initialized || !['Initialized', 'Paused'].includes(current)))
+        || (command === 'step' && (!initialized || current === 'Running' || ['Completed', 'Failed', 'Terminated'].includes(current)))
+        || (command === 'pause' && current !== 'Running')
+        || (command === 'resume' && current !== 'Paused')
+        || (['reset', 'terminate', 'signal'].includes(command) && !initialized);
+    });
+    visualizeStateMachineExecution();
+    renderStateMachineExecutionPanel();
+  }
+
+  async function invokeStateMachineExecution(command, extra = {}) {
+    const diagram = executionDiagram();
+    if (!diagram) throw new Error('Open a State Machine diagram first.');
+    const snapshot = await requireInvoke()(command, { diagramId: diagram.id, ...extra });
+    Object.assign(state, { stateMachineExecutionSnapshot: snapshot });
+    refreshStateMachineExecution();
+    return snapshot;
+  }
+
+  async function initializeStateMachineExecution() {
+    stateMachineRunGeneration += 1;
+    Object.assign(state, { stateMachineExecutionRunning: false });
+    await invokeStateMachineExecution('initialize_state_machine_execution');
+  }
+
+  async function runStateMachineExecution(resume) {
+    if (!executionSnapshot()) await initializeStateMachineExecution();
+    await invokeStateMachineExecution(resume ? 'resume_state_machine_execution' : 'run_state_machine_execution');
+    const generation = ++stateMachineRunGeneration;
+    Object.assign(state, { stateMachineExecutionRunning: true });
+    while (generation === stateMachineRunGeneration && executionSnapshot()?.execution?.state === 'Running') {
+      const before = executionSnapshot()?.execution?.revision;
+      await invokeStateMachineExecution('step_state_machine_execution');
+      if (executionSnapshot()?.execution?.state !== 'Running') break;
+      if (executionSnapshot()?.execution?.revision === before) {
+        await invokeStateMachineExecution('pause_state_machine_execution');
+        break;
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    if (generation === stateMachineRunGeneration) {
+      Object.assign(state, { stateMachineExecutionRunning: false });
+      refreshStateMachineExecution();
+    }
+  }
+
+  async function handleStateMachineExecutionCommand(event) {
+    const command = event.target.closest?.('[data-state-machine-execution]')?.dataset.stateMachineExecution;
+    if (!command) return;
+    try {
+      if (command === 'initialize') await initializeStateMachineExecution();
+      else if (command === 'run') await runStateMachineExecution(false);
+      else if (command === 'step') {
+        stateMachineRunGeneration += 1;
+        if (!executionSnapshot()) await initializeStateMachineExecution();
+        await invokeStateMachineExecution('step_state_machine_execution');
+      } else if (command === 'pause') {
+        stateMachineRunGeneration += 1;
+        Object.assign(state, { stateMachineExecutionRunning: false });
+        await invokeStateMachineExecution('pause_state_machine_execution');
+      } else if (command === 'resume') await runStateMachineExecution(true);
+      else if (command === 'reset') {
+        stateMachineRunGeneration += 1;
+        await invokeStateMachineExecution(executionSnapshot() ? 'reset_state_machine_execution' : 'initialize_state_machine_execution');
+      } else if (command === 'terminate') {
+        stateMachineRunGeneration += 1;
+        await invokeStateMachineExecution('terminate_state_machine_execution');
+      } else if (command === 'signal') {
+        if (!executionSnapshot()) await initializeStateMachineExecution();
+        const candidates = (state.snapshot?.project?.elements || [])
+          .filter((item) => item.kind === 'Signal').map((item) => ({ id: item.id, label: item.name }));
+        if (!candidates.length) throw new Error('Create a Signal before queuing a SignalEvent.');
+        const choice = await window.smpDialogs?.choose({ title: 'Queue SignalEvent', description: 'Choose a modeled Signal for the shared runtime event queue.', candidates, confirmLabel: 'Queue' });
+        if (choice?.selectedId) await invokeStateMachineExecution('queue_state_machine_signal', { signalId: choice.selectedId });
+      }
+    } catch (error) {
+      Object.assign(state, { stateMachineExecutionRunning: false });
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
+      refreshStateMachineExecution();
+    }
+  }
+
+  window.smpRefreshStateMachineExecution = refreshStateMachineExecution;
+
+  async function loadStateMachineExecutionSnapshot() {
+    const diagram = executionDiagram();
+    if (!diagram) {
+      Object.assign(state, { stateMachineExecutionSnapshot: null });
+      refreshStateMachineExecution();
+      return;
+    }
+    try {
+      const snapshot = await requireInvoke()('state_machine_execution_snapshot', { diagramId: diagram.id });
+      Object.assign(state, { stateMachineExecutionSnapshot: snapshot });
+    } catch (_error) {
+      Object.assign(state, { stateMachineExecutionSnapshot: null });
+    }
+    refreshStateMachineExecution();
+  }
+
+  document.addEventListener('click', (event) => {
+    const target = event.target.closest?.('.diagram-tab, .diagram-row');
+    if (!target || !/\bSTM\b/.test(target.textContent || '')) return;
+    queueMicrotask(loadStateMachineExecutionSnapshot);
+  }, true);
+
+  const newProjectWithStateMachineExecution = $('new-project')?.onclick;
+  const openProjectWithStateMachineExecution = $('open-project')?.onclick;
+  if ($('new-project')) $('new-project').onclick = async () => {
+    await newProjectWithStateMachineExecution?.();
+    await requireInvoke()('clear_state_machine_executions');
+    Object.assign(state, { stateMachineExecutionSnapshot: null });
+    refreshStateMachineExecution();
+  };
+  if ($('open-project')) $('open-project').onclick = async () => {
+    await openProjectWithStateMachineExecution?.();
+    await requireInvoke()('clear_state_machine_executions');
+    Object.assign(state, { stateMachineExecutionSnapshot: null });
+    refreshStateMachineExecution();
+  };
+  // PR32_STATE_MACHINE_EXECUTION_END
+
   renderCanvas = function renderAuthoritativeBehaviorCanvas() {
     const diagram = activeDiagram();
     if (!diagram) return previousRenderCanvas();
@@ -426,5 +624,6 @@
     canvas.innerHTML = '';
     if (diagram.kind === 'StateMachine') renderStateMachine(canvas, diagram);
     else renderSequence(canvas, diagram);
+    queueMicrotask(loadStateMachineExecutionSnapshot);
   };
 })();

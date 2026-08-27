@@ -22,6 +22,7 @@ mod workspace {
     mod requirements;
     mod routing;
     mod shared_workspace;
+    mod state_machine_execution;
     #[rustfmt::skip]
     mod standard_editing;
     mod standard_editing_bridge;
@@ -123,6 +124,13 @@ mod workspace {
         copy_selection, delete_active_selection, duplicate_selection, move_active_selection,
         paste_selection,
     };
+    pub use state_machine_execution::{
+        StateMachineExecutionState, clear_state_machine_executions,
+        initialize_state_machine_execution, pause_state_machine_execution,
+        queue_state_machine_signal, reset_state_machine_execution, resume_state_machine_execution,
+        run_state_machine_execution, state_machine_execution_snapshot,
+        step_state_machine_execution, terminate_state_machine_execution,
+    };
     pub use use_cases::{
         create_use_case_diagram, create_use_case_element, create_use_case_relationship,
         delete_use_case_relationship, place_on_use_case_diagram, reconnect_use_case_relationship,
@@ -135,16 +143,17 @@ mod workspace {
 use serde::Serialize;
 use workspace::{
     ActivityExecutionState, ActivityWorkspaceState, HistoryState, SharedWorkspaceState,
-    StandardEditingState, WorkspaceState, activate_diagram, active_diagram_command_manifest,
-    active_diagram_layout, active_diagram_router, activity_execution_snapshot, activity_snapshot,
-    add_activity_action, add_activity_edge, add_activity_node, add_activity_parameter_node,
-    add_activity_partition, add_combined_fragment, add_combined_fragment_operand,
-    add_composite_state, add_execution_specification, add_item_flow_to_connector,
-    add_nested_port_to_ibd, add_sequence_lifeline, add_sequence_message, add_state_invariant,
-    add_state_region, add_state_transition, add_state_transition_complete, add_state_vertex,
-    add_structured_activity_node, add_submachine_state, assign_activity_node_partition,
-    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
-    clear_activity_executions, clear_workspace_interaction, copy_selection,
+    StandardEditingState, StateMachineExecutionState, WorkspaceState, activate_diagram,
+    active_diagram_command_manifest, active_diagram_layout, active_diagram_router,
+    activity_execution_snapshot, activity_snapshot, add_activity_action, add_activity_edge,
+    add_activity_node, add_activity_parameter_node, add_activity_partition, add_combined_fragment,
+    add_combined_fragment_operand, add_composite_state, add_execution_specification,
+    add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
+    add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
+    add_state_transition_complete, add_state_vertex, add_structured_activity_node,
+    add_submachine_state, assign_activity_node_partition, assign_activity_node_structured_parent,
+    behavior_lifeline_candidates, behavior_snapshot, clear_activity_executions,
+    clear_state_machine_executions, clear_workspace_interaction, copy_selection,
     create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
     create_bdd_relationship, create_bdd_relationship_complete, create_binding_connector,
     create_block, create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
@@ -160,26 +169,30 @@ use workspace::{
     diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,
     fit_diagram_viewport, get_diagram_frame_preference, get_panel_preferences,
     get_viewport_preference, history_checkpoint, history_redo, history_reset, history_undo,
-    ibd_item_flow_notation, initialize_activity_execution, load_activity_workspace,
-    move_active_selection, move_repository_diagram, move_repository_element,
-    move_sequence_lifeline, move_state_vertex, new_project, open_project_file,
-    open_project_file_complete, paste_selection, pause_activity_execution, place_bdd_element,
-    place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
-    place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
+    ibd_item_flow_notation, initialize_activity_execution, initialize_state_machine_execution,
+    load_activity_workspace, move_active_selection, move_repository_diagram,
+    move_repository_element, move_sequence_lifeline, move_state_vertex, new_project,
+    open_project_file, open_project_file_complete, paste_selection, pause_activity_execution,
+    pause_state_machine_execution, place_bdd_element, place_element_on_bdd,
+    place_on_package_diagram, place_on_parametric_diagram, place_on_requirement_diagram,
+    place_on_use_case_diagram, populate_ibd_from_context, queue_state_machine_signal,
     reconnect_activity_edge, reconnect_bdd_relationship, reconnect_binding_connector,
     reconnect_package_relationship, reconnect_sequence_message,
     reconnect_traceability_relationship, reconnect_use_case_relationship,
     rename_active_diagram_header, rename_element, reset_activity_execution,
-    reset_activity_workspace, resize_sequence_lifeline_timeline, resume_activity_execution,
-    route_activity_diagram, route_behavior_diagram, route_diagram_geometry, route_ibd,
-    run_activity_execution, save_activity_workspace, save_current_project,
+    reset_activity_workspace, reset_state_machine_execution, resize_sequence_lifeline_timeline,
+    resume_activity_execution, resume_state_machine_execution, route_activity_diagram,
+    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,
+    run_state_machine_execution, save_activity_workspace, save_current_project,
     save_current_project_complete, save_project_file, save_project_file_complete,
     semantic_presentation_manifest, semantic_presentation_stylesheet, set_diagram_frame_preference,
     set_panel_preferences, set_viewport_preference, set_workspace_interaction,
-    step_activity_execution, terminate_activity_execution, update_activity_node_semantics,
-    update_activity_presentation_geometry, update_actor_details, update_association_end,
-    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
-    update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
+    state_machine_execution_snapshot, step_activity_execution, step_state_machine_execution,
+    terminate_activity_execution, terminate_state_machine_execution,
+    update_activity_node_semantics, update_activity_presentation_geometry, update_actor_details,
+    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
+    update_bdd_presentation_geometry, update_combined_fragment_operand,
+    update_constraint_block_details, update_constraint_parameter,
     update_constraint_parameter_presentation, update_execution_specification,
     update_extend_specification, update_ibd_port_geometry, update_ibd_property_geometry,
     update_package_element, update_package_relationship, update_parametric_constraint_property,
@@ -524,6 +537,7 @@ fn main() {
         .manage(WorkspaceState::default())
         .manage(ActivityWorkspaceState::default())
         .manage(ActivityExecutionState::default())
+        .manage(StateMachineExecutionState::default())
         .manage(HistoryState::default())
         .manage(SharedWorkspaceState::default())
         .manage(StandardEditingState::default())
@@ -619,6 +633,16 @@ fn main() {
             reset_activity_execution,
             terminate_activity_execution,
             clear_activity_executions,
+            state_machine_execution_snapshot,
+            initialize_state_machine_execution,
+            run_state_machine_execution,
+            step_state_machine_execution,
+            pause_state_machine_execution,
+            resume_state_machine_execution,
+            reset_state_machine_execution,
+            terminate_state_machine_execution,
+            queue_state_machine_signal,
+            clear_state_machine_executions,
             reset_activity_workspace,
             create_activity_diagram,
             add_activity_node,

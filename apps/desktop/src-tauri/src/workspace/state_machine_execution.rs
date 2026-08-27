@@ -1,0 +1,589 @@
+use super::{ActivityWorkspaceState, WorkspaceState, behavior_workspace::BehaviorDiagramKind};
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use systems_modeler_core::{
+    ActivityId, ActivityRepository, BehaviorRepository, ElementId, ElementKind,
+    ExecutionConfiguration, ExecutionEngine, ExecutionManager, ExecutionSessionId, ExecutionState,
+    Project, Region, RuntimeValue, StateMachineExecutionEngine, StateMachineExecutionSnapshot,
+    StateMachineId, VertexKind,
+};
+
+#[derive(Default)]
+struct StateMachineExecutionRegistry {
+    manager: ExecutionManager,
+    engines: HashMap<ExecutionSessionId, StateMachineExecutionEngine>,
+    sessions_by_diagram: HashMap<String, ExecutionSessionId>,
+    source_fingerprints: HashMap<String, String>,
+}
+
+#[derive(Default)]
+pub struct StateMachineExecutionState {
+    registry: Mutex<StateMachineExecutionRegistry>,
+}
+
+fn project_snapshot(workspace: &WorkspaceState) -> Result<Project, String> {
+    workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?
+        .clone()
+        .ok_or_else(|| "open a project before executing a State Machine".into())
+}
+
+fn activity_repository_snapshot(
+    activity: &ActivityWorkspaceState,
+) -> Result<ActivityRepository, String> {
+    activity
+        .repository
+        .lock()
+        .map_err(|_| "activity repository lock poisoned".to_string())
+        .map(|repository| repository.clone())
+}
+
+fn machine_for_diagram(
+    workspace: &WorkspaceState,
+    diagram_id: &str,
+) -> Result<(BehaviorRepository, StateMachineId), String> {
+    let semantic_id = workspace
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .iter()
+        .find(|diagram| {
+            diagram.id == diagram_id && diagram.kind == BehaviorDiagramKind::StateMachine
+        })
+        .ok_or_else(|| format!("State Machine diagram was not found: {diagram_id}"))?
+        .semantic_id
+        .clone();
+    let machine_id = uuid::Uuid::parse_str(&semantic_id)
+        .map(StateMachineId)
+        .map_err(|_| format!("invalid State Machine id: {semantic_id}"))?;
+    let repository = workspace
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?
+        .clone();
+    if !repository.state_machines.contains_key(&machine_id) {
+        return Err("State Machine diagram references missing semantics".into());
+    }
+    Ok((repository, machine_id))
+}
+
+fn validate_activity_reference(
+    activities: &ActivityRepository,
+    state_name: &str,
+    role: &str,
+    value: &str,
+) -> Result<(), String> {
+    let activity_id = uuid::Uuid::parse_str(value)
+        .map(ActivityId)
+        .map_err(|_| {
+            format!(
+                "State '{state_name}' {role} must reference a modeled Activity by stable ID; '{value}' is not an Activity ID"
+            )
+        })?;
+    if !activities.activities.contains_key(&activity_id) {
+        return Err(format!(
+            "State '{state_name}' {role} references missing Activity stable ID {activity_id}"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_region_activity_references(
+    regions: &[Region],
+    activities: &ActivityRepository,
+) -> Result<(), String> {
+    for region in regions {
+        for vertex in &region.vertices {
+            let VertexKind::State(state) = &vertex.kind else {
+                continue;
+            };
+            for (role, reference) in [
+                ("entry", state.entry.as_deref()),
+                ("doActivity", state.do_activity.as_deref()),
+                ("exit", state.exit.as_deref()),
+            ] {
+                if let Some(reference) = reference.filter(|value| !value.trim().is_empty()) {
+                    validate_activity_reference(activities, &vertex.name, role, reference)?;
+                }
+            }
+            validate_region_activity_references(&state.regions, activities)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_machine_activity_references(
+    repository: &BehaviorRepository,
+    activities: &ActivityRepository,
+    machine_id: StateMachineId,
+    visited: &mut HashSet<StateMachineId>,
+) -> Result<(), String> {
+    if !visited.insert(machine_id) {
+        return Ok(());
+    }
+    let machine = repository
+        .state_machines
+        .get(&machine_id)
+        .ok_or_else(|| format!("State Machine references missing semantics: {machine_id}"))?;
+    validate_region_activity_references(&machine.regions, activities)?;
+    fn visit_submachines(regions: &[Region], output: &mut Vec<StateMachineId>) {
+        for region in regions {
+            for vertex in &region.vertices {
+                if let VertexKind::State(state) = &vertex.kind {
+                    if let Some(submachine) = state.submachine {
+                        output.push(submachine);
+                    }
+                    visit_submachines(&state.regions, output);
+                }
+            }
+        }
+    }
+    let mut submachines = Vec::new();
+    visit_submachines(&machine.regions, &mut submachines);
+    submachines.sort_by_key(ToString::to_string);
+    submachines.dedup();
+    for submachine in submachines {
+        validate_machine_activity_references(repository, activities, submachine, visited)?;
+    }
+    Ok(())
+}
+
+fn source_fingerprint(
+    project: &Project,
+    repository: &BehaviorRepository,
+    activities: &ActivityRepository,
+) -> Result<String, String> {
+    serde_json::to_string(&(project, repository, activities)).map_err(|error| {
+        format!("failed to fingerprint State Machine execution source model: {error}")
+    })
+}
+
+fn execution_source(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    diagram_id: &str,
+) -> Result<
+    (
+        Project,
+        BehaviorRepository,
+        ActivityRepository,
+        StateMachineId,
+        String,
+    ),
+    String,
+> {
+    let project = project_snapshot(workspace)?;
+    let (repository, machine_id) = machine_for_diagram(workspace, diagram_id)?;
+    let activities = activity_repository_snapshot(activity)?;
+    validate_machine_activity_references(
+        &repository,
+        &activities,
+        machine_id,
+        &mut HashSet::new(),
+    )?;
+    let fingerprint = source_fingerprint(&project, &repository, &activities)?;
+    Ok((project, repository, activities, machine_id, fingerprint))
+}
+
+fn session_id_for_diagram(
+    registry: &StateMachineExecutionRegistry,
+    diagram_id: &str,
+) -> Result<ExecutionSessionId, String> {
+    registry
+        .sessions_by_diagram
+        .get(diagram_id)
+        .copied()
+        .ok_or_else(|| "initialize this State Machine execution first".into())
+}
+
+fn snapshot_for(
+    registry: &StateMachineExecutionRegistry,
+    session_id: ExecutionSessionId,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let session = registry
+        .manager
+        .session(session_id)
+        .map_err(|error| error.to_string())?;
+    let engine = registry
+        .engines
+        .get(&session_id)
+        .ok_or("State Machine execution engine is unavailable")?;
+    Ok(engine.snapshot(session))
+}
+
+fn start_execution(
+    project: &Project,
+    repository: BehaviorRepository,
+    activities: ActivityRepository,
+    machine_id: StateMachineId,
+    diagram_id: &str,
+    fingerprint: String,
+    registry: &mut StateMachineExecutionRegistry,
+) -> Result<ExecutionSessionId, String> {
+    let machine = repository
+        .state_machines
+        .get(&machine_id)
+        .ok_or("State Machine was not found")?;
+    let configuration = ExecutionConfiguration {
+        root_semantic_id: machine.context_id,
+        random_seed: 0,
+        max_steps: 100_000,
+        max_queued_events: 10_000,
+    };
+    if let Some(previous) = registry.sessions_by_diagram.remove(diagram_id) {
+        registry.engines.remove(&previous);
+        registry.manager.remove_session(previous);
+    }
+    registry.source_fingerprints.remove(diagram_id);
+    let session_id = registry
+        .manager
+        .create_session(project, configuration)
+        .map_err(|error| error.to_string())?;
+    let mut engine = StateMachineExecutionEngine::new(repository, machine_id)
+        .with_activity_repository(activities);
+    let initialized = engine.initialize(
+        project,
+        registry
+            .manager
+            .session_mut(session_id)
+            .map_err(|error| error.to_string())?,
+    );
+    if let Err(error) = initialized {
+        registry.manager.remove_session(session_id);
+        return Err(error.to_string());
+    }
+    registry.engines.insert(session_id, engine);
+    registry
+        .sessions_by_diagram
+        .insert(diagram_id.to_string(), session_id);
+    registry
+        .source_fingerprints
+        .insert(diagram_id.to_string(), fingerprint);
+    Ok(session_id)
+}
+
+fn ensure_current_execution(
+    project: &Project,
+    repository: BehaviorRepository,
+    activities: ActivityRepository,
+    machine_id: StateMachineId,
+    diagram_id: &str,
+    fingerprint: String,
+    registry: &mut StateMachineExecutionRegistry,
+) -> Result<(ExecutionSessionId, bool), String> {
+    let session_id = session_id_for_diagram(registry, diagram_id)?;
+    if registry.source_fingerprints.get(diagram_id) == Some(&fingerprint) {
+        return Ok((session_id, false));
+    }
+    let refreshed = start_execution(
+        project,
+        repository,
+        activities,
+        machine_id,
+        diagram_id,
+        fingerprint,
+        registry,
+    )?;
+    Ok((refreshed, true))
+}
+
+#[tauri::command]
+pub fn initialize_state_machine_execution(
+    diagram_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let (project, repository, activities, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let session_id = start_execution(
+        &project,
+        repository,
+        activities,
+        machine_id,
+        &diagram_id,
+        fingerprint,
+        &mut registry,
+    )?;
+    snapshot_for(&registry, session_id)
+}
+
+#[tauri::command]
+pub fn state_machine_execution_snapshot(
+    diagram_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<Option<StateMachineExecutionSnapshot>, String> {
+    let (_, _, _, _, fingerprint) = execution_source(&workspace, &activity, &diagram_id)?;
+    let registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let Some(session_id) = registry.sessions_by_diagram.get(&diagram_id).copied() else {
+        return Ok(None);
+    };
+    if registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint) {
+        return Ok(None);
+    }
+    snapshot_for(&registry, session_id).map(Some)
+}
+
+#[tauri::command]
+pub fn run_state_machine_execution(
+    diagram_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let (project, repository, activities, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let (session_id, _) = ensure_current_execution(
+        &project,
+        repository,
+        activities,
+        machine_id,
+        &diagram_id,
+        fingerprint,
+        &mut registry,
+    )?;
+    registry
+        .manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?
+        .run()
+        .map_err(|error| error.to_string())?;
+    snapshot_for(&registry, session_id)
+}
+
+#[tauri::command]
+pub fn step_state_machine_execution(
+    diagram_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let (project, repository, activities, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let (session_id, _) = ensure_current_execution(
+        &project,
+        repository,
+        activities,
+        machine_id,
+        &diagram_id,
+        fingerprint,
+        &mut registry,
+    )?;
+    let StateMachineExecutionRegistry {
+        manager, engines, ..
+    } = &mut *registry;
+    let session = manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?;
+    let engine = engines
+        .get_mut(&session_id)
+        .ok_or("State Machine execution engine is unavailable")?;
+    if let Err(error) = engine.advance(&project, session) {
+        if session.state != ExecutionState::Failed {
+            session.fail(Some(project.root_id), error.to_string());
+        }
+        return Err(error.to_string());
+    }
+    Ok(engine.snapshot(session))
+}
+
+#[tauri::command]
+pub fn pause_state_machine_execution(
+    diagram_id: String,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let session_id = session_id_for_diagram(&registry, &diagram_id)?;
+    registry
+        .manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?
+        .pause()
+        .map_err(|error| error.to_string())?;
+    snapshot_for(&registry, session_id)
+}
+
+#[tauri::command]
+pub fn resume_state_machine_execution(
+    diagram_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let (project, repository, activities, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let (session_id, refreshed) = ensure_current_execution(
+        &project,
+        repository,
+        activities,
+        machine_id,
+        &diagram_id,
+        fingerprint,
+        &mut registry,
+    )?;
+    let session = registry
+        .manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?;
+    if refreshed {
+        session.run().map_err(|error| error.to_string())?;
+    } else {
+        session.resume().map_err(|error| error.to_string())?;
+    }
+    snapshot_for(&registry, session_id)
+}
+
+#[tauri::command]
+pub fn reset_state_machine_execution(
+    diagram_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let (project, repository, activities, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let (session_id, refreshed) = ensure_current_execution(
+        &project,
+        repository,
+        activities,
+        machine_id,
+        &diagram_id,
+        fingerprint,
+        &mut registry,
+    )?;
+    if refreshed {
+        return snapshot_for(&registry, session_id);
+    }
+    let StateMachineExecutionRegistry {
+        manager, engines, ..
+    } = &mut *registry;
+    let session = manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?;
+    let engine = engines
+        .get_mut(&session_id)
+        .ok_or("State Machine execution engine is unavailable")?;
+    engine
+        .reset(&project, session)
+        .map_err(|error| error.to_string())?;
+    Ok(engine.snapshot(session))
+}
+
+#[tauri::command]
+pub fn terminate_state_machine_execution(
+    diagram_id: String,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let session_id = session_id_for_diagram(&registry, &diagram_id)?;
+    let session = registry
+        .manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?;
+    if session.state != ExecutionState::Terminated {
+        session.terminate().map_err(|error| error.to_string())?;
+    }
+    snapshot_for(&registry, session_id)
+}
+
+#[tauri::command]
+pub fn queue_state_machine_signal(
+    diagram_id: String,
+    signal_id: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<StateMachineExecutionSnapshot, String> {
+    let (project, repository, activities, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
+    let signal_id = uuid::Uuid::parse_str(&signal_id)
+        .map(ElementId)
+        .map_err(|_| "invalid Signal stable ID".to_string())?;
+    let signal = project
+        .element(signal_id)
+        .map_err(|error| error.to_string())?;
+    if signal.kind != ElementKind::Signal {
+        return Err(format!(
+            "queued State Machine SignalEvent must reference a Signal; '{}' is {:?}",
+            signal.name, signal.kind
+        ));
+    }
+    let signal_name = signal.name.clone();
+    let mut registry = execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")?;
+    let (session_id, _) = ensure_current_execution(
+        &project,
+        repository,
+        activities,
+        machine_id,
+        &diagram_id,
+        fingerprint,
+        &mut registry,
+    )?;
+    let StateMachineExecutionRegistry {
+        manager, engines, ..
+    } = &mut *registry;
+    let session = manager
+        .session_mut(session_id)
+        .map_err(|error| error.to_string())?;
+    let engine = engines
+        .get(&session_id)
+        .ok_or("State Machine execution engine is unavailable")?;
+    engine
+        .queue_signal(
+            &project,
+            session,
+            signal_id,
+            signal_name,
+            Vec::<(String, RuntimeValue)>::new(),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(engine.snapshot(session))
+}
+
+#[tauri::command]
+pub fn clear_state_machine_executions(
+    execution_state: tauri::State<'_, StateMachineExecutionState>,
+) -> Result<(), String> {
+    *execution_state
+        .registry
+        .lock()
+        .map_err(|_| "State Machine execution lock poisoned")? =
+        StateMachineExecutionRegistry::default();
+    Ok(())
+}
