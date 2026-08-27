@@ -186,6 +186,15 @@ fn activity_runtime_context(
         }
         None => None,
     };
+    if require_unambiguous_selection
+        && expected_classifier.is_some()
+        && selected_runtime_instance_path.is_none()
+    {
+        return Err(format!(
+            "No runtime occurrence compatible with Activity '{}' exists under '{}'. Select a compatible structural root or correct the model typing.",
+            activity.name, root.name
+        ));
+    }
     let selected_runtime_instance_id =
         selected_runtime_instance_path
             .as_deref()
