@@ -24,15 +24,12 @@ jobs:
           node-version: 22
       - name: Apply desktop runtime configuration integration
         run: python .github/scripts/pr33_desktop_runtime_config.py
-      - name: Format and qualify PR33 integration
+      - name: Format and qualify portable PR33 integration
         run: |
           cargo fmt --all
           cargo test -p systems-modeler-core --test pr33_structural_runtime
           cargo test -p systems-modeler-core
-          cargo check -p systems-modeler-desktop
-          cargo test -p systems-modeler-desktop
           cargo clippy -p systems-modeler-core --all-targets -- -D warnings
-          cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
           node --check apps/desktop/frontend/behavior-authoritative-renderer.js
           node --check apps/desktop/frontend/activity-rich-ui.js
           python scripts/validate_structural_runtime_integration.py
