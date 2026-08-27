@@ -62,6 +62,10 @@ pub struct StateMachineExecutionEngine {
     state_activation_generations: HashMap<VertexId, u64>,
     next_state_activation_generation: u64,
     change_event_values: HashMap<TransitionId, bool>,
+    submachine_engines: HashMap<VertexId, Box<StateMachineExecutionEngine>>,
+    completed_submachines: HashSet<VertexId>,
+    embedded: bool,
+    embedded_completed: bool,
 }
 
 impl StateMachineExecutionEngine {
@@ -80,7 +84,17 @@ impl StateMachineExecutionEngine {
             state_activation_generations: HashMap::new(),
             next_state_activation_generation: 0,
             change_event_values: HashMap::new(),
+            submachine_engines: HashMap::new(),
+            completed_submachines: HashSet::new(),
+            embedded: false,
+            embedded_completed: false,
         }
+    }
+
+    fn new_embedded(repository: BehaviorRepository, state_machine_id: StateMachineId) -> Self {
+        let mut engine = Self::new(repository, state_machine_id);
+        engine.embedded = true;
+        engine
     }
 
     pub fn state_machine_id(&self) -> StateMachineId {
@@ -155,14 +169,43 @@ impl StateMachineExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<EngineStepOutcome, ExecutionError> {
-        if matches!(session.state, crate::ExecutionState::Completed) {
+        if self.embedded_completed
+            || (!self.embedded && matches!(session.state, crate::ExecutionState::Completed))
+        {
             return Ok(EngineStepOutcome::Completed);
         }
         self.current_event = None;
+
+        let mut child_completed = false;
+        let mut child_ids: Vec<_> = self.submachine_engines.keys().copied().collect();
+        child_ids.sort_by_key(ToString::to_string);
+        for state_id in child_ids {
+            if self.completed_submachines.contains(&state_id) {
+                continue;
+            }
+            let outcome = self
+                .submachine_engines
+                .get_mut(&state_id)
+                .ok_or_else(|| engine_error("active Submachine State lost its runtime engine"))?
+                .advance(project, session)?;
+            match outcome {
+                EngineStepOutcome::Progressed => return Ok(EngineStepOutcome::Progressed),
+                EngineStepOutcome::Completed => {
+                    self.completed_submachines.insert(state_id);
+                    child_completed = true;
+                }
+                EngineStepOutcome::Idle => {}
+            }
+        }
+
         if let Some(candidate) = self.select_automatic_transition(project, session)? {
             self.fire_transition(project, session, &candidate, None)?;
             return self.finish_step(session);
         }
+        if child_completed {
+            return Ok(EngineStepOutcome::Progressed);
+        }
+
         self.refresh_enabled_transitions(project, session, None)?;
         let Some(position) = self.next_relevant_event_position(session) else {
             return Ok(EngineStepOutcome::Idle);
@@ -205,6 +248,20 @@ impl StateMachineExecutionEngine {
         )
     }
 
+    fn initialize_embedded(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+    ) -> Result<(), ExecutionError> {
+        self.repository.validate(project).map_err(|error| {
+            engine_error(format!(
+                "Cannot initialize embedded State Machine execution: {error}"
+            ))
+        })?;
+        self.clear_runtime();
+        self.establish_initial_configuration(project, session)
+    }
+
     fn machine(&self) -> Result<&StateMachine, ExecutionError> {
         self.repository
             .state_machines
@@ -224,6 +281,9 @@ impl StateMachineExecutionEngine {
         self.state_activation_generations.clear();
         self.next_state_activation_generation = 0;
         self.change_event_values.clear();
+        self.submachine_engines.clear();
+        self.completed_submachines.clear();
+        self.embedded_completed = false;
     }
 
     fn establish_initial_configuration(
@@ -326,6 +386,7 @@ impl StateMachineExecutionEngine {
                         vertex.name
                     )));
                 }
+                let mut fired = 0;
                 for transition in outgoing {
                     if self.guard_allows(project, session, &transition.transition.guard, event)? {
                         self.fire_transition_inner(
@@ -335,7 +396,14 @@ impl StateMachineExecutionEngine {
                             event,
                             rtc_steps,
                         )?;
+                        fired += 1;
                     }
+                }
+                if fired < 2 {
+                    return Err(engine_error(format!(
+                        "Fork '{}' requires at least two enabled outgoing transitions during execution",
+                        vertex.name
+                    )));
                 }
                 Ok(())
             }
@@ -364,10 +432,7 @@ impl StateMachineExecutionEngine {
                 }
                 self.fire_transition_inner(project, session, &outgoing[0], event, rtc_steps)
             }
-            PseudostateKind::Terminate => {
-                session.complete()?;
-                Ok(())
-            }
+            PseudostateKind::Terminate => self.complete_machine(session),
             PseudostateKind::ShallowHistory | PseudostateKind::DeepHistory => {
                 let message = format!(
                     "State Machine execution reached {} '{}', but the authored model does not store a qualified history default/restoration policy",
@@ -418,8 +483,8 @@ impl StateMachineExecutionEngine {
                 format!("Entered composite State '{}'", ancestor.vertex.name),
             );
             if let VertexKind::State(state) = &ancestor.vertex.kind {
-                self.report_untyped_state_behaviors(session, &ancestor.vertex, state);
-                self.activate_state_runtime(project, session, &ancestor.vertex)?;
+                self.report_state_behavior_references(session, &ancestor.vertex, state);
+                self.activate_state_runtime(project, session, &ancestor.vertex, state)?;
                 let next_vertex_id = location
                     .ancestry
                     .get(position + 1)
@@ -446,8 +511,8 @@ impl StateMachineExecutionEngine {
                         Some(self.machine()?.context_id),
                         format!("Entered State '{}'", location.vertex.name),
                     );
-                    self.report_untyped_state_behaviors(session, &location.vertex, state);
-                    self.activate_state_runtime(project, session, &location.vertex)?;
+                    self.report_state_behavior_references(session, &location.vertex, state);
+                    self.activate_state_runtime(project, session, &location.vertex, state)?;
                     for region in sorted_regions(&state.regions) {
                         self.enter_region_initial(project, session, region.id, rtc_steps)?;
                     }
@@ -478,6 +543,7 @@ impl StateMachineExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
         vertex: &Vertex,
+        state: &State,
     ) -> Result<(), ExecutionError> {
         let generation = self.next_state_activation_generation;
         self.next_state_activation_generation =
@@ -485,10 +551,34 @@ impl StateMachineExecutionEngine {
         self.state_activation_generations
             .insert(vertex.id, generation);
         self.schedule_time_events(project, session, vertex, generation)?;
-        self.initialize_change_event_values(project, session, vertex)
+        self.initialize_change_event_values(project, session, vertex)?;
+
+        if let Some(submachine_id) = state.submachine {
+            let mut child = Self::new_embedded(self.repository.clone(), submachine_id);
+            child.initialize_embedded(project, session)?;
+            let child_completed = child.embedded_completed;
+            self.submachine_engines.insert(vertex.id, Box::new(child));
+            if child_completed {
+                self.completed_submachines.insert(vertex.id);
+            }
+            let submachine_name = self
+                .repository
+                .state_machines
+                .get(&submachine_id)
+                .map(|machine| machine.name.as_str())
+                .unwrap_or("unresolved Submachine");
+            session.record_engine_trace(
+                Some(self.machine()?.context_id),
+                format!(
+                    "State '{}' entered Submachine State Machine '{}'",
+                    vertex.name, submachine_name
+                ),
+            );
+        }
+        Ok(())
     }
 
-    fn report_untyped_state_behaviors(
+    fn report_state_behavior_references(
         &self,
         session: &mut ExecutionSession,
         vertex: &Vertex,
@@ -504,7 +594,7 @@ impl StateMachineExecutionEngine {
                     DiagnosticSeverity::Warning,
                     self.machine().ok().map(|machine| machine.context_id),
                     format!(
-                        "State '{}' has {} text, but the current metamodel does not provide a stable Behavior/Activity reference; execution did not interpret arbitrary model text",
+                        "State '{}' has a configured {} Activity reference, but PR32 does not yet execute State Activity references inside the State Machine RTC; the reference is preserved and arbitrary model text is never interpreted",
                         vertex.name, label
                     ),
                 );
@@ -677,12 +767,33 @@ impl StateMachineExecutionEngine {
     }
 
     fn next_relevant_event_position(&self, session: &ExecutionSession) -> Option<usize> {
-        let context_id = self.machine().ok()?.context_id;
-        session.event_queue.iter().position(|scheduled| {
-            scheduled.event.target_semantic_id == Some(context_id)
-                || (scheduled.event.target_semantic_id.is_none()
-                    && self.trigger_candidates(&scheduled.event).next().is_some())
+        session
+            .event_queue
+            .iter()
+            .position(|scheduled| self.event_is_relevant(&scheduled.event))
+    }
+
+    fn event_is_relevant(&self, event: &RuntimeEvent) -> bool {
+        let Ok(machine) = self.machine() else {
+            return false;
+        };
+        let own_address = event.target_semantic_id.is_none()
+            || event.target_semantic_id == Some(machine.context_id);
+        if own_address && self.trigger_candidates(event).next().is_some() {
+            return true;
+        }
+        self.submachine_engines.values().any(|child| {
+            child.event_is_relevant(event)
+                || (own_address && child.has_trigger_candidate_recursive(event))
         })
+    }
+
+    fn has_trigger_candidate_recursive(&self, event: &RuntimeEvent) -> bool {
+        self.trigger_candidates(event).next().is_some()
+            || self
+                .submachine_engines
+                .values()
+                .any(|child| child.has_trigger_candidate_recursive(event))
     }
 
     fn trigger_candidates<'a>(
@@ -974,7 +1085,7 @@ impl StateMachineExecutionEngine {
                     DiagnosticSeverity::Warning,
                     Some(self.machine()?.context_id),
                     format!(
-                        "State '{}' exit text was not executed because it is not a stable Behavior reference",
+                        "State '{}' exit Activity reference is preserved but is not yet executed by PR32",
                         location.vertex.name
                     ),
                 );
@@ -993,6 +1104,8 @@ impl StateMachineExecutionEngine {
             }
             self.state_activation_generations
                 .remove(&location.vertex.id);
+            self.submachine_engines.remove(&location.vertex.id);
+            self.completed_submachines.remove(&location.vertex.id);
             self.active_states.remove(&location.vertex.id);
             for region in state_regions(&location.vertex) {
                 self.active_regions.remove(&region.id);
@@ -1109,11 +1222,14 @@ impl StateMachineExecutionEngine {
         let VertexKind::State(state) = &location.vertex.kind else {
             return false;
         };
-        state.regions.is_empty()
+        let regions_complete = state.regions.is_empty()
             || state
                 .regions
                 .iter()
-                .all(|region| self.final_regions.contains(&region.id))
+                .all(|region| self.final_regions.contains(&region.id));
+        let submachine_complete =
+            state.submachine.is_none() || self.completed_submachines.contains(&state_id);
+        regions_complete && submachine_complete
     }
 
     fn transitions_from(&self, source_id: VertexId) -> Vec<TransitionLocation> {
@@ -1150,30 +1266,42 @@ impl StateMachineExecutionEngine {
         Ok(())
     }
 
-    fn complete_if_root_final(&self, session: &mut ExecutionSession) -> Result<(), ExecutionError> {
+    fn complete_machine(&mut self, session: &mut ExecutionSession) -> Result<(), ExecutionError> {
+        if self.embedded {
+            self.embedded_completed = true;
+            Ok(())
+        } else {
+            session.complete()
+        }
+    }
+
+    fn complete_if_root_final(
+        &mut self,
+        session: &mut ExecutionSession,
+    ) -> Result<(), ExecutionError> {
         let machine = self.machine()?;
         if machine
             .regions
             .iter()
             .all(|region| self.final_regions.contains(&region.id))
         {
-            session.complete()?;
+            self.complete_machine(session)?;
         }
         Ok(())
     }
 
     fn finish_step(
-        &self,
+        &mut self,
         session: &mut ExecutionSession,
     ) -> Result<EngineStepOutcome, ExecutionError> {
         self.complete_if_root_final(session)?;
-        Ok(
-            if matches!(session.state, crate::ExecutionState::Completed) {
-                EngineStepOutcome::Completed
-            } else {
-                EngineStepOutcome::Progressed
-            },
-        )
+        Ok(if self.embedded_completed
+            || (!self.embedded && matches!(session.state, crate::ExecutionState::Completed))
+        {
+            EngineStepOutcome::Completed
+        } else {
+            EngineStepOutcome::Progressed
+        })
     }
 }
 
@@ -1209,6 +1337,42 @@ impl ExecutionEngine for StateMachineExecutionEngine {
         event: &RuntimeEvent,
     ) -> Result<EngineStepOutcome, ExecutionError> {
         self.current_event = Some(event.clone());
+
+        let mut child_ids: Vec<_> = self.submachine_engines.keys().copied().collect();
+        child_ids.sort_by_key(ToString::to_string);
+        for state_id in child_ids {
+            if self.completed_submachines.contains(&state_id) {
+                continue;
+            }
+            let child = self
+                .submachine_engines
+                .get_mut(&state_id)
+                .ok_or_else(|| engine_error("active Submachine State lost its runtime engine"))?;
+            if !child.has_trigger_candidate_recursive(event) && !child.event_is_relevant(event) {
+                continue;
+            }
+            match child.handle_event(project, session, event)? {
+                EngineStepOutcome::Idle => {}
+                EngineStepOutcome::Progressed => return Ok(EngineStepOutcome::Progressed),
+                EngineStepOutcome::Completed => {
+                    self.completed_submachines.insert(state_id);
+                    let mut rtc_steps = 0;
+                    while let Some(automatic) =
+                        self.select_automatic_transition(project, session)?
+                    {
+                        self.fire_transition_inner(
+                            project,
+                            session,
+                            &automatic,
+                            None,
+                            &mut rtc_steps,
+                        )?;
+                    }
+                    return self.finish_step(session);
+                }
+            }
+        }
+
         let selected = self.select_event_transition_set(project, session, event)?;
         if selected.is_empty() {
             return Ok(EngineStepOutcome::Idle);
@@ -1217,7 +1381,9 @@ impl ExecutionEngine for StateMachineExecutionEngine {
         let mut rtc_steps = 0;
         self.fire_transition_set(project, session, &selected, Some(event), &mut rtc_steps)?;
 
-        while !matches!(session.state, crate::ExecutionState::Completed) {
+        while !self.embedded_completed
+            && !matches!(session.state, crate::ExecutionState::Completed)
+        {
             let Some(automatic) = self.select_automatic_transition(project, session)? else {
                 break;
             };
@@ -1293,7 +1459,7 @@ fn find_region(regions: &[Region], wanted: RegionId) -> Option<&Region> {
         if region.id == wanted {
             return Some(region);
         }
-        for vertex in region.vertices.iter() {
+        for vertex in &region.vertices {
             if let VertexKind::State(state) = &vertex.kind
                 && let Some(found) = find_region(&state.regions, wanted)
             {
