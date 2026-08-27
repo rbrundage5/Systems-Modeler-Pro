@@ -777,6 +777,36 @@ impl ExecutionSession {
             .elements
             .get(&semantic_element_id)
             .ok_or(ExecutionError::SemanticElementNotFound)?;
+        // Preserve the pre-PR33 model-scoped API for a single unambiguous
+        // structural occurrence. This lets existing PR31/PR32 callers that write
+        // a ValueProperty with `None` continue to update the owning occurrence,
+        // while repeated classifier occurrences remain isolated and require an
+        // explicit RuntimeInstanceId.
+        let instance_id = if instance_id.is_none() && element.kind == ElementKind::ValueProperty {
+            element.owner_id.and_then(|owner_id| {
+                self.structural_runtime.as_ref().and_then(|runtime| {
+                    let mut candidates: Vec<_> = runtime
+                        .instances
+                        .values()
+                        .filter(|instance| {
+                            instance.classifier_id.is_some_and(|classifier_id| {
+                                crate::structural_runtime::classifier_conforms(
+                                    project,
+                                    classifier_id,
+                                    owner_id,
+                                )
+                            })
+                        })
+                        .map(|instance| instance.id)
+                        .collect();
+                    candidates.sort_by_key(ToString::to_string);
+                    candidates.dedup();
+                    (candidates.len() == 1).then_some(candidates[0])
+                })
+            })
+        } else {
+            instance_id
+        };
         if let Some(instance_id) = instance_id {
             self.require_instance_semantic(instance_id, None)?;
         }
@@ -1140,11 +1170,12 @@ impl ExecutionSession {
         instance_id: Option<RuntimeInstanceId>,
         semantic_element_id: ElementId,
     ) -> Option<&RuntimeValue> {
-        // A classifier-scoped value is retained as the compatibility fallback
-        // for PR31/PR32 sessions. PR33 callers do not create that fallback and
-        // therefore resolve the owning occurrence's independent value.
-        self.value(None, semantic_element_id)
-            .or_else(|| instance_id.and_then(|id| self.value(Some(id), semantic_element_id)))
+        // Runtime-occurrence state is authoritative when an instance context is
+        // supplied. The classifier/model-scoped value remains only a compatibility
+        // fallback for legacy PR31/PR32 sessions that have no occurrence value.
+        instance_id
+            .and_then(|id| self.value(Some(id), semantic_element_id))
+            .or_else(|| self.value(None, semantic_element_id))
     }
 
     fn insert_scheduled_event(&mut self, scheduled: ScheduledEvent) {
@@ -1377,7 +1408,7 @@ impl ExecutionManager {
     }
 }
 
-fn validate_runtime_assignment(
+pub(crate) fn validate_runtime_assignment(
     project: &Project,
     element: &crate::Element,
     value: &RuntimeValue,

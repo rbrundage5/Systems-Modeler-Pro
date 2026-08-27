@@ -1,3 +1,4 @@
+use crate::execution::validate_runtime_assignment;
 use crate::{
     ConnectorEnd, ConnectorKind, DiagnosticSeverity, Element, ElementId, ElementKind,
     FlowDirection, Multiplicity, Project, RelationshipId, RelationshipKind, RuntimeInstance,
@@ -393,6 +394,31 @@ pub enum StructuralRuntimeError {
     )]
     RecursiveComposition { path: String },
     #[error(
+        "Runtime occurrence path '{path}' is defined more than once. Give configured/root occurrences unique names or remove the conflicting configuration."
+    )]
+    DuplicateRuntimePath { path: String },
+    #[error(
+        "Runtime identity collision at '{path}' ({runtime_id}). Runtime construction stopped rather than aliasing two engineering occurrences."
+    )]
+    RuntimeIdentityCollision {
+        path: String,
+        runtime_id: RuntimeInstanceId,
+    },
+    #[error(
+        "PartProperty {property} at {owner_path} has multiple equally scoped population decisions. Keep only one population decision for this occurrence."
+    )]
+    DuplicatePopulationDecision {
+        property: String,
+        owner_path: String,
+    },
+    #[error(
+        "ReferenceProperty {reference} at {owner_path} has multiple runtime binding decisions. Keep exactly one binding decision for this occurrence/reference pair."
+    )]
+    DuplicateReferenceBindingDecision {
+        reference: String,
+        owner_path: String,
+    },
+    #[error(
         "{classifier} inherits conflicting structural features named '{feature}'. The current metamodel has no explicit redefinition/subsetting link to disambiguate them."
     )]
     AmbiguousInheritedFeature { classifier: String, feature: String },
@@ -675,6 +701,16 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         let semantic_element_id = usage_id
             .or(authored_instance_specification_id)
             .unwrap_or(classifier_id);
+        if self
+            .runtime
+            .instances
+            .values()
+            .any(|instance| instance.qualified_path == qualified_path)
+        {
+            return Err(StructuralRuntimeError::DuplicateRuntimePath {
+                path: qualified_path.clone(),
+            });
+        }
         let id = deterministic_instance_id(
             self.project,
             semantic_element_id,
@@ -682,6 +718,12 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             &qualified_path,
             ordinal,
         );
+        if self.runtime.instances.contains_key(&id) {
+            return Err(StructuralRuntimeError::RuntimeIdentityCollision {
+                path: qualified_path.clone(),
+                runtime_id: id,
+            });
+        }
         let name = usage_id
             .and_then(|id| self.project.element(id).ok())
             .or_else(|| {
@@ -748,21 +790,32 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         part: &Element,
         multiplicity: Multiplicity,
     ) -> Result<u32, StructuralRuntimeError> {
-        let mut decisions: Vec<_> = self
+        let exact: Vec<_> = self
             .configuration
             .populations
             .iter()
             .filter(|decision| {
                 decision.part_property_id == part.id
-                    && decision
-                        .owner_runtime_path
-                        .as_deref()
-                        .is_none_or(|path| path == owner_path)
+                    && decision.owner_runtime_path.as_deref() == Some(owner_path)
             })
             .collect();
-        decisions.sort_by_key(|decision| decision.owner_runtime_path.is_none());
-        let count = decisions
+        let generic: Vec<_> = self
+            .configuration
+            .populations
+            .iter()
+            .filter(|decision| {
+                decision.part_property_id == part.id && decision.owner_runtime_path.is_none()
+            })
+            .collect();
+        if exact.len() > 1 || (exact.is_empty() && generic.len() > 1) {
+            return Err(StructuralRuntimeError::DuplicatePopulationDecision {
+                property: readable_element(self.project, part.id),
+                owner_path: owner_path.to_string(),
+            });
+        }
+        let count = exact
             .first()
+            .or_else(|| generic.first())
             .map(|decision| decision.count)
             .unwrap_or(multiplicity.lower);
         if count < multiplicity.lower || multiplicity.upper.is_some_and(|upper| count > upper) {
@@ -809,6 +862,12 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             }
             if let Some(authored) = property.default_value.as_deref() {
                 let value = parse_authored_runtime_default(authored);
+                validate_runtime_assignment(self.project, property, &value).map_err(|error| {
+                    StructuralRuntimeError::InvalidDefault {
+                        property: readable_element(self.project, property.id),
+                        details: error.to_string(),
+                    }
+                })?;
                 self.runtime.initial_values.insert(
                     RuntimeValueKey {
                         instance_id: Some(instance_id),
@@ -946,14 +1005,22 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             for reference in
                 self.effective_features(classifier_id, ElementKind::ReferenceProperty)?
             {
-                let decision = self
+                let decisions: Vec<_> = self
                     .configuration
                     .reference_bindings
                     .iter()
-                    .find(|decision| {
+                    .filter(|decision| {
                         decision.owner_runtime_path == owner.qualified_path
                             && decision.reference_property_id == reference.id
+                    })
+                    .collect();
+                if decisions.len() > 1 {
+                    return Err(StructuralRuntimeError::DuplicateReferenceBindingDecision {
+                        reference: readable_element(self.project, reference.id),
+                        owner_path: owner.qualified_path.clone(),
                     });
+                }
+                let decision = decisions.first().copied();
                 let mut target_ids = Vec::new();
                 if let Some(decision) = decision {
                     let mut target_paths = decision.target_runtime_paths.clone();
@@ -1300,7 +1367,11 @@ fn collect_general_classifiers(
     }
 }
 
-fn classifier_conforms(project: &Project, actual: ElementId, expected: ElementId) -> bool {
+pub(crate) fn classifier_conforms(
+    project: &Project,
+    actual: ElementId,
+    expected: ElementId,
+) -> bool {
     if actual == expected {
         return true;
     }
@@ -1398,10 +1469,10 @@ fn link_allows_item(
     link.item_flows.is_empty()
         || link.item_flows.iter().any(|flow| {
             flow.connector_source_to_target == connector_source_to_target
-                && flow.conveyed_item_ids.iter().any(|authored| {
-                    classifier_conforms(project, conveyed_id, *authored)
-                        || classifier_conforms(project, *authored, conveyed_id)
-                })
+                && flow
+                    .conveyed_item_ids
+                    .iter()
+                    .any(|authored| classifier_conforms(project, conveyed_id, *authored))
         })
 }
 
@@ -1424,10 +1495,7 @@ fn compatible_flow_contracts<'a>(
 ) -> Vec<&'a RuntimeFlowContract> {
     port.flow_contracts
         .iter()
-        .filter(|contract| {
-            classifier_conforms(project, conveyed_id, contract.type_id)
-                || classifier_conforms(project, contract.type_id, conveyed_id)
-        })
+        .filter(|contract| classifier_conforms(project, conveyed_id, contract.type_id))
         .collect()
 }
 
@@ -1549,10 +1617,9 @@ fn validate_reception(
         .collect();
     if receptions.is_empty()
         || receptions.iter().any(|reception| {
-            reception.type_id.is_some_and(|accepted| {
-                classifier_conforms(project, signal_id, accepted)
-                    || classifier_conforms(project, accepted, signal_id)
-            })
+            reception
+                .type_id
+                .is_some_and(|accepted| classifier_conforms(project, signal_id, accepted))
         })
     {
         Ok(())

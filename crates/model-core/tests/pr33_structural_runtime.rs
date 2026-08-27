@@ -834,3 +834,396 @@ fn repeated_classifier_state_machines_use_independent_instance_values_and_addres
         "Idle"
     );
 }
+
+#[test]
+fn pr33_instance_context_prefers_occurrence_value_over_legacy_global_fallback() {
+    let fixture = vehicle_fixture();
+    let mut session = ExecutionSession::with_configuration(
+        &fixture.project,
+        ExecutionConfiguration {
+            root_semantic_id: fixture.vehicle,
+            random_seed: 0,
+            max_steps: 100,
+            max_queued_events: 100,
+        },
+    )
+    .unwrap();
+    let mut structural = vehicle_configuration();
+    structural.reference_bindings[0].reference_property_id = fixture.sensor_reference;
+    session.set_structural_configuration(structural).unwrap();
+    session.initialize(&fixture.project).unwrap();
+    let left = session
+        .structural_runtime
+        .as_ref()
+        .unwrap()
+        .instance_by_path("vehicle.leftSensor")
+        .unwrap()
+        .id;
+    session
+        .set_value(
+            &fixture.project,
+            None,
+            fixture.sensor_reading,
+            RuntimeValue::Real(99.0),
+        )
+        .unwrap();
+    session
+        .set_value(
+            &fixture.project,
+            Some(left),
+            fixture.sensor_reading,
+            RuntimeValue::Real(12.5),
+        )
+        .unwrap();
+    assert_eq!(
+        session.value_in_instance_context(Some(left), fixture.sensor_reading),
+        Some(&RuntimeValue::Real(12.5))
+    );
+}
+
+#[test]
+fn duplicate_runtime_configuration_decisions_are_rejected_instead_of_first_match_wins() {
+    let mut project = Project::new("PR33 duplicate decisions");
+    let package = project
+        .create_element(ElementKind::Package, "Model", project.root_id)
+        .unwrap();
+    let component = project
+        .create_element(ElementKind::Block, "Component", package)
+        .unwrap();
+    let root = project
+        .create_element(ElementKind::Block, "Root", package)
+        .unwrap();
+    let parts = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "parts",
+            root,
+            component,
+            Multiplicity::new(0, Some(4)).unwrap(),
+        )
+        .unwrap();
+    let error = StructuralRuntime::build(
+        &project,
+        root,
+        &StructuralRuntimeConfiguration {
+            populations: vec![
+                RuntimePopulationDecision {
+                    owner_runtime_path: None,
+                    part_property_id: parts,
+                    count: 1,
+                },
+                RuntimePopulationDecision {
+                    owner_runtime_path: None,
+                    part_property_id: parts,
+                    count: 2,
+                },
+            ],
+            ..StructuralRuntimeConfiguration::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::DuplicatePopulationDecision { .. }
+    ));
+}
+
+#[test]
+fn duplicate_reference_bindings_and_runtime_paths_are_rejected() {
+    let fixture = vehicle_fixture();
+    let duplicate_binding = RuntimeReferenceBindingDecision {
+        owner_runtime_path: "vehicle.guidance".into(),
+        reference_property_id: fixture.sensor_reference,
+        target_runtime_paths: vec!["vehicle.leftSensor".into()],
+    };
+    let error = StructuralRuntime::build(
+        &fixture.project,
+        fixture.vehicle,
+        &StructuralRuntimeConfiguration {
+            root_instance_name: Some("vehicle".into()),
+            reference_bindings: vec![duplicate_binding.clone(), duplicate_binding],
+            ..StructuralRuntimeConfiguration::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::DuplicateReferenceBindingDecision { .. }
+    ));
+
+    let mut project = Project::new("Duplicate paths");
+    let package = project
+        .create_element(ElementKind::Package, "Model", project.root_id)
+        .unwrap();
+    let block = project
+        .create_element(ElementKind::Block, "Thing", package)
+        .unwrap();
+    let first = project
+        .create_element(ElementKind::InstanceSpecification, "same", package)
+        .unwrap();
+    project.set_element_type(first, block).unwrap();
+    let second = project
+        .create_element(ElementKind::InstanceSpecification, "same", package)
+        .unwrap();
+    project.set_element_type(second, block).unwrap();
+    let error = StructuralRuntime::build(
+        &project,
+        first,
+        &StructuralRuntimeConfiguration {
+            configured_instance_specification_ids: vec![second],
+            ..StructuralRuntimeConfiguration::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::DuplicateRuntimePath { .. }
+    ));
+}
+
+#[test]
+fn invalid_authored_default_blocks_structural_runtime_construction() {
+    let mut project = Project::new("Invalid default");
+    let package = project
+        .create_element(ElementKind::Package, "Model", project.root_id)
+        .unwrap();
+    let real = project
+        .create_element(ElementKind::PrimitiveType, "Real", package)
+        .unwrap();
+    let block = project
+        .create_element(ElementKind::Block, "Controller", package)
+        .unwrap();
+    let value = project
+        .create_typed_feature(
+            ElementKind::ValueProperty,
+            "gain",
+            block,
+            real,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    project.element_mut(value).unwrap().default_value = Some("not-a-number".into());
+    let error =
+        StructuralRuntime::build(&project, block, &StructuralRuntimeConfiguration::default())
+            .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::InvalidDefault { .. }
+    ));
+    assert!(error.to_string().contains("gain"));
+}
+
+#[test]
+fn flow_contract_type_compatibility_is_not_bidirectional() {
+    let mut project = Project::new("Transport conformance");
+    let package = project
+        .create_element(ElementKind::Package, "Model", project.root_id)
+        .unwrap();
+    let base_signal = project
+        .create_element(ElementKind::Signal, "BaseSignal", package)
+        .unwrap();
+    let specific_signal = project
+        .create_element(ElementKind::Signal, "SpecificSignal", package)
+        .unwrap();
+    project
+        .create_relationship(
+            RelationshipKind::Generalization,
+            specific_signal,
+            base_signal,
+            Some(package),
+        )
+        .unwrap();
+    let interface = project
+        .create_element(ElementKind::InterfaceBlock, "SpecificInterface", package)
+        .unwrap();
+    let flow = project
+        .create_typed_feature(
+            ElementKind::FlowProperty,
+            "specific",
+            interface,
+            specific_signal,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    project.element_mut(flow).unwrap().flow_direction = Some(FlowDirection::Out);
+    let source_type = project
+        .create_element(ElementKind::Block, "Source", package)
+        .unwrap();
+    let source_port = project
+        .create_typed_feature(
+            ElementKind::ProxyPort,
+            "out",
+            source_type,
+            interface,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let target_type = project
+        .create_element(ElementKind::Block, "Target", package)
+        .unwrap();
+    let target_port = project
+        .create_typed_feature(
+            ElementKind::ProxyPort,
+            "in",
+            target_type,
+            interface,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    project.element_mut(target_port).unwrap().is_conjugated = true;
+    let system = project
+        .create_element(ElementKind::Block, "System", package)
+        .unwrap();
+    let source_part = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "source",
+            system,
+            source_type,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let target_part = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "target",
+            system,
+            target_type,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let source_end = ConnectorEnd::nested_port(vec![source_part], source_port);
+    let target_end = ConnectorEnd::nested_port(vec![target_part], target_port);
+    let connector = project
+        .create_connector(Connector {
+            context_id: system,
+            kind: ConnectorKind::Assembly,
+            source: source_end.clone(),
+            target: target_end.clone(),
+        })
+        .unwrap();
+    project
+        .create_item_flow(ItemFlow {
+            connector_id: connector,
+            source: source_end,
+            target: target_end,
+            conveyed_item_ids: vec![base_signal],
+        })
+        .unwrap();
+    let error =
+        StructuralRuntime::build(&project, system, &StructuralRuntimeConfiguration::default())
+            .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::ItemFlowTypeMismatch { .. }
+    ));
+}
+
+#[test]
+fn reception_does_not_accept_a_more_general_signal_than_it_declares() {
+    let mut project = Project::new("Reception conformance");
+    let package = project
+        .create_element(ElementKind::Package, "Model", project.root_id)
+        .unwrap();
+    let base_signal = project
+        .create_element(ElementKind::Signal, "BaseSignal", package)
+        .unwrap();
+    let specific_signal = project
+        .create_element(ElementKind::Signal, "SpecificSignal", package)
+        .unwrap();
+    project
+        .create_relationship(
+            RelationshipKind::Generalization,
+            specific_signal,
+            base_signal,
+            Some(package),
+        )
+        .unwrap();
+    let interface = project
+        .create_element(ElementKind::InterfaceBlock, "UntypedContract", package)
+        .unwrap();
+    let source_type = project
+        .create_element(ElementKind::Block, "Source", package)
+        .unwrap();
+    let source_port = project
+        .create_typed_feature(
+            ElementKind::ProxyPort,
+            "out",
+            source_type,
+            interface,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let target_type = project
+        .create_element(ElementKind::Block, "Target", package)
+        .unwrap();
+    let target_port = project
+        .create_typed_feature(
+            ElementKind::ProxyPort,
+            "in",
+            target_type,
+            interface,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let reception = project
+        .create_element(ElementKind::Reception, "specificOnly", target_type)
+        .unwrap();
+    project
+        .set_element_type(reception, specific_signal)
+        .unwrap();
+    let system = project
+        .create_element(ElementKind::Block, "System", package)
+        .unwrap();
+    let source_part = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "source",
+            system,
+            source_type,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let target_part = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "target",
+            system,
+            target_type,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    project
+        .create_connector(Connector {
+            context_id: system,
+            kind: ConnectorKind::Assembly,
+            source: ConnectorEnd::nested_port(vec![source_part], source_port),
+            target: ConnectorEnd::nested_port(vec![target_part], target_port),
+        })
+        .unwrap();
+    let runtime =
+        StructuralRuntime::build(&project, system, &StructuralRuntimeConfiguration::default())
+            .unwrap();
+    let source = runtime.instance_by_path("System.source").unwrap();
+    let error = runtime
+        .signal_destinations(&project, source.id, source_port, base_signal)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::ReceptionMismatch { .. }
+    ));
+}
+
+#[test]
+fn structural_runtime_snapshot_is_json_safe_and_deterministic() {
+    let fixture = vehicle_fixture();
+    let first = build_vehicle(&fixture).snapshot();
+    let second = build_vehicle(&fixture).snapshot();
+    assert_eq!(first, second);
+    let encoded = serde_json::to_string(&first).unwrap();
+    let decoded: StructuralRuntimeSnapshot = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, first);
+}
+
+#[allow(dead_code)]
+fn pr33_semantic_hardening_tests_marker() {}
