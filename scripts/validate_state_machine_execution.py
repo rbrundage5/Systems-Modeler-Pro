@@ -67,6 +67,13 @@ for diagnostic in (
     if diagnostic not in core:
         raise SystemExit(f"State Machine qualified limitation/identity is missing: {diagnostic}")
 
+for token in (
+    "ElementKind::Signal",
+    "queued State Machine SignalEvent must reference a Signal",
+):
+    if token not in desktop:
+        raise SystemExit(f"State Machine SignalEvent Rust boundary validation is missing: {token}")
+
 commands = (
     "state_machine_execution_snapshot",
     "initialize_state_machine_execution",
