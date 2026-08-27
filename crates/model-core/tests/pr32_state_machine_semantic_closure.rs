@@ -379,6 +379,97 @@ fn same_priority_conflicting_transitions_fail_with_ambiguity_diagnostic() {
 }
 
 #[test]
+fn submachine_state_executes_child_machine_and_completes_back_into_parent() {
+    let (mut project, mut repository, parent_id, context) = fixture("ParentMachine");
+    let advance = project
+        .create_element(ElementKind::Signal, "AdvanceChild", project.root_id)
+        .unwrap();
+    let child_id = repository
+        .create_state_machine(&project, context, "ChildMachine")
+        .unwrap();
+
+    let child_initial = vertex(
+        "Child Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
+    let child_waiting = vertex("Child Waiting", VertexKind::State(State::default()));
+    let child_final = vertex("Child Final", VertexKind::FinalState);
+    let child = repository.state_machines.get_mut(&child_id).unwrap();
+    child.regions[0].vertices.extend([
+        child_initial.clone(),
+        child_waiting.clone(),
+        child_final.clone(),
+    ]);
+    child.regions[0].transitions.extend([
+        transition(&child_initial, &child_waiting),
+        signal_transition(
+            &child_waiting,
+            &child_final,
+            advance,
+            TransitionKind::External,
+        ),
+    ]);
+
+    let parent_initial = vertex(
+        "Parent Initial",
+        VertexKind::Pseudostate(PseudostateKind::Initial),
+    );
+    let submachine_state = vertex(
+        "Run Child",
+        VertexKind::State(State {
+            submachine: Some(child_id),
+            ..State::default()
+        }),
+    );
+    let parent_done = vertex("Parent Done", VertexKind::State(State::default()));
+    let parent = repository.state_machines.get_mut(&parent_id).unwrap();
+    parent.regions[0].vertices.extend([
+        parent_initial.clone(),
+        submachine_state.clone(),
+        parent_done.clone(),
+    ]);
+    parent.regions[0].transitions.extend([
+        transition(&parent_initial, &submachine_state),
+        transition(&submachine_state, &parent_done),
+    ]);
+
+    let mut engine = StateMachineExecutionEngine::new(repository, parent_id);
+    let mut execution = session(&project, context);
+    engine.initialize(&project, &mut execution).unwrap();
+    assert_eq!(active_names(&engine, &execution), ["Run Child"]);
+    assert_eq!(execution.state, ExecutionState::Initialized);
+
+    engine
+        .queue_signal(
+            &project,
+            &mut execution,
+            advance,
+            "AdvanceChild",
+            Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.advance(&project, &mut execution).unwrap(),
+        EngineStepOutcome::Progressed
+    );
+
+    assert_eq!(active_names(&engine, &execution), ["Parent Done"]);
+    assert_ne!(execution.state, ExecutionState::Completed);
+    assert!(
+        execution
+            .trace
+            .iter()
+            .any(|entry| entry.message.contains("entered Submachine State Machine 'ChildMachine'"))
+    );
+    assert!(
+        execution
+            .trace
+            .iter()
+            .any(|entry| entry.message == "Entered State 'Child Waiting'")
+    );
+}
+
+#[test]
 fn entry_point_execution_is_explicitly_rejected_until_connection_point_semantics_exist() {
     let (project, mut repository, machine_id, context) = fixture("EntryPointUnsupported");
     let initial = vertex("Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
