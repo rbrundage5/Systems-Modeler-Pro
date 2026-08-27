@@ -1295,13 +1295,15 @@ impl StateMachineExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<EngineStepOutcome, ExecutionError> {
         self.complete_if_root_final(session)?;
-        Ok(if self.embedded_completed
-            || (!self.embedded && matches!(session.state, crate::ExecutionState::Completed))
-        {
-            EngineStepOutcome::Completed
-        } else {
-            EngineStepOutcome::Progressed
-        })
+        Ok(
+            if self.embedded_completed
+                || (!self.embedded && matches!(session.state, crate::ExecutionState::Completed))
+            {
+                EngineStepOutcome::Completed
+            } else {
+                EngineStepOutcome::Progressed
+            },
+        )
     }
 }
 
@@ -1381,8 +1383,7 @@ impl ExecutionEngine for StateMachineExecutionEngine {
         let mut rtc_steps = 0;
         self.fire_transition_set(project, session, &selected, Some(event), &mut rtc_steps)?;
 
-        while !self.embedded_completed
-            && !matches!(session.state, crate::ExecutionState::Completed)
+        while !self.embedded_completed && !matches!(session.state, crate::ExecutionState::Completed)
         {
             let Some(automatic) = self.select_automatic_transition(project, session)? else {
                 break;
