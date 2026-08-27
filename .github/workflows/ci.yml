@@ -41,6 +41,7 @@ jobs:
             apps/desktop/frontend/behavior-sequence-input.js \
             apps/desktop/frontend/behavior-command-authority.js \
             apps/desktop/frontend/behavior-authoritative-renderer.js \
+            apps/desktop/frontend/behavior-runtime-hardening.js \
             apps/desktop/frontend/activity-ui.js \
             apps/desktop/frontend/activity-rich-ui.js \
             apps/desktop/frontend/activity-navigation-ui.js \
@@ -64,6 +65,8 @@ jobs:
         run: python scripts/validate_behavior_integration.py
       - name: Activity desktop integration contract
         run: python scripts/validate_activity_integration.py
+      - name: State Machine execution integration contract
+        run: python scripts/validate_state_machine_execution.py
       - name: Requirements desktop integration contract
         run: python scripts/validate_requirements_integration.py
       - name: Use Case desktop integration contract
@@ -104,6 +107,8 @@ jobs:
         run: python scripts/validate_behavior_integration.py
       - name: Activity desktop integration contract
         run: python scripts/validate_activity_integration.py
+      - name: State Machine execution integration contract
+        run: python scripts/validate_state_machine_execution.py
       - name: Requirements desktop integration contract
         run: python scripts/validate_requirements_integration.py
       - name: Use Case desktop integration contract
