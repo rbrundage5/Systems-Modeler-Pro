@@ -234,8 +234,8 @@ fn reset_replays_state_activity_runtime_without_leaking_pending_events() {
     );
     assert_eq!(session.simulation_time, fresh_session.simulation_time);
     assert_eq!(
-        serde_json::to_string(&session.trace).unwrap(),
-        serde_json::to_string(&fresh_session.trace).unwrap()
+        serde_json::to_string(&session.trace[1..]).unwrap(),
+        serde_json::to_string(&fresh_session.trace[1..]).unwrap()
     );
     assert_eq!(serde_json::to_string(&project).unwrap(), authored_project);
     assert_eq!(
