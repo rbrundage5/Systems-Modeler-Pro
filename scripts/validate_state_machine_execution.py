@@ -84,9 +84,10 @@ for token in (
     "must reference a modeled Activity by stable ID",
     "references missing Activity stable ID",
     "serde_json::to_string(&(project, repository, activities))",
+    ".with_activity_repository(activities)",
 ):
     if token not in desktop:
-        raise SystemExit(f"State Activity reference/fingerprint boundary is missing: {token}")
+        raise SystemExit(f"State Activity reference/runtime boundary is missing: {token}")
 
 for token in (
     "mod activity_bridge",
