@@ -100,8 +100,7 @@ fn repeated_classifier_activities_resolve_values_from_the_selected_runtime_occur
         root_instance_name: Some("vehicle".into()),
         ..StructuralRuntimeConfiguration::default()
     };
-    let structure =
-        StructuralRuntime::build(&project, vehicle, &structural_configuration).unwrap();
+    let structure = StructuralRuntime::build(&project, vehicle, &structural_configuration).unwrap();
     let left = structure
         .instance_by_path("vehicle.leftController")
         .unwrap()
@@ -173,22 +172,30 @@ fn repeated_classifier_activities_resolve_values_from_the_selected_runtime_occur
 
     assert_eq!(left_snapshot.runtime_instance_id, Some(left));
     assert_eq!(right_snapshot.runtime_instance_id, Some(right));
-    assert!(left_snapshot
-        .nodes
-        .iter()
-        .any(|node| node.name == "Fast path" && node.activation_count == 1));
-    assert!(left_snapshot
-        .nodes
-        .iter()
-        .any(|node| node.name == "Slow path" && node.activation_count == 0));
-    assert!(right_snapshot
-        .nodes
-        .iter()
-        .any(|node| node.name == "Slow path" && node.activation_count == 1));
-    assert!(right_snapshot
-        .nodes
-        .iter()
-        .any(|node| node.name == "Fast path" && node.activation_count == 0));
+    assert!(
+        left_snapshot
+            .nodes
+            .iter()
+            .any(|node| node.name == "Fast path" && node.activation_count == 1)
+    );
+    assert!(
+        left_snapshot
+            .nodes
+            .iter()
+            .any(|node| node.name == "Slow path" && node.activation_count == 0)
+    );
+    assert!(
+        right_snapshot
+            .nodes
+            .iter()
+            .any(|node| node.name == "Slow path" && node.activation_count == 1)
+    );
+    assert!(
+        right_snapshot
+            .nodes
+            .iter()
+            .any(|node| node.name == "Fast path" && node.activation_count == 0)
+    );
 
     assert_eq!(
         left_session.value(Some(left), speed),
