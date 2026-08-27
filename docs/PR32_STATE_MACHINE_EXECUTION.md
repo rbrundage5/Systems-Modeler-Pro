@@ -34,7 +34,8 @@ workspace surface.
 - External, local, and internal transition handling.
 - Active composite ancestry, nested regions, simultaneous orthogonal-region
   configuration, cross-hierarchy exits, and nested-target entry.
-- Initial, Choice, Junction, Fork, Join, Terminate, and FinalState execution.
+- Initial, Choice, Junction, Terminate, and FinalState execution, plus basic
+  Fork/Join traversal subject to the qualification gap below.
 - Executable Submachine States using the same ExecutionSession, event queue,
   SimulationTime, runtime values, and deterministic trace as the parent machine.
 - Shared SimulationTime scheduling for relative and absolute TimeEvents; no
@@ -53,6 +54,12 @@ workspace surface.
   State Machine execution engine does not yet invoke the PR31
   ActivityExecutionEngine for those references. Until that bridge is qualified,
   execution emits a diagnostic and never interprets arbitrary model text.
+- Fork/Join traversal is not yet qualified against a SysML/UML-valid concurrent
+  topology. The existing focused test forks two active States in one Region,
+  while concurrency in a State Machine must be represented through orthogonal
+  Regions. PR32 must replace that synthetic test with a valid orthogonal-region
+  fork/join case and ensure entry does not initialize a sibling Region's default
+  State before the fork's explicit target is entered.
 - EntryPoint and ExitPoint vertices are authorable, but the current metamodel
   does not identify a qualified connection-point owner and entry/exit mapping.
   Reaching either is therefore rejected with an engineer-readable diagnostic.
