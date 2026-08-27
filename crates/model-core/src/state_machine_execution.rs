@@ -59,6 +59,9 @@ pub struct StateMachineExecutionEngine {
     enabled_transition_ids: Vec<TransitionId>,
     last_transition_id: Option<TransitionId>,
     current_event: Option<RuntimeEvent>,
+    state_activation_generations: HashMap<VertexId, u64>,
+    next_state_activation_generation: u64,
+    change_event_values: HashMap<TransitionId, bool>,
 }
 
 impl StateMachineExecutionEngine {
@@ -74,6 +77,9 @@ impl StateMachineExecutionEngine {
             enabled_transition_ids: Vec::new(),
             last_transition_id: None,
             current_event: None,
+            state_activation_generations: HashMap::new(),
+            next_state_activation_generation: 0,
+            change_event_values: HashMap::new(),
         }
     }
 
@@ -139,6 +145,7 @@ impl StateMachineExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
         session.reset(project)?;
+        initialize_authored_defaults(project, session)?;
         self.clear_runtime();
         self.establish_initial_configuration(project, session)
     }
@@ -157,11 +164,15 @@ impl StateMachineExecutionEngine {
             return self.finish_step(session);
         }
         self.refresh_enabled_transitions(project, session, None)?;
-        let accepts_next = session
-            .next_event()
-            .is_some_and(|scheduled| self.trigger_candidates(&scheduled.event).next().is_some());
-        if !accepts_next {
+        let Some(position) = self.next_relevant_event_position(session) else {
             return Ok(EngineStepOutcome::Idle);
+        };
+        if position > 0 {
+            let selected = session
+                .event_queue
+                .remove(position)
+                .expect("an inspected State Machine event must remain queued");
+            session.event_queue.push_front(selected);
         }
         let event = session
             .step()?
@@ -210,6 +221,9 @@ impl StateMachineExecutionEngine {
         self.enabled_transition_ids.clear();
         self.last_transition_id = None;
         self.current_event = None;
+        self.state_activation_generations.clear();
+        self.next_state_activation_generation = 0;
+        self.change_event_values.clear();
     }
 
     fn establish_initial_configuration(
@@ -405,6 +419,7 @@ impl StateMachineExecutionEngine {
             );
             if let VertexKind::State(state) = &ancestor.vertex.kind {
                 self.report_untyped_state_behaviors(session, &ancestor.vertex, state);
+                self.activate_state_runtime(project, session, &ancestor.vertex)?;
                 let next_vertex_id = location
                     .ancestry
                     .get(position + 1)
@@ -432,7 +447,7 @@ impl StateMachineExecutionEngine {
                         format!("Entered State '{}'", location.vertex.name),
                     );
                     self.report_untyped_state_behaviors(session, &location.vertex, state);
-                    self.schedule_time_events(project, session, &location.vertex)?;
+                    self.activate_state_runtime(project, session, &location.vertex)?;
                     for region in sorted_regions(&state.regions) {
                         self.enter_region_initial(project, session, region.id, rtc_steps)?;
                     }
@@ -456,6 +471,20 @@ impl StateMachineExecutionEngine {
                 rtc_steps,
             ),
         }
+    }
+
+    fn activate_state_runtime(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+        vertex: &Vertex,
+    ) -> Result<(), ExecutionError> {
+        let generation = self.next_state_activation_generation;
+        self.next_state_activation_generation = self.next_state_activation_generation.saturating_add(1);
+        self.state_activation_generations
+            .insert(vertex.id, generation);
+        self.schedule_time_events(project, session, vertex, generation)?;
+        self.initialize_change_event_values(project, session, vertex)
     }
 
     fn report_untyped_state_behaviors(
@@ -487,6 +516,7 @@ impl StateMachineExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
         vertex: &Vertex,
+        generation: u64,
     ) -> Result<(), ExecutionError> {
         for location in self.transitions_from(vertex.id) {
             let Some(Trigger {
@@ -513,7 +543,7 @@ impl StateMachineExecutionEngine {
                 RuntimeEventRequest {
                     due_time,
                     kind: RuntimeEventKind::Time,
-                    name: time_event_name(location.transition.id),
+                    name: time_event_name(location.transition.id, generation),
                     semantic_event_id: None,
                     address: RuntimeEventAddress {
                         target_semantic_id: Some(self.machine()?.context_id),
@@ -526,23 +556,49 @@ impl StateMachineExecutionEngine {
         Ok(())
     }
 
+    fn initialize_change_event_values(
+        &mut self,
+        project: &Project,
+        session: &ExecutionSession,
+        vertex: &Vertex,
+    ) -> Result<(), ExecutionError> {
+        for location in self.transitions_from(vertex.id) {
+            let Some(Trigger {
+                event: Event::Change { expression },
+            }) = &location.transition.trigger
+            else {
+                continue;
+            };
+            let current = self.expression_is_true(project, session, expression, None)?;
+            self.change_event_values
+                .insert(location.transition.id, current);
+        }
+        Ok(())
+    }
+
     fn select_automatic_transition(
         &mut self,
         project: &Project,
         session: &ExecutionSession,
     ) -> Result<Option<TransitionLocation>, ExecutionError> {
         let mut candidates = Vec::new();
-        for state_id in &self.active_states {
-            for transition in self.transitions_from(*state_id) {
+        let active_state_ids: Vec<_> = self.active_states.iter().copied().collect();
+        for state_id in active_state_ids {
+            for transition in self.transitions_from(state_id) {
                 let eligible = match transition
                     .transition
                     .trigger
                     .as_ref()
                     .map(|trigger| &trigger.event)
                 {
-                    None => self.source_is_complete(*state_id),
+                    None => self.source_is_complete(state_id),
                     Some(Event::Change { expression }) => {
-                        self.expression_is_true(project, session, expression, None)?
+                        let current = self.expression_is_true(project, session, expression, None)?;
+                        let previous = self
+                            .change_event_values
+                            .insert(transition.transition.id, current)
+                            .unwrap_or(current);
+                        !previous && current
                     }
                     _ => false,
                 };
@@ -618,6 +674,15 @@ impl StateMachineExecutionEngine {
         Ok(())
     }
 
+    fn next_relevant_event_position(&self, session: &ExecutionSession) -> Option<usize> {
+        let context_id = self.machine().ok()?.context_id;
+        session.event_queue.iter().position(|scheduled| {
+            scheduled.event.target_semantic_id == Some(context_id)
+                || (scheduled.event.target_semantic_id.is_none()
+                    && self.trigger_candidates(&scheduled.event).next().is_some())
+        })
+    }
+
     fn trigger_candidates<'a>(
         &'a self,
         event: &'a RuntimeEvent,
@@ -627,10 +692,42 @@ impl StateMachineExecutionEngine {
             candidates.extend(
                 self.transitions_from(*state_id)
                     .into_iter()
-                    .filter(|location| trigger_matches(&location.transition, event)),
+                    .filter(|location| self.trigger_matches(&location.transition, event)),
             );
         }
         candidates.into_iter()
+    }
+
+    fn trigger_matches(&self, transition: &Transition, event: &RuntimeEvent) -> bool {
+        let Some(trigger) = &transition.trigger else {
+            return event.kind == RuntimeEventKind::Completion;
+        };
+        match &trigger.event {
+            Event::Signal { signal_id } => {
+                event.kind == RuntimeEventKind::Signal
+                    && event.semantic_event_id == Some(*signal_id)
+            }
+            Event::Call { operation_id } => {
+                event.kind == RuntimeEventKind::Call
+                    && event.semantic_event_id == Some(*operation_id)
+            }
+            Event::Time { .. } => {
+                let Some(generation) = self
+                    .state_activation_generations
+                    .get(&transition.source_id)
+                    .copied()
+                else {
+                    return false;
+                };
+                event.kind == RuntimeEventKind::Time
+                    && event.name == time_event_name(transition.id, generation)
+            }
+            Event::AnyReceive => !matches!(
+                event.kind,
+                RuntimeEventKind::Completion | RuntimeEventKind::Internal
+            ),
+            Event::Change { .. } => false,
+        }
     }
 
     fn sort_candidates(&self, candidates: &mut [TransitionLocation]) {
@@ -880,6 +977,16 @@ impl StateMachineExecutionEngine {
                     ),
                 );
             }
+            for outgoing in self.transitions_from(location.vertex.id) {
+                if matches!(
+                    outgoing.transition.trigger.as_ref().map(|trigger| &trigger.event),
+                    Some(Event::Change { .. })
+                ) {
+                    self.change_event_values.remove(&outgoing.transition.id);
+                }
+            }
+            self.state_activation_generations
+                .remove(&location.vertex.id);
             self.active_states.remove(&location.vertex.id);
             for region in state_regions(&location.vertex) {
                 self.active_regions.remove(&region.id);
@@ -1076,6 +1183,7 @@ impl ExecutionEngine for StateMachineExecutionEngine {
             ))
         })?;
         session.initialize(project)?;
+        initialize_authored_defaults(project, session)?;
         self.clear_runtime();
         self.establish_initial_configuration(project, session)
     }
@@ -1222,26 +1330,27 @@ fn outgoing_transitions(machine: Option<&StateMachine>, source_id: VertexId) -> 
         .collect()
 }
 
-fn trigger_matches(transition: &Transition, event: &RuntimeEvent) -> bool {
-    let Some(trigger) = &transition.trigger else {
-        return event.kind == RuntimeEventKind::Completion;
-    };
-    match &trigger.event {
-        Event::Signal { signal_id } => {
-            event.kind == RuntimeEventKind::Signal && event.semantic_event_id == Some(*signal_id)
-        }
-        Event::Call { operation_id } => {
-            event.kind == RuntimeEventKind::Call && event.semantic_event_id == Some(*operation_id)
-        }
-        Event::Time { .. } => {
-            event.kind == RuntimeEventKind::Time && event.name == time_event_name(transition.id)
-        }
-        Event::AnyReceive => !matches!(
-            event.kind,
-            RuntimeEventKind::Completion | RuntimeEventKind::Internal
-        ),
-        Event::Change { .. } => false,
+fn initialize_authored_defaults(
+    project: &Project,
+    session: &mut ExecutionSession,
+) -> Result<(), ExecutionError> {
+    let mut defaults: Vec<_> = project
+        .elements
+        .values()
+        .filter_map(|element| {
+            element
+                .default_value
+                .as_deref()
+                .map(|value| (element.id, value.to_owned()))
+        })
+        .collect();
+    defaults.sort_by_key(|(id, _)| id.to_string());
+    for (element_id, authored) in defaults {
+        let value = evaluate_execution_expression(&authored, |_| None)
+            .unwrap_or_else(|_| RuntimeValue::Text(authored));
+        session.set_value(project, None, element_id, value)?;
     }
+    Ok(())
 }
 
 fn parse_duration(expression: &str) -> Result<u64, ExecutionError> {
@@ -1270,8 +1379,8 @@ fn parse_duration(expression: &str) -> Result<u64, ExecutionError> {
     Ok(nanos.round() as u64)
 }
 
-fn time_event_name(transition_id: TransitionId) -> String {
-    format!("state-machine-time:{transition_id}")
+fn time_event_name(transition_id: TransitionId, generation: u64) -> String {
+    format!("state-machine-time:{transition_id}:{generation}")
 }
 
 fn state_regions(vertex: &Vertex) -> &[Region] {
