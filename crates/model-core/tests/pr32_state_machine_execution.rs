@@ -202,10 +202,7 @@ fn composite_and_orthogonal_regions_maintain_active_configuration() {
     let snapshot = engine.snapshot(&execution);
     let mut names = active_names(&snapshot);
     names.sort();
-    assert_eq!(
-        names,
-        ["Left Active", "Parent", "Right Active"]
-    );
+    assert_eq!(names, ["Left Active", "Parent", "Right Active"]);
     assert_eq!(snapshot.active_region_ids.len(), 3);
 }
 
