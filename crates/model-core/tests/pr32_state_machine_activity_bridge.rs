@@ -377,3 +377,55 @@ fn exiting_state_cancels_do_activity_time_event_from_shared_queue() {
             .any(|entry| { entry.message == "State 'Working' terminated doActivity on exit" })
     );
 }
+
+#[test]
+fn queued_state_transition_preempts_progressing_do_activity() {
+    let (mut project, behavior, context, mut behaviors, machine_id, mut activities) =
+        fixture("DoActivityPreemption");
+    let stop = project
+        .create_element(ElementKind::Signal, "Stop", behavior)
+        .unwrap();
+    let do_activity =
+        synchronous_activity(&project, &mut activities, behavior, context, "Background Work");
+
+    let initial = vertex("Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
+    let working = vertex(
+        "Working",
+        VertexKind::State(State {
+            do_activity: Some(do_activity.to_string()),
+            ..State::default()
+        }),
+    );
+    let stopped = vertex("Stopped", VertexKind::State(State::default()));
+    let machine = behaviors.state_machines.get_mut(&machine_id).unwrap();
+    machine.regions[0]
+        .vertices
+        .extend([initial.clone(), working.clone(), stopped.clone()]);
+    machine.regions[0].transitions.extend([
+        transition(&initial, &working),
+        signal_transition(&working, &stopped, stop),
+    ]);
+    activities.validate(&project).unwrap();
+    behaviors.validate(&project).unwrap();
+
+    let mut engine = StateMachineExecutionEngine::new(behaviors, machine_id)
+        .with_activity_repository(activities);
+    let mut session = execution_session(&project, context);
+    engine.initialize(&project, &mut session).unwrap();
+    assert_eq!(active_names(&engine, &session), ["Working"]);
+
+    engine
+        .queue_signal(&project, &mut session, stop, "Stop", Vec::new())
+        .unwrap();
+    assert_eq!(
+        engine.advance(&project, &mut session).unwrap(),
+        EngineStepOutcome::Progressed
+    );
+    assert_eq!(active_names(&engine, &session), ["Stopped"]);
+    assert!(
+        session
+            .trace
+            .iter()
+            .any(|entry| entry.message == "State 'Working' terminated doActivity on exit")
+    );
+}
