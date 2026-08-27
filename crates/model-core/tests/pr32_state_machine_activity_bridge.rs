@@ -347,12 +347,10 @@ fn exiting_state_cancels_do_activity_time_event_from_shared_queue() {
     let mut session = execution_session(&project, context);
     engine.initialize(&project, &mut session).unwrap();
 
-    for _ in 0..4 {
-        let outcome = engine.advance(&project, &mut session).unwrap();
-        if outcome == EngineStepOutcome::Idle {
-            break;
-        }
-    }
+    assert_eq!(
+        engine.advance(&project, &mut session).unwrap(),
+        EngineStepOutcome::Progressed
+    );
     assert!(engine.snapshot(&session).pending_event_count >= 1);
 
     engine
