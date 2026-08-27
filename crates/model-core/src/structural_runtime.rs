@@ -279,11 +279,12 @@ impl StructuralRuntime {
         source_port_id: ElementId,
         signal_id: ElementId,
     ) -> Result<Vec<RuntimeEndpoint>, StructuralRuntimeError> {
-        let signal = project.element(signal_id).map_err(|_| {
-            StructuralRuntimeError::InvalidSignal {
-                signal: readable_element(project, signal_id),
-            }
-        })?;
+        let signal =
+            project
+                .element(signal_id)
+                .map_err(|_| StructuralRuntimeError::InvalidSignal {
+                    signal: readable_element(project, signal_id),
+                })?;
         if signal.kind != ElementKind::Signal {
             return Err(StructuralRuntimeError::InvalidSignal {
                 signal: readable_element(project, signal_id),
@@ -293,25 +294,19 @@ impl StructuralRuntime {
             instance_id: source_instance_id,
             semantic_port_id: source_port_id,
         };
-        let source_port = self
-            .ports
-            .get(&key)
-            .ok_or_else(|| StructuralRuntimeError::RuntimePortNotFound {
-                path: self
-                    .instances
-                    .get(&source_instance_id)
-                    .map(|instance| instance.qualified_path.clone())
-                    .unwrap_or_else(|| source_instance_id.to_string()),
-                port: readable_element(project, source_port_id),
-            })?;
+        let source_port =
+            self.ports
+                .get(&key)
+                .ok_or_else(|| StructuralRuntimeError::RuntimePortNotFound {
+                    path: self
+                        .instances
+                        .get(&source_instance_id)
+                        .map(|instance| instance.qualified_path.clone())
+                        .unwrap_or_else(|| source_instance_id.to_string()),
+                    port: readable_element(project, source_port_id),
+                })?;
         let mut destinations = Vec::new();
-        for index in self
-            .outgoing_links
-            .get(&key)
-            .into_iter()
-            .flatten()
-            .copied()
-        {
+        for index in self.outgoing_links.get(&key).into_iter().flatten().copied() {
             let link = &self.connector_links[index];
             let (destination, forward) = if endpoint_key(&link.source) == Some(key) {
                 (&link.target, true)
@@ -323,12 +318,12 @@ impl StructuralRuntime {
             }
             validate_source_flow(project, source_port, signal_id)?;
             if let Some(port_id) = destination.semantic_port_id {
-                let target_port = self
-                    .port(destination.instance_id, port_id)
-                    .ok_or_else(|| StructuralRuntimeError::RuntimePortNotFound {
+                let target_port = self.port(destination.instance_id, port_id).ok_or_else(|| {
+                    StructuralRuntimeError::RuntimePortNotFound {
                         path: destination.qualified_path.clone(),
                         port: readable_element(project, port_id),
-                    })?;
+                    }
+                })?;
                 validate_target_flow(project, target_port, signal_id)?;
             }
             validate_reception(project, self, destination, signal_id)?;
@@ -336,13 +331,12 @@ impl StructuralRuntime {
         }
         destinations.sort_by(|left, right| left.qualified_path.cmp(&right.qualified_path));
         destinations.dedup_by(|left, right| {
-            left.instance_id == right.instance_id
-                && left.semantic_port_id == right.semantic_port_id
+            left.instance_id == right.instance_id && left.semantic_port_id == right.semantic_port_id
         });
         if destinations.is_empty() {
             return Err(StructuralRuntimeError::NoSignalRoute {
                 signal: signal.name.clone(),
-                source: source_port.qualified_path.clone(),
+                source_path: source_port.qualified_path.clone(),
             });
         }
         Ok(destinations)
@@ -356,7 +350,10 @@ impl StructuralRuntime {
             self.path_index
                 .insert(instance.qualified_path.clone(), instance.id);
             if let Some(usage_id) = instance.semantic_usage_id {
-                self.usage_index.entry(usage_id).or_default().push(instance.id);
+                self.usage_index
+                    .entry(usage_id)
+                    .or_default()
+                    .push(instance.id);
             }
             if let Some(classifier_id) = instance.classifier_id {
                 self.classifier_index
@@ -388,41 +385,59 @@ impl StructuralRuntime {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum StructuralRuntimeError {
-    #[error("Cannot construct structural runtime from {element}. Select a Block, PartProperty, or typed InstanceSpecification as the execution root.")]
+    #[error(
+        "Cannot construct structural runtime from {element}. Select a Block, PartProperty, or typed InstanceSpecification as the execution root."
+    )]
     InvalidRoot { element: String },
     #[error("{property} has no Block type. Assign a compatible Block classifier before execution.")]
     MissingPartType { property: String },
-    #[error("{property} population {count} violates authored multiplicity {multiplicity}. Choose a count inside the authored range.")]
+    #[error(
+        "{property} population {count} violates authored multiplicity {multiplicity}. Choose a count inside the authored range."
+    )]
     PopulationOutsideMultiplicity {
         property: String,
         count: u32,
         multiplicity: String,
     },
-    #[error("{path} -> recursive composite instantiation. Remove or replace a PartProperty in this ownership cycle.")]
+    #[error(
+        "{path} -> recursive composite instantiation. Remove or replace a PartProperty in this ownership cycle."
+    )]
     RecursiveComposition { path: String },
-    #[error("{classifier} inherits conflicting structural features named '{feature}'. The current metamodel has no explicit redefinition/subsetting link to disambiguate them.")]
+    #[error(
+        "{classifier} inherits conflicting structural features named '{feature}'. The current metamodel has no explicit redefinition/subsetting link to disambiguate them."
+    )]
     AmbiguousInheritedFeature { classifier: String, feature: String },
-    #[error("{port} is a ProxyPort typed by {found}. ProxyPorts require an InterfaceBlock type in the supported SysML profile. Select or create an InterfaceBlock describing the exposed contract.")]
+    #[error(
+        "{port} is a ProxyPort typed by {found}. ProxyPorts require an InterfaceBlock type in the supported SysML profile. Select or create an InterfaceBlock describing the exposed contract."
+    )]
     ProxyPortRequiresInterfaceBlock { port: String, found: String },
-    #[error("Required reference {reference} at {owner_path} is unresolved. Configure one or more existing compatible runtime target paths; ReferenceProperty does not create owned structure.")]
+    #[error(
+        "Required reference {reference} at {owner_path} is unresolved. Configure one or more existing compatible runtime target paths; ReferenceProperty does not create owned structure."
+    )]
     RequiredReferenceUnresolved {
         reference: String,
         owner_path: String,
     },
-    #[error("Reference {reference} at {owner_path} has {count} target(s), outside multiplicity {multiplicity}. Update the explicit reference binding.")]
+    #[error(
+        "Reference {reference} at {owner_path} has {count} target(s), outside multiplicity {multiplicity}. Update the explicit reference binding."
+    )]
     ReferenceMultiplicity {
         reference: String,
         owner_path: String,
         count: usize,
         multiplicity: String,
     },
-    #[error("Reference {reference} at {owner_path} targets unknown runtime path '{target_path}'. Bind it to an existing configured or composite occurrence.")]
+    #[error(
+        "Reference {reference} at {owner_path} targets unknown runtime path '{target_path}'. Bind it to an existing configured or composite occurrence."
+    )]
     ReferenceTargetNotFound {
         reference: String,
         owner_path: String,
         target_path: String,
     },
-    #[error("Reference {reference} at {owner_path} expects {expected}, but target {target_path} is {found}. Select a compatible runtime occurrence.")]
+    #[error(
+        "Reference {reference} at {owner_path} expects {expected}, but target {target_path} is {found}. Select a compatible runtime occurrence."
+    )]
     ReferenceTypeMismatch {
         reference: String,
         owner_path: String,
@@ -432,27 +447,43 @@ pub enum StructuralRuntimeError {
     },
     #[error("Connector {connector} endpoint path is invalid at runtime: {details}")]
     InvalidConnectorEndpoint { connector: String, details: String },
-    #[error("Connector {connector} has no runtime endpoints in context {context}. Check PartProperty population and ReferenceProperty bindings.")]
+    #[error(
+        "Connector {connector} has no runtime endpoints in context {context}. Check PartProperty population and ReferenceProperty bindings."
+    )]
     MissingConnectorEndpoint { connector: String, context: String },
-    #[error("{path} does not contain runtime port {port}. Check the semantic nested property path and port owner.")]
+    #[error(
+        "{path} does not contain runtime port {port}. Check the semantic nested property path and port owner."
+    )]
     RuntimePortNotFound { path: String, port: String },
-    #[error("ItemFlow {item_flow} conveys {conveyed}, but {port} has no compatible FlowProperty. Add a compatible typed FlowProperty or correct the conveyed item.")]
+    #[error(
+        "ItemFlow {item_flow} conveys {conveyed}, but {port} has no compatible FlowProperty. Add a compatible typed FlowProperty or correct the conveyed item."
+    )]
     ItemFlowTypeMismatch {
         item_flow: String,
         conveyed: String,
         port: String,
     },
-    #[error("{port} cannot supply {conveyed}; its compatible FlowProperty direction is not out/inout after conjugation.")]
+    #[error(
+        "{port} cannot supply {conveyed}; its compatible FlowProperty direction is not out/inout after conjugation."
+    )]
     SourceFlowDirection { port: String, conveyed: String },
-    #[error("{port} cannot receive {conveyed}; its compatible FlowProperty direction is not in/inout after conjugation.")]
+    #[error(
+        "{port} cannot receive {conveyed}; its compatible FlowProperty direction is not in/inout after conjugation."
+    )]
     TargetFlowDirection { port: String, conveyed: String },
     #[error("{signal} is not a modeled Signal and cannot be transported structurally.")]
     InvalidSignal { signal: String },
-    #[error("No compatible structural route carries Signal '{signal}' from {source}. Check Connector, ItemFlow, FlowProperty, and Reception semantics.")]
-    NoSignalRoute { signal: String, source: String },
-    #[error("{target} has modeled Receptions, but none accepts Signal {signal}. Add a compatible Reception or correct the route.")]
+    #[error(
+        "No compatible structural route carries Signal '{signal}' from {source_path}. Check Connector, ItemFlow, FlowProperty, and Reception semantics."
+    )]
+    NoSignalRoute { signal: String, source_path: String },
+    #[error(
+        "{target} has modeled Receptions, but none accepts Signal {signal}. Add a compatible Reception or correct the route."
+    )]
     ReceptionMismatch { target: String, signal: String },
-    #[error("Configured element {element} is not a typed InstanceSpecification. Select a modeled InstanceSpecification with a Block classifier.")]
+    #[error(
+        "Configured element {element} is not a typed InstanceSpecification. Select a modeled InstanceSpecification with a Block classifier."
+    )]
     InvalidConfiguredInstance { element: String },
     #[error("Authored default for {property} is incompatible: {details}")]
     InvalidDefault { property: String, details: String },
@@ -491,33 +522,37 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         }
     }
 
-    fn build(mut self, root_semantic_id: ElementId) -> Result<StructuralRuntime, StructuralRuntimeError> {
+    fn build(
+        mut self,
+        root_semantic_id: ElementId,
+    ) -> Result<StructuralRuntime, StructuralRuntimeError> {
         self.project
             .validate()
             .map_err(|error| StructuralRuntimeError::Model(error.to_string()))?;
-        let root = self
-            .project
-            .element(root_semantic_id)
-            .map_err(|_| StructuralRuntimeError::InvalidRoot {
+        let root = self.project.element(root_semantic_id).map_err(|_| {
+            StructuralRuntimeError::InvalidRoot {
                 element: readable_element(self.project, root_semantic_id),
-            })?;
+            }
+        })?;
         let (usage_id, classifier_id, authored_instance_id, default_name) = match root.kind {
             ElementKind::Block | ElementKind::AssociationBlock => {
                 (None, root.id, None, root.name.clone())
             }
             ElementKind::PartProperty => (
                 Some(root.id),
-                root.type_id.ok_or_else(|| StructuralRuntimeError::MissingPartType {
-                    property: readable_element(self.project, root.id),
-                })?,
+                root.type_id
+                    .ok_or_else(|| StructuralRuntimeError::MissingPartType {
+                        property: readable_element(self.project, root.id),
+                    })?,
                 None,
                 root.name.clone(),
             ),
             ElementKind::InstanceSpecification => (
                 None,
-                root.type_id.ok_or_else(|| StructuralRuntimeError::InvalidConfiguredInstance {
-                    element: readable_element(self.project, root.id),
-                })?,
+                root.type_id
+                    .ok_or_else(|| StructuralRuntimeError::InvalidConfiguredInstance {
+                        element: readable_element(self.project, root.id),
+                    })?,
                 Some(root.id),
                 root.name.clone(),
             ),
@@ -555,11 +590,12 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             if instance_specification_id == root_semantic_id {
                 continue;
             }
-            let element = self.project.element(instance_specification_id).map_err(|_| {
-                StructuralRuntimeError::InvalidConfiguredInstance {
+            let element = self
+                .project
+                .element(instance_specification_id)
+                .map_err(|_| StructuralRuntimeError::InvalidConfiguredInstance {
                     element: readable_element(self.project, instance_specification_id),
-                }
-            })?;
+                })?;
             if element.kind != ElementKind::InstanceSpecification {
                 return Err(StructuralRuntimeError::InvalidConfiguredInstance {
                     element: readable_element(self.project, element.id),
@@ -586,15 +622,19 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         self.resolve_references()?;
         self.build_connectors()?;
         self.runtime.rebuild_indices();
-        self.runtime.root_instance_ids.sort_by_key(|id| {
-            self.runtime.instances[id].qualified_path.clone()
-        });
+        self.runtime
+            .root_instance_ids
+            .sort_by_key(|id| self.runtime.instances[id].qualified_path.clone());
         self.runtime.connector_links.sort_by(|left, right| {
             left.source
                 .qualified_path
                 .cmp(&right.source.qualified_path)
                 .then_with(|| left.target.qualified_path.cmp(&right.target.qualified_path))
-                .then_with(|| left.semantic_connector_id.to_string().cmp(&right.semantic_connector_id.to_string()))
+                .then_with(|| {
+                    left.semantic_connector_id
+                        .to_string()
+                        .cmp(&right.semantic_connector_id.to_string())
+                })
         });
         self.runtime.rebuild_indices();
         Ok(self.runtime)
@@ -618,7 +658,10 @@ impl<'a> StructuralRuntimeBuilder<'a> {
                     .unwrap_or_else(|| readable_element(self.project, classifier_id)),
             }
         })?;
-        if !matches!(classifier.kind, ElementKind::Block | ElementKind::AssociationBlock) {
+        if !matches!(
+            classifier.kind,
+            ElementKind::Block | ElementKind::AssociationBlock
+        ) {
             return Err(StructuralRuntimeError::MissingPartType {
                 property: usage_id
                     .map(|id| readable_element(self.project, id))
@@ -628,14 +671,21 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         if classifier_stack.contains(&classifier_id) {
             let mut path = classifier_stack
                 .iter()
-                .map(|id| self.project.element(*id).map(|e| e.name.clone()).unwrap_or_else(|_| id.to_string()))
+                .map(|id| {
+                    self.project
+                        .element(*id)
+                        .map(|e| e.name.clone())
+                        .unwrap_or_else(|_| id.to_string())
+                })
                 .collect::<Vec<_>>();
             path.push(classifier.name.clone());
             return Err(StructuralRuntimeError::RecursiveComposition {
                 path: format!("{qualified_path} ({})", path.join(" -> ")),
             });
         }
-        let semantic_element_id = usage_id.or(authored_instance_specification_id).unwrap_or(classifier_id);
+        let semantic_element_id = usage_id
+            .or(authored_instance_specification_id)
+            .unwrap_or(classifier_id);
         let id = deterministic_instance_id(
             self.project,
             semantic_element_id,
@@ -645,7 +695,9 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         );
         let name = usage_id
             .and_then(|id| self.project.element(id).ok())
-            .or_else(|| authored_instance_specification_id.and_then(|id| self.project.element(id).ok()))
+            .or_else(|| {
+                authored_instance_specification_id.and_then(|id| self.project.element(id).ok())
+            })
             .unwrap_or(classifier)
             .name
             .clone();
@@ -670,9 +722,11 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         next_stack.push(classifier_id);
         let parts = self.effective_features(classifier_id, ElementKind::PartProperty)?;
         for part in parts {
-            let part_type = part.type_id.ok_or_else(|| StructuralRuntimeError::MissingPartType {
-                property: readable_element(self.project, part.id),
-            })?;
+            let part_type =
+                part.type_id
+                    .ok_or_else(|| StructuralRuntimeError::MissingPartType {
+                        property: readable_element(self.project, part.id),
+                    })?;
             let multiplicity = part.multiplicity.unwrap_or(Multiplicity::ONE);
             let count = self.population(&qualified_path, part, multiplicity)?;
             let mut child_ids = Vec::new();
@@ -718,7 +772,10 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             })
             .collect();
         decisions.sort_by_key(|decision| decision.owner_runtime_path.is_none());
-        let count = decisions.first().map(|decision| decision.count).unwrap_or(multiplicity.lower);
+        let count = decisions
+            .first()
+            .map(|decision| decision.count)
+            .unwrap_or(multiplicity.lower);
         if count < multiplicity.lower || multiplicity.upper.is_some_and(|upper| count > upper) {
             return Err(StructuralRuntimeError::PopulationOutsideMultiplicity {
                 property: readable_element(self.project, part.id),
@@ -817,9 +874,11 @@ impl<'a> StructuralRuntimeBuilder<'a> {
                 }
             }
             flow_contracts.sort_by(|left, right| {
-                left.name
-                    .cmp(&right.name)
-                    .then_with(|| left.flow_property_id.to_string().cmp(&right.flow_property_id.to_string()))
+                left.name.cmp(&right.name).then_with(|| {
+                    left.flow_property_id
+                        .to_string()
+                        .cmp(&right.flow_property_id.to_string())
+                })
             });
             let key = RuntimePortKey {
                 instance_id,
@@ -856,7 +915,12 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         kind: ElementKind,
     ) -> Result<Vec<&'a Element>, StructuralRuntimeError> {
         let mut classifiers = Vec::new();
-        collect_general_classifiers(self.project, classifier_id, &mut HashSet::new(), &mut classifiers);
+        collect_general_classifiers(
+            self.project,
+            classifier_id,
+            &mut HashSet::new(),
+            &mut classifiers,
+        );
         classifiers.push(classifier_id);
         let mut result = Vec::new();
         let mut names = HashMap::<String, ElementId>::new();
@@ -891,24 +955,33 @@ impl<'a> StructuralRuntimeBuilder<'a> {
         for owner_instance_id in instance_ids {
             let owner = self.runtime.instances[&owner_instance_id].clone();
             let classifier_id = owner.classifier_id.expect("structural instances are typed");
-            for reference in self.effective_features(classifier_id, ElementKind::ReferenceProperty)? {
-                let decision = self.configuration.reference_bindings.iter().find(|decision| {
-                    decision.owner_runtime_path == owner.qualified_path
-                        && decision.reference_property_id == reference.id
-                });
+            for reference in
+                self.effective_features(classifier_id, ElementKind::ReferenceProperty)?
+            {
+                let decision = self
+                    .configuration
+                    .reference_bindings
+                    .iter()
+                    .find(|decision| {
+                        decision.owner_runtime_path == owner.qualified_path
+                            && decision.reference_property_id == reference.id
+                    });
                 let mut target_ids = Vec::new();
                 if let Some(decision) = decision {
                     let mut target_paths = decision.target_runtime_paths.clone();
                     target_paths.sort();
                     target_paths.dedup();
                     for target_path in target_paths {
-                        let target_id = self.runtime.path_index.get(&target_path).copied().ok_or_else(|| {
-                            StructuralRuntimeError::ReferenceTargetNotFound {
+                        let target_id = self
+                            .runtime
+                            .path_index
+                            .get(&target_path)
+                            .copied()
+                            .ok_or_else(|| StructuralRuntimeError::ReferenceTargetNotFound {
                                 reference: readable_element(self.project, reference.id),
                                 owner_path: owner.qualified_path.clone(),
                                 target_path: target_path.clone(),
-                            }
-                        })?;
+                            })?;
                         let target_classifier = self.runtime.instances[&target_id]
                             .classifier_id
                             .expect("structural instances are typed");
@@ -960,7 +1033,11 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             self.runtime.instances[&left.owner_instance_id]
                 .qualified_path
                 .cmp(&self.runtime.instances[&right.owner_instance_id].qualified_path)
-                .then_with(|| left.reference_property_id.to_string().cmp(&right.reference_property_id.to_string()))
+                .then_with(|| {
+                    left.reference_property_id
+                        .to_string()
+                        .cmp(&right.reference_property_id.to_string())
+                })
         });
         Ok(())
     }
@@ -993,31 +1070,35 @@ impl<'a> StructuralRuntimeBuilder<'a> {
                 .collect();
             contexts.sort_by_key(|id| self.runtime.instances[id].qualified_path.clone());
             for context_id in contexts {
-                let sources = self.resolve_endpoint(context_id, &connector.source).map_err(|details| {
-                    StructuralRuntimeError::InvalidConnectorEndpoint {
+                let sources = self
+                    .resolve_endpoint(context_id, &connector.source)
+                    .map_err(|details| StructuralRuntimeError::InvalidConnectorEndpoint {
                         connector: relationship.name.clone(),
                         details,
-                    }
-                })?;
-                let targets = self.resolve_endpoint(context_id, &connector.target).map_err(|details| {
-                    StructuralRuntimeError::InvalidConnectorEndpoint {
+                    })?;
+                let targets = self
+                    .resolve_endpoint(context_id, &connector.target)
+                    .map_err(|details| StructuralRuntimeError::InvalidConnectorEndpoint {
                         connector: relationship.name.clone(),
                         details,
-                    }
-                })?;
+                    })?;
                 if sources.is_empty() || targets.is_empty() {
                     return Err(StructuralRuntimeError::MissingConnectorEndpoint {
                         connector: relationship.name.clone(),
                         context: self.runtime.instances[&context_id].qualified_path.clone(),
                     });
                 }
-                let item_flows = self.item_flows(relationship.id, &connector.source, &connector.target)?;
+                let item_flows =
+                    self.item_flows(relationship.id, &connector.source, &connector.target)?;
                 for source in &sources {
                     for target in &targets {
                         self.validate_item_flow_endpoints(&item_flows, source, target)?;
                         let seed = format!(
                             "{}:{}:{}:{}",
-                            relationship.id, context_id, source.qualified_path, target.qualified_path
+                            relationship.id,
+                            context_id,
+                            source.qualified_path,
+                            target.qualified_path
                         );
                         self.runtime.connector_links.push(RuntimeConnectorLink {
                             id: deterministic_uuid(self.project.id.0, seed.as_bytes()),
@@ -1063,7 +1144,10 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             .collect();
         relationships.sort_by_key(|relationship| relationship.id.to_string());
         for relationship in relationships {
-            let flow = relationship.item_flow.as_ref().expect("filtered item flows");
+            let flow = relationship
+                .item_flow
+                .as_ref()
+                .expect("filtered item flows");
             let connector_source_to_target = if flow.source == *connector_source
                 && flow.target == *connector_target
             {
@@ -1073,7 +1157,9 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             } else {
                 return Err(StructuralRuntimeError::InvalidConnectorEndpoint {
                     connector: relationship.name.clone(),
-                    details: "ItemFlow ends do not match either orientation of the realizing Connector".into(),
+                    details:
+                        "ItemFlow ends do not match either orientation of the realizing Connector"
+                            .into(),
                 });
             };
             flows.push(RuntimeItemFlow {
@@ -1099,21 +1185,23 @@ impl<'a> StructuralRuntimeBuilder<'a> {
             };
             for conveyed in &item_flow.conveyed_item_ids {
                 if let Some(port_id) = flow_source.semantic_port_id {
-                    let port = self.runtime.port(flow_source.instance_id, port_id).ok_or_else(|| {
-                        StructuralRuntimeError::RuntimePortNotFound {
+                    let port = self
+                        .runtime
+                        .port(flow_source.instance_id, port_id)
+                        .ok_or_else(|| StructuralRuntimeError::RuntimePortNotFound {
                             path: flow_source.qualified_path.clone(),
                             port: readable_element(self.project, port_id),
-                        }
-                    })?;
+                        })?;
                     validate_item_flow_contract(self.project, item_flow, port, *conveyed, true)?;
                 }
                 if let Some(port_id) = flow_target.semantic_port_id {
-                    let port = self.runtime.port(flow_target.instance_id, port_id).ok_or_else(|| {
-                        StructuralRuntimeError::RuntimePortNotFound {
+                    let port = self
+                        .runtime
+                        .port(flow_target.instance_id, port_id)
+                        .ok_or_else(|| StructuralRuntimeError::RuntimePortNotFound {
                             path: flow_target.qualified_path.clone(),
                             port: readable_element(self.project, port_id),
-                        }
-                    })?;
+                        })?;
                     validate_item_flow_contract(self.project, item_flow, port, *conveyed, false)?;
                 }
             }
@@ -1296,10 +1384,12 @@ fn readable_element_name(project: &Project, id: ElementId) -> String {
 }
 
 fn endpoint_key(endpoint: &RuntimeEndpoint) -> Option<RuntimePortKey> {
-    endpoint.semantic_port_id.map(|semantic_port_id| RuntimePortKey {
-        instance_id: endpoint.instance_id,
-        semantic_port_id,
-    })
+    endpoint
+        .semantic_port_id
+        .map(|semantic_port_id| RuntimePortKey {
+            instance_id: endpoint.instance_id,
+            semantic_port_id,
+        })
 }
 
 fn link_allows_item(
@@ -1311,13 +1401,10 @@ fn link_allows_item(
     link.item_flows.is_empty()
         || link.item_flows.iter().any(|flow| {
             flow.connector_source_to_target == connector_source_to_target
-                && flow
-                    .conveyed_item_ids
-                    .iter()
-                    .any(|authored| {
-                        classifier_conforms(project, conveyed_id, *authored)
-                            || classifier_conforms(project, *authored, conveyed_id)
-                    })
+                && flow.conveyed_item_ids.iter().any(|authored| {
+                    classifier_conforms(project, conveyed_id, *authored)
+                        || classifier_conforms(project, *authored, conveyed_id)
+                })
         })
 }
 
@@ -1446,14 +1533,21 @@ fn validate_reception(
         .classifier_id
         .expect("structural instances are typed");
     let mut classifiers = Vec::new();
-    collect_general_classifiers(project, classifier_id, &mut HashSet::new(), &mut classifiers);
+    collect_general_classifiers(
+        project,
+        classifier_id,
+        &mut HashSet::new(),
+        &mut classifiers,
+    );
     classifiers.push(classifier_id);
     let receptions: Vec<_> = project
         .elements
         .values()
         .filter(|element| {
             element.kind == ElementKind::Reception
-                && element.owner_id.is_some_and(|owner| classifiers.contains(&owner))
+                && element
+                    .owner_id
+                    .is_some_and(|owner| classifiers.contains(&owner))
         })
         .collect();
     if receptions.is_empty()

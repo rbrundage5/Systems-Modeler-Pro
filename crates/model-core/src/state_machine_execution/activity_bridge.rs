@@ -276,8 +276,7 @@ impl StateMachineExecutionEngine {
             .filter(|scheduled| {
                 scheduled.due_time <= session.simulation_time
                     && (scheduled.event.target_runtime_instance_id.is_none()
-                        || scheduled.event.target_runtime_instance_id
-                            == self.runtime_instance_id)
+                        || scheduled.event.target_runtime_instance_id == self.runtime_instance_id)
                     && (scheduled.event.target_semantic_id.is_none()
                         || scheduled.event.target_semantic_id == Some(context_id))
             })
@@ -323,10 +322,7 @@ impl StateMachineExecutionEngine {
                 continue;
             };
             if let Some(value) = session
-                .value_in_instance_context(
-                    self.runtime_instance_id,
-                    parameter_node.parameter_id,
-                )
+                .value_in_instance_context(self.runtime_instance_id, parameter_node.parameter_id)
                 .cloned()
             {
                 engine = engine.with_input(parameter_node.parameter_id, vec![value]);

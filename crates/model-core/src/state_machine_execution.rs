@@ -815,12 +815,9 @@ impl StateMachineExecutionEngine {
         let semantic_address = event.target_semantic_id.is_none()
             || event.target_semantic_id == Some(machine.context_id)
             || self.runtime_instance_id.is_some_and(|instance_id| {
-                session
-                    .instances
-                    .get(&instance_id)
-                    .is_some_and(|instance| {
-                        event.target_semantic_id == Some(instance.semantic_element_id)
-                    })
+                session.instances.get(&instance_id).is_some_and(|instance| {
+                    event.target_semantic_id == Some(instance.semantic_element_id)
+                })
             });
         let own_address = runtime_address && semantic_address;
         if own_address && self.trigger_candidates(event).next().is_some() {

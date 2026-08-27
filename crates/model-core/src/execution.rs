@@ -998,7 +998,9 @@ impl ExecutionSession {
             let target_instance = self
                 .instances
                 .get(&destination.instance_id)
-                .ok_or(ExecutionError::RuntimeInstanceNotFound(destination.instance_id))?
+                .ok_or(ExecutionError::RuntimeInstanceNotFound(
+                    destination.instance_id,
+                ))?
                 .clone();
             self.push_trace(
                 TraceKind::StateChange,
@@ -1141,9 +1143,8 @@ impl ExecutionSession {
         // A classifier-scoped value is retained as the compatibility fallback
         // for PR31/PR32 sessions. PR33 callers do not create that fallback and
         // therefore resolve the owning occurrence's independent value.
-        self.value(None, semantic_element_id).or_else(|| {
-            instance_id.and_then(|id| self.value(Some(id), semantic_element_id))
-        })
+        self.value(None, semantic_element_id)
+            .or_else(|| instance_id.and_then(|id| self.value(Some(id), semantic_element_id)))
     }
 
     fn insert_scheduled_event(&mut self, scheduled: ScheduledEvent) {
@@ -1205,7 +1206,9 @@ impl ExecutionSession {
     fn build_structural_runtime(&mut self, project: &Project) -> Result<(), ExecutionError> {
         let root = project
             .element(self.configuration.root_semantic_id)
-            .map_err(|_| ExecutionError::ExecutionRootNotFound(self.configuration.root_semantic_id))?;
+            .map_err(|_| {
+                ExecutionError::ExecutionRootNotFound(self.configuration.root_semantic_id)
+            })?;
         if !matches!(
             root.kind,
             ElementKind::Block
@@ -1262,16 +1265,12 @@ impl ExecutionSession {
             (_, None) => Ok(()),
             (None, Some(_)) => Err(ExecutionError::StructuralRuntimeUnavailable),
             (Some(instance_id), Some(port_id)) => {
-                if self
-                    .structural_runtime
-                    .as_ref()
-                    .is_some_and(|runtime| {
-                        runtime.ports.contains_key(&RuntimePortKey {
-                            instance_id,
-                            semantic_port_id: port_id,
-                        })
+                if self.structural_runtime.as_ref().is_some_and(|runtime| {
+                    runtime.ports.contains_key(&RuntimePortKey {
+                        instance_id,
+                        semantic_port_id: port_id,
                     })
-                {
+                }) {
                     Ok(())
                 } else {
                     Err(ExecutionError::RuntimePortAddressInvalid {

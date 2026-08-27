@@ -318,10 +318,12 @@ fn nested_parts_inheritance_values_and_reference_identity_are_qualified() {
     assert_eq!(controller.classifier_id, Some(fixture.controller));
     assert_eq!(controller.semantic_usage_id, Some(fixture.controller_part));
     assert_eq!(
-        runtime.initial_values.get(&systems_modeler_core::RuntimeValueKey {
-            instance_id: Some(controller.id),
-            semantic_element_id: fixture.controller_mode,
-        }),
+        runtime
+            .initial_values
+            .get(&systems_modeler_core::RuntimeValueKey {
+                instance_id: Some(controller.id),
+                semantic_element_id: fixture.controller_mode,
+            }),
         Some(&RuntimeValue::Text("Standby".into()))
     );
 
@@ -346,8 +348,14 @@ fn ports_nested_connectors_delegation_item_flow_and_signal_route_are_semantic() 
 
     let sensor_proxy = runtime.port(left.id, fixture.sensor_port).unwrap();
     let sensor_full = runtime.port(left.id, fixture.full_port).unwrap();
-    assert_eq!(sensor_proxy.kind, systems_modeler_core::RuntimePortKind::Proxy);
-    assert_eq!(sensor_full.kind, systems_modeler_core::RuntimePortKind::Full);
+    assert_eq!(
+        sensor_proxy.kind,
+        systems_modeler_core::RuntimePortKind::Proxy
+    );
+    assert_eq!(
+        sensor_full.kind,
+        systems_modeler_core::RuntimePortKind::Full
+    );
     assert_ne!(sensor_proxy.key, sensor_full.key);
 
     let nested = runtime
@@ -356,7 +364,10 @@ fn ports_nested_connectors_delegation_item_flow_and_signal_route_are_semantic() 
         .find(|link| link.source.qualified_path.contains("propulsion.controller"))
         .unwrap();
     assert!(nested.source.property_path.len() > 1);
-    assert_eq!(nested.source.semantic_port_id, Some(fixture.controller_port));
+    assert_eq!(
+        nested.source.semantic_port_id,
+        Some(fixture.controller_port)
+    );
     assert_eq!(nested.target.instance_id, guidance.id);
     assert!(runtime.connector_links.iter().any(|link| {
         link.kind == ConnectorKind::Delegation
@@ -373,7 +384,10 @@ fn ports_nested_connectors_delegation_item_flow_and_signal_route_are_semantic() 
         .unwrap();
     assert_eq!(destinations.len(), 1);
     assert_eq!(destinations[0].instance_id, guidance.id);
-    assert_eq!(destinations[0].semantic_port_id, Some(fixture.guidance_port));
+    assert_eq!(
+        destinations[0].semantic_port_id,
+        Some(fixture.guidance_port)
+    );
     assert!(runtime.connector_links.iter().any(|link| {
         link.semantic_connector_id == fixture.sensor_connector && !link.item_flows.is_empty()
     }));
@@ -389,7 +403,8 @@ fn execution_session_scopes_values_routes_events_and_resets_deterministically() 
         max_steps: 1000,
         max_queued_events: 100,
     };
-    let mut session = ExecutionSession::with_configuration(&fixture.project, configuration).unwrap();
+    let mut session =
+        ExecutionSession::with_configuration(&fixture.project, configuration).unwrap();
     let mut structural = vehicle_configuration();
     structural.reference_bindings[0].reference_property_id = fixture.sensor_reference;
     session.set_structural_configuration(structural).unwrap();
@@ -484,12 +499,9 @@ fn explicit_and_unbounded_population_never_invent_an_arbitrary_count() {
             Multiplicity::new(0, None).unwrap(),
         )
         .unwrap();
-    let default_runtime = StructuralRuntime::build(
-        &project,
-        system,
-        &StructuralRuntimeConfiguration::default(),
-    )
-    .unwrap();
+    let default_runtime =
+        StructuralRuntime::build(&project, system, &StructuralRuntimeConfiguration::default())
+            .unwrap();
     assert!(default_runtime.instances_for_usage(optional).is_empty());
 
     let configured = StructuralRuntime::build(
@@ -512,7 +524,11 @@ fn explicit_and_unbounded_population_never_invent_an_arbitrary_count() {
         .collect();
     assert_eq!(
         paths,
-        vec!["System.optional[0]", "System.optional[1]", "System.optional[2]"]
+        vec![
+            "System.optional[0]",
+            "System.optional[1]",
+            "System.optional[2]"
+        ]
     );
 }
 
@@ -522,33 +538,24 @@ fn recursive_composition_is_rejected_with_the_semantic_path() {
     let package = project
         .create_element(ElementKind::Package, "Model", project.root_id)
         .unwrap();
-    let a = project.create_element(ElementKind::Block, "A", package).unwrap();
-    let b = project.create_element(ElementKind::Block, "B", package).unwrap();
-    project
-        .create_typed_feature(
-            ElementKind::PartProperty,
-            "b",
-            a,
-            b,
-            Multiplicity::ONE,
-        )
+    let a = project
+        .create_element(ElementKind::Block, "A", package)
+        .unwrap();
+    let b = project
+        .create_element(ElementKind::Block, "B", package)
         .unwrap();
     project
-        .create_typed_feature(
-            ElementKind::PartProperty,
-            "a",
-            b,
-            a,
-            Multiplicity::ONE,
-        )
+        .create_typed_feature(ElementKind::PartProperty, "b", a, b, Multiplicity::ONE)
         .unwrap();
-    let error = StructuralRuntime::build(
-        &project,
-        a,
-        &StructuralRuntimeConfiguration::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(error, StructuralRuntimeError::RecursiveComposition { .. }));
+    project
+        .create_typed_feature(ElementKind::PartProperty, "a", b, a, Multiplicity::ONE)
+        .unwrap();
+    let error = StructuralRuntime::build(&project, a, &StructuralRuntimeConfiguration::default())
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        StructuralRuntimeError::RecursiveComposition { .. }
+    ));
     assert!(error.to_string().contains("A.b.a"));
 }
 
@@ -573,17 +580,18 @@ fn required_reference_and_invalid_proxy_port_fail_with_engineer_readable_remedie
             Multiplicity::ONE,
         )
         .unwrap();
-    let error = StructuralRuntime::build(
-        &project,
-        system,
-        &StructuralRuntimeConfiguration::default(),
-    )
-    .unwrap_err();
+    let error =
+        StructuralRuntime::build(&project, system, &StructuralRuntimeConfiguration::default())
+            .unwrap_err();
     assert!(matches!(
         error,
         StructuralRuntimeError::RequiredReferenceUnresolved { .. }
     ));
-    assert!(error.to_string().contains("does not create owned structure"));
+    assert!(
+        error
+            .to_string()
+            .contains("does not create owned structure")
+    );
 
     let mut project = Project::new("Invalid proxy");
     let package = project
@@ -604,26 +612,43 @@ fn required_reference_and_invalid_proxy_port_fail_with_engineer_readable_remedie
             Multiplicity::ONE,
         )
         .unwrap();
-    let error = StructuralRuntime::build(
-        &project,
-        system,
-        &StructuralRuntimeConfiguration::default(),
-    )
-    .unwrap_err();
+    let error =
+        StructuralRuntime::build(&project, system, &StructuralRuntimeConfiguration::default())
+            .unwrap_err();
     assert!(matches!(
         error,
         StructuralRuntimeError::ProxyPortRequiresInterfaceBlock { .. }
     ));
-    assert!(error.to_string().contains("Select or create an InterfaceBlock"));
+    assert!(
+        error
+            .to_string()
+            .contains("Select or create an InterfaceBlock")
+    );
 }
 
 #[test]
 fn fixture_keeps_expected_semantic_ids_reachable() {
     let fixture = vehicle_fixture();
-    assert_eq!(fixture.project.element(fixture.propulsion).unwrap().name, "Propulsion");
-    assert_eq!(fixture.project.element(fixture.guidance).unwrap().name, "GuidanceComputer");
-    assert_eq!(fixture.project.element(fixture.propulsion_part).unwrap().name, "propulsion");
-    assert_eq!(fixture.project.element(fixture.guidance_part).unwrap().name, "guidance");
+    assert_eq!(
+        fixture.project.element(fixture.propulsion).unwrap().name,
+        "Propulsion"
+    );
+    assert_eq!(
+        fixture.project.element(fixture.guidance).unwrap().name,
+        "GuidanceComputer"
+    );
+    assert_eq!(
+        fixture
+            .project
+            .element(fixture.propulsion_part)
+            .unwrap()
+            .name,
+        "propulsion"
+    );
+    assert_eq!(
+        fixture.project.element(fixture.guidance_part).unwrap().name,
+        "guidance"
+    );
 }
 
 fn state_vertex(name: &str, kind: VertexKind) -> Vertex {
@@ -697,8 +722,7 @@ fn repeated_classifier_state_machines_use_independent_instance_values_and_addres
         root_instance_name: Some("vehicle".into()),
         ..StructuralRuntimeConfiguration::default()
     };
-    let structure =
-        StructuralRuntime::build(&project, vehicle, &structural_configuration).unwrap();
+    let structure = StructuralRuntime::build(&project, vehicle, &structural_configuration).unwrap();
     let left = structure
         .instance_by_path("vehicle.leftController")
         .unwrap()
@@ -723,14 +747,12 @@ fn repeated_classifier_state_machines_use_independent_instance_values_and_addres
     });
     activate_transition.guard = Some("enabled > 0".into());
     let machine = repository.state_machines.get_mut(&machine_id).unwrap();
-    machine
-        .regions[0]
+    machine.regions[0]
         .vertices
         .extend([initial.clone(), idle.clone(), running.clone()]);
-    machine.regions[0].transitions.extend([
-        state_transition(&initial, &idle),
-        activate_transition,
-    ]);
+    machine.regions[0]
+        .transitions
+        .extend([state_transition(&initial, &idle), activate_transition]);
 
     let execution_configuration = ExecutionConfiguration {
         root_semantic_id: vehicle,
@@ -748,12 +770,14 @@ fn repeated_classifier_state_machines_use_independent_instance_values_and_addres
     right_session
         .set_structural_configuration(structural_configuration)
         .unwrap();
-    let mut left_engine =
-        StateMachineExecutionEngine::new(repository.clone(), machine_id).with_runtime_instance(left);
+    let mut left_engine = StateMachineExecutionEngine::new(repository.clone(), machine_id)
+        .with_runtime_instance(left);
     let mut right_engine =
         StateMachineExecutionEngine::new(repository, machine_id).with_runtime_instance(right);
     left_engine.initialize(&project, &mut left_session).unwrap();
-    right_engine.initialize(&project, &mut right_session).unwrap();
+    right_engine
+        .initialize(&project, &mut right_session)
+        .unwrap();
 
     left_session
         .set_value(&project, Some(left), enabled, RuntimeValue::Real(1.0))
@@ -763,7 +787,13 @@ fn repeated_classifier_state_machines_use_independent_instance_values_and_addres
         Some(&RuntimeValue::Real(0.0))
     );
     left_engine
-        .queue_signal(&project, &mut left_session, activate, "Activate", Vec::new())
+        .queue_signal(
+            &project,
+            &mut left_session,
+            activate,
+            "Activate",
+            Vec::new(),
+        )
         .unwrap();
     assert_eq!(
         left_engine.advance(&project, &mut left_session).unwrap(),
