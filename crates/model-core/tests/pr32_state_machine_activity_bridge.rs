@@ -385,8 +385,13 @@ fn queued_state_transition_preempts_progressing_do_activity() {
     let stop = project
         .create_element(ElementKind::Signal, "Stop", behavior)
         .unwrap();
-    let do_activity =
-        synchronous_activity(&project, &mut activities, behavior, context, "Background Work");
+    let do_activity = synchronous_activity(
+        &project,
+        &mut activities,
+        behavior,
+        context,
+        "Background Work",
+    );
 
     let initial = vertex("Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
     let working = vertex(
