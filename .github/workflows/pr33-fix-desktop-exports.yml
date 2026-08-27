@@ -1,0 +1,45 @@
+name: PR33 desktop export repair
+
+on:
+  push:
+    branches:
+      - agent/pr33-structural-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr33-structural-runtime
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - name: Apply PR33 desktop export repair
+        shell: pwsh
+        run: python .github/scripts/pr33_fix_desktop_exports.py
+      - name: Format and qualify desktop repair
+        shell: pwsh
+        run: |
+          cargo fmt --all
+          cargo check -p systems-modeler-desktop
+          cargo test -p systems-modeler-desktop
+          cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+          python scripts/validate_structural_runtime_integration.py
+          python scripts/validate_activity_integration.py
+          python scripts/validate_state_machine_execution.py
+          python scripts/validate_standard_editing_integration.py
+          python scripts/validate_rust_authority.py
+      - name: Publish code repair when needed
+        shell: pwsh
+        run: |
+          git add apps/desktop/src-tauri/src/main.rs apps/desktop/src-tauri/src/workspace/activity_execution.rs apps/desktop/src-tauri/src/workspace/state_machine_execution.rs
+          if (git diff --cached --quiet) { exit 0 }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'PR33: export structural runtime desktop commands'
+          git push origin HEAD:agent/pr33-structural-runtime
