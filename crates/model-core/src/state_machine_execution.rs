@@ -1353,7 +1353,7 @@ fn initialize_authored_defaults(
     defaults.sort_by_key(|(id, _)| id.to_string());
     for (element_id, authored) in defaults {
         let value = evaluate_execution_expression(&authored, |_| None)
-            .unwrap_or_else(|_| RuntimeValue::Text(authored));
+            .unwrap_or(RuntimeValue::Text(authored));
         session.set_value(project, None, element_id, value)?;
     }
     Ok(())
