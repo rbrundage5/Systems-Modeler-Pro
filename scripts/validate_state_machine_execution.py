@@ -74,6 +74,17 @@ for token in (
     if token not in desktop:
         raise SystemExit(f"State Machine SignalEvent Rust boundary validation is missing: {token}")
 
+for token in (
+    "ActivityWorkspaceState",
+    "ActivityRepository",
+    "validate_machine_activity_references",
+    "must reference a modeled Activity by stable ID",
+    "references missing Activity stable ID",
+    "serde_json::to_string(&(project, repository, activities))",
+):
+    if token not in desktop:
+        raise SystemExit(f"State Activity reference/fingerprint boundary is missing: {token}")
+
 commands = (
     "state_machine_execution_snapshot",
     "initialize_state_machine_execution",
@@ -169,7 +180,7 @@ if "PR32 does not yet execute State Activity references" not in core:
 
 print(
     "PR32 State Machine execution integration contract passed: Rust owns deterministic runtime "
-    "semantics, shared time/events/expressions are reused, qualified unsupported semantics remain "
-    "explicit, runtime UI is presentation-only, and the PR31 all-nine-family authoring contract "
-    "remains present"
+    "semantics, stable Activity/Signal references are checked at the Rust boundary, shared "
+    "time/events/expressions are reused, qualified unsupported semantics remain explicit, runtime "
+    "UI is presentation-only, and the PR31 all-nine-family authoring contract remains present"
 )
