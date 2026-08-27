@@ -124,7 +124,9 @@ impl StateMachineExecutionEngine {
                     .state_activity_runtime
                     .do_activities
                     .get_mut(&state_id)
-                    .ok_or_else(|| engine_error("active State doActivity lost its runtime engine"))?;
+                    .ok_or_else(|| {
+                        engine_error("active State doActivity lost its runtime engine")
+                    })?;
                 step_embedded_activity(
                     engine,
                     project,
@@ -307,11 +309,8 @@ impl StateMachineExecutionEngine {
                 context_id,
                 &format!("State '{}' {role} Activity '{activity_name}'", vertex.name),
             )?;
-            scheduled_time_events.extend(
-                time_event_sequences(session)
-                    .difference(&before)
-                    .copied(),
-            );
+            scheduled_time_events
+                .extend(time_event_sequences(session).difference(&before).copied());
             match outcome {
                 EngineStepOutcome::Progressed => continue,
                 EngineStepOutcome::Completed => {
@@ -351,12 +350,14 @@ impl StateMachineExecutionEngine {
         role: &str,
         reference: &str,
     ) -> Result<ActivityId, ExecutionError> {
-        let id = uuid::Uuid::parse_str(reference).map(ActivityId).map_err(|_| {
-            engine_error(format!(
-                "State '{}' {role} must reference a modeled Activity by stable ID",
-                vertex.name
-            ))
-        })?;
+        let id = uuid::Uuid::parse_str(reference)
+            .map(ActivityId)
+            .map_err(|_| {
+                engine_error(format!(
+                    "State '{}' {role} must reference a modeled Activity by stable ID",
+                    vertex.name
+                ))
+            })?;
         if !self
             .state_activity_runtime
             .repository
@@ -461,7 +462,11 @@ impl StateMachineExecutionEngine {
             let Some(activity) = repository.activities.get(&snapshot.activity_id) else {
                 return false;
             };
-            let Some(node) = activity.nodes.iter().find(|node| node.id == snapshot.node_id) else {
+            let Some(node) = activity
+                .nodes
+                .iter()
+                .find(|node| node.id == snapshot.node_id)
+            else {
                 return false;
             };
             let ActivityNodeKind::Action(action) = &node.kind else {
