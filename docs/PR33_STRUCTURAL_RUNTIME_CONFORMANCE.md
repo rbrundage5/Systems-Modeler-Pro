@@ -8,7 +8,7 @@ PR33 qualifies a deterministic SysML structural runtime against the repository's
 | PartProperty | QUALIFIED | Composite Parts recursively materialize owned runtime occurrences with deterministic owner/path/ordinal identity and cycle detection. | Dynamic population changes during execution are not introduced in PR33. |
 | ReferenceProperty | QUALIFIED | References are non-owning and resolve only through explicit runtime binding decisions; they never create owned structure. | The authored metamodel does not yet persist a complete configuration/reference-binding model. |
 | Multiplicity | QUALIFIED | Runtime population is checked against authored lower/upper bounds; unbounded upper multiplicity is not arbitrarily materialized without an explicit population decision. | Runtime creation/destruction after initialization is deferred. |
-| ValueProperty | QUALIFIED | Authored defaults initialize independently per runtime occurrence and are addressed by runtime instance plus semantic property. | Full unit conversion / dimensional analysis belongs to Parametric work. |
+| ValueProperty | QUALIFIED | Authored defaults initialize independently per runtime occurrence and are addressed by runtime instance plus semantic property. Numeric/boolean defaults use the shared bounded expression parser; serialized quoted text defaults are normalized to their semantic text value instead of retaining JSON quoting. | Full unit conversion / dimensional analysis belongs to Parametric work. |
 | ValueType | PARTIAL | Runtime value metadata retains represented type/unit identity and assignment/flow checks use represented semantic types. | The current runtime is not a complete quantity calculus or ValueType conversion engine. |
 | Generalization / inherited features | PARTIAL | Effective inherited structural features are collected deterministically and ambiguous same-name inherited definitions are rejected. | The current metamodel lacks explicit redefinition/subsetting links needed to qualify full UML/SysML feature-redefinition semantics. |
 | InstanceSpecification | PARTIAL | A typed authored InstanceSpecification can be used as a configured/root runtime occurrence where current fields are sufficient. | Complete Slot/defining-feature/value override semantics are not represented by the current metamodel. |
@@ -35,7 +35,7 @@ PR33 qualifies a deterministic SysML structural runtime against the repository's
 
 ## Automated qualification evidence
 
-The primary PR33 semantic fixture is `crates/model-core/tests/pr33_structural_runtime.rs`. PR33 remains gated by the existing PR31 Activity and PR32 State Machine suites plus the shared all-nine-family authoring, routing/frame, repository editing, workspace convergence, and Rust-authority/frontend-debt checks. Exact-head Linux/core and Windows/desktop CI must both pass before the matrix is accepted as qualified evidence.
+The primary PR33 semantic fixture is `crates/model-core/tests/pr33_structural_runtime.rs`. It includes authored-default normalization, deterministic instance/value construction, structural routing, and negative validation cases. PR33 remains gated by the existing PR31 Activity and PR32 State Machine suites plus the shared all-nine-family authoring, routing/frame, repository editing, workspace convergence, and Rust-authority/frontend-debt checks. Exact-head Linux/core and Windows/desktop CI must both pass before the matrix is accepted as qualified evidence.
 
 ## Professional qualification rule
 
