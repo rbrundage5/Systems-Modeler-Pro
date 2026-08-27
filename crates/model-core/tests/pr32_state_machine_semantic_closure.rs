@@ -455,12 +455,11 @@ fn submachine_state_executes_child_machine_and_completes_back_into_parent() {
 
     assert_eq!(active_names(&engine, &execution), ["Parent Done"]);
     assert_ne!(execution.state, ExecutionState::Completed);
-    assert!(
-        execution
-            .trace
-            .iter()
-            .any(|entry| entry.message.contains("entered Submachine State Machine 'ChildMachine'"))
-    );
+    assert!(execution.trace.iter().any(|entry| {
+        entry
+            .message
+            .contains("entered Submachine State Machine 'ChildMachine'")
+    }));
     assert!(
         execution
             .trace
