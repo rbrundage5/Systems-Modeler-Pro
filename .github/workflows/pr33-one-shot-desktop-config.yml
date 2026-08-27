@@ -39,6 +39,7 @@ jobs:
           python scripts/validate_rust_authority.py
       - name: Remove migration helpers and publish integration
         run: |
+          git checkout -- .github/workflows/ci.yml
           rm .github/workflows/pr33-one-shot-desktop-config.yml
           rm .github/scripts/pr33_desktop_runtime_config.py
           git config user.name 'github-actions[bot]'
