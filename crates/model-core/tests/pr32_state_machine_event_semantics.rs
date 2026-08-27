@@ -224,12 +224,14 @@ fn stale_time_event_cannot_fire_after_exit_and_reentry() {
         .unwrap();
     engine.advance(&project, &mut session).unwrap();
     assert_eq!(active_names(&engine, &session), ["Away"]);
+    assert_eq!(engine.snapshot(&session).pending_event_count, 0);
 
     engine
         .queue_signal(&project, &mut session, reenter, "Reenter", Vec::new())
         .unwrap();
     engine.advance(&project, &mut session).unwrap();
     assert_eq!(active_names(&engine, &session), ["Waiting"]);
+    assert_eq!(engine.snapshot(&session).pending_event_count, 1);
 
     assert_eq!(
         engine.advance(&project, &mut session).unwrap(),
@@ -240,7 +242,7 @@ fn stale_time_event_cannot_fire_after_exit_and_reentry() {
         session.simulation_time,
         SimulationTime::from_nanos(5_000_000_000)
     );
-    assert_eq!(engine.snapshot(&session).pending_event_count, 1);
+    assert_eq!(engine.snapshot(&session).pending_event_count, 0);
 
     assert_eq!(
         engine.advance(&project, &mut session).unwrap(),
