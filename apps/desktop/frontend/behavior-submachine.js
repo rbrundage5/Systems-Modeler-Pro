@@ -90,7 +90,7 @@
 
   function appendExecutableStateBehaviorProperties(panel, diagram, vertex) {
     const stateSemantic = vertex?.kind?.State;
-    if (!stateSemantic || !panel) return;
+    if (!stateSemantic || !panel || panel.querySelector('.state-executable-behavior-editor')) return;
     const section = document.createElement('div');
     section.className = 'state-executable-behavior-editor';
     section.innerHTML = `<div class="property-heading">Executable State Behaviors</div>
@@ -129,16 +129,6 @@
     return result;
   };
 
-  const baseRenderProperties = renderProperties;
-  renderProperties = function renderPropertiesWithExecutableStateBehaviors() {
-    const result = baseRenderProperties();
-    const diagram = activeStateMachineDiagram();
-    const item = state.selectedBehaviorItem;
-    if (!diagram || item?.type !== 'Vertex' || item.semantic?.kind?.State == null) return result;
-    appendExecutableStateBehaviorProperties(document.getElementById('properties'), diagram, item.semantic);
-    return result;
-  };
-
   // Wrap the final render lifecycle, not renderCanvas. The authoritative behavior
   // renderer owns canvas construction and this adapter only decorates/forwards input.
   const baseRender = render;
@@ -147,6 +137,14 @@
     const diagram = activeStateMachineDiagram();
     if (!diagram) return result;
     decorateSubmachineStates(diagram);
+    const item = state.selectedBehaviorItem;
+    if (item?.type === 'Vertex' && item.semantic?.kind?.State != null) {
+      appendExecutableStateBehaviorProperties(
+        document.getElementById('properties'),
+        diagram,
+        item.semantic,
+      );
+    }
     const frame = document.querySelector('.state-machine-frame');
     if (!frame) return result;
     frame.addEventListener('click', async (event) => {
