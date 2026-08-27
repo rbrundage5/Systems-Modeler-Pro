@@ -17,6 +17,7 @@ event_tests = read("crates/model-core/tests/pr32_state_machine_event_semantics.r
 closure_tests = read("crates/model-core/tests/pr32_state_machine_semantic_closure.rs")
 fork_join_tests = read("crates/model-core/tests/pr32_state_machine_fork_join.rs")
 activity_bridge_tests = read("crates/model-core/tests/pr32_state_machine_activity_bridge.rs")
+activity_reset_tests = read("crates/model-core/tests/pr32_state_machine_activity_reset.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/state_machine_execution.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
 ui_file = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
@@ -119,9 +120,17 @@ for scenario in (
     "entry_and_exit_activities_execute_in_parent_session_without_completing_it",
     "do_activity_waits_for_shared_signal_then_allows_completion_transition",
     "exiting_state_cancels_do_activity_time_event_from_shared_queue",
+    "queued_state_transition_preempts_progressing_do_activity",
 ):
     if scenario not in activity_bridge_tests:
         raise SystemExit(f"State Activity execution qualification scenario is missing: {scenario}")
+
+for scenario in (
+    "reset_replays_state_activity_runtime_without_leaking_pending_events",
+    "state_activity_execution_is_repeatable_for_identical_inputs",
+):
+    if scenario not in activity_reset_tests:
+        raise SystemExit(f"State Activity reset/repeatability scenario is missing: {scenario}")
 
 commands = (
     "state_machine_execution_snapshot",
@@ -237,7 +246,9 @@ print(
     "PR32 State Machine execution integration contract passed: Rust owns deterministic runtime "
     "semantics, Fork/Join is qualified across orthogonal Regions without implicit sibling-default "
     "entry, State entry/doActivity/exit reuse the PR31 Activity engine and shared ExecutionSession, "
-    "stable Activity/Signal references are checked at the Rust boundary, shared time/events/values/"
-    "trace/expressions are reused, qualified unsupported semantics remain explicit, runtime UI is "
-    "presentation-only, and the PR31 all-nine-family authoring contract remains present"
+    "queued State Machine transitions preempt progressing doActivities, State Activity reset and "
+    "repeatability are qualified, stable Activity/Signal references are checked at the Rust boundary, "
+    "shared time/events/values/trace/expressions are reused, qualified unsupported semantics remain "
+    "explicit, runtime UI is presentation-only, and the PR31 all-nine-family authoring contract "
+    "remains present"
 )
