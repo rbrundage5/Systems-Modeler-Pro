@@ -27,24 +27,13 @@ jobs:
           from pathlib import Path
           path = Path('crates/model-core/src/structural_runtime.rs')
           text = path.read_text()
-          old = '''                let value = evaluate_execution_expression(authored, |_| None)
-                    .unwrap_or_else(|_| RuntimeValue::Text(authored.to_string()));'''
-          new = '''                let value = parse_authored_runtime_default(authored);'''
+          old = "                let value = evaluate_execution_expression(authored, |_| None)\n                    .unwrap_or_else(|_| RuntimeValue::Text(authored.to_string()));"
+          new = "                let value = parse_authored_runtime_default(authored);"
           if text.count(old) != 1:
               raise SystemExit(f'expected one authored-default parser occurrence, found {text.count(old)}')
           text = text.replace(old, new, 1)
-          anchor = '''fn endpoint_key(endpoint: &RuntimeEndpoint) -> Option<RuntimePortKey> {'''
-          helper = '''fn parse_authored_runtime_default(authored: &str) -> RuntimeValue {
-    if let Ok(value) = evaluate_execution_expression(authored, |_| None) {
-        return value;
-    }
-    if let Ok(text) = serde_json::from_str::<String>(authored) {
-        return RuntimeValue::Text(text);
-    }
-    RuntimeValue::Text(authored.to_string())
-}
-
-'''
+          anchor = "fn endpoint_key(endpoint: &RuntimeEndpoint) -> Option<RuntimePortKey> {"
+          helper = "fn parse_authored_runtime_default(authored: &str) -> RuntimeValue {\n    if let Ok(value) = evaluate_execution_expression(authored, |_| None) {\n        return value;\n    }\n    if let Ok(text) = serde_json::from_str::<String>(authored) {\n        return RuntimeValue::Text(text);\n    }\n    RuntimeValue::Text(authored.to_string())\n}\n\n"
           if text.count(anchor) != 1:
               raise SystemExit(f'expected one helper anchor, found {text.count(anchor)}')
           text = text.replace(anchor, helper + anchor, 1)
