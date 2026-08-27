@@ -16,6 +16,7 @@ base_tests = read("crates/model-core/tests/pr32_state_machine_execution.rs")
 event_tests = read("crates/model-core/tests/pr32_state_machine_event_semantics.rs")
 closure_tests = read("crates/model-core/tests/pr32_state_machine_semantic_closure.rs")
 fork_join_tests = read("crates/model-core/tests/pr32_state_machine_fork_join.rs")
+activity_bridge_tests = read("crates/model-core/tests/pr32_state_machine_activity_bridge.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/state_machine_execution.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
 ui_file = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
@@ -108,11 +109,19 @@ for token in (
     "execute_synchronous_state_activity",
     "started doActivity",
     "terminated doActivity on exit",
-    "completed doActivity",
+    "doActivity completed",
     "time_event_sequences",
 ):
     if token not in activity_bridge:
         raise SystemExit(f"State Activity execution bridge is incomplete: {token}")
+
+for scenario in (
+    "entry_and_exit_activities_execute_in_parent_session_without_completing_it",
+    "do_activity_waits_for_shared_signal_then_allows_completion_transition",
+    "exiting_state_cancels_do_activity_time_event_from_shared_queue",
+):
+    if scenario not in activity_bridge_tests:
+        raise SystemExit(f"State Activity execution qualification scenario is missing: {scenario}")
 
 commands = (
     "state_machine_execution_snapshot",
