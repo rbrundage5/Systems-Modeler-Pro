@@ -263,7 +263,7 @@ impl StateMachineExecutionEngine {
                 region.name
             ))
         })?;
-        self.traverse_pseudostate(project, session, initial, None, rtc_steps)
+        self.traverse_pseudostate(project, session, initial, None, None, rtc_steps)
     }
 
     fn traverse_pseudostate(
@@ -272,11 +272,12 @@ impl StateMachineExecutionEngine {
         session: &mut ExecutionSession,
         vertex: &Vertex,
         arrived_via: Option<TransitionId>,
+        event: Option<&RuntimeEvent>,
         rtc_steps: &mut usize,
     ) -> Result<(), ExecutionError> {
         self.consume_rtc_budget(session, rtc_steps)?;
         let VertexKind::Pseudostate(kind) = vertex.kind else {
-            return self.enter_vertex(project, session, vertex.id, arrived_via, rtc_steps);
+            return self.enter_vertex(project, session, vertex.id, arrived_via, event, rtc_steps);
         };
         match kind {
             PseudostateKind::Initial
@@ -285,14 +286,14 @@ impl StateMachineExecutionEngine {
             | PseudostateKind::EntryPoint
             | PseudostateKind::ExitPoint => {
                 let transition = self
-                    .select_pseudostate_transition(project, session, vertex.id)?
+                    .select_pseudostate_transition(project, session, vertex.id, event)?
                     .ok_or_else(|| {
                         engine_error(format!(
                             "Pseudostate '{}' has no enabled outgoing transition",
                             vertex.name
                         ))
                     })?;
-                self.fire_transition_inner(project, session, &transition, None, rtc_steps)
+                self.fire_transition_inner(project, session, &transition, event, rtc_steps)
             }
             PseudostateKind::Fork => {
                 let mut outgoing = self.transitions_from(vertex.id);
@@ -304,8 +305,8 @@ impl StateMachineExecutionEngine {
                     )));
                 }
                 for transition in outgoing {
-                    if self.guard_allows(project, session, &transition.transition.guard, None)? {
-                        self.fire_transition_inner(project, session, &transition, None, rtc_steps)?;
+                    if self.guard_allows(project, session, &transition.transition.guard, event)? {
+                        self.fire_transition_inner(project, session, &transition, event, rtc_steps)?;
                     }
                 }
                 Ok(())
@@ -333,7 +334,7 @@ impl StateMachineExecutionEngine {
                         vertex.name
                     )));
                 }
-                self.fire_transition_inner(project, session, &outgoing[0], None, rtc_steps)
+                self.fire_transition_inner(project, session, &outgoing[0], event, rtc_steps)
             }
             PseudostateKind::Terminate => {
                 session.complete()?;
@@ -365,6 +366,7 @@ impl StateMachineExecutionEngine {
         session: &mut ExecutionSession,
         vertex_id: VertexId,
         arrived_via: Option<TransitionId>,
+        event: Option<&RuntimeEvent>,
         rtc_steps: &mut usize,
     ) -> Result<(), ExecutionError> {
         let index = build_vertex_index(self.machine()?);
@@ -417,6 +419,7 @@ impl StateMachineExecutionEngine {
                 session,
                 &location.vertex,
                 arrived_via,
+                event,
                 rtc_steps,
             ),
         }
@@ -530,6 +533,7 @@ impl StateMachineExecutionEngine {
         project: &Project,
         session: &ExecutionSession,
         source_id: VertexId,
+        event: Option<&RuntimeEvent>,
     ) -> Result<Option<TransitionLocation>, ExecutionError> {
         let mut outgoing = self.transitions_from(source_id);
         outgoing.sort_by_key(|location| location.transition.id.to_string());
@@ -541,7 +545,7 @@ impl StateMachineExecutionEngine {
                 project,
                 session,
                 &transition.transition.guard,
-                self.current_event.as_ref(),
+                event,
             )? {
                 return Ok(Some(transition));
             }
@@ -656,6 +660,7 @@ impl StateMachineExecutionEngine {
                     session,
                     transition.target_id,
                     Some(transition.id),
+                    event,
                     rtc_steps,
                 )?;
             }
