@@ -33,6 +33,10 @@ PR33 qualifies a deterministic SysML structural runtime against the repository's
 | Runtime inspection UI | QUALIFIED | UI renders only Rust-produced instance/value/Port/connector/event facts and owns no structural semantics. | This is inspection, not a second model repository or simulator. |
 | Authored-model isolation | QUALIFIED | Structural runtime is transient; automated qualification compares authored serialization before/after runtime construction/execution where applicable. | Persisting runtime state back to the authored model would require a separate explicit workflow. |
 
+## Automated qualification evidence
+
+The primary PR33 semantic fixture is `crates/model-core/tests/pr33_structural_runtime.rs`. PR33 remains gated by the existing PR31 Activity and PR32 State Machine suites plus the shared all-nine-family authoring, routing/frame, repository editing, workspace convergence, and Rust-authority/frontend-debt checks. Exact-head Linux/core and Windows/desktop CI must both pass before the matrix is accepted as qualified evidence.
+
 ## Professional qualification rule
 
 A concept may be promoted to `QUALIFIED` only when the automated test suite proves the exact boundary above on Linux/core and Windows/desktop CI while PR31 Activity, PR32 State Machine, all-nine-family authoring/editing, routing/frame, repository-editing, and Rust-authority/frontend-debt contracts remain green.
