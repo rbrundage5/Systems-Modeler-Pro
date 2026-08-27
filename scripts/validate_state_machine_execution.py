@@ -18,6 +18,7 @@ closure_tests = read("crates/model-core/tests/pr32_state_machine_semantic_closur
 fork_join_tests = read("crates/model-core/tests/pr32_state_machine_fork_join.rs")
 activity_bridge_tests = read("crates/model-core/tests/pr32_state_machine_activity_bridge.rs")
 activity_reset_tests = read("crates/model-core/tests/pr32_state_machine_activity_reset.rs")
+composition_tests = read("crates/model-core/tests/pr32_state_machine_composition.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/state_machine_execution.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
 ui_file = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
@@ -97,9 +98,11 @@ for token in (
     "advance_state_do_activities",
     "activate_state_activities",
     "exit_state_activities",
+    "shared_activity_repository",
+    "child = child.with_activity_repository(activities)",
 ):
-    if token not in core:
-        raise SystemExit(f"State Activity execution bridge is not wired into the State Machine engine: {token}")
+    if token not in core and token not in activity_bridge:
+        raise SystemExit(f"State Activity execution bridge is not wired into State Machine composition: {token}")
 
 for token in (
     "StateActivityRuntime",
@@ -112,6 +115,7 @@ for token in (
     "terminated doActivity on exit",
     "doActivity completed",
     "time_event_sequences",
+    "scheduled.due_time <= session.simulation_time",
 ):
     if token not in activity_bridge:
         raise SystemExit(f"State Activity execution bridge is incomplete: {token}")
@@ -131,6 +135,13 @@ for scenario in (
 ):
     if scenario not in activity_reset_tests:
         raise SystemExit(f"State Activity reset/repeatability scenario is missing: {scenario}")
+
+for scenario in (
+    "submachine_state_inherits_shared_activity_repository_for_child_state_behaviors",
+    "future_state_time_event_does_not_preempt_zero_time_do_activity_progress",
+):
+    if scenario not in composition_tests:
+        raise SystemExit(f"State Machine Activity composition scenario is missing: {scenario}")
 
 commands = (
     "state_machine_execution_snapshot",
@@ -246,9 +257,9 @@ print(
     "PR32 State Machine execution integration contract passed: Rust owns deterministic runtime "
     "semantics, Fork/Join is qualified across orthogonal Regions without implicit sibling-default "
     "entry, State entry/doActivity/exit reuse the PR31 Activity engine and shared ExecutionSession, "
-    "queued State Machine transitions preempt progressing doActivities, State Activity reset and "
-    "repeatability are qualified, stable Activity/Signal references are checked at the Rust boundary, "
-    "shared time/events/values/trace/expressions are reused, qualified unsupported semantics remain "
-    "explicit, runtime UI is presentation-only, and the PR31 all-nine-family authoring contract "
-    "remains present"
+    "queued due State Machine transitions preempt progressing doActivities without future-event "
+    "starvation, State Activity reset/repeatability and Submachine Activity composition are qualified, "
+    "stable Activity/Signal references are checked at the Rust boundary, shared time/events/values/"
+    "trace/expressions are reused, qualified unsupported semantics remain explicit, runtime UI is "
+    "presentation-only, and the PR31 all-nine-family authoring contract remains present"
 )
