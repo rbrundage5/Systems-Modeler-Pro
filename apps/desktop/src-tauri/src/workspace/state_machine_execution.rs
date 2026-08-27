@@ -1,10 +1,11 @@
-use super::{WorkspaceState, behavior_workspace::BehaviorDiagramKind};
-use std::collections::HashMap;
+use super::{ActivityWorkspaceState, WorkspaceState, behavior_workspace::BehaviorDiagramKind};
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use systems_modeler_core::{
-    BehaviorRepository, ElementId, ElementKind, ExecutionConfiguration, ExecutionEngine,
-    ExecutionManager, ExecutionSessionId, ExecutionState, Project, RuntimeValue,
-    StateMachineExecutionEngine, StateMachineExecutionSnapshot, StateMachineId,
+    ActivityId, ActivityRepository, BehaviorRepository, ElementId, ElementKind,
+    ExecutionConfiguration, ExecutionEngine, ExecutionManager, ExecutionSessionId, ExecutionState,
+    Project, Region, RuntimeValue, StateMachineExecutionEngine, StateMachineExecutionSnapshot,
+    StateMachineId, VertexKind,
 };
 
 #[derive(Default)]
@@ -27,6 +28,16 @@ fn project_snapshot(workspace: &WorkspaceState) -> Result<Project, String> {
         .map_err(|_| "project lock poisoned")?
         .clone()
         .ok_or_else(|| "open a project before executing a State Machine".into())
+}
+
+fn activity_repository_snapshot(
+    activity: &ActivityWorkspaceState,
+) -> Result<ActivityRepository, String> {
+    activity
+        .repository
+        .lock()
+        .map_err(|_| "activity repository lock poisoned".to_string())
+        .map(|repository| repository.clone())
 }
 
 fn machine_for_diagram(
@@ -58,13 +69,121 @@ fn machine_for_diagram(
     Ok((repository, machine_id))
 }
 
+fn validate_activity_reference(
+    activities: &ActivityRepository,
+    state_name: &str,
+    role: &str,
+    value: &str,
+) -> Result<(), String> {
+    let activity_id = uuid::Uuid::parse_str(value)
+        .map(ActivityId)
+        .map_err(|_| {
+            format!(
+                "State '{state_name}' {role} must reference a modeled Activity by stable ID; '{value}' is not an Activity ID"
+            )
+        })?;
+    if !activities.activities.contains_key(&activity_id) {
+        return Err(format!(
+            "State '{state_name}' {role} references missing Activity stable ID {activity_id}"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_region_activity_references(
+    regions: &[Region],
+    activities: &ActivityRepository,
+) -> Result<(), String> {
+    for region in regions {
+        for vertex in &region.vertices {
+            let VertexKind::State(state) = &vertex.kind else {
+                continue;
+            };
+            for (role, reference) in [
+                ("entry", state.entry.as_deref()),
+                ("doActivity", state.do_activity.as_deref()),
+                ("exit", state.exit.as_deref()),
+            ] {
+                if let Some(reference) = reference.filter(|value| !value.trim().is_empty()) {
+                    validate_activity_reference(activities, &vertex.name, role, reference)?;
+                }
+            }
+            validate_region_activity_references(&state.regions, activities)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_machine_activity_references(
+    repository: &BehaviorRepository,
+    activities: &ActivityRepository,
+    machine_id: StateMachineId,
+    visited: &mut HashSet<StateMachineId>,
+) -> Result<(), String> {
+    if !visited.insert(machine_id) {
+        return Ok(());
+    }
+    let machine = repository
+        .state_machines
+        .get(&machine_id)
+        .ok_or_else(|| format!("State Machine references missing semantics: {machine_id}"))?;
+    validate_region_activity_references(&machine.regions, activities)?;
+    fn visit_submachines(
+        regions: &[Region],
+        output: &mut Vec<StateMachineId>,
+    ) {
+        for region in regions {
+            for vertex in &region.vertices {
+                if let VertexKind::State(state) = &vertex.kind {
+                    if let Some(submachine) = state.submachine {
+                        output.push(submachine);
+                    }
+                    visit_submachines(&state.regions, output);
+                }
+            }
+        }
+    }
+    let mut submachines = Vec::new();
+    visit_submachines(&machine.regions, &mut submachines);
+    submachines.sort_by_key(ToString::to_string);
+    submachines.dedup();
+    for submachine in submachines {
+        validate_machine_activity_references(
+            repository,
+            activities,
+            submachine,
+            visited,
+        )?;
+    }
+    Ok(())
+}
+
 fn source_fingerprint(
     project: &Project,
     repository: &BehaviorRepository,
+    activities: &ActivityRepository,
 ) -> Result<String, String> {
-    serde_json::to_string(&(project, repository)).map_err(|error| {
+    serde_json::to_string(&(project, repository, activities)).map_err(|error| {
         format!("failed to fingerprint State Machine execution source model: {error}")
     })
+}
+
+fn execution_source(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    diagram_id: &str,
+) -> Result<(Project, BehaviorRepository, StateMachineId, String), String> {
+    let project = project_snapshot(workspace)?;
+    let (repository, machine_id) = machine_for_diagram(workspace, diagram_id)?;
+    let activities = activity_repository_snapshot(activity)?;
+    validate_machine_activity_references(
+        &repository,
+        &activities,
+        machine_id,
+        &mut HashSet::new(),
+    )?;
+    let fingerprint = source_fingerprint(&project, &repository, &activities)?;
+    Ok((project, repository, machine_id, fingerprint))
 }
 
 fn session_id_for_diagram(
@@ -169,11 +288,11 @@ fn ensure_current_execution(
 pub fn initialize_state_machine_execution(
     diagram_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, machine_id) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (project, repository, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
         .lock()
@@ -193,11 +312,10 @@ pub fn initialize_state_machine_execution(
 pub fn state_machine_execution_snapshot(
     diagram_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<Option<StateMachineExecutionSnapshot>, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, _) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (_, _, _, fingerprint) = execution_source(&workspace, &activity, &diagram_id)?;
     let registry = execution_state
         .registry
         .lock()
@@ -215,11 +333,11 @@ pub fn state_machine_execution_snapshot(
 pub fn run_state_machine_execution(
     diagram_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, machine_id) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (project, repository, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
         .lock()
@@ -245,11 +363,11 @@ pub fn run_state_machine_execution(
 pub fn step_state_machine_execution(
     diagram_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, machine_id) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (project, repository, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
         .lock()
@@ -303,11 +421,11 @@ pub fn pause_state_machine_execution(
 pub fn resume_state_machine_execution(
     diagram_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, machine_id) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (project, repository, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
         .lock()
@@ -336,11 +454,11 @@ pub fn resume_state_machine_execution(
 pub fn reset_state_machine_execution(
     diagram_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, machine_id) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (project, repository, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
         .lock()
@@ -396,11 +514,11 @@ pub fn queue_state_machine_signal(
     diagram_id: String,
     signal_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let project = project_snapshot(&workspace)?;
-    let (repository, machine_id) = machine_for_diagram(&workspace, &diagram_id)?;
-    let fingerprint = source_fingerprint(&project, &repository)?;
+    let (project, repository, machine_id, fingerprint) =
+        execution_source(&workspace, &activity, &diagram_id)?;
     let signal_id = uuid::Uuid::parse_str(&signal_id)
         .map(ElementId)
         .map_err(|_| "invalid Signal stable ID".to_string())?;
