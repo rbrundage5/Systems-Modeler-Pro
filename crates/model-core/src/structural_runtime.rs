@@ -1148,20 +1148,19 @@ impl<'a> StructuralRuntimeBuilder<'a> {
                 .item_flow
                 .as_ref()
                 .expect("filtered item flows");
-            let connector_source_to_target = if flow.source == *connector_source
-                && flow.target == *connector_target
-            {
-                true
-            } else if flow.source == *connector_target && flow.target == *connector_source {
-                false
-            } else {
-                return Err(StructuralRuntimeError::InvalidConnectorEndpoint {
+            let connector_source_to_target =
+                if flow.source == *connector_source && flow.target == *connector_target {
+                    true
+                } else if flow.source == *connector_target && flow.target == *connector_source {
+                    false
+                } else {
+                    return Err(StructuralRuntimeError::InvalidConnectorEndpoint {
                     connector: relationship.name.clone(),
                     details:
                         "ItemFlow ends do not match either orientation of the realizing Connector"
                             .into(),
                 });
-            };
+                };
             flows.push(RuntimeItemFlow {
                 item_flow_id: relationship.id,
                 conveyed_item_ids: flow.conveyed_item_ids.clone(),
