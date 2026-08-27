@@ -689,7 +689,7 @@ impl StateMachineExecutionEngine {
             .iter()
             .filter_map(|id| index.get(id))
             .filter(|location| {
-                (*location).vertex.id == source.vertex.id
+                location.vertex.id == source.vertex.id
                     || location.ancestry.contains(&source.vertex.id)
             })
             .filter(|location| !(retain_source && location.vertex.id == source.vertex.id))
