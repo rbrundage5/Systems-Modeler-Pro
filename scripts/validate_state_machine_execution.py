@@ -14,6 +14,7 @@ core = read("crates/model-core/src/state_machine_execution.rs")
 base_tests = read("crates/model-core/tests/pr32_state_machine_execution.rs")
 event_tests = read("crates/model-core/tests/pr32_state_machine_event_semantics.rs")
 closure_tests = read("crates/model-core/tests/pr32_state_machine_semantic_closure.rs")
+fork_join_tests = read("crates/model-core/tests/pr32_state_machine_fork_join.rs")
 desktop = read("apps/desktop/src-tauri/src/workspace/state_machine_execution.rs")
 main = read("apps/desktop/src-tauri/src/main.rs")
 ui_file = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
@@ -37,6 +38,7 @@ for token in (
     "active_states",
     "active_regions",
     "final_regions",
+    "suppressed_initial_regions",
     "TransitionKind::External",
     "TransitionKind::Internal",
     "TransitionKind::Local",
@@ -136,6 +138,25 @@ for scenario in (
     if scenario not in closure_tests:
         raise SystemExit(f"State Machine semantic-closure scenario is missing: {scenario}")
 
+fork_join_scenario = (
+    "fork_targets_orthogonal_regions_without_entering_sibling_defaults_and_join_completes"
+)
+if fork_join_scenario not in fork_join_tests:
+    raise SystemExit(
+        "State Machine Fork/Join orthogonal-region qualification scenario is missing: "
+        f"{fork_join_scenario}"
+    )
+for token in (
+    "Left Default",
+    "Right Default",
+    "Left Target",
+    "Right Target",
+    "PseudostateKind::Fork",
+    "PseudostateKind::Join",
+):
+    if token not in fork_join_tests:
+        raise SystemExit(f"State Machine Fork/Join qualification is incomplete: {token}")
+
 for control in ("Initialize", "Run", "Step", "Pause", "Resume", "Reset", "Terminate"):
     if control not in ui:
         raise SystemExit(f"State Machine runtime UI control is missing: {control}")
@@ -180,7 +201,8 @@ if "PR32 does not yet execute State Activity references" not in core:
 
 print(
     "PR32 State Machine execution integration contract passed: Rust owns deterministic runtime "
-    "semantics, stable Activity/Signal references are checked at the Rust boundary, shared "
+    "semantics, Fork/Join is qualified across orthogonal Regions without implicit sibling-default "
+    "entry, stable Activity/Signal references are checked at the Rust boundary, shared "
     "time/events/expressions are reused, qualified unsupported semantics remain explicit, runtime "
     "UI is presentation-only, and the PR31 all-nine-family authoring contract remains present"
 )
