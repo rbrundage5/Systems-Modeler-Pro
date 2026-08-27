@@ -1,0 +1,65 @@
+name: PR33 one-shot autofix
+
+on:
+  push:
+    branches:
+      - agent/pr33-structural-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    if: github.ref == 'refs/heads/agent/pr33-structural-runtime'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr33-structural-runtime
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply exact compiler fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/model-core/src/structural_runtime.rs')
+          text = path.read_text()
+          replacements = [
+              (
+                  'NoSignalRoute { signal: String, source: String },',
+                  'NoSignalRoute { signal: String, source_path: String },',
+              ),
+              (
+                  "No compatible structural route carries Signal '{signal}' from {source}. Check Connector, ItemFlow, FlowProperty, and Reception semantics.",
+                  "No compatible structural route carries Signal '{signal}' from {source_path}. Check Connector, ItemFlow, FlowProperty, and Reception semantics.",
+              ),
+              (
+                  'source: source_port.qualified_path.clone(),',
+                  'source_path: source_port.qualified_path.clone(),',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one occurrence of {old!r}, found {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Format Rust workspace
+        run: cargo fmt --all
+      - name: Remove one-shot workflow and publish fixes
+        shell: bash
+        run: |
+          rm .github/workflows/pr33-one-shot-autofix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to publish.'
+            exit 0
+          fi
+          git commit -m 'PR33: fix compile error and format structural runtime'
+          git push origin HEAD:agent/pr33-structural-runtime
