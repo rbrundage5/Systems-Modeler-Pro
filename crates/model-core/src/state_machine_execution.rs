@@ -1,6 +1,7 @@
 use crate::behavior::{
     BehaviorRepository, Event, PseudostateKind, Region, RegionId, State, StateMachine,
-    StateMachineId, Transition, TransitionId, TransitionKind, Trigger, Vertex, VertexId, VertexKind,
+    StateMachineId, Transition, TransitionId, TransitionKind, Trigger, Vertex, VertexId,
+    VertexKind,
 };
 use crate::{
     DiagnosticSeverity, EngineStepOutcome, ExecutionEngine, ExecutionError, ExecutionSession,
@@ -98,9 +99,7 @@ impl StateMachineExecutionEngine {
                 ancestry: location.ancestry.clone(),
             })
             .collect();
-        active_states.sort_by_key(|state| {
-            (state.ancestry.len(), state.state_id.to_string())
-        });
+        active_states.sort_by_key(|state| (state.ancestry.len(), state.state_id.to_string()));
         let mut active_region_ids: Vec<_> = self.active_regions.iter().copied().collect();
         active_region_ids.sort_by_key(ToString::to_string);
         let mut final_region_ids: Vec<_> = self.final_regions.iter().copied().collect();
@@ -158,9 +157,9 @@ impl StateMachineExecutionEngine {
             return self.finish_step(session);
         }
         self.refresh_enabled_transitions(project, session, None)?;
-        let accepts_next = session.next_event().is_some_and(|scheduled| {
-            self.trigger_candidates(&scheduled.event).next().is_some()
-        });
+        let accepts_next = session
+            .next_event()
+            .is_some_and(|scheduled| self.trigger_candidates(&scheduled.event).next().is_some());
         if !accepts_next {
             return Ok(EngineStepOutcome::Idle);
         }
@@ -259,7 +258,10 @@ impl StateMachineExecutionEngine {
             .collect();
         initials.sort_by_key(|vertex| vertex.id.to_string());
         let initial = initials.first().ok_or_else(|| {
-            engine_error(format!("Region '{}' has no Initial pseudostate", region.name))
+            engine_error(format!(
+                "Region '{}' has no Initial pseudostate",
+                region.name
+            ))
         })?;
         self.traverse_pseudostate(project, session, initial, None, rtc_steps)
     }
@@ -303,20 +305,17 @@ impl StateMachineExecutionEngine {
                 }
                 for transition in outgoing {
                     if self.guard_allows(project, session, &transition.transition.guard, None)? {
-                        self.fire_transition_inner(
-                            project,
-                            session,
-                            &transition,
-                            None,
-                            rtc_steps,
-                        )?;
+                        self.fire_transition_inner(project, session, &transition, None, rtc_steps)?;
                     }
                 }
                 Ok(())
             }
             PseudostateKind::Join => {
                 let arrived_via = arrived_via.ok_or_else(|| {
-                    engine_error(format!("Join '{}' was reached without an incoming transition", vertex.name))
+                    engine_error(format!(
+                        "Join '{}' was reached without an incoming transition",
+                        vertex.name
+                    ))
                 })?;
                 self.join_arrivals
                     .entry(vertex.id)
@@ -343,7 +342,11 @@ impl StateMachineExecutionEngine {
             PseudostateKind::ShallowHistory | PseudostateKind::DeepHistory => {
                 let message = format!(
                     "State Machine execution reached {} '{}', but the authored model does not store a qualified history default/restoration policy",
-                    if kind == PseudostateKind::DeepHistory { "DeepHistory" } else { "ShallowHistory" },
+                    if kind == PseudostateKind::DeepHistory {
+                        "DeepHistory"
+                    } else {
+                        "ShallowHistory"
+                    },
                     vertex.name
                 );
                 session.add_diagnostic(
@@ -495,7 +498,12 @@ impl StateMachineExecutionEngine {
         let mut candidates = Vec::new();
         for state_id in &self.active_states {
             for transition in self.transitions_from(*state_id) {
-                let eligible = match transition.transition.trigger.as_ref().map(|trigger| &trigger.event) {
+                let eligible = match transition
+                    .transition
+                    .trigger
+                    .as_ref()
+                    .map(|trigger| &trigger.event)
+                {
                     None => self.source_is_complete(*state_id),
                     Some(Event::Change { expression }) => {
                         self.expression_is_true(project, session, expression, None)?
@@ -529,7 +537,12 @@ impl StateMachineExecutionEngine {
         for transition in outgoing {
             if transition.transition.guard.as_deref() == Some("else") {
                 fallback = Some(transition);
-            } else if self.guard_allows(project, session, &transition.transition.guard, self.current_event.as_ref())? {
+            } else if self.guard_allows(
+                project,
+                session,
+                &transition.transition.guard,
+                self.current_event.as_ref(),
+            )? {
                 return Ok(Some(transition));
             }
         }
@@ -610,7 +623,9 @@ impl StateMachineExecutionEngine {
         self.consume_rtc_budget(session, rtc_steps)?;
         let transition = &location.transition;
         if !self.guard_allows(project, session, &transition.guard, event)? {
-            return Err(engine_error("Selected State Machine transition guard is not true"));
+            return Err(engine_error(
+                "Selected State Machine transition guard is not true",
+            ));
         }
         match transition.kind {
             TransitionKind::External | TransitionKind::Local => {
@@ -675,11 +690,17 @@ impl StateMachineExecutionEngine {
             .cloned()
             .collect();
         exiting.sort_by_key(|location| {
-            (usize::MAX - location.ancestry.len(), location.vertex.id.to_string())
+            (
+                usize::MAX - location.ancestry.len(),
+                location.vertex.id.to_string(),
+            )
         });
         for location in exiting {
             if let VertexKind::State(state) = &location.vertex.kind
-                && state.exit.as_deref().is_some_and(|value| !value.trim().is_empty())
+                && state
+                    .exit
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
             {
                 session.add_diagnostic(
                     DiagnosticSeverity::Warning,
@@ -710,14 +731,20 @@ impl StateMachineExecutionEngine {
         transition: &Transition,
         event: Option<&RuntimeEvent>,
     ) -> Result<(), ExecutionError> {
-        let Some(effect) = transition.effect.as_deref().filter(|value| !value.trim().is_empty())
+        let Some(effect) = transition
+            .effect
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
         else {
             return Ok(());
         };
         let value = self.evaluate(project, session, effect, event)?;
         session.record_engine_trace(
             Some(self.machine()?.context_id),
-            format!("Transition effect evaluated to {}", runtime_value_label(&value)),
+            format!(
+                "Transition effect evaluated to {}",
+                runtime_value_label(&value)
+            ),
         );
         Ok(())
     }
@@ -841,10 +868,7 @@ impl StateMachineExecutionEngine {
         Ok(())
     }
 
-    fn complete_if_root_final(
-        &self,
-        session: &mut ExecutionSession,
-    ) -> Result<(), ExecutionError> {
+    fn complete_if_root_final(&self, session: &mut ExecutionSession) -> Result<(), ExecutionError> {
         let machine = self.machine()?;
         if machine
             .regions
@@ -861,11 +885,13 @@ impl StateMachineExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<EngineStepOutcome, ExecutionError> {
         self.complete_if_root_final(session)?;
-        Ok(if matches!(session.state, crate::ExecutionState::Completed) {
-            EngineStepOutcome::Completed
-        } else {
-            EngineStepOutcome::Progressed
-        })
+        Ok(
+            if matches!(session.state, crate::ExecutionState::Completed) {
+                EngineStepOutcome::Completed
+            } else {
+                EngineStepOutcome::Progressed
+            },
+        )
     }
 }
 
@@ -875,9 +901,11 @@ impl ExecutionEngine for StateMachineExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
-        self.repository
-            .validate(project)
-            .map_err(|error| engine_error(format!("Cannot initialize State Machine execution: {error}")))?;
+        self.repository.validate(project).map_err(|error| {
+            engine_error(format!(
+                "Cannot initialize State Machine execution: {error}"
+            ))
+        })?;
         session.initialize(project)?;
         self.clear_runtime();
         self.establish_initial_configuration(project, session)
@@ -1001,16 +1029,13 @@ fn trigger_matches(transition: &Transition, event: &RuntimeEvent) -> bool {
     };
     match &trigger.event {
         Event::Signal { signal_id } => {
-            event.kind == RuntimeEventKind::Signal
-                && event.semantic_event_id == Some(*signal_id)
+            event.kind == RuntimeEventKind::Signal && event.semantic_event_id == Some(*signal_id)
         }
         Event::Call { operation_id } => {
-            event.kind == RuntimeEventKind::Call
-                && event.semantic_event_id == Some(*operation_id)
+            event.kind == RuntimeEventKind::Call && event.semantic_event_id == Some(*operation_id)
         }
         Event::Time { .. } => {
-            event.kind == RuntimeEventKind::Time
-                && event.name == time_event_name(transition.id)
+            event.kind == RuntimeEventKind::Time && event.name == time_event_name(transition.id)
         }
         Event::AnyReceive => !matches!(
             event.kind,
@@ -1034,9 +1059,9 @@ fn parse_duration(expression: &str) -> Result<u64, ExecutionError> {
     } else {
         (trimmed, 1_f64)
     };
-    let value: f64 = numeric.parse().map_err(|_| {
-        engine_error(format!("TimeEvent expression '{expression}' is invalid"))
-    })?;
+    let value: f64 = numeric
+        .parse()
+        .map_err(|_| engine_error(format!("TimeEvent expression '{expression}' is invalid")))?;
     let nanos = value * multiplier;
     if !nanos.is_finite() || nanos < 0.0 || nanos > u64::MAX as f64 {
         return Err(engine_error(format!(
