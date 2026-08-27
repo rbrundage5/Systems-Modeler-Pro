@@ -128,10 +128,7 @@ fn validate_machine_activity_references(
         .get(&machine_id)
         .ok_or_else(|| format!("State Machine references missing semantics: {machine_id}"))?;
     validate_region_activity_references(&machine.regions, activities)?;
-    fn visit_submachines(
-        regions: &[Region],
-        output: &mut Vec<StateMachineId>,
-    ) {
+    fn visit_submachines(regions: &[Region], output: &mut Vec<StateMachineId>) {
         for region in regions {
             for vertex in &region.vertices {
                 if let VertexKind::State(state) = &vertex.kind {
@@ -148,12 +145,7 @@ fn validate_machine_activity_references(
     submachines.sort_by_key(ToString::to_string);
     submachines.dedup();
     for submachine in submachines {
-        validate_machine_activity_references(
-            repository,
-            activities,
-            submachine,
-            visited,
-        )?;
+        validate_machine_activity_references(repository, activities, submachine, visited)?;
     }
     Ok(())
 }
