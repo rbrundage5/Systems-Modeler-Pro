@@ -82,10 +82,7 @@ fn embedded_state_activity_consumes_shared_budget_once_per_activity_node() {
     let machine_id = behaviors
         .create_state_machine(&project, context, "Budget Machine")
         .unwrap();
-    let machine_initial = vertex(
-        "Initial",
-        VertexKind::Pseudostate(PseudostateKind::Initial),
-    );
+    let machine_initial = vertex("Initial", VertexKind::Pseudostate(PseudostateKind::Initial));
     let working = vertex(
         "Working",
         VertexKind::State(State {
@@ -94,8 +91,7 @@ fn embedded_state_activity_consumes_shared_budget_once_per_activity_node() {
         }),
     );
     let machine = behaviors.state_machines.get_mut(&machine_id).unwrap();
-    machine
-        .regions[0]
+    machine.regions[0]
         .vertices
         .extend([machine_initial.clone(), working.clone()]);
     machine.regions[0]
