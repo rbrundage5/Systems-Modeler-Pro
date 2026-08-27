@@ -164,7 +164,16 @@ fn execution_source(
     workspace: &WorkspaceState,
     activity: &ActivityWorkspaceState,
     diagram_id: &str,
-) -> Result<(Project, BehaviorRepository, StateMachineId, String), String> {
+) -> Result<
+    (
+        Project,
+        BehaviorRepository,
+        ActivityRepository,
+        StateMachineId,
+        String,
+    ),
+    String,
+> {
     let project = project_snapshot(workspace)?;
     let (repository, machine_id) = machine_for_diagram(workspace, diagram_id)?;
     let activities = activity_repository_snapshot(activity)?;
@@ -175,7 +184,7 @@ fn execution_source(
         &mut HashSet::new(),
     )?;
     let fingerprint = source_fingerprint(&project, &repository, &activities)?;
-    Ok((project, repository, machine_id, fingerprint))
+    Ok((project, repository, activities, machine_id, fingerprint))
 }
 
 fn session_id_for_diagram(
@@ -207,6 +216,7 @@ fn snapshot_for(
 fn start_execution(
     project: &Project,
     repository: BehaviorRepository,
+    activities: ActivityRepository,
     machine_id: StateMachineId,
     diagram_id: &str,
     fingerprint: String,
@@ -231,7 +241,8 @@ fn start_execution(
         .manager
         .create_session(project, configuration)
         .map_err(|error| error.to_string())?;
-    let mut engine = StateMachineExecutionEngine::new(repository, machine_id);
+    let mut engine = StateMachineExecutionEngine::new(repository, machine_id)
+        .with_activity_repository(activities);
     let initialized = engine.initialize(
         project,
         registry
@@ -256,6 +267,7 @@ fn start_execution(
 fn ensure_current_execution(
     project: &Project,
     repository: BehaviorRepository,
+    activities: ActivityRepository,
     machine_id: StateMachineId,
     diagram_id: &str,
     fingerprint: String,
@@ -268,6 +280,7 @@ fn ensure_current_execution(
     let refreshed = start_execution(
         project,
         repository,
+        activities,
         machine_id,
         diagram_id,
         fingerprint,
@@ -283,7 +296,7 @@ pub fn initialize_state_machine_execution(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let (project, repository, machine_id, fingerprint) =
+    let (project, repository, activities, machine_id, fingerprint) =
         execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
@@ -292,6 +305,7 @@ pub fn initialize_state_machine_execution(
     let session_id = start_execution(
         &project,
         repository,
+        activities,
         machine_id,
         &diagram_id,
         fingerprint,
@@ -307,7 +321,7 @@ pub fn state_machine_execution_snapshot(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<Option<StateMachineExecutionSnapshot>, String> {
-    let (_, _, _, fingerprint) = execution_source(&workspace, &activity, &diagram_id)?;
+    let (_, _, _, _, fingerprint) = execution_source(&workspace, &activity, &diagram_id)?;
     let registry = execution_state
         .registry
         .lock()
@@ -328,7 +342,7 @@ pub fn run_state_machine_execution(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let (project, repository, machine_id, fingerprint) =
+    let (project, repository, activities, machine_id, fingerprint) =
         execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
@@ -337,6 +351,7 @@ pub fn run_state_machine_execution(
     let (session_id, _) = ensure_current_execution(
         &project,
         repository,
+        activities,
         machine_id,
         &diagram_id,
         fingerprint,
@@ -358,7 +373,7 @@ pub fn step_state_machine_execution(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let (project, repository, machine_id, fingerprint) =
+    let (project, repository, activities, machine_id, fingerprint) =
         execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
@@ -367,6 +382,7 @@ pub fn step_state_machine_execution(
     let (session_id, _) = ensure_current_execution(
         &project,
         repository,
+        activities,
         machine_id,
         &diagram_id,
         fingerprint,
@@ -416,7 +432,7 @@ pub fn resume_state_machine_execution(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let (project, repository, machine_id, fingerprint) =
+    let (project, repository, activities, machine_id, fingerprint) =
         execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
@@ -425,6 +441,7 @@ pub fn resume_state_machine_execution(
     let (session_id, refreshed) = ensure_current_execution(
         &project,
         repository,
+        activities,
         machine_id,
         &diagram_id,
         fingerprint,
@@ -449,7 +466,7 @@ pub fn reset_state_machine_execution(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let (project, repository, machine_id, fingerprint) =
+    let (project, repository, activities, machine_id, fingerprint) =
         execution_source(&workspace, &activity, &diagram_id)?;
     let mut registry = execution_state
         .registry
@@ -458,6 +475,7 @@ pub fn reset_state_machine_execution(
     let (session_id, refreshed) = ensure_current_execution(
         &project,
         repository,
+        activities,
         machine_id,
         &diagram_id,
         fingerprint,
@@ -509,7 +527,7 @@ pub fn queue_state_machine_signal(
     activity: tauri::State<'_, ActivityWorkspaceState>,
     execution_state: tauri::State<'_, StateMachineExecutionState>,
 ) -> Result<StateMachineExecutionSnapshot, String> {
-    let (project, repository, machine_id, fingerprint) =
+    let (project, repository, activities, machine_id, fingerprint) =
         execution_source(&workspace, &activity, &diagram_id)?;
     let signal_id = uuid::Uuid::parse_str(&signal_id)
         .map(ElementId)
@@ -531,6 +549,7 @@ pub fn queue_state_machine_signal(
     let (session_id, _) = ensure_current_execution(
         &project,
         repository,
+        activities,
         machine_id,
         &diagram_id,
         fingerprint,
