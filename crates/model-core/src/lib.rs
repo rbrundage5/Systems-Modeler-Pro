@@ -15,6 +15,9 @@ pub use execution_expression::*;
 pub mod activity_execution;
 pub use activity_execution::*;
 
+pub mod state_machine_execution;
+pub use state_machine_execution::*;
+
 pub mod namespace;
 pub use namespace::*;
 
