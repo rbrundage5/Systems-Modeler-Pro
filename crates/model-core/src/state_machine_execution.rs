@@ -280,11 +280,7 @@ impl StateMachineExecutionEngine {
             return self.enter_vertex(project, session, vertex.id, arrived_via, event, rtc_steps);
         };
         match kind {
-            PseudostateKind::Initial
-            | PseudostateKind::Choice
-            | PseudostateKind::Junction
-            | PseudostateKind::EntryPoint
-            | PseudostateKind::ExitPoint => {
+            PseudostateKind::Initial | PseudostateKind::Choice | PseudostateKind::Junction => {
                 let transition = self
                     .select_pseudostate_transition(project, session, vertex.id, event)?
                     .ok_or_else(|| {
@@ -294,6 +290,18 @@ impl StateMachineExecutionEngine {
                         ))
                     })?;
                 self.fire_transition_inner(project, session, &transition, event, rtc_steps)
+            }
+            PseudostateKind::EntryPoint | PseudostateKind::ExitPoint => {
+                let message = format!(
+                    "State Machine execution reached {:?} '{}', but the authored metamodel does not identify a qualified connection-point owner/entry-exit mapping",
+                    kind, vertex.name
+                );
+                session.add_diagnostic(
+                    DiagnosticSeverity::Error,
+                    Some(self.machine()?.context_id),
+                    message.clone(),
+                );
+                Err(engine_error(message))
             }
             PseudostateKind::Fork => {
                 let mut outgoing = self.transitions_from(vertex.id);
@@ -380,35 +388,54 @@ impl StateMachineExecutionEngine {
             .get(&vertex_id)
             .cloned()
             .ok_or_else(|| engine_error("Transition target cannot be resolved"))?;
-        for ancestor_id in &location.ancestry {
-            if !self.active_states.contains(ancestor_id) {
-                let ancestor = index
-                    .get(ancestor_id)
-                    .ok_or_else(|| engine_error("Composite-state ancestry cannot be resolved"))?;
-                self.active_states.insert(*ancestor_id);
-                self.active_regions.insert(ancestor.region_id);
-                session.record_engine_trace(
-                    Some(self.machine()?.context_id),
-                    format!("Entered composite State '{}'", ancestor.vertex.name),
-                );
-                if let VertexKind::State(state) = &ancestor.vertex.kind {
-                    self.report_untyped_state_behaviors(session, &ancestor.vertex, state);
+
+        for (position, ancestor_id) in location.ancestry.iter().enumerate() {
+            if self.active_states.contains(ancestor_id) {
+                continue;
+            }
+            let ancestor = index
+                .get(ancestor_id)
+                .cloned()
+                .ok_or_else(|| engine_error("Composite-state ancestry cannot be resolved"))?;
+            self.active_states.insert(*ancestor_id);
+            self.active_regions.insert(ancestor.region_id);
+            session.record_engine_trace(
+                Some(self.machine()?.context_id),
+                format!("Entered composite State '{}'", ancestor.vertex.name),
+            );
+            if let VertexKind::State(state) = &ancestor.vertex.kind {
+                self.report_untyped_state_behaviors(session, &ancestor.vertex, state);
+                let next_vertex_id = location
+                    .ancestry
+                    .get(position + 1)
+                    .copied()
+                    .unwrap_or(vertex_id);
+                for region in sorted_regions(&state.regions) {
+                    if region_contains_vertex(region, next_vertex_id) {
+                        self.active_regions.insert(region.id);
+                        self.final_regions.remove(&region.id);
+                    } else {
+                        self.enter_region_initial(project, session, region.id, rtc_steps)?;
+                    }
                 }
             }
         }
+
         self.active_regions.insert(location.region_id);
         match &location.vertex.kind {
             VertexKind::State(state) => {
-                self.active_states.insert(vertex_id);
+                let newly_active = self.active_states.insert(vertex_id);
                 self.final_regions.remove(&location.region_id);
-                session.record_engine_trace(
-                    Some(self.machine()?.context_id),
-                    format!("Entered State '{}'", location.vertex.name),
-                );
-                self.report_untyped_state_behaviors(session, &location.vertex, state);
-                self.schedule_time_events(project, session, &location.vertex)?;
-                for region in sorted_regions(&state.regions) {
-                    self.enter_region_initial(project, session, region.id, rtc_steps)?;
+                if newly_active {
+                    session.record_engine_trace(
+                        Some(self.machine()?.context_id),
+                        format!("Entered State '{}'", location.vertex.name),
+                    );
+                    self.report_untyped_state_behaviors(session, &location.vertex, state);
+                    self.schedule_time_events(project, session, &location.vertex)?;
+                    for region in sorted_regions(&state.regions) {
+                        self.enter_region_initial(project, session, region.id, rtc_steps)?;
+                    }
                 }
                 Ok(())
             }
@@ -543,15 +570,34 @@ impl StateMachineExecutionEngine {
     ) -> Result<Option<TransitionLocation>, ExecutionError> {
         let mut outgoing = self.transitions_from(source_id);
         outgoing.sort_by_key(|location| location.transition.id.to_string());
-        let mut fallback = None;
+        let mut enabled = Vec::new();
+        let mut fallback = Vec::new();
         for transition in outgoing {
             if transition.transition.guard.as_deref() == Some("else") {
-                fallback = Some(transition);
+                fallback.push(transition);
             } else if self.guard_allows(project, session, &transition.transition.guard, event)? {
-                return Ok(Some(transition));
+                enabled.push(transition);
             }
         }
-        Ok(fallback)
+        if enabled.len() > 1 {
+            let ids = enabled
+                .iter()
+                .map(|transition| transition.transition.id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(engine_error(format!(
+                "Pseudostate has multiple enabled outgoing transitions with no semantic priority: {ids}"
+            )));
+        }
+        if let Some(selected) = enabled.into_iter().next() {
+            return Ok(Some(selected));
+        }
+        if fallback.len() > 1 {
+            return Err(engine_error(
+                "Pseudostate has more than one 'else' transition",
+            ));
+        }
+        Ok(fallback.into_iter().next())
     }
 
     fn refresh_enabled_transitions(
@@ -560,23 +606,15 @@ impl StateMachineExecutionEngine {
         session: &ExecutionSession,
         event: Option<&RuntimeEvent>,
     ) -> Result<(), ExecutionError> {
-        let candidates = if let Some(event) = event {
-            self.trigger_candidates(event).collect::<Vec<_>>()
+        if let Some(event) = event {
+            let selected = self.select_event_transition_set(project, session, event)?;
+            self.enabled_transition_ids = selected
+                .iter()
+                .map(|candidate| candidate.transition.id)
+                .collect();
         } else {
-            Vec::new()
-        };
-        let mut qualified = Vec::new();
-        for candidate in candidates {
-            if self.guard_allows(project, session, &candidate.transition.guard, event)? {
-                qualified.push(candidate);
-            }
+            self.enabled_transition_ids.clear();
         }
-        let mut candidates = qualified;
-        self.sort_candidates(&mut candidates);
-        self.enabled_transition_ids = candidates
-            .iter()
-            .map(|candidate| candidate.transition.id)
-            .collect();
         Ok(())
     }
 
@@ -604,6 +642,93 @@ impl StateMachineExecutionEngine {
                 .unwrap_or_default();
             (usize::MAX - depth, candidate.transition.id.to_string())
         });
+    }
+
+    fn candidate_depth(&self, candidate: &TransitionLocation) -> usize {
+        self.machine()
+            .map(build_vertex_index)
+            .ok()
+            .and_then(|index| {
+                index
+                    .get(&candidate.transition.source_id)
+                    .map(|location| location.ancestry.len())
+            })
+            .unwrap_or_default()
+    }
+
+    fn select_event_transition_set(
+        &mut self,
+        project: &Project,
+        session: &ExecutionSession,
+        event: &RuntimeEvent,
+    ) -> Result<Vec<TransitionLocation>, ExecutionError> {
+        let mut qualified = Vec::new();
+        for candidate in self.trigger_candidates(event) {
+            if self.guard_allows(project, session, &candidate.transition.guard, Some(event))? {
+                qualified.push(candidate);
+            }
+        }
+        self.sort_candidates(&mut qualified);
+
+        let mut selected: Vec<TransitionLocation> = Vec::new();
+        for candidate in qualified {
+            let candidate_depth = self.candidate_depth(&candidate);
+            let mut conflicting_depths = Vec::new();
+            for chosen in &selected {
+                if self.transitions_conflict(&candidate.transition, &chosen.transition)? {
+                    conflicting_depths.push(self.candidate_depth(chosen));
+                }
+            }
+            if conflicting_depths.is_empty() {
+                selected.push(candidate);
+                continue;
+            }
+            let highest_selected_depth = conflicting_depths.into_iter().max().unwrap_or_default();
+            if highest_selected_depth > candidate_depth {
+                continue;
+            }
+            let event_name = if event.name.is_empty() {
+                format!("{:?}", event.kind)
+            } else {
+                event.name.clone()
+            };
+            return Err(engine_error(format!(
+                "Ambiguous State Machine transition selection for event '{event_name}': multiple conflicting transitions are enabled at the same hierarchy priority"
+            )));
+        }
+
+        self.enabled_transition_ids = selected
+            .iter()
+            .map(|candidate| candidate.transition.id)
+            .collect();
+        Ok(selected)
+    }
+
+    fn transitions_conflict(
+        &self,
+        left: &Transition,
+        right: &Transition,
+    ) -> Result<bool, ExecutionError> {
+        if left.source_id == right.source_id {
+            return Ok(true);
+        }
+        let left_exit = self.exit_state_ids_for_transition(left)?;
+        let right_exit = self.exit_state_ids_for_transition(right)?;
+        Ok(!left_exit.is_disjoint(&right_exit))
+    }
+
+    fn fire_transition_set(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+        transitions: &[TransitionLocation],
+        event: Option<&RuntimeEvent>,
+        rtc_steps: &mut usize,
+    ) -> Result<(), ExecutionError> {
+        for transition in transitions {
+            self.fire_transition_inner(project, session, transition, event, rtc_steps)?;
+        }
+        Ok(())
     }
 
     fn fire_transition(
@@ -670,11 +795,13 @@ impl StateMachineExecutionEngine {
         Ok(())
     }
 
-    fn exit_for_transition(
-        &mut self,
-        session: &mut ExecutionSession,
+    fn exit_state_ids_for_transition(
+        &self,
         transition: &Transition,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<HashSet<VertexId>, ExecutionError> {
+        if transition.kind == TransitionKind::Internal {
+            return Ok(HashSet::new());
+        }
         let index = build_vertex_index(self.machine()?);
         let source = index
             .get(&transition.source_id)
@@ -682,17 +809,53 @@ impl StateMachineExecutionEngine {
         let target = index
             .get(&transition.target_id)
             .ok_or_else(|| engine_error("Transition target cannot be resolved"))?;
-        let retain_source = transition.kind == TransitionKind::Local
-            && target.ancestry.contains(&transition.source_id);
-        let mut exiting: Vec<_> = self
+        let source_is_state = matches!(source.vertex.kind, VertexKind::State(_));
+        let target_inside_source = source_is_state
+            && (target.vertex.id == source.vertex.id
+                || target.ancestry.contains(&source.vertex.id));
+
+        if transition.kind == TransitionKind::Local && target_inside_source {
+            return Ok(self
+                .active_states
+                .iter()
+                .filter_map(|id| index.get(id))
+                .filter(|location| location.ancestry.contains(&source.vertex.id))
+                .map(|location| location.vertex.id)
+                .collect());
+        }
+
+        let source_path = state_path(source);
+        let target_path = state_path(target);
+        let exit_roots = if target_inside_source {
+            vec![source.vertex.id]
+        } else {
+            let common = common_prefix_len(&source_path, &target_path);
+            source_path[common..].to_vec()
+        };
+
+        Ok(self
             .active_states
             .iter()
             .filter_map(|id| index.get(id))
             .filter(|location| {
-                location.vertex.id == source.vertex.id
-                    || location.ancestry.contains(&source.vertex.id)
+                exit_roots.iter().any(|root| {
+                    location.vertex.id == *root || location.ancestry.contains(root)
+                })
             })
-            .filter(|location| !(retain_source && location.vertex.id == source.vertex.id))
+            .map(|location| location.vertex.id)
+            .collect())
+    }
+
+    fn exit_for_transition(
+        &mut self,
+        session: &mut ExecutionSession,
+        transition: &Transition,
+    ) -> Result<(), ExecutionError> {
+        let index = build_vertex_index(self.machine()?);
+        let exiting_ids = self.exit_state_ids_for_transition(transition)?;
+        let mut exiting: Vec<_> = exiting_ids
+            .iter()
+            .filter_map(|id| index.get(id))
             .cloned()
             .collect();
         exiting.sort_by_key(|location| {
@@ -932,22 +1095,20 @@ impl ExecutionEngine for StateMachineExecutionEngine {
         event: &RuntimeEvent,
     ) -> Result<EngineStepOutcome, ExecutionError> {
         self.current_event = Some(event.clone());
-        let mut candidates: Vec<_> = self.trigger_candidates(event).collect();
-        let mut qualified = Vec::new();
-        for candidate in candidates.drain(..) {
-            if self.guard_allows(project, session, &candidate.transition.guard, Some(event))? {
-                qualified.push(candidate);
-            }
-        }
-        self.sort_candidates(&mut qualified);
-        self.enabled_transition_ids = qualified
-            .iter()
-            .map(|candidate| candidate.transition.id)
-            .collect();
-        let Some(selected) = qualified.first().cloned() else {
+        let selected = self.select_event_transition_set(project, session, event)?;
+        if selected.is_empty() {
             return Ok(EngineStepOutcome::Idle);
-        };
-        self.fire_transition(project, session, &selected, Some(event))?;
+        }
+
+        let mut rtc_steps = 0;
+        self.fire_transition_set(project, session, &selected, Some(event), &mut rtc_steps)?;
+
+        while !matches!(session.state, crate::ExecutionState::Completed) {
+            let Some(automatic) = self.select_automatic_transition(project, session)? else {
+                break;
+            };
+            self.fire_transition_inner(project, session, &automatic, None, &mut rtc_steps)?;
+        }
         self.finish_step(session)
     }
 }
@@ -979,6 +1140,38 @@ fn build_vertex_index(machine: &StateMachine) -> HashMap<VertexId, VertexLocatio
     let mut output = HashMap::new();
     visit(&machine.regions, &[], &mut output);
     output
+}
+
+fn state_path(location: &VertexLocation) -> Vec<VertexId> {
+    let mut path = location.ancestry.clone();
+    if matches!(location.vertex.kind, VertexKind::State(_)) {
+        path.push(location.vertex.id);
+    }
+    path
+}
+
+fn common_prefix_len(left: &[VertexId], right: &[VertexId]) -> usize {
+    left.iter()
+        .zip(right)
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
+fn region_contains_vertex(region: &Region, wanted: VertexId) -> bool {
+    for vertex in &region.vertices {
+        if vertex.id == wanted {
+            return true;
+        }
+        if let VertexKind::State(state) = &vertex.kind
+            && state
+                .regions
+                .iter()
+                .any(|nested| region_contains_vertex(nested, wanted))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn find_region(regions: &[Region], wanted: RegionId) -> Option<&Region> {
