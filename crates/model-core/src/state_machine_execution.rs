@@ -1424,6 +1424,9 @@ impl ExecutionEngine for StateMachineExecutionEngine {
         session: &mut ExecutionSession,
         event: &RuntimeEvent,
     ) -> Result<EngineStepOutcome, ExecutionError> {
+        if !self.event_is_relevant(project, session, event) {
+            return Ok(EngineStepOutcome::Idle);
+        }
         self.current_event = Some(event.clone());
 
         let mut child_ids: Vec<_> = self.submachine_engines.keys().copied().collect();

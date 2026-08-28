@@ -791,6 +791,17 @@ fn sequence_resolves_lifelines_and_executes_operation_then_signal() {
             .iter()
             .any(|state| state.state_id == active_state_id)
     );
+    let left_machine = machine_snapshots
+        .iter()
+        .find(|snapshot| snapshot.runtime_instance_id == Some(left))
+        .unwrap();
+    assert!(
+        left_machine
+            .active_states
+            .iter()
+            .all(|state| state.state_id != active_state_id),
+        "an addressed Sequence Signal must not drive another same-typed runtime occurrence"
+    );
 }
 
 #[test]
