@@ -1,5 +1,12 @@
 .state-machine-execution-panel{pointer-events:auto;user-select:text;overflow:auto}.structural-runtime-inspector{margin-top:8px;padding-top:8px;border-top:1px solid #d0d5dd;text-align:left}.structural-runtime-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;color:#344054}.structural-runtime-heading strong{font-size:12px;color:#175cd3}.structural-runtime-heading span{font-size:10px;color:#667085}.structural-runtime-tree{display:grid;gap:4px}.structural-runtime-instance{border-left:2px solid #d0d5dd;padding-left:7px}.structural-runtime-instance[data-depth="1"]{margin-left:10px}.structural-runtime-instance[data-depth="2"]{margin-left:20px}.structural-runtime-instance[data-depth="3"]{margin-left:30px}.structural-runtime-instance summary{cursor:pointer;font-weight:600;color:#344054}.structural-runtime-path{color:#175cd3}.structural-runtime-identity{display:flex;flex-wrap:wrap;gap:3px 8px;margin:4px 0;font:10px ui-monospace,SFMono-Regular,Consolas,monospace;color:#667085}.structural-runtime-behavior{display:grid;grid-template-columns:52px 1fr;gap:5px;margin:4px 0;padding:4px 6px;border-radius:3px;background:#ecfdf3;color:#067647}.structural-runtime-section{margin:5px 0}.structural-runtime-section>b{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#667085}.structural-runtime-section ul{margin:3px 0 0 16px;padding:0}.structural-runtime-section li{margin:2px 0}.structural-runtime-section small{display:block;color:#667085}.structural-runtime-tag{display:inline-block;padding:0 4px;border:1px solid #d0d5dd;border-radius:8px;font-size:9px;color:#475467;background:#f9fafb}.structural-runtime-children{display:grid;gap:4px;margin-top:5px}
 
+/* Execution controls are contextual to the diagram that is actually rendered.
+   This prevents stale Activity/Behavior selections from exposing both runtime
+   ribbons at once and keeps the Diagram ribbon on a single usable row. */
+body:not(:has(#canvas .activity-svg)) .activity-execution-ribbon-group,
+body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-group {
+  display: none !important;
+}
 
 .structural-runtime-config-backdrop {
   position: fixed;
