@@ -24,9 +24,13 @@ jobs:
         shell: bash
         run: |
           python scripts/pr35_finish.py
-          # The GitHub Actions token cannot modify workflow files. Restore those
-          # two paths for this bot commit; the user-authenticated connector will
-          # update CI and remove this temporary workflow after the runtime patch lands.
+          # Validate the generated application + CI wiring while ci.yml still
+          # contains the PR35 contract. The bot token cannot publish workflow
+          # edits, so workflow paths are restored only after these checks pass.
+          node --check apps/desktop/frontend/parametric-ui.js
+          node --check apps/desktop/frontend/behavior-authoritative-renderer.js
+          python scripts/validate_parametric_integration.py
+          python scripts/validate_parametric_runtime_integration.py
           git checkout HEAD -- .github/workflows/ci.yml .github/workflows/pr35-implement-runtime.yml
           python <<'PY'
           from pathlib import Path
@@ -39,10 +43,6 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
           cargo fmt --all
-          node --check apps/desktop/frontend/parametric-ui.js
-          node --check apps/desktop/frontend/behavior-authoritative-renderer.js
-          python scripts/validate_parametric_integration.py
-          python scripts/validate_parametric_runtime_integration.py
           cargo test -p systems-modeler-core --test pr35_parametric_runtime
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
