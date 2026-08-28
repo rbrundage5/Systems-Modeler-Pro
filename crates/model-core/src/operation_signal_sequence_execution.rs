@@ -653,11 +653,16 @@ impl ExecutionEngine for SequenceExecutionEngine {
 }
 
 fn parse_authored_value(value: &str) -> Result<RuntimeValue, ExecutionError> {
-    evaluate_execution_expression(value, |_| None).map_err(|error| {
-        engine_error(format!(
-            "Authored runtime value '{value}' is not a bounded literal expression: {error}"
-        ))
-    })
+    if let Ok(value) = evaluate_execution_expression(value, |_| None) {
+        return Ok(value);
+    }
+    serde_json::from_str::<String>(value)
+        .map(RuntimeValue::Text)
+        .map_err(|error| {
+            engine_error(format!(
+                "Authored runtime value '{value}' is not a bounded literal: {error}"
+            ))
+        })
 }
 
 fn message_order(message: &Message) -> (u32, u32) {

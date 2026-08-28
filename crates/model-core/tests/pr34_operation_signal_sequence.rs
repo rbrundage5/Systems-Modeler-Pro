@@ -490,7 +490,9 @@ fn call_operation_action_uses_the_modeled_operation_runtime() {
     let (left, _) = occurrences(&fixture, &session);
     let mut engine =
         ActivityExecutionEngine::new(repository, activity_id).with_runtime_instance(left);
-    engine.initialize(&fixture.project, &mut session).unwrap();
+    engine
+        .initialize_embedded(&fixture.project, &mut session)
+        .unwrap();
     for _ in 0..10 {
         if engine.advance(&fixture.project, &mut session).unwrap()
             == ActivityAdvanceOutcome::Completed
@@ -585,7 +587,9 @@ fn send_and_accept_actions_share_typed_structural_signal_delivery() {
     let (left, right) = occurrences(&fixture, &session);
     let mut receiver =
         ActivityExecutionEngine::new(repository.clone(), receiver_id).with_runtime_instance(right);
-    receiver.initialize(&fixture.project, &mut session).unwrap();
+    receiver
+        .initialize_embedded(&fixture.project, &mut session)
+        .unwrap();
     assert_eq!(
         receiver.step(&fixture.project, &mut session).unwrap(),
         EngineStepOutcome::Progressed
@@ -601,7 +605,9 @@ fn send_and_accept_actions_share_typed_structural_signal_delivery() {
 
     let mut sender =
         ActivityExecutionEngine::new(repository, sender_id).with_runtime_instance(left);
-    sender.initialize(&fixture.project, &mut session).unwrap();
+    sender
+        .initialize_embedded(&fixture.project, &mut session)
+        .unwrap();
     sender.step(&fixture.project, &mut session).unwrap();
     sender.step(&fixture.project, &mut session).unwrap();
     let event = session.step().unwrap().unwrap();

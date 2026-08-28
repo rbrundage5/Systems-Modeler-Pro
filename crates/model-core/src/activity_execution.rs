@@ -183,6 +183,27 @@ impl ActivityExecutionEngine {
         self.root_activity_id
     }
 
+    /// Initializes an Activity engine inside an already initialized execution
+    /// session. This is the composition path for multiple behavior engines
+    /// sharing the same structural occurrences and event queue.
+    pub fn initialize_embedded(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+    ) -> Result<(), ExecutionError> {
+        if self.runtime_instance_id.is_none() {
+            self.runtime_instance_id = session.root_runtime_instance_id();
+        }
+        if let Some(instance_id) = self.runtime_instance_id {
+            session
+                .instances
+                .get(&instance_id)
+                .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
+        }
+        self.clear_runtime();
+        self.initialize_root_frame(project, session)
+    }
+
     pub fn reset(
         &mut self,
         project: &Project,
@@ -1671,17 +1692,7 @@ impl ExecutionEngine for ActivityExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
         session.initialize(project)?;
-        if self.runtime_instance_id.is_none() {
-            self.runtime_instance_id = session.root_runtime_instance_id();
-        }
-        if let Some(instance_id) = self.runtime_instance_id {
-            session
-                .instances
-                .get(&instance_id)
-                .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
-        }
-        self.clear_runtime();
-        self.initialize_root_frame(project, session)
+        self.initialize_embedded(project, session)
     }
 
     fn step(
