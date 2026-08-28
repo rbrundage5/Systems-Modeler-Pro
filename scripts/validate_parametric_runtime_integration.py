@@ -53,9 +53,10 @@ for token in [
     "reset_parametric_execution",
     "terminate_parametric_execution",
     "parametric_execution_runtime_selection",
-    "ExecutionManager",
 ]:
     assert token in desktop and token in main, f"missing desktop Parametric runtime command: {token}"
+
+assert "ExecutionManager" in desktop, "Parametric runtime must reuse the shared ExecutionManager"
 
 for token in [
     "data-parametric-execution",
