@@ -61,12 +61,12 @@ assert "finally" in commit_body
 assert "render();" not in commit_body, "commit must not render a pre-refresh snapshot"
 assert "window.smpCommitPresentationGeometry = commit" in frontend
 assert "window.smpBeginPresentationGesture = beginPointerGesture" in frontend
-assert "DRAG_THRESHOLD_PX = 3" in frontend
-assert "cancelTransientAuthoring" in frontend
 assert "window.addEventListener('pointermove', onMove, true)" in frontend
 assert "window.addEventListener('pointerup', onUp, true)" in frontend
 assert "window.addEventListener('pointercancel', onCancel, true)" in frontend
 assert "addEventListener('pointerdown'" in frontend
+assert "DRAG_THRESHOLD_PX = 3" in frontend
+assert "cancelTransientAuthoring" in frontend
 assert ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px;" in frontend
 assert "await config.commit(next);" in frontend
 assert "stopImmediatePropagation" in frontend, "resize click must not trigger a stale render"
