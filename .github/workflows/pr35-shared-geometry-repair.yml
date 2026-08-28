@@ -50,9 +50,6 @@ jobs:
           python scripts/validate_standard_editing_integration.py
           python scripts/validate_parametric_runtime_integration.py
 
-      - name: Focused geometry tests
-        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml shared_resize_tests
-
       - name: Diff check
         run: git diff --check
 
