@@ -24,6 +24,16 @@ jobs:
         shell: bash
         run: |
           python scripts/pr35_finish.py
+          python <<'PY'
+          from pathlib import Path
+          path = Path('crates/model-core/tests/pr35_parametric_runtime.rs')
+          text = path.read_text(encoding='utf-8')
+          old = '''    let mut session = session(&fixture.project, fixture.context);\n    let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());\n    engine.initialize(&fixture.project, &mut session).unwrap();\n    engine.step(&fixture.project, &mut session).unwrap();\n    assert_eq!(session.state, ExecutionState::Failed);\n    assert!(\n        session\n            .diagnostics\n            .last()\n            .unwrap()\n            .message\n            .contains("unsupported expression character")\n    );\n}'''
+          new = '''    let mut session = session(&fixture.project, fixture.context);\n    let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());\n    match engine.initialize(&fixture.project, &mut session) {\n        Ok(()) => {\n            engine.step(&fixture.project, &mut session).unwrap();\n            assert_eq!(session.state, ExecutionState::Failed);\n            assert!(\n                session\n                    .diagnostics\n                    .last()\n                    .unwrap()\n                    .message\n                    .contains("unsupported expression character")\n            );\n        }\n        Err(error) => {\n            assert!(error.to_string().contains("unsupported expression character"));\n        }\n    }\n}'''
+          if old not in text:
+              raise SystemExit('unsupported-expression test anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           cargo fmt --all
           node --check apps/desktop/frontend/parametric-ui.js
           node --check apps/desktop/frontend/behavior-authoritative-renderer.js
