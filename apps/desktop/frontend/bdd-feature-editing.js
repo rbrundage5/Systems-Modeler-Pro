@@ -41,6 +41,8 @@
     const isPort = element.kind === 'ProxyPort' || element.kind === 'FullPort';
     const isParameter = element.kind === 'Parameter';
     const isFlowProperty = element.kind === 'FlowProperty';
+    const isReception = element.kind === 'Reception';
+    const signals = project.elements.filter((candidate) => candidate.kind === 'Signal');
     const quantityKinds = project.elements.filter((candidate) => candidate.kind === 'QuantityKind');
     const units = project.elements.filter((candidate) => candidate.kind === 'Unit');
 
@@ -49,6 +51,7 @@
       <label>Documentation<textarea id="property-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label>
       <label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label>
       ${element.type_id ? `<label>Type<input value="${escapeAttr(typeName(project, element))}" disabled></label>` : ''}
+      ${isReception ? `<label>Accepted Signal<select id="property-reception-signal"><option value="">Select Signal</option>${signals.map((candidate) => `<option value="${escapeAttr(candidate.id)}" ${String(candidate.id) === String(element.type_id || '') ? 'selected' : ''}>${escapeHtml(candidate.name)}</option>`).join('')}</select></label>` : ''}
       ${supportsMultiplicity ? `<label>Multiplicity<input id="property-multiplicity" value="${escapeAttr(element.multiplicity || '1')}"></label>` : ''}
       ${supportsAggregation ? `<label>Aggregation<select id="property-aggregation"><option value="none">none</option><option value="shared">shared</option><option value="composite">composite</option></select></label>` : ''}
       ${element.kind === 'ValueType' ? `<label>Quantity Kind ID<input id="property-quantity-kind" list="quantity-kind-ids" value="${escapeAttr(element.quantity_kind_external_id || '')}"></label><datalist id="quantity-kind-ids">${quantityKinds.map((item) => `<option value="${escapeAttr(item.external_id)}">${escapeHtml(item.name)}</option>`).join('')}</datalist><label>Unit ID<input id="property-unit" list="unit-ids" value="${escapeAttr(element.unit_external_id || '')}"></label><datalist id="unit-ids">${units.map((item) => `<option value="${escapeAttr(item.external_id)}">${escapeHtml(item.name)}</option>`).join('')}</datalist>` : ''}
@@ -84,6 +87,7 @@
       const isConjugated = isPort ? $('property-conjugated').checked : null;
       const parameterDirection = isParameter ? $('property-direction').value : null;
       const flowDirection = isFlowProperty ? $('property-flow-direction').value : null;
+      const typeId = isReception ? ($('property-reception-signal')?.value || null) : null;
 
       if (name !== element.name) {
         await runCommand('Renaming element…', () => requireInvoke()('rename_element', {
@@ -98,6 +102,7 @@
         defaultValue,
         quantityKindExternalId,
         unitExternalId,
+        typeId,
       }));
 
       if (supportsMultiplicity) {

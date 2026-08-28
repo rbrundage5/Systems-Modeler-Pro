@@ -17,6 +17,10 @@ index = read("apps/desktop/frontend/index.html")
 workflow = read(".github/workflows/ci.yml")
 tests = read("crates/model-core/tests/pr34_operation_signal_sequence.rs")
 editing = read("scripts/validate_standard_editing_integration.py")
+bdd_completion = read("apps/desktop/frontend/bdd-completion-ui.js")
+bdd_features = read("apps/desktop/frontend/bdd-feature-editing.js")
+bdd_commands = read("apps/desktop/src-tauri/src/workspace/bdd_elements.rs")
+model = read("crates/model-core/src/model.rs")
 
 for token in [
     "ModeledOperationRequest",
@@ -93,6 +97,16 @@ for forbidden in [
     "eval(", "new Function(", "setInterval(", "requestAnimationFrame(source", "geometry.order",
 ]:
     assert forbidden not in frontend, f"frontend-owned execution semantic detected: {forbidden}"
+
+
+for token, source in [
+    ("Reception: ['Signal']", bdd_completion),
+    ("property-reception-signal", bdd_features),
+    ("Reception requires a modeled Signal stable type ID", bdd_commands),
+    ("ElementKind::Reception => matches!(type_kind, ElementKind::Signal)", model),
+    ("reception_type_is_restricted_to_modeled_signal", tests),
+]:
+    assert token in source, f"missing Reception/Signal authoring contract: {token}"
 
 print(
     "PR34 Operation/Signal/Sequence integration contract passed: modeled Operations, "

@@ -76,6 +76,7 @@ async function chooseTypeId(kind) {
     ValueProperty: ['ValueType', 'DataType', 'Enumeration'], ConstraintProperty: ['ConstraintBlock'],
     ProxyPort: ['InterfaceBlock', 'Block', 'DataType'], FullPort: ['InterfaceBlock', 'Block', 'DataType'],
     Parameter: ['Block', 'InterfaceBlock', 'ValueType', 'DataType', 'Enumeration'],
+    Reception: ['Signal'],
     ConstraintParameter: ['ValueType', 'DataType', 'PrimitiveType', 'Enumeration'],
   }[kind] || [];
   const choices = project.elements.filter((element) => compatible.includes(element.kind));
@@ -101,8 +102,9 @@ async function createFeatureFromPalette(item) {
     ? 'ConstraintParameter'
     : item.semantic_kind;
   const name = prompt(`${item.label} name`, `New ${item.label}`); if (!name) return;
-  const typeId = BDD_TYPED_FEATURE_KINDS.has(semanticKind) ? await chooseTypeId(semanticKind) : null;
-  if (BDD_TYPED_FEATURE_KINDS.has(semanticKind) && !typeId) return;
+  const needsType = BDD_TYPED_FEATURE_KINDS.has(semanticKind) || semanticKind === 'Reception';
+  const typeId = needsType ? await chooseTypeId(semanticKind) : null;
+  if (needsType && !typeId) return;
   let lower = null, upper = null;
   let notation = null;
   if (BDD_TYPED_FEATURE_KINDS.has(semanticKind)) {

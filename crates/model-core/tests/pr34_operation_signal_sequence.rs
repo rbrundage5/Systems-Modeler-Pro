@@ -826,3 +826,27 @@ fn sequence_order_reset_and_authored_model_are_deterministic() {
     assert_eq!(before, serde_json::to_string(&fixture.project).unwrap());
     assert_eq!(authored, serde_json::to_string(&repository).unwrap());
 }
+
+#[test]
+fn reception_type_is_restricted_to_modeled_signal() {
+    let mut project = Project::new("Reception typing");
+    let package = project
+        .create_element(ElementKind::Package, "Pkg", project.root_id)
+        .unwrap();
+    let controller = project
+        .create_element(ElementKind::Block, "Controller", package)
+        .unwrap();
+    let wrong_type = project
+        .create_element(ElementKind::Block, "WrongType", package)
+        .unwrap();
+    let start = project
+        .create_element(ElementKind::Signal, "Start", package)
+        .unwrap();
+    let reception = project
+        .create_element(ElementKind::Reception, "receiveStart", controller)
+        .unwrap();
+
+    assert!(project.set_element_type(reception, wrong_type).is_err());
+    project.set_element_type(reception, start).unwrap();
+    assert_eq!(project.element(reception).unwrap().type_id, Some(start));
+}
