@@ -61,6 +61,8 @@ assert "finally" in commit_body
 assert "render();" not in commit_body, "commit must not render a pre-refresh snapshot"
 assert "window.smpCommitPresentationGeometry = commit" in frontend
 assert "window.smpBeginPresentationGesture = beginPointerGesture" in frontend
+assert "DRAG_THRESHOLD_PX = 3" in frontend
+assert "cancelTransientAuthoring" in frontend
 assert "window.addEventListener('pointermove', onMove, true)" in frontend
 assert "window.addEventListener('pointerup', onUp, true)" in frontend
 assert "window.addEventListener('pointercancel', onCancel, true)" in frontend
@@ -68,6 +70,17 @@ assert "addEventListener('pointerdown'" in frontend
 assert ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px;" in frontend
 assert "await config.commit(next);" in frontend
 assert "stopImmediatePropagation" in frontend, "resize click must not trigger a stale render"
+
+# BDD, IBD, Use Case subject boundaries, and State Machine HTML presentations
+# must consume the same pointer-gesture kernel. Family-specific code may choose
+# geometry constraints and Rust commands, but it must not create another raw
+# pointer lifecycle for these presentation families.
+shared_html_geometry = frontend.split("function bindHtmlGeometry", 1)[1].split(
+    "function installBdd", 1
+)[0]
+assert "beginPointerGesture(event" in shared_html_geometry
+assert ".onpointerdown" not in shared_html_geometry
+assert "addEventListener('pointerdown'" in shared_html_geometry
 
 # The historical structural rebind competed with the generic controller. All
 # structural families now share stable presentation lookup and command routing.
@@ -108,12 +121,14 @@ assert "window.smpCommitPresentationGeometry" in state_bar_frontend
 assert "window.smpCommitPresentationGeometry" in sequence_frontend
 assert "resize_sequence_lifeline_timeline" in sequence_frontend
 
-# Rust commands reroute attached notation and own the undo checkpoint. Focused
-# Rust tests cover immediate snapshots, persistence, and undo/redo for a BDD,
-# Package Diagram, and a behavioral Sequence presentation.
+# Rust commands reroute only notation attached to the moved/resized presentation,
+# own the undo checkpoint, and preserve IBD boundary-port attachment. Unrelated
+# stale routes must never make direct geometry editing fail.
 assert "reroute_connected_bdd_edges" in interaction_rs, "BDD geometry must reroute incident edges without making unrelated routes block editing"
 assert "apply_ibd_property_geometry" in interaction_rs, "IBD property geometry must keep nested ports attached"
 assert "affected_ids" in interaction_rs, "IBD property movement must reroute only incident connectors"
+assert ".filter(|edge|" in interaction_rs and "edge.source_presentation_id == presentation_id" in interaction_rs
+assert "ibd_nested_ports_follow_shared_property_move_and_resize_geometry" in interaction_rs
 assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not boundary constrained"
