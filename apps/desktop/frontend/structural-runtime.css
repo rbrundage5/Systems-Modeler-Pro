@@ -3,8 +3,9 @@
 /* Execution controls are contextual to the diagram that is actually rendered.
    This prevents stale Activity/Behavior selections from exposing both runtime
    ribbons at once. */
-body:not(:has(#canvas .activity-svg)) .activity-execution-ribbon-group,
-body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-group {
+body:not([data-execution-family="activity"]) .activity-execution-ribbon-group,
+body:not([data-execution-family="state-machine"]) .state-machine-execution-ribbon-group,
+body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group {
   display: none !important;
 }
 
@@ -16,7 +17,8 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
   overflow-y: hidden !important;
 }
 .activity-execution-ribbon-group,
-.state-machine-execution-ribbon-group {
+.state-machine-execution-ribbon-group,
+.sequence-execution-ribbon-group {
   flex-direction: row !important;
   align-items: center !important;
   justify-content: flex-start !important;
@@ -26,7 +28,8 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
   padding-bottom: 0 !important;
 }
 .activity-execution-ribbon-group .ribbon-actions,
-.state-machine-execution-ribbon-group .ribbon-actions {
+.state-machine-execution-ribbon-group .ribbon-actions,
+.sequence-execution-ribbon-group .ribbon-actions {
   display: flex !important;
   flex-wrap: nowrap !important;
   min-height: 0 !important;
@@ -34,11 +37,13 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
   align-items: center !important;
 }
 .activity-execution-ribbon-group .ribbon-label,
-.state-machine-execution-ribbon-group .ribbon-label {
+.state-machine-execution-ribbon-group .ribbon-label,
+.sequence-execution-ribbon-group .ribbon-label {
   display: none !important;
 }
 .activity-execution-ribbon-group .ribbon-command,
-.state-machine-execution-ribbon-group .ribbon-command {
+.state-machine-execution-ribbon-group .ribbon-command,
+.sequence-execution-ribbon-group .ribbon-command {
   flex: 0 0 auto;
 }
 

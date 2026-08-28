@@ -42,7 +42,7 @@
     const context=state.context;
     document.getElementById('workspace-diagram-title').textContent = context ? '' : 'No diagram selected';
     const contextLabel=document.getElementById('workspace-diagram-context');contextLabel.textContent=context?.family.displayName||'Select a diagram from the repository';contextLabel.title=context?.semanticContextId?`Semantic context: ${context.semanticContextId}`:'';
-    canvas.setAttribute('aria-label',context?.family.accessibilityName||'Diagram canvas'); canvas.dataset.family=context?.family.id||''; document.getElementById('workspace-header').dataset.family=context?.family.id||'';
+    canvas.setAttribute('aria-label',context?.family.accessibilityName||'Diagram canvas'); canvas.dataset.family=context?.family.id||''; document.body.dataset.executionFamily=context?.family.id||''; document.getElementById('workspace-header').dataset.family=context?.family.id||'';
   }
   function diagramSurfaceCandidate() {
     return [...canvas.children].find((node) =>
