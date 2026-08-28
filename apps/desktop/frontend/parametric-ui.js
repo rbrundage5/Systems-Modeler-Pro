@@ -370,6 +370,7 @@
       });
       render();
     };
+    queueMicrotask(loadParametricExecutionSnapshot);
   };
 
   const baseCreatePaletteElementAt = createPaletteElementAt;
@@ -738,13 +739,6 @@
     await selectDiagram(selectedDiagramId);
   }
 
-
-  const baseParametricRenderWithRuntime = renderCanvas;
-  renderCanvas = function renderParametricCanvasWithRuntime() {
-    const result = baseParametricRenderWithRuntime();
-    queueMicrotask(loadParametricExecutionSnapshot);
-    return result;
-  };
 
   window.smpCreateParametricDiagram = createParametricDiagram;
 })();
