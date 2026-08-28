@@ -1,8 +1,6 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
-use super::{
-    WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases, validate_loaded_diagrams,
-};
+use super::{WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases};
 
 fn validate_geometry(
     x: f64,
@@ -21,6 +19,105 @@ fn validate_geometry(
         ));
     }
     Ok(())
+}
+
+fn reroute_connected_bdd_edges(
+    diagram: &mut super::BddDiagram,
+    presentation_id: &str,
+) -> Result<(), String> {
+    let connected_ids: Vec<_> = diagram
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.source_node_id == presentation_id || edge.target_node_id == presentation_id
+        })
+        .map(|edge| edge.id.clone())
+        .collect();
+    if connected_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Geometry editing must not be rejected by an unrelated stale route. Route
+    // only edges incident to the presentation being manipulated, while retaining
+    // every unrelated route exactly as authored/routed before the gesture.
+    let mut routing_diagram = diagram.clone();
+    routing_diagram
+        .edges
+        .retain(|edge| connected_ids.iter().any(|id| id == &edge.id));
+    let routed = routed_bdd_edges(&routing_diagram, None)?;
+    for routed_edge in routed {
+        if let Some(edge) = diagram
+            .edges
+            .iter_mut()
+            .find(|edge| edge.id == routed_edge.id)
+        {
+            *edge = routed_edge;
+        }
+    }
+    Ok(())
+}
+
+fn apply_ibd_property_geometry(
+    property: &mut ibd::IbdPropertyPresentation,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    let old_left = property.x;
+    let old_right = property.x + property.width;
+    let old_top = property.y;
+    let old_bottom = property.y + property.height;
+    let old_width = property.width.max(1.0);
+    let old_height = property.height.max(1.0);
+    let anchors: Vec<_> = property
+        .ports
+        .iter()
+        .map(|port| {
+            let distances = [
+                (port.x - old_left).abs(),
+                (port.x - old_right).abs(),
+                (port.y - old_top).abs(),
+                (port.y - old_bottom).abs(),
+            ];
+            let side = distances
+                .iter()
+                .enumerate()
+                .min_by(|a, b| a.1.total_cmp(b.1))
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+            let fraction = match side {
+                0 | 1 => ((port.y - old_top) / old_height).clamp(0.0, 1.0),
+                _ => ((port.x - old_left) / old_width).clamp(0.0, 1.0),
+            };
+            (side, fraction)
+        })
+        .collect();
+
+    property.x = x;
+    property.y = y;
+    property.width = width;
+    property.height = height;
+    for (port, (side, fraction)) in property.ports.iter_mut().zip(anchors) {
+        match side {
+            0 => {
+                port.x = x;
+                port.y = y + height * fraction;
+            }
+            1 => {
+                port.x = x + width;
+                port.y = y + height * fraction;
+            }
+            2 => {
+                port.x = x + width * fraction;
+                port.y = y;
+            }
+            _ => {
+                port.x = x + width * fraction;
+                port.y = y + height;
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // Shared geometry primitive mirrors the named IPC fields.
@@ -50,8 +147,8 @@ fn apply_bdd_presentation_geometry(
     node.height = height;
     use_cases::fit_use_case_subject_boundary(diagram, project, false);
 
-    diagram.edges = routed_bdd_edges(diagram, None)?;
-    validate_loaded_diagrams(project, diagrams)
+    reroute_connected_bdd_edges(diagram, presentation_id)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -117,19 +214,26 @@ pub fn update_ibd_property_geometry(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("IBD not found")?;
-    let property = diagram
-        .properties
-        .iter_mut()
-        .find(|property| property.id == presentation_id)
-        .ok_or("IBD property presentation not found")?;
-    property.x = x;
-    property.y = y;
-    property.width = width;
-    property.height = height;
+    let affected_ids = {
+        let property = diagram
+            .properties
+            .iter_mut()
+            .find(|property| property.id == presentation_id)
+            .ok_or("IBD property presentation not found")?;
+        apply_ibd_property_geometry(property, x, y, width, height);
+        let mut ids = vec![property.id.clone()];
+        ids.extend(property.ports.iter().map(|port| port.id.clone()));
+        ids
+    };
 
     let endpoints: Vec<_> = diagram
         .connectors
         .iter()
+        .filter(|edge| {
+            affected_ids
+                .iter()
+                .any(|id| id == &edge.source_presentation_id || id == &edge.target_presentation_id)
+        })
         .map(|edge| {
             (
                 edge.id.clone(),
@@ -279,6 +383,10 @@ pub fn update_ibd_port_geometry(
     let endpoints: Vec<_> = diagram
         .connectors
         .iter()
+        .filter(|edge| {
+            edge.source_presentation_id == presentation_id
+                || edge.target_presentation_id == presentation_id
+        })
         .map(|edge| {
             (
                 edge.id.clone(),
@@ -345,7 +453,7 @@ pub fn update_state_presentation_geometry(
         .behavior
         .lock()
         .map_err(|_| "behavior lock poisoned")?;
-    behavior_workspace::reroute_behavior_presentation(diagram, &repository, None)?;
+    behavior_workspace::reroute_incident_state_transitions(diagram, &repository, &state_vertex_id)?;
     drop(repository);
 
     history::checkpoint_states(&state, &activity, &history)?;
@@ -399,7 +507,9 @@ pub fn update_activity_presentation_geometry(
             height: node.height,
         })
         .collect();
-    for edge in &mut diagram.edges {
+    for edge in diagram.edges.iter_mut().filter(|edge| {
+        edge.source_node_id == presentation_id || edge.target_node_id == presentation_id
+    }) {
         let source = diagram
             .nodes
             .iter()
@@ -606,5 +716,58 @@ mod shared_resize_tests {
             (redone[1].nodes[0].width, redone[1].nodes[0].height),
             (280.0, 150.0)
         );
+    }
+
+    #[test]
+    fn ibd_nested_ports_follow_shared_property_move_and_resize_geometry() {
+        let mut property = ibd::IbdPropertyPresentation {
+            id: "property".into(),
+            element_id: "element".into(),
+            property_path: Vec::new(),
+            x: 100.0,
+            y: 100.0,
+            width: 200.0,
+            height: 100.0,
+            ports: vec![
+                ibd::IbdPortPresentation {
+                    id: "left".into(),
+                    element_id: "port-left".into(),
+                    property_path: Vec::new(),
+                    x: 100.0,
+                    y: 125.0,
+                    size: 16.0,
+                },
+                ibd::IbdPortPresentation {
+                    id: "right".into(),
+                    element_id: "port-right".into(),
+                    property_path: Vec::new(),
+                    x: 300.0,
+                    y: 175.0,
+                    size: 16.0,
+                },
+                ibd::IbdPortPresentation {
+                    id: "top".into(),
+                    element_id: "port-top".into(),
+                    property_path: Vec::new(),
+                    x: 150.0,
+                    y: 100.0,
+                    size: 16.0,
+                },
+                ibd::IbdPortPresentation {
+                    id: "bottom".into(),
+                    element_id: "port-bottom".into(),
+                    property_path: Vec::new(),
+                    x: 250.0,
+                    y: 200.0,
+                    size: 16.0,
+                },
+            ],
+        };
+
+        apply_ibd_property_geometry(&mut property, 300.0, 250.0, 400.0, 200.0);
+        assert_eq!((property.ports[0].x, property.ports[0].y), (300.0, 300.0));
+        assert_eq!((property.ports[1].x, property.ports[1].y), (700.0, 400.0));
+        assert_eq!((property.ports[2].x, property.ports[2].y), (400.0, 250.0));
+        assert_eq!((property.ports[3].x, property.ports[3].y), (600.0, 450.0));
     }
 }

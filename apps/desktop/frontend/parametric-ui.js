@@ -10,6 +10,142 @@
     );
   }
 
+
+  Object.assign(state, { parametricExecutionSnapshot: null });
+
+  function currentParametricExecution() {
+    const diagram = selectedParametricDiagram();
+    const snapshot = state.parametricExecutionSnapshot;
+    return snapshot && diagram && String(snapshot.context_id) === String(diagram.semantic_context_id)
+      ? snapshot
+      : null;
+  }
+
+  function visualizeParametricExecution() {
+    const snapshot = currentParametricExecution();
+    const calculated = new Set((snapshot?.updates || []).map((update) => String(update.element_id)));
+    const evaluated = new Set((snapshot?.evaluated_constraint_property_ids || []).map(String));
+    document.querySelectorAll('.parametric-presentation[data-element-id]').forEach((node) => {
+      const id = String(node.dataset.elementId || '');
+      node.classList.toggle('runtime-calculated-value', calculated.has(id));
+      node.classList.toggle('runtime-evaluated-constraint', evaluated.has(id));
+    });
+  }
+
+  function renderParametricExecutionPanel() {
+    const host = document.querySelector('.diagram-workspace');
+    const snapshot = currentParametricExecution();
+    let panel = document.querySelector('.parametric-execution-panel');
+    if (!host || !snapshot) {
+      panel?.remove();
+      return;
+    }
+    if (!panel) {
+      panel = document.createElement('aside');
+      panel.className = 'parametric-execution-panel';
+      panel.dataset.workspaceOverlay = 'true';
+      host.appendChild(panel);
+    }
+    const execution = snapshot.execution;
+    const diagnostics = (execution.diagnostics || []).slice(-4);
+    const trace = (execution.trace || []).slice(-6);
+    const updates = snapshot.updates || [];
+    panel.innerHTML = `<div class="parametric-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${escapeHtml(snapshot.runtime_instance_path || 'model scope')}</span></div>
+      <div class="parametric-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.evaluated_constraints || 0} constraint(s)</span><span>${updates.length} calculated value(s)</span></div>
+      ${updates.length ? `<div class="parametric-execution-values">${updates.map((update) => `<div><b>${escapeHtml(update.element_name)}</b><span>${escapeHtml(update.display_value)}</span></div>`).join('')}</div>` : ''}
+      ${diagnostics.length ? `<div class="parametric-execution-diagnostics">${diagnostics.map((item) => `<div>${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
+      <div class="parametric-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>
+      ${window.renderStructuralRuntimeInspector?.(snapshot) || ''}`;
+  }
+
+  function refreshParametricExecution() {
+    const visible = Boolean(selectedParametricDiagram());
+    let group = document.querySelector('.parametric-execution-ribbon-group');
+    if (!group) {
+      group = document.createElement('section');
+      group.className = 'ribbon-group parametric-execution-ribbon-group';
+      const controls = [
+        ['runtime', '◎', 'Runtime'], ['initialize', '◇', 'Initialize'],
+        ['evaluate', '▶', 'Evaluate'], ['step', '▸', 'Step'],
+        ['reset', '↺', 'Reset'], ['terminate', '■', 'Terminate'],
+      ];
+      group.innerHTML = `<div class="ribbon-actions parametric-execution-actions">${controls.map(([command, icon, label]) => `<button class="ribbon-command" data-parametric-execution="${command}"><span class="command-icon">${icon}</span><span>${label}</span></button>`).join('')}</div><div class="ribbon-label">Parametric Execution</div>`;
+      group.addEventListener('click', handleParametricExecutionCommand);
+      document.querySelector('.ribbon')?.insertBefore(group, document.querySelector('.ribbon-context'));
+    }
+    group.hidden = !visible;
+    const snapshot = currentParametricExecution();
+    const current = snapshot?.execution?.state || 'Not initialized';
+    group.querySelectorAll('[data-parametric-execution]').forEach((button) => {
+      const command = button.dataset.parametricExecution;
+      button.disabled = !visible
+        || (command === 'step' && (!snapshot || ['Completed', 'Failed', 'Terminated'].includes(current)))
+        || (command === 'reset' && !snapshot)
+        || (command === 'terminate' && (!snapshot || ['Completed', 'Failed', 'Terminated'].includes(current)));
+    });
+    visualizeParametricExecution();
+    renderParametricExecutionPanel();
+  }
+
+  async function invokeParametricExecution(command) {
+    const diagram = selectedParametricDiagram();
+    if (!diagram) throw new Error('Open a Parametric Diagram first.');
+    const snapshot = await requireInvoke()(command, { diagramId: diagram.id });
+    Object.assign(state, { parametricExecutionSnapshot: snapshot });
+    refreshParametricExecution();
+    return snapshot;
+  }
+
+  async function evaluateParametricRuntime() {
+    return invokeParametricExecution('evaluate_parametric_execution');
+  }
+
+  async function handleParametricExecutionCommand(event) {
+    const command = event.target.closest?.('[data-parametric-execution]')?.dataset.parametricExecution;
+    if (!command) return;
+    try {
+      if (command === 'runtime') {
+        const diagram = selectedParametricDiagram();
+        await window.smpOpenStructuralRuntimeConfiguration?.('parametric', diagram.id);
+        Object.assign(state, { parametricExecutionSnapshot: null });
+        refreshParametricExecution();
+      } else if (command === 'initialize') {
+        await invokeParametricExecution('initialize_parametric_execution');
+      } else if (command === 'evaluate') {
+        await evaluateParametricRuntime();
+      } else if (command === 'step') {
+        if (!currentParametricExecution()) await invokeParametricExecution('initialize_parametric_execution');
+        await invokeParametricExecution('step_parametric_execution');
+      } else if (command === 'reset') {
+        await invokeParametricExecution('reset_parametric_execution');
+      } else if (command === 'terminate') {
+        await invokeParametricExecution('terminate_parametric_execution');
+      }
+    } catch (error) {
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
+      refreshParametricExecution();
+    }
+  }
+
+  async function loadParametricExecutionSnapshot() {
+    const diagram = selectedParametricDiagram();
+    if (!diagram) {
+      Object.assign(state, { parametricExecutionSnapshot: null });
+      refreshParametricExecution();
+      return;
+    }
+    try {
+      const snapshot = await requireInvoke()('parametric_execution_snapshot', { diagramId: diagram.id });
+      Object.assign(state, { parametricExecutionSnapshot: snapshot });
+    } catch (_error) {
+      Object.assign(state, { parametricExecutionSnapshot: null });
+    }
+    refreshParametricExecution();
+  }
+
+  window.smpRefreshParametricExecution = refreshParametricExecution;
+  window.smpEvaluateParametricRuntime = evaluateParametricRuntime;
+
   function elementMap() {
     return new Map((state.snapshot?.project?.elements || []).map((element) => [element.id, element]));
   }
@@ -64,39 +200,37 @@
   }
 
   function bindParameterMove(button, diagram, node, parameter) {
-    button.addEventListener('pointerdown', (event) => {
+    button.onpointerdown = (event) => {
       if (event.button !== 0 || state.pendingRelationship || state.paletteTool) return;
       event.preventDefault();
       event.stopPropagation();
-      const startX = event.clientX;
-      const startY = event.clientY;
+      const begin = window.smpBeginPresentationGesture;
+      if (typeof begin !== 'function') return;
       const originalX = parameter.offset_x;
       const originalY = parameter.offset_y;
       let nextX = originalX;
       let nextY = originalY;
-      button.setPointerCapture?.(event.pointerId);
-      const move = (pointer) => {
-        nextX = originalX + pointer.clientX - startX;
-        nextY = originalY + pointer.clientY - startY;
-        button.style.left = `${nextX}px`;
-        button.style.top = `${nextY}px`;
-      };
-      const up = async () => {
-        button.removeEventListener('pointermove', move);
-        button.removeEventListener('pointerup', up);
-        button.removeEventListener('pointercancel', up);
-        await runCommand('Moving constraint parameter…', () => requireInvoke()('update_constraint_parameter_presentation', {
-          diagramId: diagram.id,
-          presentationId: parameter.id,
-          offsetX: nextX,
-          offsetY: nextY,
-        }));
-        await refresh();
-      };
-      button.addEventListener('pointermove', move);
-      button.addEventListener('pointerup', up);
-      button.addEventListener('pointercancel', up);
-    }, true);
+      begin(event, {
+        owner: button,
+        disabled: () => !!state.pendingRelationship || !!state.paletteTool,
+        onMove: (dx, dy) => {
+          nextX = originalX + dx;
+          nextY = originalY + dy;
+          button.style.left = `${nextX}px`;
+          button.style.top = `${nextY}px`;
+        },
+        onCancel: () => render(),
+        onCommit: async () => {
+          await runCommand('Moving constraint parameter…', () => requireInvoke()('update_constraint_parameter_presentation', {
+            diagramId: diagram.id,
+            presentationId: parameter.id,
+            offsetX: nextX,
+            offsetY: nextY,
+          }));
+          await refresh();
+        },
+      });
+    };
   }
 
   function constraintMarkup(property, block) {
@@ -163,6 +297,7 @@
       presentation.className = `bdd-block parametric-presentation ${property.kind === 'ConstraintProperty' ? 'constraint-property' : 'value-property'}`;
       presentation.dataset.semanticKind = property.kind;
       presentation.dataset.presentationId = node.id;
+      presentation.dataset.elementId = property.id;
       if (state.selectedElementId === property.id) presentation.classList.add('selected');
       if (state.pendingRelationship?.sourcePresentationId === node.id) presentation.classList.add('relationship-source');
       Object.assign(presentation.style, {
@@ -233,6 +368,7 @@
       });
       render();
     };
+    queueMicrotask(loadParametricExecutionSnapshot);
   };
 
   const baseCreatePaletteElementAt = createPaletteElementAt;
@@ -345,14 +481,11 @@
     panel.innerHTML = `<div class="property-heading">Parametric Diagram</div>
       <label>Name<input value="${escapeAttr(diagram.name)}" disabled></label>
       <label>Semantic context<input value="${escapeAttr(`${context?.name || 'Unresolved'} (${context?.kind || '?'})`)}" disabled></label>
-      <div class="parametric-evaluation-summary">Evaluation is explicit. Opening the diagram never changes engineering values.</div>
-      <button id="evaluate-parametrics" class="primary">Evaluate Parametrics</button>`;
+      <div class="parametric-evaluation-summary">Runtime evaluation is transient and occurrence-scoped. Opening or evaluating the diagram never rewrites authored ValueProperty defaults.</div>
+      <button id="evaluate-parametrics" class="primary">Evaluate Runtime</button>`;
     $('evaluate-parametrics').onclick = async () => {
-      const result = await runCommand('Evaluating Parametrics…', () => requireInvoke()('evaluate_parametric_diagram', {
-        diagramId: diagram.id,
-      }));
-      await refresh();
-      renderStatus(`Evaluated ${result.evaluated_constraints} constraint(s); ${result.changed_values} value(s) changed.`);
+      const result = await runCommand('Evaluating Parametric runtime…', () => evaluateParametricRuntime());
+      renderStatus(`Evaluated ${result.evaluated_constraints} constraint(s); ${result.updates?.length || 0} runtime value(s) calculated.`);
     };
   }
 
@@ -603,6 +736,7 @@
     await refresh();
     await selectDiagram(selectedDiagramId);
   }
+
 
   window.smpCreateParametricDiagram = createParametricDiagram;
 })();

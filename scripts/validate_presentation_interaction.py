@@ -14,6 +14,7 @@ interaction_rs = read(
 behavior_rs = read("apps/desktop/src-tauri/src/workspace/behavior_workspace.rs")
 history_rs = read("apps/desktop/src-tauri/src/workspace/history.rs")
 frontend = read("apps/desktop/frontend/diagram-interaction.js")
+app_frontend = read("apps/desktop/frontend/app.js")
 runtime_fixes = read("apps/desktop/frontend/interaction-runtime-fixes.js")
 state_bar_frontend = read("apps/desktop/frontend/state-bar-resize.js")
 sequence_frontend = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
@@ -22,6 +23,7 @@ bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
 compartment_frontend = read("apps/desktop/frontend/bdd-compartment-visibility.js")
 package_frontend = read("apps/desktop/frontend/workspace-ux.js")
 ibd_frontend = read("apps/desktop/frontend/ibd-ui.js")
+parametric_frontend = read("apps/desktop/frontend/parametric-ui.js")
 index = read("apps/desktop/frontend/index.html")
 
 commands = [
@@ -59,15 +61,44 @@ assert commit_body.index("await runCommand") < commit_body.index(
 assert "finally" in commit_body
 assert "render();" not in commit_body, "commit must not render a pre-refresh snapshot"
 assert "window.smpCommitPresentationGeometry = commit" in frontend
-assert "handle.onpointerup = async" in frontend
+assert "window.smpBeginPresentationGesture = beginPointerGesture" in frontend
+assert "owner.addEventListener('pointermove', onMove, true)" in frontend
+assert "owner.addEventListener('pointerup', onUp, true)" in frontend
+assert "owner.addEventListener('pointercancel', onCancel, true)" in frontend
+assert "owner.addEventListener('lostpointercapture', onLostCapture, true)" in frontend
+assert "const htmlGeometryConfigs = new WeakMap()" in frontend
+assert "geometryCanvas?.addEventListener('pointerdown', startHtmlGeometryGesture, true)" in frontend
+assert "if (!htmlGeometryConfigs.has(node)) install();" in frontend
+assert "event.stopImmediatePropagation();" in frontend
+assert "window.smpInstallPresentationGeometry = install" in frontend
+assert "DRAG_THRESHOLD_PX = 3" in frontend
+assert "cancelTransientAuthoring" in frontend
+assert ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px;" in frontend
 assert "await config.commit(next);" in frontend
 assert "stopImmediatePropagation" in frontend, "resize click must not trigger a stale render"
+
+# BDD, IBD, Use Case subject boundaries, and State Machine HTML presentations
+# must consume the same pointer-gesture kernel. Family-specific code may choose
+# geometry constraints and Rust commands, but it must not create another raw
+# pointer lifecycle for these presentation families.
+shared_html_geometry = frontend.split("function bindHtmlGeometry", 1)[1].split(
+    "function installBdd", 1
+)[0]
+assert "beginPointerGesture(event" in shared_html_geometry
+assert ".onpointerdown" not in shared_html_geometry
+assert "addEventListener('pointerdown'" in shared_html_geometry
 
 # The historical structural rebind competed with the generic controller. All
 # structural families now share stable presentation lookup and command routing.
 assert not (root / "apps/desktop/frontend/structural-interaction-rebind.js").exists()
 assert "structural-interaction-rebind.js" not in index
 assert "node.dataset.presentationId" in frontend
+assert "box.dataset.presentationId = node.id" in app_frontend
+assert "function surfaceScale(node)" in frontend
+assert "(move.clientX - startX) / Math.max(scale.x || 1, 0.0001)" in frontend
+assert "(move.clientY - startY) / Math.max(scale.y || 1, 0.0001)" in frontend
+assert "new MutationObserver" in frontend
+assert "selectedDiagramExists" in app_frontend and "ibd_diagrams" in app_frontend
 assert "diagram.family === 'parametric'" in frontend
 assert "update_parametric_presentation_geometry" in frontend
 assert "update_use_case_subject_boundary_geometry" in frontend
@@ -95,13 +126,34 @@ assert "presentation.height = next.height" not in runtime_fixes
 assert "window.smpCommitPresentationGeometry" in state_bar_frontend
 assert "window.smpCommitPresentationGeometry" in sequence_frontend
 assert "resize_sequence_lifeline_timeline" in sequence_frontend
+assert "smpBeginPresentationGesture" in sequence_frontend
+assert "smpPreviewSequenceLifelineGeometry" in sequence_frontend
+assert "bindSequenceConnectedDrag" not in runtime_fixes
+assert "smpPreviewSequenceLifelineGeometry" in runtime_fixes
+assert "setAttribute('points'" in runtime_fixes
+assert "smpBeginPresentationGesture" in state_bar_frontend
+assert "smpBeginPresentationGesture" in parametric_frontend
+activity_geometry = frontend.split("function installActivity", 1)[1].split("function install()", 1)[0]
+assert "beginPointerGesture(event" in activity_geometry
+assert ".onpointermove" not in activity_geometry
+assert ".onpointerup" not in activity_geometry
 
-# Rust commands reroute attached notation and own the undo checkpoint. Focused
-# Rust tests cover immediate snapshots, persistence, and undo/redo for a BDD,
-# Package Diagram, and a behavioral Sequence presentation.
-assert "routed_bdd_edges" in interaction_rs, "shared structural batch rerouting is not integrated"
+# Rust commands reroute only notation attached to the moved/resized presentation,
+# own the undo checkpoint, and preserve IBD boundary-port attachment. Unrelated
+# stale routes must never make direct geometry editing fail.
+assert "reroute_connected_bdd_edges" in interaction_rs, "BDD geometry must reroute incident edges without making unrelated routes block editing"
+assert "validate_loaded_diagrams(project, diagrams)" not in interaction_rs, "Presentation-only BDD geometry must not be blocked by unrelated diagram validation"
+assert "apply_ibd_property_geometry" in interaction_rs, "IBD property geometry must keep nested ports attached"
+assert "affected_ids" in interaction_rs, "IBD property movement must reroute only incident connectors"
+assert ".filter(|edge|" in interaction_rs and "edge.source_presentation_id == presentation_id" in interaction_rs
+assert "ibd_nested_ports_follow_shared_property_move_and_resize_geometry" in interaction_rs
 assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
+assert "edge.source_node_id == presentation_id || edge.target_node_id == presentation_id" in interaction_rs
+assert "reroute_incident_state_transitions" in interaction_rs
+assert "reroute_incident_state_transitions" in behavior_rs
+assert "reroute_incident_sequence_messages" in behavior_rs
+assert "history::checkpoint_states(&state, &activity, &history)?;" in behavior_rs
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not boundary constrained"
 sequence_resize = behavior_rs.split("pub fn resize_sequence_lifeline_timeline", 1)[1].split(
     "pub fn add_sequence_message", 1

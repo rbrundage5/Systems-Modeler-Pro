@@ -43,7 +43,6 @@ require(
     "smpPreviewStateTransitionGeometry",
 )
 
-
 require(
     "apps/desktop/src-tauri/src/main.rs",
     "behavior_snapshot",
@@ -160,7 +159,6 @@ require(
     "execution-spec",
     "combined-fragment",
     "state-invariant-box",
-    "move_state_vertex",
     "move_sequence_lifeline",
     "resize_sequence_lifeline_timeline",
     "lifeline-resize-handle",
@@ -168,6 +166,14 @@ require(
     "timeline_end_y",
     "Reply",
     "stroke-dasharray",
+)
+
+# State move/resize is now intentionally owned by the shared presentation
+# controller rather than a second behavior-renderer pointer implementation.
+require(
+    "apps/desktop/frontend/diagram-interaction.js",
+    "smpBeginPresentationGesture",
+    "update_state_presentation_geometry",
 )
 
 require(
@@ -245,7 +251,6 @@ require(
     "validate_repository_state_machines_editing",
     "Initial pseudostate may have only one outgoing Transition",
 )
-
 
 require(
     "apps/desktop/src-tauri/src/workspace.rs",

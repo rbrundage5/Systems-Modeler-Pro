@@ -473,10 +473,10 @@ pub fn diagram_command_manifest() -> Vec<DiagramCommandCapability> {
         },
         DiagramCommandCapability {
             id: "evaluateParametrics",
-            label: "Evaluate Parametrics",
+            label: "Evaluate Runtime",
             shortcut: None,
             supported_diagrams: &["Parametric"],
-            rust_adapter: Some("evaluate_parametric_diagram"),
+            rust_adapter: Some("evaluate_parametric_execution"),
             unavailable_reason: Some(
                 "Parametric evaluation is only available on a Parametric Diagram.",
             ),
@@ -685,7 +685,7 @@ mod tests {
         assert!(evaluation.enabled);
         assert_eq!(
             evaluation.command.rust_adapter,
-            Some("evaluate_parametric_diagram")
+            Some("evaluate_parametric_execution")
         );
     }
 

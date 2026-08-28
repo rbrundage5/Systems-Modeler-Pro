@@ -697,6 +697,8 @@ pub fn move_state_vertex(
     x: f64,
     y: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     let mut diagrams = state
         .behavior_diagrams
@@ -718,8 +720,9 @@ pub fn move_state_vertex(
         .behavior
         .lock()
         .map_err(|_| "behavior lock poisoned")?;
-    reroute_behavior_presentation(diagram, &repository, None)?;
+    reroute_incident_state_transitions(diagram, &repository, &state_vertex_id)?;
     drop(repository);
+    history::checkpoint_states(&state, &activity, &history)?;
     *state
         .behavior_diagrams
         .lock()
@@ -830,11 +833,17 @@ pub fn move_sequence_lifeline(
     lifeline_id_value: String,
     x: f64,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
+    if !x.is_finite() {
+        return Err("Lifeline x coordinate must be finite".into());
+    }
     let mut diagrams = state
         .behavior_diagrams
         .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -844,7 +853,18 @@ pub fn move_sequence_lifeline(
         .iter_mut()
         .find(|item| item.lifeline_id == lifeline_id_value)
         .ok_or("Lifeline presentation not found")?;
-    presentation.x = x;
+    presentation.x = x.max(70.0);
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    reroute_incident_sequence_messages(diagram, &repository, &lifeline_id_value)?;
+    drop(repository);
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1501,6 +1521,99 @@ pub(super) fn reroute_behavior_presentation(
     // Compute the complete route set before replacing any committed geometry.
     // This is the same transactional behavior used by Route and Clean Layout.
     diagram.edge_routes = routed_behavior_edges(diagram, repository, bounds)?;
+    Ok(())
+}
+
+fn retain_incident_state_transitions(regions: &mut [Region], vertex_id: &str) {
+    for region in regions {
+        region.transitions.retain(|transition| {
+            transition.source_id.to_string() == vertex_id
+                || transition.target_id.to_string() == vertex_id
+        });
+        for vertex in &mut region.vertices {
+            if let VertexKind::State(state) = &mut vertex.kind {
+                retain_incident_state_transitions(&mut state.regions, vertex_id);
+            }
+        }
+    }
+}
+
+pub(super) fn reroute_incident_state_transitions(
+    diagram: &mut BehaviorDiagram,
+    repository: &BehaviorRepository,
+    vertex_id: &str,
+) -> Result<(), String> {
+    if diagram.kind != BehaviorDiagramKind::StateMachine {
+        return Err("active behavior diagram is not a State Machine".into());
+    }
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    let mut filtered = repository.clone();
+    let machine = filtered
+        .state_machines
+        .get_mut(&machine_id)
+        .ok_or("State Machine not found")?;
+    retain_incident_state_transitions(&mut machine.regions, vertex_id);
+    let mut endpoints = Vec::new();
+    collect_transition_endpoints(&machine.regions, &mut endpoints);
+    let wanted: BTreeSet<_> = endpoints.into_iter().map(|(id, _, _, _)| id).collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let routes = state_machine_routes(diagram, &filtered, None)?;
+    for route in routes {
+        if let Some(existing) = diagram
+            .edge_routes
+            .iter_mut()
+            .find(|existing| existing.semantic_id == route.semantic_id)
+        {
+            *existing = route;
+        } else {
+            diagram.edge_routes.push(route);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn reroute_incident_sequence_messages(
+    diagram: &mut BehaviorDiagram,
+    repository: &BehaviorRepository,
+    lifeline_id_value: &str,
+) -> Result<(), String> {
+    if diagram.kind != BehaviorDiagramKind::Sequence {
+        return Err("active behavior diagram is not a Sequence Diagram".into());
+    }
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    let mut filtered = repository.clone();
+    let interaction = filtered
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?;
+    interaction.messages.retain(|message| {
+        message
+            .send_event
+            .as_ref()
+            .is_some_and(|event| event.lifeline_id.to_string() == lifeline_id_value)
+            || message
+                .receive_event
+                .as_ref()
+                .is_some_and(|event| event.lifeline_id.to_string() == lifeline_id_value)
+    });
+    if interaction.messages.is_empty() {
+        return Ok(());
+    }
+    let routes = sequence_routes(diagram, &filtered, None)?;
+    for route in routes {
+        if let Some(existing) = diagram
+            .edge_routes
+            .iter_mut()
+            .find(|existing| existing.semantic_id == route.semantic_id)
+        {
+            *existing = route;
+        } else {
+            diagram.edge_routes.push(route);
+        }
+    }
     Ok(())
 }
 

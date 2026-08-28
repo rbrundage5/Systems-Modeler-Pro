@@ -73,7 +73,7 @@ assert "layout_parametric_with_bounds" in dispatcher
 assert "parametric-ui.js" in index and "parametric.css" in index
 assert "shared-dialogs.js" in index
 assert 'id: "evaluateParametrics"' in manifest
-assert 'rust_adapter: Some("evaluate_parametric_diagram")' in manifest
+assert 'rust_adapter: Some("evaluate_parametric_execution")' in manifest
 assert 'data-command="evaluateParametrics"' in shell
 assert '"constraint-parameter"' in main
 assert "ConstraintParameter: ['ValueType', 'DataType', 'PrimitiveType', 'Enumeration']" in bdd_frontend
@@ -92,7 +92,7 @@ assert frontend.index("if (!diagram) return baseRenderProperties();") > frontend
 for notation in [
     "constraint-property",
     "constraint-parameter",
-    "Evaluate Parametrics",
+    "Evaluate Runtime",
 ]:
     assert notation in frontend
 assert "relationship-bindingconnector" in styles
@@ -116,3 +116,13 @@ print(
     "explicit evaluation, engineer-readable binding diagnostics, and thin Parametric renderer "
     "are wired end to end"
 )
+
+# Cross-family direct-manipulation contract
+parametric_geometry_rs = read("apps/desktop/src-tauri/src/workspace/parametrics.rs")
+assert "fn reroute_incident_edges" in parametric_geometry_rs
+parametric_geometry = parametric_geometry_rs.split("pub fn update_parametric_presentation_geometry", 1)[1].split("pub fn update_constraint_parameter_presentation", 1)[0]
+assert "reroute_incident_edges" in parametric_geometry
+assert "validate_loaded_diagrams" not in parametric_geometry
+parameter_geometry = parametric_geometry_rs.split("pub fn update_constraint_parameter_presentation", 1)[1].split("pub fn evaluate_parametric_diagram", 1)[0]
+assert "reroute_incident_edges" in parameter_geometry
+assert "validate_loaded_diagrams" not in parameter_geometry

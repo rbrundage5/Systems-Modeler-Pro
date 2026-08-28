@@ -134,31 +134,7 @@
         state.selectedBehaviorItem = { type: 'Vertex', id: vertex.id, semantic: vertex };
         render();
       };
-      node.onpointerdown = (event) => {
-        if (state.behaviorPending || state.behaviorTool || presentation.fallback) return;
-        const startX = event.clientX;
-        const startY = event.clientY;
-        const originalX = presentation.x;
-        const originalY = presentation.y;
-        node.setPointerCapture?.(event.pointerId);
-        node.onpointermove = (move) => {
-          presentation.x = originalX + move.clientX - startX;
-          presentation.y = originalY + move.clientY - startY;
-          node.style.left = `${presentation.x}px`;
-          node.style.top = `${presentation.y}px`;
-        };
-        node.onpointerup = async () => {
-          node.onpointermove = null;
-          await runCommand('Moving State vertex…', () => requireInvoke()('move_state_vertex', {
-            diagramId: diagram.id,
-            stateVertexId: String(vertex.id),
-            x: presentation.x,
-            y: presentation.y,
-          }));
-          await refresh();
-        };
-      };
-      frame.appendChild(node);
+      frame.appendChild(node);      frame.appendChild(node);
     });
 
     const svg = document.createElementNS(SVG_NS, 'svg');
@@ -282,51 +258,68 @@
       };
       if (!presentation.fallback) {
         timelineResize.onpointerdown = (event) => {
+          if (event.button !== 0 || state.behaviorPending || state.behaviorTool) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const begin = window.smpBeginPresentationGesture;
+          if (typeof begin !== 'function') return;
+          const originalEnd = timelineEnd;
+          let nextEnd = originalEnd;
+          begin(event, {
+            owner: timelineResize,
+            disabled: () => !!state.behaviorPending || !!state.behaviorTool,
+            onMove: (_dx, dy) => {
+              nextEnd = Math.max(timelineStart + 80, originalEnd + dy);
+              timeline.style.height = `${nextEnd - timelineStart}px`;
+              node.style.height = `${Math.max(120, nextEnd - 60)}px`;
+              timelineResize.style.top = `${Math.max(50, nextEnd - 66)}px`;
+            },
+            onCancel: () => render(),
+            onCommit: async () => {
+              await window.smpCommitPresentationGeometry('resize_sequence_lifeline_timeline', {
+                diagramId: diagram.id,
+                lifelineIdValue: String(lifeline.id),
+                timelineStartY: timelineStart,
+                timelineEndY: nextEnd,
+              });
+            },
+          });
+        };
+        node.onpointerdown = (event) => {
+          if (event.button !== 0 || event.target.closest?.('.lifeline-resize-handle')) return;
           if (state.behaviorPending || state.behaviorTool) return;
           event.preventDefault();
           event.stopPropagation();
-          const startY = event.clientY;
-          const originalEnd = timelineEnd;
-          let nextEnd = originalEnd;
-          timelineResize.setPointerCapture?.(event.pointerId);
-          timelineResize.onpointermove = (move) => {
-            nextEnd = Math.max(timelineStart + 80, originalEnd + move.clientY - startY);
-            timeline.style.height = `${nextEnd - timelineStart}px`;
-            node.style.height = `${Math.max(120, nextEnd - 60)}px`;
-            timelineResize.style.top = `${Math.max(50, nextEnd - 66)}px`;
-          };
-          timelineResize.onpointerup = async () => {
-            timelineResize.onpointermove = null;
-            timelineResize.onpointerup = null;
-            await window.smpCommitPresentationGeometry('resize_sequence_lifeline_timeline', {
-              diagramId: diagram.id,
-              lifelineIdValue: String(lifeline.id),
-              timelineStartY: timelineStart,
-              timelineEndY: nextEnd,
-            });
-          };
-        };
-        node.onpointerdown = (event) => {
-          if (event.target.closest?.('.lifeline-resize-handle')) return;
-          if (state.behaviorPending || state.behaviorTool) return;
-          const start = event.clientX;
+          const begin = window.smpBeginPresentationGesture;
+          if (typeof begin !== 'function') return;
           const original = presentation.x;
-          node.setPointerCapture?.(event.pointerId);
-          node.onpointermove = (move) => {
-            node.style.left = `${original + move.clientX - start - 65}px`;
-          };
-          node.onpointerup = async (up) => {
-            node.onpointermove = null;
-            await runCommand('Moving Lifeline…', () => requireInvoke()('move_sequence_lifeline', {
-              diagramId: diagram.id,
-              lifelineIdValue: String(lifeline.id),
-              x: original + up.clientX - start,
-            }));
-            await refresh();
-          };
+          let nextX = original;
+          begin(event, {
+            owner: node,
+            disabled: () => !!state.behaviorPending || !!state.behaviorTool,
+            onStart: () => node.classList.add('smp-dragging'),
+            onMove: (dx) => {
+              nextX = Math.max(70, original + dx);
+              node.style.left = `${nextX - 65}px`;
+              window.smpPreviewSequenceLifelineGeometry?.(inter, lifeline.id, nextX);
+            },
+            onCancel: () => {
+              node.classList.remove('smp-dragging');
+              render();
+            },
+            onCommit: async () => {
+              node.classList.remove('smp-dragging');
+              await runCommand('Moving Lifeline…', () => requireInvoke()('move_sequence_lifeline', {
+                diagramId: diagram.id,
+                lifelineIdValue: String(lifeline.id),
+                x: nextX,
+              }));
+              await refresh();
+            },
+          });
         };
       }
-      frame.appendChild(node);
+      frame.appendChild(node);      frame.appendChild(node);
     });
 
     const svg = document.createElementNS(SVG_NS, 'svg');
@@ -611,14 +604,16 @@
     await newProjectWithStateMachineExecution?.();
     await requireInvoke()('clear_state_machine_executions');
     await requireInvoke()('clear_sequence_executions');
-    Object.assign(state, { stateMachineExecutionSnapshot: null });
+    await requireInvoke()('clear_parametric_executions');
+    Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });
     refreshStateMachineExecution();
   };
   if ($('open-project')) $('open-project').onclick = async () => {
     await openProjectWithStateMachineExecution?.();
     await requireInvoke()('clear_state_machine_executions');
     await requireInvoke()('clear_sequence_executions');
-    Object.assign(state, { stateMachineExecutionSnapshot: null });
+    await requireInvoke()('clear_parametric_executions');
+    Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });
     refreshStateMachineExecution();
   };
   // PR32_STATE_MACHINE_EXECUTION_END
@@ -967,6 +962,12 @@
       configure: 'configure_sequence_execution_runtime',
       label: 'Sequence',
     };
+    if (kind === 'parametric') return {
+      get: 'parametric_execution_runtime_selection',
+      preview: 'preview_parametric_execution_runtime',
+      configure: 'configure_parametric_execution_runtime',
+      label: 'Parametric',
+    };
     return {
       get: 'state_machine_execution_runtime_selection',
       preview: 'preview_state_machine_execution_runtime',
@@ -993,7 +994,7 @@
     backdrop.className = 'structural-runtime-config-backdrop';
     const structural = existing?.structural_configuration || {};
     backdrop.innerHTML = `<section class="structural-runtime-config-dialog" role="dialog" aria-modal="true" aria-label="${esc(api.label)} runtime configuration">
-      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this behavior executes on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>
+      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this execution runs on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>
       <label>Structural execution root<select data-runtime-root><option value="">Behavior context (default)</option>${runtimeRootOptions(existing?.root_semantic_id)}</select></label>
       <label>Root occurrence name<input data-runtime-root-name value="${esc(structural.root_instance_name || '')}" placeholder="Optional engineer-facing runtime root name" /></label>
       <label>Behavior runtime occurrence<input data-runtime-path list="structural-runtime-compatible-paths" value="${esc(existing?.runtime_instance_path || '')}" placeholder="Auto-select when exactly one compatible occurrence exists" /><datalist id="structural-runtime-compatible-paths"></datalist></label>
@@ -1040,6 +1041,12 @@
         if (kind === 'activity') {
           window.smpState.activityExecutionSnapshot = null;
           window.smpRefreshActivityExecution?.();
+        } else if (kind === 'sequence') {
+          window.smpState.sequenceExecutionSnapshot = null;
+          window.smpRefreshSequenceExecution?.();
+        } else if (kind === 'parametric') {
+          window.smpState.parametricExecutionSnapshot = null;
+          window.smpRefreshParametricExecution?.();
         } else {
           window.smpState.stateMachineExecutionSnapshot = null;
           window.smpRefreshStateMachineExecution?.();

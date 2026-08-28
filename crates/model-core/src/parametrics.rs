@@ -21,7 +21,7 @@ pub struct BindingConnector {
     pub target: BindingEndpoint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParametricEvaluationScope {
     pub context_id: ElementId,
     pub constraint_property_ids: Vec<ElementId>,

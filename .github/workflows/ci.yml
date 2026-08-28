@@ -77,6 +77,8 @@ jobs:
         run: python scripts/validate_use_case_integration.py
       - name: Parametric desktop integration contract
         run: python scripts/validate_parametric_integration.py
+      - name: Parametric runtime integration contract
+        run: python scripts/validate_parametric_runtime_integration.py
       - name: Package Diagram desktop integration contract
         run: python scripts/validate_package_diagram_integration.py
       - name: Package drill-down activation contract
@@ -123,6 +125,8 @@ jobs:
         run: python scripts/validate_use_case_integration.py
       - name: Parametric desktop integration contract
         run: python scripts/validate_parametric_integration.py
+      - name: Parametric runtime integration contract
+        run: python scripts/validate_parametric_runtime_integration.py
       - name: Package Diagram desktop integration contract
         run: python scripts/validate_package_diagram_integration.py
       - name: Package drill-down activation contract
