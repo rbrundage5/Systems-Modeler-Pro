@@ -10,7 +10,7 @@
   style.textContent = `
     .smp-interactive-presentation { cursor: move !important; touch-action: none; }
     .smp-interactive-presentation.smp-dragging { opacity: .92; cursor: grabbing !important; }
-    .smp-resize-handle { position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px; border: 1px solid #315b86; background: #fff; cursor: nwse-resize; z-index: 20; box-sizing: border-box; }
+    .smp-resize-handle { position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; border: 1px solid #315b86; background: #fff; cursor: nwse-resize; z-index: 20; box-sizing: border-box; pointer-events: auto; }
     .smp-svg-resize-handle { fill: #fff; stroke: #315b86; stroke-width: 2; cursor: nwse-resize; pointer-events: all; }
     .activity-node.smp-dragging { opacity: .92; }
   `;
@@ -20,7 +20,10 @@
     try {
       await runCommand('Updating diagram presentation…', () => requireInvoke()(command, args));
     } catch (error) {
+      const message = error?.message || String(error);
       console.error('Presentation geometry update failed', error);
+      window.smpDialogs?.notify?.(`Presentation geometry update failed: ${message}`, 'error');
+      renderStatus?.(`Presentation geometry update failed: ${message}`);
     } finally {
       // The pointer preview is disposable. Always replace it with the snapshot
       // returned after the Rust mutation completes, including on rejection.
@@ -40,6 +43,86 @@
     return { x: Math.max(x || 1, 0.0001), y: Math.max(y || 1, 0.0001) };
   }
 
+  const DRAG_THRESHOLD_PX = 3;
+
+  function cancelTransientAuthoring() {
+    Object.assign(state, {
+      paletteTool: null,
+      pendingRelationship: null,
+      behaviorTool: null,
+      behaviorPending: null,
+      activityTool: null,
+      activityPendingFlow: null,
+    });
+  }
+
+  function beginPointerGesture(event, options) {
+    if (event.button !== 0) return false;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const owner = options.owner;
+    const scale = options.scale || { x: 1, y: 1 };
+    let started = false;
+    let finished = false;
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onCancel, true);
+      try { owner?.releasePointerCapture?.(pointerId); } catch (_) {}
+    };
+
+    const startIfNeeded = (move) => {
+      if (started) return true;
+      const dx = move.clientX - startX;
+      const dy = move.clientY - startY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return false;
+      options.prepare?.();
+      if (options.disabled?.()) {
+        finished = true;
+        cleanup();
+        options.onCancel?.();
+        return false;
+      }
+      started = true;
+      options.onStart?.();
+      return true;
+    };
+
+    const onMove = (move) => {
+      if (finished || move.pointerId !== pointerId || !startIfNeeded(move)) return;
+      move.preventDefault();
+      move.stopPropagation();
+      options.onMove?.(
+        (move.clientX - startX) / Math.max(scale.x || 1, 0.0001),
+        (move.clientY - startY) / Math.max(scale.y || 1, 0.0001),
+        move,
+      );
+    };
+
+    const finish = async (up, cancelled) => {
+      if (finished || up.pointerId !== pointerId) return;
+      finished = true;
+      cleanup();
+      if (!started) return;
+      up.preventDefault();
+      up.stopPropagation();
+      if (cancelled) options.onCancel?.();
+      else await options.onCommit?.();
+    };
+    const onUp = (up) => { void finish(up, false); };
+    const onCancel = (cancel) => { void finish(cancel, true); };
+
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onCancel, true);
+    try { owner?.setPointerCapture?.(pointerId); } catch (_) {}
+    return true;
+  }
+
+  window.smpBeginPresentationGesture = beginPointerGesture;
+
   function bindHtmlGeometry(node, config) {
     if (!node || node.dataset.smpGeometryBound === '1') return;
     node.dataset.smpGeometryBound = '1';
@@ -50,11 +133,12 @@
     handle.className = 'smp-resize-handle';
     handle.title = 'Drag to resize';
     handle.setAttribute('aria-label', 'Resize element');
-    handle.onclick = (event) => {
+    handle.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-    };
+    });
     node.appendChild(handle);
+
     let suppressNextClick = false;
     node.addEventListener('click', (event) => {
       if (!suppressNextClick) return;
@@ -63,60 +147,60 @@
       event.stopImmediatePropagation();
     }, true);
 
-    node.onpointerdown = (event) => {
+    node.addEventListener('pointerdown', (event) => {
       if (event.button !== 0 || event.target.closest?.('.smp-resize-handle, .constraint-parameter')) return;
-      if (config.disabled?.()) return;
       event.preventDefault();
       event.stopPropagation();
       config.select?.();
-      suppressNextClick = true;
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const scale = surfaceScale(node);
       const original = config.geometry();
       let next = { ...original };
-      node.classList.add('smp-dragging');
-      node.setPointerCapture?.(event.pointerId);
-      node.onpointermove = (move) => {
-        next.x = Math.max(0, original.x + (move.clientX - startX) / scale.x);
-        next.y = Math.max(42, original.y + (move.clientY - startY) / scale.y);
-        node.style.left = `${next.x}px`;
-        node.style.top = `${next.y}px`;
-        config.preview?.(next);
-      };
-      node.onpointerup = async () => {
-        node.onpointermove = null;
-        node.onpointerup = null;
-        node.classList.remove('smp-dragging');
-        await config.commit(next);
-      };
-    };
+      beginPointerGesture(event, {
+        owner: node,
+        scale: surfaceScale(node),
+        prepare: cancelTransientAuthoring,
+        disabled: config.disabled,
+        onStart: () => {
+          suppressNextClick = true;
+          node.classList.add('smp-dragging');
+        },
+        onMove: (dx, dy) => {
+          next.x = Math.max(0, original.x + dx);
+          next.y = Math.max(42, original.y + dy);
+          node.style.left = `${next.x}px`;
+          node.style.top = `${next.y}px`;
+          config.preview?.(next);
+        },
+        onCancel: () => node.classList.remove('smp-dragging'),
+        onCommit: async () => {
+          node.classList.remove('smp-dragging');
+          await config.commit(next);
+        },
+      });
+    });
 
-    handle.onpointerdown = (event) => {
-      if (event.button !== 0 || config.disabled?.()) return;
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
       config.select?.();
-      suppressNextClick = true;
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const scale = surfaceScale(node);
       const original = config.geometry();
       let next = { ...original };
-      handle.setPointerCapture?.(event.pointerId);
-      handle.onpointermove = (move) => {
-        next.width = Math.max(config.minWidth, original.width + (move.clientX - startX) / scale.x);
-        next.height = Math.max(config.minHeight, original.height + (move.clientY - startY) / scale.y);
-        node.style.width = `${next.width}px`;
-        node.style.height = `${next.height}px`;
-        config.preview?.(next);
-      };
-      handle.onpointerup = async () => {
-        handle.onpointermove = null;
-        handle.onpointerup = null;
-        await config.commit(next);
-      };
-    };
+      beginPointerGesture(event, {
+        owner: handle,
+        scale: surfaceScale(node),
+        prepare: cancelTransientAuthoring,
+        disabled: config.disabled,
+        onStart: () => { suppressNextClick = true; },
+        onMove: (dx, dy) => {
+          next.width = Math.max(config.minWidth, original.width + dx);
+          next.height = Math.max(config.minHeight, original.height + dy);
+          node.style.width = `${next.width}px`;
+          node.style.height = `${next.height}px`;
+          config.preview?.(next);
+        },
+        onCommit: async () => { await config.commit(next); },
+      });
+    });
   }
 
   function installBdd() {

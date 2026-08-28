@@ -60,7 +60,12 @@ assert commit_body.index("await runCommand") < commit_body.index(
 assert "finally" in commit_body
 assert "render();" not in commit_body, "commit must not render a pre-refresh snapshot"
 assert "window.smpCommitPresentationGeometry = commit" in frontend
-assert "handle.onpointerup = async" in frontend
+assert "window.smpBeginPresentationGesture = beginPointerGesture" in frontend
+assert "window.addEventListener('pointermove', onMove, true)" in frontend
+assert "window.addEventListener('pointerup', onUp, true)" in frontend
+assert "window.addEventListener('pointercancel', onCancel, true)" in frontend
+assert "addEventListener('pointerdown'" in frontend
+assert ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px;" in frontend
 assert "await config.commit(next);" in frontend
 assert "stopImmediatePropagation" in frontend, "resize click must not trigger a stale render"
 
@@ -71,9 +76,10 @@ assert "structural-interaction-rebind.js" not in index
 assert "node.dataset.presentationId" in frontend
 assert "box.dataset.presentationId = node.id" in app_frontend
 assert "function surfaceScale(node)" in frontend
-assert "(move.clientX - startX) / scale.x" in frontend
-assert "(move.clientY - startY) / scale.y" in frontend
+assert "(move.clientX - startX) / Math.max(scale.x || 1, 0.0001)" in frontend
+assert "(move.clientY - startY) / Math.max(scale.y || 1, 0.0001)" in frontend
 assert "new MutationObserver" in frontend
+assert "selectedDiagramExists" in app_frontend and "ibd_diagrams" in app_frontend
 assert "diagram.family === 'parametric'" in frontend
 assert "update_parametric_presentation_geometry" in frontend
 assert "update_use_case_subject_boundary_geometry" in frontend
@@ -105,7 +111,9 @@ assert "resize_sequence_lifeline_timeline" in sequence_frontend
 # Rust commands reroute attached notation and own the undo checkpoint. Focused
 # Rust tests cover immediate snapshots, persistence, and undo/redo for a BDD,
 # Package Diagram, and a behavioral Sequence presentation.
-assert "routed_bdd_edges" in interaction_rs, "shared structural batch rerouting is not integrated"
+assert "reroute_connected_bdd_edges" in interaction_rs, "BDD geometry must reroute incident edges without making unrelated routes block editing"
+assert "apply_ibd_property_geometry" in interaction_rs, "IBD property geometry must keep nested ports attached"
+assert "affected_ids" in interaction_rs, "IBD property movement must reroute only incident connectors"
 assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not boundary constrained"

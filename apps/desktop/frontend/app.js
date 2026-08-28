@@ -48,7 +48,9 @@ async function refresh() {
   if (state.selectedRelationshipId && !state.snapshot?.project?.relationships?.some((r) => r.id === state.selectedRelationshipId)) {
     state.selectedRelationshipId = null;
   }
-  if (state.selectedDiagramId && !state.snapshot?.diagrams?.some((d) => d.id === state.selectedDiagramId)) {
+  const selectedDiagramExists = state.snapshot?.diagrams?.some((d) => d.id === state.selectedDiagramId)
+    || state.snapshot?.ibd_diagrams?.some((d) => d.id === state.selectedDiagramId);
+  if (state.selectedDiagramId && !selectedDiagramExists) {
     state.selectedDiagramId = null;
   }
   await loadPalette();
