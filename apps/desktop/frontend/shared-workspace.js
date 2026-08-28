@@ -236,12 +236,33 @@
     const activityId = application.selectedActivityDiagramId;
     if (activityId) {
       const diagram = application.activitySnapshot?.diagrams?.find((item) => String(item.id) === String(activityId));
-      if (diagram) await activate({ diagramId:activityId, familyId:'activity', name:diagram.name, semanticContextId:diagram.activity_id || '' });
+      const activity = diagram
+        ? application.activitySnapshot?.repository?.activities?.[String(diagram.activity_id)]
+        : null;
+      const context = application.snapshot?.project?.elements?.find(
+        (element) => String(element.id) === String(activity?.context_id),
+      );
+      if (diagram) await activate({
+        diagramId: activityId,
+        familyId: 'activity',
+        name: diagram.name,
+        modelElementName: context?.name || activity?.name || diagram.name,
+        semanticContextId: activity?.context_id || '',
+      });
       return;
     }
     if (behaviorId) {
       const diagram = application.behaviorSnapshot?.diagrams?.find((item) => String(item.id) === String(behaviorId));
-      if (diagram) await activate({ diagramId:behaviorId, familyId:diagram.kind === 'Sequence' ? 'sequence' : 'state-machine', name:diagram.name, semanticContextId:diagram.context_id || '' });
+      const context = application.snapshot?.project?.elements?.find(
+        (element) => String(element.id) === String(diagram?.context_id),
+      );
+      if (diagram) await activate({
+        diagramId: behaviorId,
+        familyId: diagram.kind === 'Sequence' ? 'sequence' : 'state-machine',
+        name: diagram.name,
+        modelElementName: context?.name || diagram.name,
+        semanticContextId: diagram.context_id || '',
+      });
       return;
     }
     if (structuralId) {

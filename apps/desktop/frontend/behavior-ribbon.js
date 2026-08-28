@@ -31,14 +31,18 @@
         throw new Error(`${label} was created by Rust but was not returned by the behavior workspace snapshot.`);
       }
 
-      state.selectedBehaviorDiagramId = diagramId;
-      state.selectedDiagramId = null;
-      state.selectedElementId = null;
-      state.selectedRelationshipId = null;
-      state.selectedBehaviorItem = null;
-      state.behaviorTool = null;
-      state.behaviorPending = null;
-      render();
+      if (typeof window.smpSelectBehaviorDiagram === 'function') {
+        await window.smpSelectBehaviorDiagram(diagramId);
+      } else {
+        state.selectedBehaviorDiagramId = diagramId;
+        state.selectedDiagramId = null;
+        state.selectedElementId = null;
+        state.selectedRelationshipId = null;
+        state.selectedBehaviorItem = null;
+        state.behaviorTool = null;
+        state.behaviorPending = null;
+        render();
+      }
       $('status').textContent = `${label} created for ${context.name}`;
     } catch (error) {
       const message = error?.message || String(error);

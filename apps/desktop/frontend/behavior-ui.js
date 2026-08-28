@@ -87,10 +87,12 @@
     state.pendingRelationship = null;
     clearBehaviorInteractionState();
     const diagram = state.behaviorSnapshot?.diagrams?.find((candidate) => String(candidate.id) === String(id));
+    const context = projectElement(diagram?.context_id);
     await window.smpRendererHost?.activate({
       diagramId: id,
       familyId: diagram?.kind === 'Sequence' ? 'sequence' : 'state-machine',
       name: diagram?.name || 'Behavior Diagram',
+      modelElementName: context?.name || diagram?.name || 'Behavior',
       semanticContextId: diagram?.context_id || '',
     });
     render();
