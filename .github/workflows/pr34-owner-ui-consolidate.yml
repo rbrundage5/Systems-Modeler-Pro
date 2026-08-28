@@ -1,0 +1,54 @@
+name: PR34 owner UI consolidation
+
+on:
+  push:
+    branches:
+      - agent/pr34-operation-signal-sequence-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr34-operation-signal-sequence-runtime
+          fetch-depth: 0
+      - name: Consolidate repository owner UI without increasing JS file count
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('apps/desktop/frontend/repository-owner-options.js')
+          target = Path('apps/desktop/frontend/repository-tree-ui.js')
+          index = Path('apps/desktop/frontend/index.html')
+          begin = '// PR34_REPOSITORY_OWNER_OPTIONS_BEGIN'
+          end = '// PR34_REPOSITORY_OWNER_OPTIONS_END'
+
+          if source.exists():
+              source_text = source.read_text(encoding='utf-8').strip()
+              target_text = target.read_text(encoding='utf-8').rstrip()
+              if begin not in target_text:
+                  target.write_text(
+                      target_text + '\n\n' + begin + '\n' + source_text + '\n' + end + '\n',
+                      encoding='utf-8',
+                  )
+              source.unlink()
+
+          index_text = index.read_text(encoding='utf-8')
+          index_text = index_text.replace('  <script src="repository-owner-options.js"></script>\n', '')
+          index.write_text(index_text, encoding='utf-8')
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/frontend/repository-tree-ui.js apps/desktop/frontend/index.html apps/desktop/frontend/repository-owner-options.js
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "PR34: consolidate repository owner UI"
+          git push origin HEAD:agent/pr34-operation-signal-sequence-runtime
