@@ -2,10 +2,43 @@
 
 /* Execution controls are contextual to the diagram that is actually rendered.
    This prevents stale Activity/Behavior selections from exposing both runtime
-   ribbons at once and keeps the Diagram ribbon on a single usable row. */
+   ribbons at once. */
 body:not(:has(#canvas .activity-svg)) .activity-execution-ribbon-group,
 body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-group {
   display: none !important;
+}
+
+/* Runtime execution commands are one horizontal toolbar row. The standard
+   ribbon group caption would create a second vertical level and, combined with
+   horizontal overflow, caused Chromium to expose a vertical scrollbar. */
+.ribbon {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+.activity-execution-ribbon-group,
+.state-machine-execution-ribbon-group {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+.activity-execution-ribbon-group .ribbon-actions,
+.state-machine-execution-ribbon-group .ribbon-actions {
+  flex-wrap: nowrap !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  align-items: center !important;
+}
+.activity-execution-ribbon-group .ribbon-label,
+.state-machine-execution-ribbon-group .ribbon-label {
+  display: none !important;
+}
+.activity-execution-ribbon-group .ribbon-command,
+.state-machine-execution-ribbon-group .ribbon-command {
+  flex: 0 0 auto;
 }
 
 .structural-runtime-config-backdrop {
