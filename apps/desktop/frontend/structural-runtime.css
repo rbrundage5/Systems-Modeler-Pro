@@ -27,6 +27,7 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
 }
 .activity-execution-ribbon-group .ribbon-actions,
 .state-machine-execution-ribbon-group .ribbon-actions {
+  display: flex !important;
   flex-wrap: nowrap !important;
   min-height: 0 !important;
   height: 100% !important;
