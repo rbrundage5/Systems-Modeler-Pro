@@ -22,6 +22,20 @@ jobs:
       - name: Apply repair
         run: python scripts/pr35_shared_geometry_repair.py
 
+      - name: Align geometry contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/validate_presentation_interaction.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'assert "(move.clientX - startX) / scale.x" in frontend\nassert "(move.clientY - startY) / scale.y" in frontend',
+              'assert "(move.clientX - startX) / Math.max(scale.x || 1, 0.0001)" in frontend\nassert "(move.clientY - startY) / Math.max(scale.y || 1, 0.0001)" in frontend',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+
       - name: Format Rust
         run: cargo fmt --all
 
