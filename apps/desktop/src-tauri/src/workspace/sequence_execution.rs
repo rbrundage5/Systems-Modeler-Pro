@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use systems_modeler_core::{
     BehaviorRepository, ElementKind, ExecutionConfiguration, ExecutionEngine, ExecutionManager,
-    ExecutionRuntimePreview, ExecutionRuntimeSelection, ExecutionSessionId, InteractionId,
-    Project, SequenceExecutionEngine, SequenceExecutionSnapshot, StructuralRuntime,
+    ExecutionRuntimePreview, ExecutionRuntimeSelection, ExecutionSessionId, InteractionId, Project,
+    SequenceExecutionEngine, SequenceExecutionSnapshot, StructuralRuntime,
 };
 
 #[derive(Default)]
@@ -51,7 +51,9 @@ fn execution_source(
     if !repository.interactions.contains_key(&interaction_id) {
         return Err("Sequence diagram references missing Interaction semantics".into());
     }
-    repository.validate(&project).map_err(|error| error.to_string())?;
+    repository
+        .validate(&project)
+        .map_err(|error| error.to_string())?;
     let fingerprint = serde_json::to_string(&(&project, &repository))
         .map_err(|error| format!("failed to fingerprint Sequence execution source: {error}"))?;
     Ok((project, repository, interaction_id, fingerprint))

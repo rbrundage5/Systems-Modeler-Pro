@@ -1,9 +1,9 @@
 use crate::execution::validate_runtime_assignment;
 use crate::{
-    BehaviorRepository, ElementId, ElementKind, EngineStepOutcome, ExecutionEngine,
-    ExecutionError, ExecutionSession, ExecutionSnapshot, InteractionId, LifelineId, Message,
-    MessageId, MessageSignature, MessageSort, ParameterDirection, Project, RuntimeEvent,
-    RuntimeEventAddress, RuntimeEventKind, RuntimeEventRequest, RuntimeInstanceId, RuntimeValue,
+    BehaviorRepository, ElementId, ElementKind, EngineStepOutcome, ExecutionEngine, ExecutionError,
+    ExecutionSession, ExecutionSnapshot, InteractionId, LifelineId, Message, MessageId,
+    MessageSignature, MessageSort, ParameterDirection, Project, RuntimeEvent, RuntimeEventAddress,
+    RuntimeEventKind, RuntimeEventRequest, RuntimeInstanceId, RuntimeValue,
     StateMachineExecutionEngine, evaluate_execution_expression,
 };
 use serde::{Deserialize, Serialize};
@@ -57,19 +57,13 @@ pub fn invoke_modeled_operation(
             request.target_runtime_instance_id,
         ))?
         .clone();
-    let compatible = session
-        .structural_runtime
-        .as_ref()
-        .is_some_and(|runtime| {
-            runtime.instance_conforms_to(project, request.target_runtime_instance_id, owner_id)
-        });
+    let compatible = session.structural_runtime.as_ref().is_some_and(|runtime| {
+        runtime.instance_conforms_to(project, request.target_runtime_instance_id, owner_id)
+    });
     if !compatible {
         return Err(engine_error(format!(
             "{} cannot invoke Operation '{}': the Operation is owned by '{}', while the selected runtime occurrence is typed by '{}'.",
-            target.qualified_path,
-            operation.name,
-            owner.name,
-            target.classifier_name
+            target.qualified_path, operation.name, owner.name, target.classifier_name
         )));
     }
 
@@ -363,9 +357,9 @@ impl SequenceExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
-        self.repository
-            .validate(project)
-            .map_err(|error| engine_error(format!("Cannot initialize Sequence execution: {error}")))?;
+        self.repository.validate(project).map_err(|error| {
+            engine_error(format!("Cannot initialize Sequence execution: {error}"))
+        })?;
         let interaction = self.interaction()?.clone();
         let runtime = session.structural_runtime.as_ref().ok_or_else(|| {
             engine_error(format!(
@@ -399,8 +393,7 @@ impl SequenceExecutionEngine {
                     }
                 )));
             }
-            self.lifeline_bindings
-                .insert(lifeline.id, candidates[0].id);
+            self.lifeline_bindings.insert(lifeline.id, candidates[0].id);
         }
         self.state_machine_engines.clear();
         let mut bound_instances: Vec<_> = self.lifeline_bindings.values().copied().collect();
@@ -432,16 +425,18 @@ impl SequenceExecutionEngine {
                 )));
             }
             if let Some(machine_id) = machines.first().copied() {
-                let mut engine = StateMachineExecutionEngine::new_embedded(
-                    self.repository.clone(),
-                    machine_id,
-                )
-                .with_runtime_instance(instance_id);
+                let mut engine =
+                    StateMachineExecutionEngine::new_embedded(self.repository.clone(), machine_id)
+                        .with_runtime_instance(instance_id);
                 engine.initialize_embedded(project, session)?;
                 self.state_machine_engines.push(engine);
             }
         }
-        self.ordered_message_ids = interaction.messages.iter().map(|message| message.id).collect();
+        self.ordered_message_ids = interaction
+            .messages
+            .iter()
+            .map(|message| message.id)
+            .collect();
         self.ordered_message_ids.sort_by(|left, right| {
             let left = interaction
                 .messages
@@ -459,7 +454,9 @@ impl SequenceExecutionEngine {
         });
         for message in &interaction.messages {
             match message.sort {
-                MessageSort::SynchCall | MessageSort::AsynchCall | MessageSort::AsynchSignal
+                MessageSort::SynchCall
+                | MessageSort::AsynchCall
+                | MessageSort::AsynchSignal
                 | MessageSort::Reply => {}
                 _ => {
                     return Err(engine_error(format!(
@@ -483,7 +480,9 @@ impl SequenceExecutionEngine {
         self.repository
             .interactions
             .get(&self.interaction_id)
-            .ok_or_else(|| engine_error("Sequence execution references a missing Interaction.".into()))
+            .ok_or_else(|| {
+                engine_error("Sequence execution references a missing Interaction.".into())
+            })
     }
 
     fn execute_message(
@@ -519,7 +518,8 @@ impl SequenceExecutionEngine {
                         message.name
                     ))
                 })?;
-                let arguments = positional_operation_arguments(project, operation_id, &message.arguments)?;
+                let arguments =
+                    positional_operation_arguments(project, operation_id, &message.arguments)?;
                 invoke_modeled_operation(
                     project,
                     session,

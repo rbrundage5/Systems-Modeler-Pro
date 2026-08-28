@@ -435,13 +435,21 @@ fn call_operation_action_uses_the_modeled_operation_runtime() {
     let activity_id = repository
         .create_activity(
             &fixture.project,
-            fixture.project.element(fixture.system).unwrap().owner_id.unwrap(),
+            fixture
+                .project
+                .element(fixture.system)
+                .unwrap()
+                .owner_id
+                .unwrap(),
             Some(fixture.controller),
             "Start controller",
         )
         .unwrap();
     let initial = activity_node("Initial", ActivityNodeKind::Initial);
-    let mut input = Pin::input("level", fixture.project.element(fixture.input).unwrap().type_id);
+    let mut input = Pin::input(
+        "level",
+        fixture.project.element(fixture.input).unwrap().type_id,
+    );
     input.direction = PinDirection::Value;
     input.value = Some("4".into());
     input.parameter_id = Some(fixture.input);
@@ -499,13 +507,28 @@ fn call_operation_action_uses_the_modeled_operation_runtime() {
 #[test]
 fn send_and_accept_actions_share_typed_structural_signal_delivery() {
     let fixture = fixture();
-    let package = fixture.project.element(fixture.system).unwrap().owner_id.unwrap();
+    let package = fixture
+        .project
+        .element(fixture.system)
+        .unwrap()
+        .owner_id
+        .unwrap();
     let mut repository = ActivityRepository::default();
     let sender_id = repository
-        .create_activity(&fixture.project, package, Some(fixture.controller), "Sender")
+        .create_activity(
+            &fixture.project,
+            package,
+            Some(fixture.controller),
+            "Sender",
+        )
         .unwrap();
     let receiver_id = repository
-        .create_activity(&fixture.project, package, Some(fixture.controller), "Receiver")
+        .create_activity(
+            &fixture.project,
+            package,
+            Some(fixture.controller),
+            "Receiver",
+        )
         .unwrap();
 
     let sender_initial = activity_node("Initial", ActivityNodeKind::Initial);
@@ -560,11 +583,17 @@ fn send_and_accept_actions_share_typed_structural_signal_delivery() {
     .unwrap();
     session.initialize(&fixture.project).unwrap();
     let (left, right) = occurrences(&fixture, &session);
-    let mut receiver = ActivityExecutionEngine::new(repository.clone(), receiver_id)
-        .with_runtime_instance(right);
+    let mut receiver =
+        ActivityExecutionEngine::new(repository.clone(), receiver_id).with_runtime_instance(right);
     receiver.initialize(&fixture.project, &mut session).unwrap();
-    assert_eq!(receiver.step(&fixture.project, &mut session).unwrap(), EngineStepOutcome::Progressed);
-    assert_eq!(receiver.step(&fixture.project, &mut session).unwrap(), EngineStepOutcome::Progressed);
+    assert_eq!(
+        receiver.step(&fixture.project, &mut session).unwrap(),
+        EngineStepOutcome::Progressed
+    );
+    assert_eq!(
+        receiver.step(&fixture.project, &mut session).unwrap(),
+        EngineStepOutcome::Progressed
+    );
     let waiting = receiver.snapshot(&session);
     assert!(waiting.nodes.iter().any(|node| {
         node.node_id == accept_id && node.state == ActivityNodeExecutionState::Waiting
@@ -589,9 +618,7 @@ fn send_and_accept_actions_share_typed_structural_signal_delivery() {
     }));
 }
 
-fn sequence_repository(
-    fixture: &RuntimeFixture,
-) -> (BehaviorRepository, InteractionId, VertexId) {
+fn sequence_repository(fixture: &RuntimeFixture) -> (BehaviorRepository, InteractionId, VertexId) {
     let mut repository = BehaviorRepository::default();
     let machine_id = repository
         .create_state_machine(&fixture.project, fixture.controller, "Controller lifecycle")
@@ -723,7 +750,10 @@ fn sequence_resolves_lifelines_and_executes_operation_then_signal() {
         .find(|binding| binding.lifeline_name == "rightController")
         .unwrap()
         .runtime_instance_id;
-    assert_eq!(engine.step(&fixture.project, &mut session).unwrap(), EngineStepOutcome::Progressed);
+    assert_eq!(
+        engine.step(&fixture.project, &mut session).unwrap(),
+        EngineStepOutcome::Progressed
+    );
     assert_eq!(
         session.value(Some(right), fixture.input),
         Some(&RuntimeValue::Integer(9))
@@ -732,7 +762,10 @@ fn sequence_resolves_lifelines_and_executes_operation_then_signal() {
         session.value(Some(left), fixture.input),
         Some(&RuntimeValue::Integer(9))
     );
-    assert_eq!(engine.step(&fixture.project, &mut session).unwrap(), EngineStepOutcome::Progressed);
+    assert_eq!(
+        engine.step(&fixture.project, &mut session).unwrap(),
+        EngineStepOutcome::Progressed
+    );
     assert!(session.next_event().is_none());
     assert!(session.trace.iter().any(|entry| {
         entry.kind == TraceKind::EventDispatched
