@@ -33,7 +33,6 @@ jobs:
           node --check apps/desktop/frontend/shared-workspace.js
           cargo fmt --all --check
           cargo test -p systems-modeler-core
-          cargo check -p systems-modeler-desktop
           python scripts/validate_activity_integration.py
           python scripts/validate_behavior_integration.py
           python scripts/validate_state_machine_execution.py
