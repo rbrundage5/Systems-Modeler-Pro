@@ -23,6 +23,7 @@ bdd_extended = read("apps/desktop/frontend/bdd-extended-ui.js")
 compartment_frontend = read("apps/desktop/frontend/bdd-compartment-visibility.js")
 package_frontend = read("apps/desktop/frontend/workspace-ux.js")
 ibd_frontend = read("apps/desktop/frontend/ibd-ui.js")
+parametric_frontend = read("apps/desktop/frontend/parametric-ui.js")
 index = read("apps/desktop/frontend/index.html")
 
 commands = [
@@ -125,6 +126,17 @@ assert "presentation.height = next.height" not in runtime_fixes
 assert "window.smpCommitPresentationGeometry" in state_bar_frontend
 assert "window.smpCommitPresentationGeometry" in sequence_frontend
 assert "resize_sequence_lifeline_timeline" in sequence_frontend
+assert "smpBeginPresentationGesture" in sequence_frontend
+assert "smpPreviewSequenceLifelineGeometry" in sequence_frontend
+assert "bindSequenceConnectedDrag" not in runtime_fixes
+assert "smpPreviewSequenceLifelineGeometry" in runtime_fixes
+assert "setAttribute('points'" in runtime_fixes
+assert "smpBeginPresentationGesture" in state_bar_frontend
+assert "smpBeginPresentationGesture" in parametric_frontend
+activity_geometry = frontend.split("function installActivity", 1)[1].split("function install()", 1)[0]
+assert "beginPointerGesture(event" in activity_geometry
+assert ".onpointermove" not in activity_geometry
+assert ".onpointerup" not in activity_geometry
 
 # Rust commands reroute only notation attached to the moved/resized presentation,
 # own the undo checkpoint, and preserve IBD boundary-port attachment. Unrelated
@@ -137,6 +149,11 @@ assert ".filter(|edge|" in interaction_rs and "edge.source_presentation_id == pr
 assert "ibd_nested_ports_follow_shared_property_move_and_resize_geometry" in interaction_rs
 assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
+assert "edge.source_node_id == presentation_id || edge.target_node_id == presentation_id" in interaction_rs
+assert "reroute_incident_state_transitions" in interaction_rs
+assert "reroute_incident_state_transitions" in behavior_rs
+assert "reroute_incident_sequence_messages" in behavior_rs
+assert "history::checkpoint_states(&state, &activity, &history)?;" in behavior_rs
 assert "port.y = y.clamp" in interaction_rs, "IBD ports are not boundary constrained"
 sequence_resize = behavior_rs.split("pub fn resize_sequence_lifeline_timeline", 1)[1].split(
     "pub fn add_sequence_message", 1

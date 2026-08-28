@@ -134,31 +134,7 @@
         state.selectedBehaviorItem = { type: 'Vertex', id: vertex.id, semantic: vertex };
         render();
       };
-      node.onpointerdown = (event) => {
-        if (state.behaviorPending || state.behaviorTool || presentation.fallback) return;
-        const startX = event.clientX;
-        const startY = event.clientY;
-        const originalX = presentation.x;
-        const originalY = presentation.y;
-        node.setPointerCapture?.(event.pointerId);
-        node.onpointermove = (move) => {
-          presentation.x = originalX + move.clientX - startX;
-          presentation.y = originalY + move.clientY - startY;
-          node.style.left = `${presentation.x}px`;
-          node.style.top = `${presentation.y}px`;
-        };
-        node.onpointerup = async () => {
-          node.onpointermove = null;
-          await runCommand('Moving State vertex…', () => requireInvoke()('move_state_vertex', {
-            diagramId: diagram.id,
-            stateVertexId: String(vertex.id),
-            x: presentation.x,
-            y: presentation.y,
-          }));
-          await refresh();
-        };
-      };
-      frame.appendChild(node);
+      frame.appendChild(node);      frame.appendChild(node);
     });
 
     const svg = document.createElementNS(SVG_NS, 'svg');
@@ -282,51 +258,68 @@
       };
       if (!presentation.fallback) {
         timelineResize.onpointerdown = (event) => {
+          if (event.button !== 0 || state.behaviorPending || state.behaviorTool) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const begin = window.smpBeginPresentationGesture;
+          if (typeof begin !== 'function') return;
+          const originalEnd = timelineEnd;
+          let nextEnd = originalEnd;
+          begin(event, {
+            owner: timelineResize,
+            disabled: () => !!state.behaviorPending || !!state.behaviorTool,
+            onMove: (_dx, dy) => {
+              nextEnd = Math.max(timelineStart + 80, originalEnd + dy);
+              timeline.style.height = `${nextEnd - timelineStart}px`;
+              node.style.height = `${Math.max(120, nextEnd - 60)}px`;
+              timelineResize.style.top = `${Math.max(50, nextEnd - 66)}px`;
+            },
+            onCancel: () => render(),
+            onCommit: async () => {
+              await window.smpCommitPresentationGeometry('resize_sequence_lifeline_timeline', {
+                diagramId: diagram.id,
+                lifelineIdValue: String(lifeline.id),
+                timelineStartY: timelineStart,
+                timelineEndY: nextEnd,
+              });
+            },
+          });
+        };
+        node.onpointerdown = (event) => {
+          if (event.button !== 0 || event.target.closest?.('.lifeline-resize-handle')) return;
           if (state.behaviorPending || state.behaviorTool) return;
           event.preventDefault();
           event.stopPropagation();
-          const startY = event.clientY;
-          const originalEnd = timelineEnd;
-          let nextEnd = originalEnd;
-          timelineResize.setPointerCapture?.(event.pointerId);
-          timelineResize.onpointermove = (move) => {
-            nextEnd = Math.max(timelineStart + 80, originalEnd + move.clientY - startY);
-            timeline.style.height = `${nextEnd - timelineStart}px`;
-            node.style.height = `${Math.max(120, nextEnd - 60)}px`;
-            timelineResize.style.top = `${Math.max(50, nextEnd - 66)}px`;
-          };
-          timelineResize.onpointerup = async () => {
-            timelineResize.onpointermove = null;
-            timelineResize.onpointerup = null;
-            await window.smpCommitPresentationGeometry('resize_sequence_lifeline_timeline', {
-              diagramId: diagram.id,
-              lifelineIdValue: String(lifeline.id),
-              timelineStartY: timelineStart,
-              timelineEndY: nextEnd,
-            });
-          };
-        };
-        node.onpointerdown = (event) => {
-          if (event.target.closest?.('.lifeline-resize-handle')) return;
-          if (state.behaviorPending || state.behaviorTool) return;
-          const start = event.clientX;
+          const begin = window.smpBeginPresentationGesture;
+          if (typeof begin !== 'function') return;
           const original = presentation.x;
-          node.setPointerCapture?.(event.pointerId);
-          node.onpointermove = (move) => {
-            node.style.left = `${original + move.clientX - start - 65}px`;
-          };
-          node.onpointerup = async (up) => {
-            node.onpointermove = null;
-            await runCommand('Moving Lifeline…', () => requireInvoke()('move_sequence_lifeline', {
-              diagramId: diagram.id,
-              lifelineIdValue: String(lifeline.id),
-              x: original + up.clientX - start,
-            }));
-            await refresh();
-          };
+          let nextX = original;
+          begin(event, {
+            owner: node,
+            disabled: () => !!state.behaviorPending || !!state.behaviorTool,
+            onStart: () => node.classList.add('smp-dragging'),
+            onMove: (dx) => {
+              nextX = Math.max(70, original + dx);
+              node.style.left = `${nextX - 65}px`;
+              window.smpPreviewSequenceLifelineGeometry?.(inter, lifeline.id, nextX);
+            },
+            onCancel: () => {
+              node.classList.remove('smp-dragging');
+              render();
+            },
+            onCommit: async () => {
+              node.classList.remove('smp-dragging');
+              await runCommand('Moving Lifeline…', () => requireInvoke()('move_sequence_lifeline', {
+                diagramId: diagram.id,
+                lifelineIdValue: String(lifeline.id),
+                x: nextX,
+              }));
+              await refresh();
+            },
+          });
         };
       }
-      frame.appendChild(node);
+      frame.appendChild(node);      frame.appendChild(node);
     });
 
     const svg = document.createElementNS(SVG_NS, 'svg');

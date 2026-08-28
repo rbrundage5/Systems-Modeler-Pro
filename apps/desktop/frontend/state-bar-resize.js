@@ -85,35 +85,37 @@
         if (event.button !== 0 || state.behaviorPending || state.behaviorTool) return;
         event.preventDefault();
         event.stopPropagation();
-        const startX = event.clientX;
-        const startY = event.clientY;
+        const begin = window.smpBeginPresentationGesture;
+        if (typeof begin !== 'function') return;
         const original = { ...presentation };
         const originalThickness = displayThickness(original);
         let next = { ...original };
         let nextThickness = originalThickness;
-        handle.setPointerCapture?.(event.pointerId);
-        handle.onpointermove = (move) => {
-          next.width = Math.max(24, original.width + move.clientX - startX);
-          nextThickness = clampThickness(originalThickness + move.clientY - startY);
-          next.height = storedHeightForThickness(nextThickness);
-          node.style.width = `${next.width}px`;
-          node.style.height = `${next.height}px`;
-          bar.style.width = '100%';
-          bar.style.height = `${nextThickness}px`;
-          updateIncidentTransitions(diagram, vertexId, next);
-        };
-        handle.onpointerup = async () => {
-          handle.onpointermove = null;
-          handle.onpointerup = null;
-          await window.smpCommitPresentationGeometry('update_state_presentation_geometry', {
-            diagramId: diagram.id,
-            stateVertexId: String(vertexId),
-            x: next.x,
-            y: next.y,
-            width: next.width,
-            height: next.height,
-          });
-        };
+        begin(event, {
+          owner: handle,
+          disabled: () => !!state.behaviorPending || !!state.behaviorTool,
+          onMove: (dx, dy) => {
+            next.width = Math.max(24, original.width + dx);
+            nextThickness = clampThickness(originalThickness + dy);
+            next.height = storedHeightForThickness(nextThickness);
+            node.style.width = `${next.width}px`;
+            node.style.height = `${next.height}px`;
+            bar.style.width = '100%';
+            bar.style.height = `${nextThickness}px`;
+            updateIncidentTransitions(diagram, vertexId, next);
+          },
+          onCancel: () => render(),
+          onCommit: async () => {
+            await window.smpCommitPresentationGeometry('update_state_presentation_geometry', {
+              diagramId: diagram.id,
+              stateVertexId: String(vertexId),
+              x: next.x,
+              y: next.y,
+              width: next.width,
+              height: next.height,
+            });
+          },
+        });
       };
     });
   }

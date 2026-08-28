@@ -6,7 +6,7 @@
 
 use super::*;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use systems_modeler_core::{
     BindingEndpoint, ElementKind, Multiplicity, ParametricEvaluationScope, RelationshipKind,
     evaluate_parametrics,
@@ -305,6 +305,31 @@ pub(super) fn routed_edges(
         reserved.push(points);
     }
     Ok(result)
+}
+
+fn reroute_incident_edges(
+    diagram: &mut BddDiagram,
+    affected_presentation_ids: &HashSet<String>,
+) -> Result<(), String> {
+    let mut routing_diagram = diagram.clone();
+    routing_diagram.edges.retain(|edge| {
+        affected_presentation_ids.contains(&edge.source_node_id)
+            || affected_presentation_ids.contains(&edge.target_node_id)
+    });
+    if routing_diagram.edges.is_empty() {
+        return Ok(());
+    }
+    let routed = routed_edges(&routing_diagram, None)?;
+    for routed_edge in routed {
+        if let Some(edge) = diagram
+            .edges
+            .iter_mut()
+            .find(|edge| edge.id == routed_edge.id)
+        {
+            *edge = routed_edge;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn route_parametric_with_bounds(
@@ -1386,18 +1411,26 @@ pub fn update_parametric_presentation_geometry(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
         .ok_or("Parametric Diagram not found")?;
-    let node = diagram
-        .nodes
-        .iter_mut()
-        .find(|node| node.id == presentation_id)
-        .ok_or("Parametric presentation not found")?;
-    node.x = x.max(0.0);
-    node.y = y.max(42.0);
-    node.width = width;
-    node.height = height;
-    sync_parameter_presentations(node, &project)?;
-    diagram.edges = routed_edges(diagram, None)?;
-    validate_loaded_diagrams(&project, &diagrams)?;
+    let affected = {
+        let node = diagram
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == presentation_id)
+            .ok_or("Parametric presentation not found")?;
+        node.x = x.max(0.0);
+        node.y = y.max(42.0);
+        node.width = width;
+        node.height = height;
+        sync_parameter_presentations(node, &project)?;
+        let mut affected = HashSet::from([node.id.clone()]);
+        affected.extend(
+            node.parameter_presentations
+                .iter()
+                .map(|parameter| parameter.id.clone()),
+        );
+        affected
+    };
+    reroute_incident_edges(diagram, &affected)?;
     checkpoint(&workspace, &activity, &history)?;
     *workspace
         .diagrams
@@ -1420,12 +1453,6 @@ pub fn update_constraint_parameter_presentation(
     if !offset_x.is_finite() || !offset_y.is_finite() {
         return Err("parameter position must be finite".into());
     }
-    let project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?
-        .clone()
-        .ok_or("no project open")?;
     let mut diagrams = workspace
         .diagrams
         .lock()
@@ -1435,51 +1462,52 @@ pub fn update_constraint_parameter_presentation(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
         .ok_or("Parametric Diagram not found")?;
-    let node = diagram
-        .nodes
-        .iter_mut()
-        .find(|node| {
-            node.parameter_presentations
-                .iter()
-                .any(|parameter| parameter.id == presentation_id)
-        })
-        .ok_or("ConstraintParameter presentation not found")?;
-    let parameter = node
-        .parameter_presentations
-        .iter_mut()
-        .find(|parameter| parameter.id == presentation_id)
-        .unwrap();
-    let max_x = (node.width - parameter.size).max(0.0);
-    let max_y = (node.height - parameter.size).max(0.0);
-    let x = offset_x.clamp(0.0, max_x);
-    let y = offset_y.clamp(0.0, max_y);
-    let distances = [x, max_x - x, y, max_y - y];
-    match distances
-        .iter()
-        .enumerate()
-        .min_by(|left, right| left.1.total_cmp(right.1))
-        .map(|(index, _)| index)
-        .unwrap_or(0)
     {
-        0 => {
-            parameter.offset_x = 0.0;
-            parameter.offset_y = y;
-        }
-        1 => {
-            parameter.offset_x = max_x;
-            parameter.offset_y = y;
-        }
-        2 => {
-            parameter.offset_x = x;
-            parameter.offset_y = 0.0;
-        }
-        _ => {
-            parameter.offset_x = x;
-            parameter.offset_y = max_y;
+        let node = diagram
+            .nodes
+            .iter_mut()
+            .find(|node| {
+                node.parameter_presentations
+                    .iter()
+                    .any(|parameter| parameter.id == presentation_id)
+            })
+            .ok_or("ConstraintParameter presentation not found")?;
+        let parameter = node
+            .parameter_presentations
+            .iter_mut()
+            .find(|parameter| parameter.id == presentation_id)
+            .ok_or("ConstraintParameter presentation not found")?;
+        let max_x = (node.width - parameter.size).max(0.0);
+        let max_y = (node.height - parameter.size).max(0.0);
+        let x = offset_x.clamp(0.0, max_x);
+        let y = offset_y.clamp(0.0, max_y);
+        let distances = [x, max_x - x, y, max_y - y];
+        match distances
+            .iter()
+            .enumerate()
+            .min_by(|left, right| left.1.total_cmp(right.1))
+            .map(|(index, _)| index)
+            .unwrap_or(0)
+        {
+            0 => {
+                parameter.offset_x = 0.0;
+                parameter.offset_y = y;
+            }
+            1 => {
+                parameter.offset_x = max_x;
+                parameter.offset_y = y;
+            }
+            2 => {
+                parameter.offset_x = x;
+                parameter.offset_y = 0.0;
+            }
+            _ => {
+                parameter.offset_x = x;
+                parameter.offset_y = max_y;
+            }
         }
     }
-    diagram.edges = routed_edges(diagram, None)?;
-    validate_loaded_diagrams(&project, &diagrams)?;
+    reroute_incident_edges(diagram, &HashSet::from([presentation_id]))?;
     checkpoint(&workspace, &activity, &history)?;
     *workspace
         .diagrams

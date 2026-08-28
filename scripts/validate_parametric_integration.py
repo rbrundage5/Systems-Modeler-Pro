@@ -116,3 +116,13 @@ print(
     "explicit evaluation, engineer-readable binding diagnostics, and thin Parametric renderer "
     "are wired end to end"
 )
+
+# Cross-family direct-manipulation contract
+parametric_geometry_rs = read("apps/desktop/src-tauri/src/workspace/parametrics.rs")
+assert "fn reroute_incident_edges" in parametric_geometry_rs
+parametric_geometry = parametric_geometry_rs.split("pub fn update_parametric_presentation_geometry", 1)[1].split("pub fn update_constraint_parameter_presentation", 1)[0]
+assert "reroute_incident_edges" in parametric_geometry
+assert "validate_loaded_diagrams" not in parametric_geometry
+parameter_geometry = parametric_geometry_rs.split("pub fn update_constraint_parameter_presentation", 1)[1].split("pub fn evaluate_parametric_diagram", 1)[0]
+assert "reroute_incident_edges" in parameter_geometry
+assert "validate_loaded_diagrams" not in parameter_geometry

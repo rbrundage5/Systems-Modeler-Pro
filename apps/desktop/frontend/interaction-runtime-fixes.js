@@ -94,63 +94,30 @@
         `#canvas .sequence-message[data-message-id="${CSS.escape(String(message.id))}"]`,
       );
       if (!line) continue;
-      if (String(message.send_event?.lifeline_id || '') === String(lifelineId)) line.setAttribute('x1', x);
-      if (String(message.receive_event?.lifeline_id || '') === String(lifelineId)) line.setAttribute('x2', x);
+      const raw = (line.getAttribute('points') || '').trim();
+      const points = raw ? raw.split(/\s+/).map((pair) => {
+        const [px, py] = pair.split(',').map(Number);
+        return { x: px, y: py };
+      }).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) : [];
+      if (points.length < 2) continue;
+      if (String(message.send_event?.lifeline_id || '') === String(lifelineId)) {
+        const oldX = points[0].x;
+        points[0].x = x;
+        if (points[1] && Math.abs(points[1].x - oldX) < 0.1) points[1].x = x;
+      }
+      if (String(message.receive_event?.lifeline_id || '') === String(lifelineId)) {
+        const last = points.length - 1;
+        const oldX = points[last].x;
+        points[last].x = x;
+        if (points[last - 1] && Math.abs(points[last - 1].x - oldX) < 0.1) points[last - 1].x = x;
+      }
+      line.setAttribute('points', points.map((point) => `${point.x},${point.y}`).join(' '));
     }
   }
 
-  function bindSequenceConnectedDrag() {
-    const diagram = behaviorDiagram();
-    if (!diagram || diagram.kind !== 'Sequence') return;
-    const interaction = state.behaviorSnapshot?.repository?.interactions?.[String(diagram.semantic_id)];
-    if (!interaction) return;
-    document.querySelectorAll('#canvas .sequence-lifeline').forEach((node) => {
-      const lifelineId = node.dataset.lifelineId;
-      const presentation = diagram.lifelines?.find(
-        (item) => String(item.lifeline_id) === String(lifelineId),
-      );
-      if (!presentation) return;
-      node.onpointerdown = (event) => {
-        if (event.button !== 0 || event.target.closest?.('.lifeline-resize-handle')) return;
-        if (state.behaviorPending || state.behaviorTool) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const startX = event.clientX;
-        const originalX = presentation.x;
-        let nextX = originalX;
-        node.classList.add('smp-dragging');
-        node.setPointerCapture?.(event.pointerId);
-        node.onpointermove = (move) => {
-          nextX = Math.max(70, originalX + move.clientX - startX);
-          node.style.left = `${nextX - 65}px`;
-          updateSequenceMessages(interaction, lifelineId, nextX);
-        };
-        node.onpointerup = async () => {
-          node.onpointermove = null;
-          node.onpointerup = null;
-          node.classList.remove('smp-dragging');
-          await runCommand('Moving Lifeline…', () => requireInvoke()('move_sequence_lifeline', {
-            diagramId: diagram.id,
-            lifelineIdValue: String(lifelineId),
-            x: nextX,
-          }));
-          await refresh();
-        };
-      };
-    });
-  }
+  window.smpPreviewSequenceLifelineGeometry = updateSequenceMessages;
 
-  function installRuntimeInteractionFixes() {
-    bindSequenceConnectedDrag();
-  }
-
-  const baseRender = render;
-  render = function renderWithRuntimeInteractionFixes() {
-    baseRender();
-    installRuntimeInteractionFixes();
-  };
-  queueMicrotask(installRuntimeInteractionFixes);
-})();
+  })();
 
 (() => {
   const canvas = document.getElementById('canvas');

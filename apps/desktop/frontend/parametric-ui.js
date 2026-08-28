@@ -200,39 +200,37 @@
   }
 
   function bindParameterMove(button, diagram, node, parameter) {
-    button.addEventListener('pointerdown', (event) => {
+    button.onpointerdown = (event) => {
       if (event.button !== 0 || state.pendingRelationship || state.paletteTool) return;
       event.preventDefault();
       event.stopPropagation();
-      const startX = event.clientX;
-      const startY = event.clientY;
+      const begin = window.smpBeginPresentationGesture;
+      if (typeof begin !== 'function') return;
       const originalX = parameter.offset_x;
       const originalY = parameter.offset_y;
       let nextX = originalX;
       let nextY = originalY;
-      button.setPointerCapture?.(event.pointerId);
-      const move = (pointer) => {
-        nextX = originalX + pointer.clientX - startX;
-        nextY = originalY + pointer.clientY - startY;
-        button.style.left = `${nextX}px`;
-        button.style.top = `${nextY}px`;
-      };
-      const up = async () => {
-        button.removeEventListener('pointermove', move);
-        button.removeEventListener('pointerup', up);
-        button.removeEventListener('pointercancel', up);
-        await runCommand('Moving constraint parameter…', () => requireInvoke()('update_constraint_parameter_presentation', {
-          diagramId: diagram.id,
-          presentationId: parameter.id,
-          offsetX: nextX,
-          offsetY: nextY,
-        }));
-        await refresh();
-      };
-      button.addEventListener('pointermove', move);
-      button.addEventListener('pointerup', up);
-      button.addEventListener('pointercancel', up);
-    }, true);
+      begin(event, {
+        owner: button,
+        disabled: () => !!state.pendingRelationship || !!state.paletteTool,
+        onMove: (dx, dy) => {
+          nextX = originalX + dx;
+          nextY = originalY + dy;
+          button.style.left = `${nextX}px`;
+          button.style.top = `${nextY}px`;
+        },
+        onCancel: () => render(),
+        onCommit: async () => {
+          await runCommand('Moving constraint parameter…', () => requireInvoke()('update_constraint_parameter_presentation', {
+            diagramId: diagram.id,
+            presentationId: parameter.id,
+            offsetX: nextX,
+            offsetY: nextY,
+          }));
+          await refresh();
+        },
+      });
+    };
   }
 
   function constraintMarkup(property, block) {

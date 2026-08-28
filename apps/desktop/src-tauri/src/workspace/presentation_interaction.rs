@@ -453,7 +453,7 @@ pub fn update_state_presentation_geometry(
         .behavior
         .lock()
         .map_err(|_| "behavior lock poisoned")?;
-    behavior_workspace::reroute_behavior_presentation(diagram, &repository, None)?;
+    behavior_workspace::reroute_incident_state_transitions(diagram, &repository, &state_vertex_id)?;
     drop(repository);
 
     history::checkpoint_states(&state, &activity, &history)?;
@@ -507,7 +507,9 @@ pub fn update_activity_presentation_geometry(
             height: node.height,
         })
         .collect();
-    for edge in &mut diagram.edges {
+    for edge in diagram.edges.iter_mut().filter(|edge| {
+        edge.source_node_id == presentation_id || edge.target_node_id == presentation_id
+    }) {
         let source = diagram
             .nodes
             .iter()

@@ -63,7 +63,7 @@
     const startY = event.clientY;
     const owner = options.owner;
     if (!owner) return false;
-    const scale = options.scale || { x: 1, y: 1 };
+    const scale = options.scale || surfaceScale(owner);
     let started = false;
     let finished = false;
 
@@ -179,6 +179,9 @@
     if (!config) return;
 
     const handle = event.target.closest?.('.smp-resize-handle');
+    // Fork/Join uses the same gesture lifecycle but a notation-specific thickness
+    // adapter in state-bar-resize.js. Let that adapter receive its resize handle.
+    if (handle && node.matches?.('.state-fork, .state-join')) return;
     if (!handle && event.target.closest?.('.constraint-parameter, input, select, textarea, a, [contenteditable="true"]')) return;
 
     // This one capture listener is the HTML presentation gesture authority for
@@ -440,90 +443,98 @@
     const svg = document.querySelector('#canvas .activity-svg');
     if (!svg) return;
     const viewBox = svg.viewBox.baseVal;
-    const unitsPerPixel = () => {
+    const diagramScale = () => {
       const rect = svg.getBoundingClientRect();
-      return { x: viewBox.width / Math.max(1, rect.width), y: viewBox.height / Math.max(1, rect.height) };
+      return {
+        x: Math.max(rect.width / Math.max(1, viewBox.width), 0.0001),
+        y: Math.max(rect.height / Math.max(1, viewBox.height), 0.0001),
+      };
     };
     svg.querySelectorAll('.activity-node').forEach((group) => {
-      if (group.dataset.smpGeometryBound === '1') return;
       const semanticId = group.dataset.activityNodeId;
       const presentation = diagram.nodes?.find((item) => String(item.activity_node_id) === String(semanticId));
       if (!presentation) return;
       group.dataset.smpGeometryBound = '1';
       group.classList.add('smp-interactive-presentation');
-      const handle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      handle.classList.add('smp-svg-resize-handle');
+      let handle = group.querySelector('.smp-svg-resize-handle');
+      if (!handle) {
+        handle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        handle.classList.add('smp-svg-resize-handle');
+        handle.setAttribute('width', '12');
+        handle.setAttribute('height', '12');
+        group.appendChild(handle);
+      }
       handle.setAttribute('x', presentation.x + presentation.width - 6);
       handle.setAttribute('y', presentation.y + presentation.height - 6);
-      handle.setAttribute('width', '12');
-      handle.setAttribute('height', '12');
       handle.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
       };
-      group.appendChild(handle);
 
       group.onpointerdown = (event) => {
-        if (event.button !== 0 || event.target === handle || state.activityPendingFlow || state.activityTool) return;
+        if (event.button !== 0 || event.target === handle) return;
         event.preventDefault();
         event.stopPropagation();
         state.selectedActivityNodeId = semanticId;
-        const startX = event.clientX;
-        const startY = event.clientY;
         const original = { ...presentation };
         let next = { ...original };
-        group.classList.add('smp-dragging');
-        group.setPointerCapture?.(event.pointerId);
-        group.onpointermove = (move) => {
-          const scale = unitsPerPixel();
-          const dx = (move.clientX - startX) * scale.x;
-          const dy = (move.clientY - startY) * scale.y;
-          next.x = Math.max(0, original.x + dx);
-          next.y = Math.max(42, original.y + dy);
-          group.setAttribute('transform', `translate(${next.x - original.x} ${next.y - original.y})`);
-        };
-        group.onpointerup = async () => {
-          group.onpointermove = null;
-          group.onpointerup = null;
-          group.classList.remove('smp-dragging');
-          group.removeAttribute('transform');
-          await commit('update_activity_presentation_geometry', {
-            diagramId: diagram.id,
-            presentationId: presentation.id,
-            x: next.x, y: next.y, width: next.width, height: next.height,
-          });
-        };
+        beginPointerGesture(event, {
+          owner: group,
+          scale: diagramScale(),
+          prepare: cancelTransientAuthoring,
+          disabled: () => !!state.activityPendingFlow || !!state.activityTool,
+          onStart: () => group.classList.add('smp-dragging'),
+          onMove: (dx, dy) => {
+            next.x = Math.max(0, original.x + dx);
+            next.y = Math.max(42, original.y + dy);
+            group.setAttribute('transform', `translate(${next.x - original.x} ${next.y - original.y})`);
+          },
+          onCancel: () => {
+            group.classList.remove('smp-dragging');
+            group.removeAttribute('transform');
+          },
+          onCommit: async () => {
+            group.classList.remove('smp-dragging');
+            group.removeAttribute('transform');
+            await commit('update_activity_presentation_geometry', {
+              diagramId: diagram.id,
+              presentationId: presentation.id,
+              x: next.x, y: next.y, width: next.width, height: next.height,
+            });
+          },
+        });
       };
 
       handle.onpointerdown = (event) => {
-        if (event.button !== 0 || state.activityPendingFlow || state.activityTool) return;
+        if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
-        const startX = event.clientX;
-        const startY = event.clientY;
         const original = { ...presentation };
         let next = { ...original };
-        handle.setPointerCapture?.(event.pointerId);
-        handle.onpointermove = (move) => {
-          const scale = unitsPerPixel();
-          next.width = Math.max(MIN.Activity.width, original.width + (move.clientX - startX) * scale.x);
-          const barLike = group.classList.contains('activity-fork') || group.classList.contains('activity-join');
-          next.height = barLike
-            ? Math.max(20, Math.min(24, original.height + (move.clientY - startY) * scale.y))
-            : Math.max(MIN.Activity.height, original.height + (move.clientY - startY) * scale.y);
-          applyActivityShapeGeometry(group, next);
-          handle.setAttribute('x', original.x + next.width - 6);
-          handle.setAttribute('y', original.y + next.height - 6);
-        };
-        handle.onpointerup = async () => {
-          handle.onpointermove = null;
-          handle.onpointerup = null;
-          await commit('update_activity_presentation_geometry', {
-            diagramId: diagram.id,
-            presentationId: presentation.id,
-            x: original.x, y: original.y, width: next.width, height: next.height,
-          });
-        };
+        beginPointerGesture(event, {
+          owner: handle,
+          scale: diagramScale(),
+          prepare: cancelTransientAuthoring,
+          disabled: () => !!state.activityPendingFlow || !!state.activityTool,
+          onMove: (dx, dy) => {
+            next.width = Math.max(MIN.Activity.width, original.width + dx);
+            const barLike = group.classList.contains('activity-fork') || group.classList.contains('activity-join');
+            next.height = barLike
+              ? Math.max(20, Math.min(24, original.height + dy))
+              : Math.max(MIN.Activity.height, original.height + dy);
+            applyActivityShapeGeometry(group, next);
+            handle.setAttribute('x', original.x + next.width - 6);
+            handle.setAttribute('y', original.y + next.height - 6);
+          },
+          onCancel: () => render(),
+          onCommit: async () => {
+            await commit('update_activity_presentation_geometry', {
+              diagramId: diagram.id,
+              presentationId: presentation.id,
+              x: original.x, y: original.y, width: next.width, height: next.height,
+            });
+          },
+        });
       };
     });
   }
