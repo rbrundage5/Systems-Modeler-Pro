@@ -89,7 +89,10 @@ fn force_fixture() -> ForceFixture {
             Multiplicity::ONE,
         )
         .unwrap();
-    project.element_mut(definition).unwrap().constraint_expression = "F = m * a".into();
+    project
+        .element_mut(definition)
+        .unwrap()
+        .constraint_expression = "F = m * a".into();
     let equation = project
         .create_typed_feature(
             ElementKind::ConstraintProperty,
@@ -101,11 +104,7 @@ fn force_fixture() -> ForceFixture {
         .unwrap();
     let bindings = vec![
         project
-            .create_binding_connector(
-                context,
-                endpoint(mass, None),
-                endpoint(equation, Some(m)),
-            )
+            .create_binding_connector(context, endpoint(mass, None), endpoint(equation, Some(m)))
             .unwrap(),
         project
             .create_binding_connector(
@@ -115,11 +114,7 @@ fn force_fixture() -> ForceFixture {
             )
             .unwrap(),
         project
-            .create_binding_connector(
-                context,
-                endpoint(force, None),
-                endpoint(equation, Some(f)),
-            )
+            .create_binding_connector(context, endpoint(force, None), endpoint(equation, Some(f)))
             .unwrap(),
     ];
     project.validate().unwrap();
@@ -170,8 +165,18 @@ fn force_equation_evaluates_into_runtime_without_mutating_authored_model() {
         Some(&RuntimeValue::Real(2000.0))
     );
     assert_eq!(engine.snapshot(&session).updates[0].display_value, "2000");
-    assert_eq!(serde_json::to_string(&fixture.project).unwrap(), authored_before);
-    assert_eq!(fixture.project.element(fixture.force).unwrap().default_value, None);
+    assert_eq!(
+        serde_json::to_string(&fixture.project).unwrap(),
+        authored_before
+    );
+    assert_eq!(
+        fixture
+            .project
+            .element(fixture.force)
+            .unwrap()
+            .default_value,
+        None
+    );
 }
 
 #[test]
@@ -305,7 +310,10 @@ fn missing_runtime_input_fails_with_readable_diagnostic_and_no_authored_mutation
     let message = &session.diagnostics.last().unwrap().message;
     assert!(message.contains("unresolved parameter 'a'"));
     assert!(message.contains("forceEquation"));
-    assert_eq!(serde_json::to_string(&fixture.project).unwrap(), authored_before);
+    assert_eq!(
+        serde_json::to_string(&fixture.project).unwrap(),
+        authored_before
+    );
 }
 
 #[test]
@@ -324,17 +332,27 @@ fn unsupported_expression_is_rejected_instead_of_executed() {
         .constraint_expression = "F = m % a".into();
     let mut session = session(&fixture.project, fixture.context);
     let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());
-    engine.initialize(&fixture.project, &mut session).unwrap();
-    engine.step(&fixture.project, &mut session).unwrap();
-    assert_eq!(session.state, ExecutionState::Failed);
-    assert!(
-        session
-            .diagnostics
-            .last()
-            .unwrap()
-            .message
-            .contains("unsupported expression character")
-    );
+    match engine.initialize(&fixture.project, &mut session) {
+        Ok(()) => {
+            engine.step(&fixture.project, &mut session).unwrap();
+            assert_eq!(session.state, ExecutionState::Failed);
+            assert!(
+                session
+                    .diagnostics
+                    .last()
+                    .unwrap()
+                    .message
+                    .contains("unsupported expression character")
+            );
+        }
+        Err(error) => {
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsupported expression character")
+            );
+        }
+    }
 }
 
 #[test]

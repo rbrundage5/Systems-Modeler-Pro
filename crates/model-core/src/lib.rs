@@ -24,6 +24,9 @@ pub use state_machine_execution::*;
 pub mod operation_signal_sequence_execution;
 pub use operation_signal_sequence_execution::*;
 
+pub mod parametric_execution;
+pub use parametric_execution::*;
+
 pub mod namespace;
 pub use namespace::*;
 

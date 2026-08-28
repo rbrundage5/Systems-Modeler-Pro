@@ -66,7 +66,7 @@ fn parse_multiplicity(value: &str) -> Result<Multiplicity, String> {
     Multiplicity::new(exact, Some(exact)).map_err(|error| error.to_string())
 }
 
-fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {
+pub(super) fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {
     if diagram.family != "parametric" {
         return Err("diagram is not a Parametric Diagram".into());
     }
@@ -76,6 +76,36 @@ fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {
             .as_deref()
             .ok_or("Parametric Diagram has no semantic context")?,
     )
+}
+
+pub(super) fn evaluation_scope(
+    diagram: &BddDiagram,
+    project: &Project,
+) -> Result<ParametricEvaluationScope, String> {
+    Ok(ParametricEvaluationScope {
+        context_id: diagram_context(diagram)?,
+        constraint_property_ids: diagram
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let id = parse_element_id(&node.element_id).ok()?;
+                (project.element(id).ok()?.kind == ElementKind::ConstraintProperty).then_some(id)
+            })
+            .collect(),
+        value_property_ids: diagram
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                let id = parse_element_id(&node.element_id).ok()?;
+                (project.element(id).ok()?.kind == ElementKind::ValueProperty).then_some(id)
+            })
+            .collect(),
+        binding_relationship_ids: diagram
+            .edges
+            .iter()
+            .map(|edge| parse_relationship_id(&edge.relationship_id))
+            .collect::<Result<Vec<_>, _>>()?,
+    })
 }
 
 fn parameter_layout(
@@ -1505,14 +1535,9 @@ pub fn evaluate_parametric_diagram(
             .collect::<Result<Vec<_>, _>>()?,
     };
     let report = evaluate_parametrics(&mut project, &scope).map_err(|error| error.to_string())?;
-    project.validate().map_err(|error| error.to_string())?;
-    if !report.updates.is_empty() {
-        checkpoint(&workspace, &activity, &history)?;
-        *workspace
-            .project
-            .lock()
-            .map_err(|_| "project lock poisoned")? = Some(project);
-    }
+    // PR35 keeps this legacy command preview-only. Runtime values are owned by
+    // the shared ExecutionSession path and never overwrite authored defaults.
+    let _ = (&workspace, &activity, &history);
     Ok(ParametricEvaluationSnapshot {
         evaluated_constraints: report.evaluated_constraints,
         changed_values: report.updates.len(),

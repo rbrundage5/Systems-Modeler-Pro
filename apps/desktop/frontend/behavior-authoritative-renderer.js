@@ -611,14 +611,16 @@
     await newProjectWithStateMachineExecution?.();
     await requireInvoke()('clear_state_machine_executions');
     await requireInvoke()('clear_sequence_executions');
-    Object.assign(state, { stateMachineExecutionSnapshot: null });
+    await requireInvoke()('clear_parametric_executions');
+    Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });
     refreshStateMachineExecution();
   };
   if ($('open-project')) $('open-project').onclick = async () => {
     await openProjectWithStateMachineExecution?.();
     await requireInvoke()('clear_state_machine_executions');
     await requireInvoke()('clear_sequence_executions');
-    Object.assign(state, { stateMachineExecutionSnapshot: null });
+    await requireInvoke()('clear_parametric_executions');
+    Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });
     refreshStateMachineExecution();
   };
   // PR32_STATE_MACHINE_EXECUTION_END
@@ -967,6 +969,12 @@
       configure: 'configure_sequence_execution_runtime',
       label: 'Sequence',
     };
+    if (kind === 'parametric') return {
+      get: 'parametric_execution_runtime_selection',
+      preview: 'preview_parametric_execution_runtime',
+      configure: 'configure_parametric_execution_runtime',
+      label: 'Parametric',
+    };
     return {
       get: 'state_machine_execution_runtime_selection',
       preview: 'preview_state_machine_execution_runtime',
@@ -993,7 +1001,7 @@
     backdrop.className = 'structural-runtime-config-backdrop';
     const structural = existing?.structural_configuration || {};
     backdrop.innerHTML = `<section class="structural-runtime-config-dialog" role="dialog" aria-modal="true" aria-label="${esc(api.label)} runtime configuration">
-      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this behavior executes on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>
+      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this execution runs on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>
       <label>Structural execution root<select data-runtime-root><option value="">Behavior context (default)</option>${runtimeRootOptions(existing?.root_semantic_id)}</select></label>
       <label>Root occurrence name<input data-runtime-root-name value="${esc(structural.root_instance_name || '')}" placeholder="Optional engineer-facing runtime root name" /></label>
       <label>Behavior runtime occurrence<input data-runtime-path list="structural-runtime-compatible-paths" value="${esc(existing?.runtime_instance_path || '')}" placeholder="Auto-select when exactly one compatible occurrence exists" /><datalist id="structural-runtime-compatible-paths"></datalist></label>
@@ -1040,6 +1048,12 @@
         if (kind === 'activity') {
           window.smpState.activityExecutionSnapshot = null;
           window.smpRefreshActivityExecution?.();
+        } else if (kind === 'sequence') {
+          window.smpState.sequenceExecutionSnapshot = null;
+          window.smpRefreshSequenceExecution?.();
+        } else if (kind === 'parametric') {
+          window.smpState.parametricExecutionSnapshot = null;
+          window.smpRefreshParametricExecution?.();
         } else {
           window.smpState.stateMachineExecutionSnapshot = null;
           window.smpRefreshStateMachineExecution?.();

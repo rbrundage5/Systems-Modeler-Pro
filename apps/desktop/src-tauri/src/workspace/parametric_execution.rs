@@ -2,9 +2,10 @@ use super::{WorkspaceState, parametrics::evaluation_scope};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use systems_modeler_core::{
-    ElementKind, ExecutionConfiguration, ExecutionEngine, ExecutionManager, ExecutionRuntimePreview,
-    ExecutionRuntimeSelection, ExecutionSessionId, ParametricEvaluationScope,
-    ParametricExecutionEngine, ParametricExecutionSnapshot, Project, StructuralRuntime,
+    ElementKind, ExecutionConfiguration, ExecutionEngine, ExecutionManager,
+    ExecutionRuntimePreview, ExecutionRuntimeSelection, ExecutionSessionId,
+    ParametricEvaluationScope, ParametricExecutionEngine, ParametricExecutionSnapshot, Project,
+    StructuralRuntime,
 };
 
 #[derive(Default)]
@@ -67,7 +68,10 @@ fn runtime_preview(
             selected_runtime_instance_path: None,
         });
     }
-    if !matches!(context.kind, ElementKind::Block | ElementKind::AssociationBlock) {
+    if !matches!(
+        context.kind,
+        ElementKind::Block | ElementKind::AssociationBlock
+    ) {
         return Err(format!(
             "Parametric context '{}' ({:?}) is not an executable structural classifier.",
             context.name, context.kind
@@ -266,13 +270,7 @@ pub fn initialize_parametric_execution(
         .registry
         .lock()
         .map_err(|_| "Parametric execution lock poisoned")?;
-    let session_id = start_execution(
-        &project,
-        scope,
-        &diagram_id,
-        fingerprint,
-        &mut registry,
-    )?;
+    let session_id = start_execution(&project, scope, &diagram_id, fingerprint, &mut registry)?;
     snapshot_for(&registry, session_id)
 }
 
@@ -356,13 +354,7 @@ pub fn evaluate_parametric_execution(
         .registry
         .lock()
         .map_err(|_| "Parametric execution lock poisoned")?;
-    let session_id = start_execution(
-        &project,
-        scope,
-        &diagram_id,
-        fingerprint,
-        &mut registry,
-    )?;
+    let session_id = start_execution(&project, scope, &diagram_id, fingerprint, &mut registry)?;
     let ParametricExecutionRegistry {
         manager, engines, ..
     } = &mut *registry;

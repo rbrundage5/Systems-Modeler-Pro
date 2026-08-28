@@ -14,6 +14,7 @@ mod workspace {
     mod item_flow_notation;
     mod layout;
     mod package_diagrams;
+    mod parametric_execution;
     mod parametrics;
     mod presentation_interaction;
     mod presentation_theme;
@@ -82,6 +83,14 @@ mod workspace {
         create_package_diagram, create_package_element, create_package_relationship,
         delete_package_relationship, place_on_package_diagram, reconnect_package_relationship,
         update_package_element, update_package_relationship,
+    };
+    pub use parametric_execution::{
+        ParametricExecutionState, clear_parametric_executions,
+        configure_parametric_execution_runtime, evaluate_parametric_execution,
+        initialize_parametric_execution, parametric_execution_runtime_selection,
+        parametric_execution_snapshot, preview_parametric_execution_runtime,
+        reset_parametric_execution, run_parametric_execution, step_parametric_execution,
+        terminate_parametric_execution,
     };
     pub use parametrics::{
         create_binding_connector, create_constraint_parameter,
@@ -222,6 +231,13 @@ use workspace::{
     update_use_case_subject_boundary_geometry, update_value_type_details,
     workspace_interaction_snapshot, workspace_snapshot, workspace_snapshot_complete,
     zoom_diagram_viewport,
+};
+use workspace::{
+    ParametricExecutionState, clear_parametric_executions, configure_parametric_execution_runtime,
+    evaluate_parametric_execution, initialize_parametric_execution,
+    parametric_execution_runtime_selection, parametric_execution_snapshot,
+    preview_parametric_execution_runtime, reset_parametric_execution, run_parametric_execution,
+    step_parametric_execution, terminate_parametric_execution,
 };
 
 #[derive(Serialize)]
@@ -557,6 +573,7 @@ fn main() {
         .manage(ActivityExecutionState::default())
         .manage(StateMachineExecutionState::default())
         .manage(SequenceExecutionState::default())
+        .manage(ParametricExecutionState::default())
         .manage(HistoryState::default())
         .manage(SharedWorkspaceState::default())
         .manage(StandardEditingState::default())
@@ -613,6 +630,17 @@ fn main() {
             update_parametric_presentation_geometry,
             update_constraint_parameter_presentation,
             evaluate_parametric_diagram,
+            parametric_execution_snapshot,
+            parametric_execution_runtime_selection,
+            preview_parametric_execution_runtime,
+            configure_parametric_execution_runtime,
+            initialize_parametric_execution,
+            evaluate_parametric_execution,
+            run_parametric_execution,
+            step_parametric_execution,
+            reset_parametric_execution,
+            terminate_parametric_execution,
+            clear_parametric_executions,
             create_use_case_diagram,
             create_use_case_element,
             update_use_case_specification,

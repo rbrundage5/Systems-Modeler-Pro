@@ -100,3 +100,63 @@ body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group {
 .sequence-execution-diagnostics { margin: 6px 0; color: #9b1c1c; }
 .sequence-message.runtime-completed-message { stroke: #2f855a; stroke-width: 2.2; }
 .sequence-message.runtime-active-message { stroke: #c05621; stroke-width: 3.5; filter: drop-shadow(0 0 2px #f6ad55); }
+
+/* PR35 Parametric runtime controls share the authoritative active-family gate. */
+body:not([data-execution-family="parametric"]) .parametric-execution-ribbon-group,
+body:not([data-execution-family="parametric"]) .parametric-execution-panel {
+  display: none !important;
+}
+.parametric-execution-ribbon-group {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+}
+.parametric-execution-ribbon-group .ribbon-actions {
+  display: flex !important;
+  grid-template-columns: none !important;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.parametric-execution-ribbon-group .ribbon-label {
+  white-space: nowrap;
+}
+.parametric-execution-panel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 12;
+  width: min(440px, 40vw);
+  max-height: 46vh;
+  overflow: auto;
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid #9aa6b2;
+  border-radius: 4px;
+  box-shadow: 0 5px 18px rgba(30, 42, 55, .18);
+  padding: 10px;
+  font-size: 12px;
+}
+.parametric-execution-heading,
+.parametric-execution-metrics,
+.parametric-execution-values > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.parametric-execution-values,
+.parametric-execution-diagnostics,
+.parametric-execution-trace {
+  margin-top: 6px;
+}
+.parametric-execution-trace > div {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 6px;
+  padding: 2px 0;
+}
+.parametric-presentation.runtime-calculated-value {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.parametric-presentation.runtime-evaluated-constraint {
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .16);
+}

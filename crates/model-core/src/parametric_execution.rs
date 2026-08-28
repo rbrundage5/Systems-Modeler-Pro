@@ -123,7 +123,10 @@ impl ParametricExecutionEngine {
             self.runtime_instance_id = None;
             return Ok(());
         }
-        if !matches!(context.kind, ElementKind::Block | ElementKind::AssociationBlock) {
+        if !matches!(
+            context.kind,
+            ElementKind::Block | ElementKind::AssociationBlock
+        ) {
             return Err(engine_error(format!(
                 "Parametric context '{}' ({:?}) is not an executable structural classifier.",
                 context.name, context.kind
@@ -152,7 +155,8 @@ impl ParametricExecutionEngine {
         let paths = runtime.compatible_instance_paths(project, self.scope.context_id);
         match paths.as_slice() {
             [path] => {
-                self.runtime_instance_id = runtime.instance_by_path(path).map(|instance| instance.id);
+                self.runtime_instance_id =
+                    runtime.instance_by_path(path).map(|instance| instance.id);
                 Ok(())
             }
             [] => Err(engine_error(format!(
@@ -393,10 +397,7 @@ fn readable_model_error(project: &Project, mut message: String) -> String {
     for element in project.elements.values() {
         let id = element.id.to_string();
         if message.contains(&id) {
-            message = message.replace(
-                &id,
-                &format!("'{}'", readable_element(project, element.id)),
-            );
+            message = message.replace(&id, &format!("'{}'", readable_element(project, element.id)));
         }
     }
     message
