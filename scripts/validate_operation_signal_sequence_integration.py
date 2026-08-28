@@ -1,18 +1,22 @@
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-core = (root / "crates/model-core/src/operation_signal_sequence_execution.rs").read_text()
-execution = (root / "crates/model-core/src/execution.rs").read_text()
-activity = (root / "crates/model-core/src/activity_execution.rs").read_text()
-structural = (root / "crates/model-core/src/structural_runtime.rs").read_text()
-desktop = (root / "apps/desktop/src-tauri/src/workspace/sequence_execution.rs").read_text()
-main = (root / "apps/desktop/src-tauri/src/main.rs").read_text()
-renderer = (root / "apps/desktop/frontend/behavior-authoritative-renderer.js").read_text()
+def read(relative_path: str) -> str:
+    return (root / relative_path).read_text(encoding="utf-8")
+
+
+core = read("crates/model-core/src/operation_signal_sequence_execution.rs")
+execution = read("crates/model-core/src/execution.rs")
+activity = read("crates/model-core/src/activity_execution.rs")
+structural = read("crates/model-core/src/structural_runtime.rs")
+desktop = read("apps/desktop/src-tauri/src/workspace/sequence_execution.rs")
+main = read("apps/desktop/src-tauri/src/main.rs")
+renderer = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
 frontend = renderer
-index = (root / "apps/desktop/frontend/index.html").read_text()
-workflow = (root / ".github/workflows/ci.yml").read_text()
-tests = (root / "crates/model-core/tests/pr34_operation_signal_sequence.rs").read_text()
-editing = (root / "scripts/validate_standard_editing_integration.py").read_text()
+index = read("apps/desktop/frontend/index.html")
+workflow = read(".github/workflows/ci.yml")
+tests = read("crates/model-core/tests/pr34_operation_signal_sequence.rs")
+editing = read("scripts/validate_standard_editing_integration.py")
 
 for token in [
     "ModeledOperationRequest",
