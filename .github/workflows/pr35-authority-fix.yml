@@ -1,0 +1,45 @@
+name: PR35 renderer authority fix
+
+on:
+  push:
+    branches: [agent/pr35-native-parametric-runtime]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr35-native-parametric-runtime
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Consolidate Parametric render refresh
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          path = Path('apps/desktop/frontend/parametric-ui.js')
+          text = path.read_text(encoding='utf-8')
+          wrapper = '''\n  const baseParametricRenderWithRuntime = renderCanvas;\n  renderCanvas = function renderParametricCanvasWithRuntime() {\n    const result = baseParametricRenderWithRuntime();\n    queueMicrotask(loadParametricExecutionSnapshot);\n    return result;\n  };\n'''
+          if wrapper not in text:
+              raise SystemExit('PR35 extra render wrapper not found')
+          text = text.replace(wrapper, '', 1)
+          anchor = '''      render();\n    };\n  };\n\n  const baseCreatePaletteElementAt = createPaletteElementAt;'''
+          replacement = '''      render();\n    };\n    queueMicrotask(loadParametricExecutionSnapshot);\n  };\n\n  const baseCreatePaletteElementAt = createPaletteElementAt;'''
+          if anchor not in text:
+              raise SystemExit('Parametric render completion anchor not found')
+          path.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+          node --check apps/desktop/frontend/parametric-ui.js
+          python scripts/validate_parametric_integration.py
+          python scripts/validate_parametric_runtime_integration.py
+          python scripts/validate_rust_authority.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/frontend/parametric-ui.js
+          git commit -m "PR35: consolidate Parametric runtime render refresh"
+          git push origin HEAD:agent/pr35-native-parametric-runtime
