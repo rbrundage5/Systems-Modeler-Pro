@@ -16,6 +16,9 @@ second simulator, event queue, clock, value store, or frontend semantic store.
 - `SendSignalAction` uses PR33 Port/Connector/ItemFlow/Reception routing when a
   structural runtime occurrence exists. The current Activity metamodel has no
   source-Port field, so execution requires exactly one compatible source Port.
+- Receptions are explicitly typed by modeled Signals. New Reception creation
+  requires an accepted Signal, and the Properties editor can assign or repair
+  the accepted Signal on an existing Reception; Rust rejects non-Signal types.
 - `AcceptEventAction` keeps typed Signal matching and exact target occurrence
   filtering. PR32 State Machine Signal triggers continue to consume the same
   `RuntimeEvent` queue.
@@ -53,9 +56,9 @@ second simulator, event queue, clock, value store, or frontend semantic store.
 
 `crates/model-core/tests/pr34_operation_signal_sequence.rs` covers occurrence
 isolation, Operation parameter/target validation, deterministic returns,
-structural Signal targeting, semantic Lifeline binding, Operation and Signal
-Sequence messages, deterministic ordering/reset, and authored-model
-immutability.
+structural Signal targeting, Reception Signal typing, semantic Lifeline binding,
+Operation and Signal Sequence messages, deterministic ordering/reset, and
+authored-model immutability.
 
 `scripts/validate_operation_signal_sequence_integration.py` is executed by both
 Linux/core and Windows/desktop CI alongside the existing PR31–PR33 and
