@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: 22
 
+      # Retry after aligning the behavior integration contract with shared state geometry authority.
       - name: Apply cross-family geometry closure
         run: python scripts/pr35_cross_family_geometry_closure.py
 
