@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: 22
 
+      # Retry after aligning the staging validation contract with the current branch.
       - name: Apply shared geometry repair
         run: python scripts/pr35_unify_geometry_kernel.py
 
