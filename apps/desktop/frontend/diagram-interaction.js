@@ -30,6 +30,16 @@
 
   window.smpCommitPresentationGeometry = commit;
 
+  function surfaceScale(node) {
+    const surface = node.closest?.('.workspace-renderer-surface') || node.parentElement;
+    const rect = surface?.getBoundingClientRect?.();
+    const width = surface?.offsetWidth || rect?.width || 1;
+    const height = surface?.offsetHeight || rect?.height || 1;
+    const x = rect?.width && width ? rect.width / width : 1;
+    const y = rect?.height && height ? rect.height / height : 1;
+    return { x: Math.max(x || 1, 0.0001), y: Math.max(y || 1, 0.0001) };
+  }
+
   function bindHtmlGeometry(node, config) {
     if (!node || node.dataset.smpGeometryBound === '1') return;
     node.dataset.smpGeometryBound = '1';
@@ -62,13 +72,14 @@
       suppressNextClick = true;
       const startX = event.clientX;
       const startY = event.clientY;
+      const scale = surfaceScale(node);
       const original = config.geometry();
       let next = { ...original };
       node.classList.add('smp-dragging');
       node.setPointerCapture?.(event.pointerId);
       node.onpointermove = (move) => {
-        next.x = Math.max(0, original.x + move.clientX - startX);
-        next.y = Math.max(42, original.y + move.clientY - startY);
+        next.x = Math.max(0, original.x + (move.clientX - startX) / scale.x);
+        next.y = Math.max(42, original.y + (move.clientY - startY) / scale.y);
         node.style.left = `${next.x}px`;
         node.style.top = `${next.y}px`;
         config.preview?.(next);
@@ -89,12 +100,13 @@
       suppressNextClick = true;
       const startX = event.clientX;
       const startY = event.clientY;
+      const scale = surfaceScale(node);
       const original = config.geometry();
       let next = { ...original };
       handle.setPointerCapture?.(event.pointerId);
       handle.onpointermove = (move) => {
-        next.width = Math.max(config.minWidth, original.width + move.clientX - startX);
-        next.height = Math.max(config.minHeight, original.height + move.clientY - startY);
+        next.width = Math.max(config.minWidth, original.width + (move.clientX - startX) / scale.x);
+        next.height = Math.max(config.minHeight, original.height + (move.clientY - startY) / scale.y);
         node.style.width = `${next.width}px`;
         node.style.height = `${next.height}px`;
         config.preview?.(next);
@@ -418,4 +430,16 @@
     install();
   };
   queueMicrotask(install);
+  const canvas = document.getElementById('canvas');
+  if (canvas) {
+    let installQueued = false;
+    new MutationObserver(() => {
+      if (installQueued) return;
+      installQueued = true;
+      queueMicrotask(() => {
+        installQueued = false;
+        install();
+      });
+    }).observe(canvas, { childList: true, subtree: true });
+  }
 })();

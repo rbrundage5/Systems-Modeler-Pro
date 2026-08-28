@@ -469,6 +469,7 @@ function renderCanvas() {
     const box = document.createElement('button');
     box.className = 'bdd-block';
     box.dataset.semanticKind = element.kind;
+    box.dataset.presentationId = node.id;
     if (state.selectedElementId === element.id) box.classList.add('selected');
     if (state.pendingRelationship?.sourceElementId === element.id) box.classList.add('relationship-source');
     box.style.left = `${node.x}px`;

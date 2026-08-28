@@ -14,6 +14,7 @@ interaction_rs = read(
 behavior_rs = read("apps/desktop/src-tauri/src/workspace/behavior_workspace.rs")
 history_rs = read("apps/desktop/src-tauri/src/workspace/history.rs")
 frontend = read("apps/desktop/frontend/diagram-interaction.js")
+app_frontend = read("apps/desktop/frontend/app.js")
 runtime_fixes = read("apps/desktop/frontend/interaction-runtime-fixes.js")
 state_bar_frontend = read("apps/desktop/frontend/state-bar-resize.js")
 sequence_frontend = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
@@ -68,6 +69,11 @@ assert "stopImmediatePropagation" in frontend, "resize click must not trigger a 
 assert not (root / "apps/desktop/frontend/structural-interaction-rebind.js").exists()
 assert "structural-interaction-rebind.js" not in index
 assert "node.dataset.presentationId" in frontend
+assert "box.dataset.presentationId = node.id" in app_frontend
+assert "function surfaceScale(node)" in frontend
+assert "(move.clientX - startX) / scale.x" in frontend
+assert "(move.clientY - startY) / scale.y" in frontend
+assert "new MutationObserver" in frontend
 assert "diagram.family === 'parametric'" in frontend
 assert "update_parametric_presentation_geometry" in frontend
 assert "update_use_case_subject_boundary_geometry" in frontend
