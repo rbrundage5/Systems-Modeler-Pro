@@ -101,7 +101,10 @@ impl StateMachineExecutionEngine {
         }
     }
 
-    fn new_embedded(repository: BehaviorRepository, state_machine_id: StateMachineId) -> Self {
+    pub(crate) fn new_embedded(
+        repository: BehaviorRepository,
+        state_machine_id: StateMachineId,
+    ) -> Self {
         let mut engine = Self::new(repository, state_machine_id);
         engine.embedded = true;
         engine
@@ -276,7 +279,7 @@ impl StateMachineExecutionEngine {
         )
     }
 
-    fn initialize_embedded(
+    pub(crate) fn initialize_embedded(
         &mut self,
         project: &Project,
         session: &mut ExecutionSession,

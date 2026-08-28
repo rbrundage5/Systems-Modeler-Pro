@@ -87,3 +87,10 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
 .structural-runtime-config-preview { padding: 9px; border: 1px solid var(--border, #ccd2da); background: rgba(127,127,127,.06); font-size: 12px; }
 .structural-runtime-config-preview.runtime-error { border-color: #a33; }
 .structural-runtime-config-dialog footer { justify-content: flex-end; }
+.sequence-execution-actions { display: flex; flex-wrap: nowrap; gap: 4px; }
+.sequence-execution-panel { position: absolute; right: 16px; bottom: 16px; z-index: 12; width: min(420px, 38vw); max-height: 42vh; overflow: auto; background: rgba(255,255,255,.96); border: 1px solid #9aa6b2; border-radius: 4px; box-shadow: 0 5px 18px rgba(30,42,55,.18); padding: 10px; font-size: 12px; }
+.sequence-execution-heading, .sequence-execution-metrics { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.sequence-execution-trace > div { display: grid; grid-template-columns: 70px 1fr; gap: 6px; padding: 2px 0; }
+.sequence-execution-diagnostics { margin: 6px 0; color: #9b1c1c; }
+.sequence-message.runtime-completed-message { stroke: #2f855a; stroke-width: 2.2; }
+.sequence-message.runtime-active-message { stroke: #c05621; stroke-width: 3.5; filter: drop-shadow(0 0 2px #f6ad55); }

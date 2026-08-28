@@ -382,6 +382,79 @@ impl StructuralRuntime {
         Ok(destinations)
     }
 
+    /// Returns the exact structurally valid source-Port/destination pairs for
+    /// one intended runtime receiver. This lets Sequence semantics select a
+    /// modeled participant without treating same-typed occurrences as a
+    /// broadcast group.
+    pub fn signal_routes_between(
+        &self,
+        project: &Project,
+        source_instance_id: RuntimeInstanceId,
+        target_instance_id: RuntimeInstanceId,
+        signal_id: ElementId,
+    ) -> Vec<(ElementId, RuntimeEndpoint)> {
+        let mut source_ports: Vec<_> = self
+            .ports
+            .keys()
+            .filter(|key| key.instance_id == source_instance_id)
+            .map(|key| key.semantic_port_id)
+            .collect();
+        source_ports.sort_by_key(ToString::to_string);
+        source_ports.dedup();
+        let mut routes = Vec::new();
+        for source_port_id in source_ports {
+            let Ok(destinations) =
+                self.signal_destinations(project, source_instance_id, source_port_id, signal_id)
+            else {
+                continue;
+            };
+            routes.extend(
+                destinations
+                    .into_iter()
+                    .filter(|destination| destination.instance_id == target_instance_id)
+                    .map(|destination| (source_port_id, destination)),
+            );
+        }
+        routes.sort_by(|left, right| {
+            left.0
+                .to_string()
+                .cmp(&right.0.to_string())
+                .then_with(|| left.1.qualified_path.cmp(&right.1.qualified_path))
+        });
+        routes.dedup_by(|left, right| {
+            left.0 == right.0
+                && left.1.instance_id == right.1.instance_id
+                && left.1.semantic_port_id == right.1.semantic_port_id
+        });
+        routes
+    }
+
+    pub fn signal_source_ports(
+        &self,
+        project: &Project,
+        source_instance_id: RuntimeInstanceId,
+        signal_id: ElementId,
+    ) -> Vec<ElementId> {
+        let mut source_ports: Vec<_> = self
+            .ports
+            .keys()
+            .filter(|key| key.instance_id == source_instance_id)
+            .filter_map(|key| {
+                self.signal_destinations(
+                    project,
+                    source_instance_id,
+                    key.semantic_port_id,
+                    signal_id,
+                )
+                .is_ok()
+                .then_some(key.semantic_port_id)
+            })
+            .collect();
+        source_ports.sort_by_key(ToString::to_string);
+        source_ports.dedup();
+        source_ports
+    }
+
     fn rebuild_indices(&mut self) {
         self.path_index.clear();
         self.usage_index.clear();

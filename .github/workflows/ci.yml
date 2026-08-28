@@ -69,6 +69,8 @@ jobs:
         run: python scripts/validate_state_machine_execution.py
       - name: Structural runtime integration contract
         run: python scripts/validate_structural_runtime_integration.py
+      - name: Operation Signal Sequence integration contract
+        run: python scripts/validate_operation_signal_sequence_integration.py
       - name: Requirements desktop integration contract
         run: python scripts/validate_requirements_integration.py
       - name: Use Case desktop integration contract
@@ -113,6 +115,8 @@ jobs:
         run: python scripts/validate_state_machine_execution.py
       - name: Structural runtime integration contract
         run: python scripts/validate_structural_runtime_integration.py
+      - name: Operation Signal Sequence integration contract
+        run: python scripts/validate_operation_signal_sequence_integration.py
       - name: Requirements desktop integration contract
         run: python scripts/validate_requirements_integration.py
       - name: Use Case desktop integration contract
