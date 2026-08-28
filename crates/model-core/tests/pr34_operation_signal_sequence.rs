@@ -373,15 +373,15 @@ fn signal_reception_compatibility_and_unrelated_occurrences_are_enforced() {
         )
         .unwrap();
     let expanded = RuntimeFixture { project, ..fixture };
-    let mut session = session(&expanded);
-    let (left, _) = occurrences(&expanded, &session);
-    let unrelated = session
+    let mut expanded_session = session(&expanded);
+    let (left, _) = occurrences(&expanded, &expanded_session);
+    let unrelated = expanded_session
         .structural_runtime
         .as_ref()
         .unwrap()
         .instances_for_usage(unrelated)[0]
         .id;
-    let error = session
+    let error = expanded_session
         .queue_structural_signal_to_instance(
             &expanded.project,
             left,
@@ -393,7 +393,7 @@ fn signal_reception_compatibility_and_unrelated_occurrences_are_enforced() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("0 compatible structural routes"));
-    assert!(session.next_event().is_none());
+    assert!(expanded_session.next_event().is_none());
 
     let mut incompatible_project = expanded.project.clone();
     let package = incompatible_project
@@ -779,7 +779,12 @@ fn sequence_resolves_lifelines_and_executes_operation_then_signal() {
         .iter()
         .find(|snapshot| snapshot.runtime_instance_id == Some(right))
         .unwrap();
-    assert!(right_machine.active_states.contains(&active_state_id));
+    assert!(
+        right_machine
+            .active_states
+            .iter()
+            .any(|state| state.state_id == active_state_id)
+    );
 }
 
 #[test]
