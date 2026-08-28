@@ -1,0 +1,74 @@
+name: PR34 targeted State Machine event dispatch repair
+
+on:
+  push:
+    branches:
+      - agent/pr34-operation-signal-sequence-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr34-operation-signal-sequence-runtime
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply and qualify targeted event dispatch repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'expected patch anchor not found in {path}: {old[:160]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # A Sequence dispatches a due RuntimeEvent through each embedded engine so
+          # each engine can decide whether it owns the event. handle_event previously
+          # skipped the address/relevance gate and therefore the same typed Signal
+          # could drive every same-classifier participant. Make direct dispatch obey
+          # the same runtime/semantic address filter used by normal State Machine
+          # queue selection.
+          replace_once(
+              'crates/model-core/src/state_machine_execution.rs',
+              '''    fn handle_event(\n        &mut self,\n        project: &Project,\n        session: &mut ExecutionSession,\n        event: &RuntimeEvent,\n    ) -> Result<EngineStepOutcome, ExecutionError> {\n        self.current_event = Some(event.clone());\n''',
+              '''    fn handle_event(\n        &mut self,\n        project: &Project,\n        session: &mut ExecutionSession,\n        event: &RuntimeEvent,\n    ) -> Result<EngineStepOutcome, ExecutionError> {\n        if !self.event_is_relevant(project, session, event) {\n            return Ok(EngineStepOutcome::Idle);\n        }\n        self.current_event = Some(event.clone());\n''',
+          )
+
+          # Strengthen the existing PR34 Sequence regression: the addressed right
+          # participant must transition, while the same-typed left participant must
+          # remain out of the target state. This catches duplicate/untargeted Signal
+          # delivery and the duplicate "Entered State" trace seen manually.
+          replace_once(
+              'crates/model-core/tests/pr34_operation_signal_sequence.rs',
+              '''    let right_machine = machine_snapshots\n        .iter()\n        .find(|snapshot| snapshot.runtime_instance_id == Some(right))\n        .unwrap();\n    assert!(\n        right_machine\n            .active_states\n            .iter()\n            .any(|state| state.state_id == active_state_id)\n    );\n}\n''',
+              '''    let right_machine = machine_snapshots\n        .iter()\n        .find(|snapshot| snapshot.runtime_instance_id == Some(right))\n        .unwrap();\n    assert!(\n        right_machine\n            .active_states\n            .iter()\n            .any(|state| state.state_id == active_state_id)\n    );\n    let left_machine = machine_snapshots\n        .iter()\n        .find(|snapshot| snapshot.runtime_instance_id == Some(left))\n        .unwrap();\n    assert!(\n        left_machine\n            .active_states\n            .iter()\n            .all(|state| state.state_id != active_state_id),\n        "an addressed Sequence Signal must not drive another same-typed runtime occurrence"\n    );\n}\n''',
+          )
+          PY
+
+          cargo fmt --all -- --check || cargo fmt --all
+          cargo test -p systems-modeler-core --test pr34_operation_signal_sequence
+          cargo test -p systems-modeler-core --test pr32_state_machine_execution
+          cargo test -p systems-modeler-core
+          python scripts/validate_operation_signal_sequence_integration.py
+          python scripts/validate_state_machine_execution_integration.py
+          python scripts/validate_standard_editing_integration.py
+          python scripts/validate_rust_authority.py
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/model-core/src/state_machine_execution.rs crates/model-core/tests/pr34_operation_signal_sequence.rs
+          git rm .github/workflows/pr34-targeted-event-dispatch-repair.yml
+          git commit -m "PR34: enforce targeted State Machine event dispatch"
+          git push origin HEAD:agent/pr34-operation-signal-sequence-runtime
