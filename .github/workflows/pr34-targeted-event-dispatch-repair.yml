@@ -62,7 +62,7 @@ jobs:
           cargo test -p systems-modeler-core --test pr32_state_machine_execution
           cargo test -p systems-modeler-core
           python scripts/validate_operation_signal_sequence_integration.py
-          python scripts/validate_state_machine_execution_integration.py
+          python scripts/validate_state_machine_execution.py
           python scripts/validate_standard_editing_integration.py
           python scripts/validate_rust_authority.py
 
