@@ -40,7 +40,8 @@ jobs:
           python scripts/validate_parametric_integration.py
           python scripts/validate_parametric_runtime_integration.py
           cargo test -p systems-modeler-core --test pr35_parametric_runtime
-          cargo check -p systems-modeler-desktop
+          # The desktop shell is qualified by the repository's windows-latest desktop-check job.
+          # Ubuntu staging intentionally avoids Tauri GTK/WebKit system-library requirements.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
