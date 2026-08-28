@@ -1073,6 +1073,124 @@ impl ExecutionSession {
         Ok(sequences)
     }
 
+    /// Routes a Signal from an Activity occurrence when the current Activity
+    /// metamodel does not yet carry an explicit source Port. Exactly one
+    /// structurally valid source Port must exist; ambiguity is rejected rather
+    /// than choosing topology by name or UUID order.
+    pub fn queue_structural_signal_from_instance(
+        &mut self,
+        project: &Project,
+        source_instance_id: RuntimeInstanceId,
+        signal_id: ElementId,
+        name: impl Into<String>,
+        payload: Vec<(String, RuntimeValue)>,
+    ) -> Result<Vec<u64>, ExecutionError> {
+        self.require_project(project)?;
+        let runtime = self
+            .structural_runtime
+            .as_ref()
+            .ok_or(ExecutionError::StructuralRuntimeUnavailable)?;
+        let source = self
+            .instances
+            .get(&source_instance_id)
+            .ok_or(ExecutionError::RuntimeInstanceNotFound(source_instance_id))?;
+        let ports = runtime.signal_source_ports(project, source_instance_id, signal_id);
+        if ports.len() != 1 {
+            let signal = project
+                .element(signal_id)
+                .map(|element| element.name.clone())
+                .unwrap_or_else(|_| signal_id.to_string());
+            return Err(ExecutionError::StructuralValidation {
+                message: format!(
+                    "Signal '{}' from {} has {} compatible structural source Ports. Model an unambiguous Port/Connector route before execution.",
+                    signal,
+                    source.qualified_path,
+                    ports.len()
+                ),
+            });
+        }
+        self.queue_structural_signal(
+            project,
+            source_instance_id,
+            ports[0],
+            signal_id,
+            name,
+            payload,
+        )
+    }
+
+    /// Queues one Signal event for an explicitly modeled Sequence receiver.
+    /// The target must be connected by exactly one compatible structural
+    /// source-Port route. Other occurrences of the same Block are untouched.
+    pub fn queue_structural_signal_to_instance(
+        &mut self,
+        project: &Project,
+        source_instance_id: RuntimeInstanceId,
+        target_instance_id: RuntimeInstanceId,
+        signal_id: ElementId,
+        name: impl Into<String>,
+        payload: Vec<(String, RuntimeValue)>,
+    ) -> Result<u64, ExecutionError> {
+        self.require_project(project)?;
+        let runtime = self
+            .structural_runtime
+            .as_ref()
+            .ok_or(ExecutionError::StructuralRuntimeUnavailable)?;
+        let source = self
+            .instances
+            .get(&source_instance_id)
+            .ok_or(ExecutionError::RuntimeInstanceNotFound(source_instance_id))?
+            .clone();
+        let target = self
+            .instances
+            .get(&target_instance_id)
+            .ok_or(ExecutionError::RuntimeInstanceNotFound(target_instance_id))?
+            .clone();
+        let routes = runtime.signal_routes_between(
+            project,
+            source_instance_id,
+            target_instance_id,
+            signal_id,
+        );
+        if routes.len() != 1 {
+            let signal = project
+                .element(signal_id)
+                .map(|element| element.name.clone())
+                .unwrap_or_else(|_| signal_id.to_string());
+            return Err(ExecutionError::StructuralValidation {
+                message: format!(
+                    "Signal '{}' from {} to {} has {} compatible structural routes. Correct the Port/Connector/Reception model so the intended route is unique.",
+                    signal,
+                    source.qualified_path,
+                    target.qualified_path,
+                    routes.len()
+                ),
+            });
+        }
+        let (source_port_id, destination) = routes
+            .into_iter()
+            .next()
+            .expect("one structural Signal route was validated");
+        self.queue_typed_event_at(
+            project,
+            RuntimeEventRequest {
+                due_time: self.simulation_time,
+                kind: RuntimeEventKind::Signal,
+                name: name.into(),
+                semantic_event_id: Some(signal_id),
+                address: RuntimeEventAddress {
+                    source_semantic_id: Some(source.semantic_element_id),
+                    target_semantic_id: Some(target.semantic_element_id),
+                    source_runtime_instance_id: Some(source_instance_id),
+                    target_runtime_instance_id: Some(target_instance_id),
+                    source_port_id: Some(source_port_id),
+                    target_port_id: destination.semantic_port_id,
+                },
+                payload,
+            },
+        )
+    }
+
     pub fn next_event(&self) -> Option<&ScheduledEvent> {
         self.event_queue.front()
     }

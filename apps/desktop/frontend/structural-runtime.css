@@ -1,10 +1,12 @@
 .state-machine-execution-panel{pointer-events:auto;user-select:text;overflow:auto}.structural-runtime-inspector{margin-top:8px;padding-top:8px;border-top:1px solid #d0d5dd;text-align:left}.structural-runtime-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;color:#344054}.structural-runtime-heading strong{font-size:12px;color:#175cd3}.structural-runtime-heading span{font-size:10px;color:#667085}.structural-runtime-tree{display:grid;gap:4px}.structural-runtime-instance{border-left:2px solid #d0d5dd;padding-left:7px}.structural-runtime-instance[data-depth="1"]{margin-left:10px}.structural-runtime-instance[data-depth="2"]{margin-left:20px}.structural-runtime-instance[data-depth="3"]{margin-left:30px}.structural-runtime-instance summary{cursor:pointer;font-weight:600;color:#344054}.structural-runtime-path{color:#175cd3}.structural-runtime-identity{display:flex;flex-wrap:wrap;gap:3px 8px;margin:4px 0;font:10px ui-monospace,SFMono-Regular,Consolas,monospace;color:#667085}.structural-runtime-behavior{display:grid;grid-template-columns:52px 1fr;gap:5px;margin:4px 0;padding:4px 6px;border-radius:3px;background:#ecfdf3;color:#067647}.structural-runtime-section{margin:5px 0}.structural-runtime-section>b{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#667085}.structural-runtime-section ul{margin:3px 0 0 16px;padding:0}.structural-runtime-section li{margin:2px 0}.structural-runtime-section small{display:block;color:#667085}.structural-runtime-tag{display:inline-block;padding:0 4px;border:1px solid #d0d5dd;border-radius:8px;font-size:9px;color:#475467;background:#f9fafb}.structural-runtime-children{display:grid;gap:4px;margin-top:5px}
 
-/* Execution controls are contextual to the diagram that is actually rendered.
-   This prevents stale Activity/Behavior selections from exposing both runtime
+/* Execution controls are contextual to the authoritative active diagram family.
+   shared-workspace.js publishes that family on body[data-execution-family],
+   preventing stale Activity/Behavior selections from exposing multiple runtime
    ribbons at once. */
-body:not(:has(#canvas .activity-svg)) .activity-execution-ribbon-group,
-body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-group {
+body:not([data-execution-family="activity"]) .activity-execution-ribbon-group,
+body:not([data-execution-family="state-machine"]) .state-machine-execution-ribbon-group,
+body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group {
   display: none !important;
 }
 
@@ -16,7 +18,8 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
   overflow-y: hidden !important;
 }
 .activity-execution-ribbon-group,
-.state-machine-execution-ribbon-group {
+.state-machine-execution-ribbon-group,
+.sequence-execution-ribbon-group {
   flex-direction: row !important;
   align-items: center !important;
   justify-content: flex-start !important;
@@ -26,7 +29,8 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
   padding-bottom: 0 !important;
 }
 .activity-execution-ribbon-group .ribbon-actions,
-.state-machine-execution-ribbon-group .ribbon-actions {
+.state-machine-execution-ribbon-group .ribbon-actions,
+.sequence-execution-ribbon-group .ribbon-actions {
   display: flex !important;
   flex-wrap: nowrap !important;
   min-height: 0 !important;
@@ -34,11 +38,13 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
   align-items: center !important;
 }
 .activity-execution-ribbon-group .ribbon-label,
-.state-machine-execution-ribbon-group .ribbon-label {
+.state-machine-execution-ribbon-group .ribbon-label,
+.sequence-execution-ribbon-group .ribbon-label {
   display: none !important;
 }
 .activity-execution-ribbon-group .ribbon-command,
-.state-machine-execution-ribbon-group .ribbon-command {
+.state-machine-execution-ribbon-group .ribbon-command,
+.sequence-execution-ribbon-group .ribbon-command {
   flex: 0 0 auto;
 }
 
@@ -87,3 +93,10 @@ body:not(:has(#canvas .state-machine-frame)) .state-machine-execution-ribbon-gro
 .structural-runtime-config-preview { padding: 9px; border: 1px solid var(--border, #ccd2da); background: rgba(127,127,127,.06); font-size: 12px; }
 .structural-runtime-config-preview.runtime-error { border-color: #a33; }
 .structural-runtime-config-dialog footer { justify-content: flex-end; }
+.sequence-execution-actions { display: flex; flex-wrap: nowrap; gap: 4px; }
+.sequence-execution-panel { position: absolute; right: 16px; bottom: 16px; z-index: 12; width: min(420px, 38vw); max-height: 42vh; overflow: auto; background: rgba(255,255,255,.96); border: 1px solid #9aa6b2; border-radius: 4px; box-shadow: 0 5px 18px rgba(30,42,55,.18); padding: 10px; font-size: 12px; }
+.sequence-execution-heading, .sequence-execution-metrics { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.sequence-execution-trace > div { display: grid; grid-template-columns: 70px 1fr; gap: 6px; padding: 2px 0; }
+.sequence-execution-diagnostics { margin: 6px 0; color: #9b1c1c; }
+.sequence-message.runtime-completed-message { stroke: #2f855a; stroke-width: 2.2; }
+.sequence-message.runtime-active-message { stroke: #c05621; stroke-width: 3.5; filter: drop-shadow(0 0 2px #f6ad55); }

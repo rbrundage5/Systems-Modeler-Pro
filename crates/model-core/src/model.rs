@@ -1766,6 +1766,7 @@ fn validate_type_kind(kind: &ElementKind, type_kind: &ElementKind) -> Result<(),
                 | ElementKind::DataType
         ),
         ElementKind::Parameter | ElementKind::InstanceSpecification => any_classifier,
+        ElementKind::Reception => matches!(type_kind, ElementKind::Signal),
         _ => true,
     };
     if valid {

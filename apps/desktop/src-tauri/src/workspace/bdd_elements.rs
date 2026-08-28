@@ -570,12 +570,20 @@ pub fn create_bdd_feature(
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
     let id = match kind {
-        ElementKind::EnumerationLiteral
-        | ElementKind::Slot
-        | ElementKind::Operation
-        | ElementKind::Reception => project
+        ElementKind::EnumerationLiteral | ElementKind::Slot | ElementKind::Operation => project
             .create_element(kind, name, owner_id)
             .map_err(|error| error.to_string())?,
+        ElementKind::Reception => {
+            let type_id = type_id
+                .ok_or_else(|| "Reception requires a modeled Signal stable type ID".to_string())?;
+            let id = project
+                .create_element(ElementKind::Reception, name, owner_id)
+                .map_err(|error| error.to_string())?;
+            project
+                .set_element_type(id, parse_element_id(&type_id)?)
+                .map_err(|error| error.to_string())?;
+            id
+        }
         ElementKind::PartProperty
         | ElementKind::ReferenceProperty
         | ElementKind::ValueProperty
@@ -617,11 +625,17 @@ pub fn update_bdd_element_details(
     default_value: Option<String>,
     quantity_kind_external_id: Option<String>,
     unit_external_id: Option<String>,
+    type_id: Option<String>,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
     let element_id = parse_element_id(&element_id)?;
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
+    if let Some(type_id) = type_id {
+        project
+            .set_element_type(element_id, parse_element_id(&type_id)?)
+            .map_err(|error| error.to_string())?;
+    }
     let element = project
         .element_mut(element_id)
         .map_err(|error| error.to_string())?;

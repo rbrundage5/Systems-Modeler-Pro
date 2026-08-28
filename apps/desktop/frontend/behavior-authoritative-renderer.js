@@ -610,16 +610,188 @@
   if ($('new-project')) $('new-project').onclick = async () => {
     await newProjectWithStateMachineExecution?.();
     await requireInvoke()('clear_state_machine_executions');
+    await requireInvoke()('clear_sequence_executions');
     Object.assign(state, { stateMachineExecutionSnapshot: null });
     refreshStateMachineExecution();
   };
   if ($('open-project')) $('open-project').onclick = async () => {
     await openProjectWithStateMachineExecution?.();
     await requireInvoke()('clear_state_machine_executions');
+    await requireInvoke()('clear_sequence_executions');
     Object.assign(state, { stateMachineExecutionSnapshot: null });
     refreshStateMachineExecution();
   };
   // PR32_STATE_MACHINE_EXECUTION_END
+
+  // PR34_SEQUENCE_EXECUTION_BEGIN
+  Object.assign(state, { sequenceExecutionSnapshot: null, sequenceExecutionRunning: false });
+  let runGeneration = 0;
+
+  function sequenceExecutionDiagram() {
+    return state.behaviorSnapshot?.diagrams?.find((diagram) =>
+      String(diagram.id) === String(state.selectedBehaviorDiagramId)
+      && diagram.kind === 'Sequence') || null;
+  }
+
+  function sequenceExecutionSnapshot() {
+    const diagram = sequenceExecutionDiagram();
+    const snapshot = state.sequenceExecutionSnapshot;
+    return snapshot && diagram && String(snapshot.interaction_id) === String(diagram.semantic_id)
+      ? snapshot
+      : null;
+  }
+
+  function visualizeSequenceExecution() {
+    document.querySelectorAll('.sequence-message').forEach((message) =>
+      message.classList.remove('runtime-active-message', 'runtime-completed-message'));
+    const snapshot = sequenceExecutionSnapshot();
+    if (!snapshot) return;
+    const completed = new Set((snapshot.completed_message_ids || []).map(String));
+    document.querySelectorAll('.sequence-message[data-message-id]').forEach((message) => {
+      const id = String(message.dataset.messageId);
+      message.classList.toggle('runtime-active-message', id === String(snapshot.active_message_id || ''));
+      message.classList.toggle('runtime-completed-message', completed.has(id));
+    });
+  }
+
+  function renderSequenceExecutionPanel() {
+    const host = document.querySelector('.diagram-workspace');
+    const snapshot = sequenceExecutionSnapshot();
+    let panel = document.querySelector('.sequence-execution-panel');
+    if (!host || !snapshot) {
+      panel?.remove();
+      return;
+    }
+    if (!panel) {
+      panel = document.createElement('aside');
+      panel.className = 'sequence-execution-panel';
+      panel.dataset.workspaceOverlay = 'true';
+      host.appendChild(panel);
+    }
+    const execution = snapshot.execution;
+    const diagnostics = (execution.diagnostics || []).slice(-4);
+    const trace = (execution.trace || []).slice(-6);
+    panel.innerHTML = `<div class="sequence-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div>
+      <div class="sequence-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.completed_message_ids?.length || 0} message(s)</span><span>${snapshot.lifeline_bindings?.length || 0} participant(s)</span></div>
+      ${diagnostics.length ? `<div class="sequence-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
+      <div class="sequence-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>
+      ${window.renderStructuralRuntimeInspector?.(snapshot) || ''}`;
+  }
+
+  function refreshSequenceExecution() {
+    const visible = Boolean(sequenceExecutionDiagram());
+    let group = document.querySelector('.sequence-execution-ribbon-group');
+    if (!group) {
+      group = document.createElement('section');
+      group.className = 'ribbon-group sequence-execution-ribbon-group';
+      const controls = [
+        ['runtime', '◎', 'Runtime'], ['initializeSequenceExecution', '◇', 'Initialize'],
+        ['runSequenceExecution', '▶', 'Run'], ['step', '▸', 'Step'], ['pause', 'Ⅱ', 'Pause'],
+        ['resume', '▷', 'Resume'], ['reset', '↺', 'Reset'], ['terminate', '■', 'Terminate'],
+      ];
+      group.innerHTML = `<div class="ribbon-actions sequence-execution-actions">${controls.map(([command, icon, label]) => `<button class="ribbon-command" data-sequence-execution="${command}"><span class="command-icon">${icon}</span><span>${label}</span></button>`).join('')}</div><div class="ribbon-label">Sequence Execution</div>`;
+      group.addEventListener('click', handleSequenceExecutionCommand);
+      document.querySelector('.ribbon')?.insertBefore(group, document.querySelector('.ribbon-context'));
+    }
+    group.hidden = !visible;
+    const current = sequenceExecutionSnapshot()?.execution?.state || 'Not initialized';
+    const initialized = current !== 'Not initialized';
+    group.querySelectorAll('[data-sequence-execution]').forEach((button) => {
+      const command = button.dataset.sequenceExecution;
+      button.disabled = !visible
+        || (command === 'runSequenceExecution' && (!initialized || !['Initialized', 'Paused'].includes(current)))
+        || (command === 'step' && (!initialized || current === 'Running' || ['Completed', 'Failed', 'Terminated'].includes(current)))
+        || (command === 'pause' && current !== 'Running')
+        || (command === 'resume' && current !== 'Paused')
+        || (['reset', 'terminate'].includes(command) && !initialized);
+    });
+    visualizeSequenceExecution();
+    renderSequenceExecutionPanel();
+  }
+
+  async function invokeSequenceExecution(command) {
+    const diagram = sequenceExecutionDiagram();
+    if (!diagram) throw new Error('Open a Sequence diagram first.');
+    const snapshot = await requireInvoke()(command, { diagramId: diagram.id });
+    Object.assign(state, { sequenceExecutionSnapshot: snapshot });
+    refreshSequenceExecution();
+    return snapshot;
+  }
+
+  async function initializeSequenceExecution() {
+    runGeneration += 1;
+    Object.assign(state, { sequenceExecutionRunning: false });
+    await invokeSequenceExecution('initialize_sequence_execution');
+  }
+
+  async function runSequenceExecution(resume) {
+    if (!sequenceExecutionSnapshot()) await initializeSequenceExecution();
+    await invokeSequenceExecution(resume ? 'resume_sequence_execution' : 'run_sequence_execution');
+    const generation = ++runGeneration;
+    Object.assign(state, { sequenceExecutionRunning: true });
+    while (generation === runGeneration && sequenceExecutionSnapshot()?.execution?.state === 'Running') {
+      await invokeSequenceExecution('step_sequence_execution');
+      if (sequenceExecutionSnapshot()?.execution?.state !== 'Running') break;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    if (generation === runGeneration) {
+      Object.assign(state, { sequenceExecutionRunning: false });
+      refreshSequenceExecution();
+    }
+  }
+
+  async function handleSequenceExecutionCommand(event) {
+    const command = event.target.closest?.('[data-sequence-execution]')?.dataset.sequenceExecution;
+    if (!command) return;
+    try {
+      if (command === 'runtime') {
+        await window.smpOpenStructuralRuntimeConfiguration?.('sequence', sequenceExecutionDiagram().id);
+        Object.assign(state, { sequenceExecutionSnapshot: null });
+        refreshSequenceExecution();
+      } else if (command === 'initializeSequenceExecution') await initializeSequenceExecution();
+      else if (command === 'runSequenceExecution') await runSequenceExecution(false);
+      else if (command === 'step') {
+        runGeneration += 1;
+        if (!sequenceExecutionSnapshot()) await initializeSequenceExecution();
+        await invokeSequenceExecution('step_sequence_execution');
+      } else if (command === 'pause') {
+        runGeneration += 1;
+        Object.assign(state, { sequenceExecutionRunning: false });
+        await invokeSequenceExecution('pause_sequence_execution');
+      } else if (command === 'resume') await runSequenceExecution(true);
+      else if (command === 'reset') {
+        runGeneration += 1;
+        await invokeSequenceExecution(sequenceExecutionSnapshot() ? 'reset_sequence_execution' : 'initialize_sequence_execution');
+      } else if (command === 'terminate') {
+        runGeneration += 1;
+        await invokeSequenceExecution('terminate_sequence_execution');
+      }
+    } catch (error) {
+      Object.assign(state, { sequenceExecutionRunning: false });
+      window.smpDialogs?.notify?.(error?.message || String(error), 'error');
+      refreshSequenceExecution();
+    }
+  }
+
+  async function loadSequenceExecutionSnapshot() {
+    const diagram = sequenceExecutionDiagram();
+    if (!diagram) {
+      Object.assign(state, { sequenceExecutionSnapshot: null });
+      refreshSequenceExecution();
+      return;
+    }
+    try {
+      const snapshot = await requireInvoke()('sequence_execution_snapshot', { diagramId: diagram.id });
+      Object.assign(state, { sequenceExecutionSnapshot: snapshot });
+    } catch (_error) {
+      Object.assign(state, { sequenceExecutionSnapshot: null });
+    }
+    refreshSequenceExecution();
+  }
+
+  window.smpRefreshSequenceExecution = refreshSequenceExecution;
+  // PR34_SEQUENCE_EXECUTION_END
+
 
   renderCanvas = function renderAuthoritativeBehaviorCanvas() {
     const diagram = activeDiagram();
@@ -629,6 +801,7 @@
     if (diagram.kind === 'StateMachine') renderStateMachine(canvas, diagram);
     else renderSequence(canvas, diagram);
     queueMicrotask(loadStateMachineExecutionSnapshot);
+    queueMicrotask(loadSequenceExecutionSnapshot);
   };
 })();
 
@@ -787,6 +960,12 @@
       preview: 'preview_activity_execution_runtime',
       configure: 'configure_activity_execution_runtime',
       label: 'Activity',
+    };
+    if (kind === 'sequence') return {
+      get: 'sequence_execution_runtime_selection',
+      preview: 'preview_sequence_execution_runtime',
+      configure: 'configure_sequence_execution_runtime',
+      label: 'Sequence',
     };
     return {
       get: 'state_machine_execution_runtime_selection',

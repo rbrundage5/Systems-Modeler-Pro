@@ -2,10 +2,10 @@ use crate::{
     Action, ActionKind, Activity, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint,
     ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository,
     DiagnosticSeverity, ElementId, ElementKind, EngineStepOutcome, ExecutionEngine, ExecutionError,
-    ExecutionSession, ExecutionSnapshot, ObjectNodeKind, ObjectNodeOrdering, ParameterDirection,
-    Pin, PinDirection, Project, RuntimeEvent, RuntimeEventAddress, RuntimeEventKind,
-    RuntimeEventRequest, RuntimeInstanceId, RuntimeValue, StructuredActivityNodeKind,
-    evaluate_execution_expression,
+    ExecutionSession, ExecutionSnapshot, ModeledOperationRequest, ObjectNodeKind,
+    ObjectNodeOrdering, ParameterDirection, Pin, PinDirection, Project, RuntimeEvent,
+    RuntimeEventAddress, RuntimeEventKind, RuntimeEventRequest, RuntimeInstanceId, RuntimeValue,
+    StructuredActivityNodeKind, evaluate_execution_expression, invoke_modeled_operation,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -94,21 +94,6 @@ pub trait OperationCallRuntime: Send {
     ) -> Result<Vec<(String, RuntimeValue)>, String>;
 }
 
-#[derive(Default)]
-struct UnavailableOperationRuntime;
-
-impl OperationCallRuntime for UnavailableOperationRuntime {
-    fn invoke(
-        &mut self,
-        request: &OperationCallRequest,
-    ) -> Result<Vec<(String, RuntimeValue)>, String> {
-        Err(format!(
-            "Cannot execute CallOperationAction '{}': Operation '{}' has no registered deterministic runtime implementation.",
-            request.operation_name, request.operation_name
-        ))
-    }
-}
-
 #[derive(Debug, Clone)]
 struct ActivityFrame {
     id: u64,
@@ -153,7 +138,7 @@ pub struct ActivityExecutionEngine {
     active_node_ids: Vec<ActivityNodeId>,
     active_edge_ids: Vec<ActivityEdgeId>,
     completed_edge_ids: HashSet<ActivityEdgeId>,
-    operation_runtime: Box<dyn OperationCallRuntime>,
+    operation_runtime: Option<Box<dyn OperationCallRuntime>>,
     runtime_instance_id: Option<RuntimeInstanceId>,
 }
 
@@ -170,7 +155,7 @@ impl ActivityExecutionEngine {
             active_node_ids: Vec::new(),
             active_edge_ids: Vec::new(),
             completed_edge_ids: HashSet::new(),
-            operation_runtime: Box::<UnavailableOperationRuntime>::default(),
+            operation_runtime: None,
             runtime_instance_id: None,
         }
     }
@@ -181,7 +166,7 @@ impl ActivityExecutionEngine {
     }
 
     pub fn with_operation_runtime(mut self, runtime: impl OperationCallRuntime + 'static) -> Self {
-        self.operation_runtime = Box::new(runtime);
+        self.operation_runtime = Some(Box::new(runtime));
         self
     }
 
@@ -196,6 +181,27 @@ impl ActivityExecutionEngine {
 
     pub fn root_activity_id(&self) -> ActivityId {
         self.root_activity_id
+    }
+
+    /// Initializes an Activity engine inside an already initialized execution
+    /// session. This is the composition path for multiple behavior engines
+    /// sharing the same structural occurrences and event queue.
+    pub fn initialize_embedded(
+        &mut self,
+        project: &Project,
+        session: &mut ExecutionSession,
+    ) -> Result<(), ExecutionError> {
+        if self.runtime_instance_id.is_none() {
+            self.runtime_instance_id = session.root_runtime_instance_id();
+        }
+        if let Some(instance_id) = self.runtime_instance_id {
+            session
+                .instances
+                .get(&instance_id)
+                .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
+        }
+        self.clear_runtime();
+        self.initialize_root_frame(project, session)
     }
 
     pub fn reset(
@@ -834,21 +840,33 @@ impl ActivityExecutionEngine {
                 let signal = project
                     .element(*signal_id)
                     .map_err(|error| engine_error(error.to_string()))?;
-                session.queue_typed_event_at(
-                    project,
-                    RuntimeEventRequest {
-                        due_time: session.simulation_time,
-                        kind: RuntimeEventKind::Signal,
-                        name: signal.name.clone(),
-                        semantic_event_id: Some(*signal_id),
-                        address: RuntimeEventAddress {
-                            source_semantic_id: activity.context_id,
-                            source_runtime_instance_id: self.runtime_instance_id,
-                            ..RuntimeEventAddress::default()
+                if let Some(source_instance_id) = self.runtime_instance_id
+                    && session.structural_runtime.is_some()
+                {
+                    session.queue_structural_signal_from_instance(
+                        project,
+                        source_instance_id,
+                        *signal_id,
+                        signal.name.clone(),
+                        inputs,
+                    )?;
+                } else {
+                    session.queue_typed_event_at(
+                        project,
+                        RuntimeEventRequest {
+                            due_time: session.simulation_time,
+                            kind: RuntimeEventKind::Signal,
+                            name: signal.name.clone(),
+                            semantic_event_id: Some(*signal_id),
+                            address: RuntimeEventAddress {
+                                source_semantic_id: activity.context_id,
+                                source_runtime_instance_id: self.runtime_instance_id,
+                                ..RuntimeEventAddress::default()
+                            },
+                            payload: inputs,
                         },
-                        payload: inputs,
-                    },
-                )?;
+                    )?;
+                }
             }
             ActionKind::AcceptEvent { .. } => {
                 self.frames[frame_index]
@@ -886,18 +904,37 @@ impl ActivityExecutionEngine {
                 let operation = project
                     .element(*operation_id)
                     .map_err(|error| engine_error(error.to_string()))?;
-                let request = OperationCallRequest {
-                    operation_id: *operation_id,
-                    operation_name: operation.name.clone(),
-                    arguments: inputs,
+                let outputs = if let Some(runtime) = self.operation_runtime.as_mut() {
+                    let request = OperationCallRequest {
+                        operation_id: *operation_id,
+                        operation_name: operation.name.clone(),
+                        arguments: inputs,
+                    };
+                    runtime.invoke(&request).map_err(|message| {
+                        session.fail(
+                            activity.context_id.or(Some(activity.owner_id)),
+                            message.clone(),
+                        );
+                        engine_error(message)
+                    })?
+                } else {
+                    let target_runtime_instance_id = self.runtime_instance_id.ok_or_else(|| {
+                        engine_error(format!(
+                            "CallOperationAction '{}' requires a selected runtime occurrence for modeled Operation '{}'.",
+                            display_node_name(node), operation.name
+                        ))
+                    })?;
+                    invoke_modeled_operation(
+                        project,
+                        session,
+                        &ModeledOperationRequest {
+                            operation_id: *operation_id,
+                            target_runtime_instance_id,
+                            arguments: inputs,
+                        },
+                    )?
+                    .outputs
                 };
-                let outputs = self.operation_runtime.invoke(&request).map_err(|message| {
-                    session.fail(
-                        activity.context_id.or(Some(activity.owner_id)),
-                        message.clone(),
-                    );
-                    engine_error(message)
-                })?;
                 self.emit_named_outputs(project, session, frame_index, activity, action, &outputs)?;
             }
             ActionKind::Opaque { body } => {
@@ -1655,17 +1692,7 @@ impl ExecutionEngine for ActivityExecutionEngine {
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
         session.initialize(project)?;
-        if self.runtime_instance_id.is_none() {
-            self.runtime_instance_id = session.root_runtime_instance_id();
-        }
-        if let Some(instance_id) = self.runtime_instance_id {
-            session
-                .instances
-                .get(&instance_id)
-                .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
-        }
-        self.clear_runtime();
-        self.initialize_root_frame(project, session)
+        self.initialize_embedded(project, session)
     }
 
     fn step(
