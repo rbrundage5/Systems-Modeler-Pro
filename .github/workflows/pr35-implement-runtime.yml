@@ -1,4 +1,4 @@
-name: PR35 native Parametric runtime implementation
+name: PR35 Parametric runtime staging
 
 on:
   push:
@@ -20,777 +20,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply PR35 runtime integration
+      - name: Wire PR35 runtime into existing surfaces
         shell: bash
         run: |
           python <<'PY'
           from pathlib import Path
 
-          root = Path('.')
-
-          def read(path):
-              return (root / path).read_text(encoding='utf-8')
-
-          def write(path, text):
-              p = root / path
-              p.parent.mkdir(parents=True, exist_ok=True)
-              p.write_text(text, encoding='utf-8')
-
-          def replace(path, old, new, count=None):
+          def read(path): return Path(path).read_text(encoding='utf-8')
+          def write(path, text): Path(path).write_text(text, encoding='utf-8')
+          def rep(path, old, new, count=None):
               text = read(path)
               if old not in text:
-                  raise SystemExit(f'missing patch anchor in {path}: {old[:120]!r}')
-              if count is None:
-                  text = text.replace(old, new)
-              else:
-                  text = text.replace(old, new, count)
-              write(path, text)
+                  raise SystemExit(f'missing anchor in {path}: {old[:100]!r}')
+              write(path, text.replace(old, new) if count is None else text.replace(old, new, count))
 
-          core = r'''use crate::{
-              ElementId, ElementKind, EngineStepOutcome, ExecutionEngine, ExecutionError,
-              ExecutionSession, ExecutionSnapshot, ExecutionState, ParametricEvaluationScope, Project,
-              RuntimeEvent, RuntimeInstanceId, RuntimeValue, evaluate_parametrics,
-          };
-          use serde::{Deserialize, Serialize};
-
-          #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-          pub struct ParametricRuntimeValueUpdate {
-              pub element_id: ElementId,
-              pub element_name: String,
-              pub previous_value: Option<RuntimeValue>,
-              pub value: RuntimeValue,
-              pub display_value: String,
-          }
-
-          #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-          pub struct ParametricExecutionSnapshot {
-              pub execution: ExecutionSnapshot,
-              pub context_id: ElementId,
-              pub runtime_instance_id: Option<RuntimeInstanceId>,
-              pub runtime_instance_path: Option<String>,
-              pub evaluated_constraints: usize,
-              pub evaluated_constraint_property_ids: Vec<ElementId>,
-              pub updates: Vec<ParametricRuntimeValueUpdate>,
-          }
-
-          /// Runtime adapter for the existing PR25 deterministic Parametric evaluator.
-          ///
-          /// The evaluator runs against a scratch clone whose ValueProperty defaults are
-          /// overlaid from one `ExecutionSession` occurrence. Only the resulting transient
-          /// values are written back to the shared session. The authored `Project` is never
-          /// mutated by this engine.
-          pub struct ParametricExecutionEngine {
-              scope: ParametricEvaluationScope,
-              requested_runtime_instance_path: Option<String>,
-              runtime_instance_id: Option<RuntimeInstanceId>,
-              evaluated_constraints: usize,
-              evaluated_constraint_property_ids: Vec<ElementId>,
-              updates: Vec<ParametricRuntimeValueUpdate>,
-          }
-
-          impl ParametricExecutionEngine {
-              pub fn new(scope: ParametricEvaluationScope) -> Self {
-                  Self {
-                      scope,
-                      requested_runtime_instance_path: None,
-                      runtime_instance_id: None,
-                      evaluated_constraints: 0,
-                      evaluated_constraint_property_ids: Vec::new(),
-                      updates: Vec::new(),
-                  }
-              }
-
-              pub fn with_runtime_instance_path(mut self, path: Option<String>) -> Self {
-                  self.requested_runtime_instance_path = path.filter(|value| !value.trim().is_empty());
-                  self
-              }
-
-              pub fn runtime_instance_id(&self) -> Option<RuntimeInstanceId> {
-                  self.runtime_instance_id
-              }
-
-              pub fn scope(&self) -> &ParametricEvaluationScope {
-                  &self.scope
-              }
-
-              pub fn snapshot(&self, session: &ExecutionSession) -> ParametricExecutionSnapshot {
-                  let runtime_instance_path = self
-                      .runtime_instance_id
-                      .and_then(|id| session.instances.get(&id))
-                      .map(|instance| instance.qualified_path.clone());
-                  ParametricExecutionSnapshot {
-                      execution: session.snapshot(),
-                      context_id: self.scope.context_id,
-                      runtime_instance_id: self.runtime_instance_id,
-                      runtime_instance_path,
-                      evaluated_constraints: self.evaluated_constraints,
-                      evaluated_constraint_property_ids: self
-                          .evaluated_constraint_property_ids
-                          .clone(),
-                      updates: self.updates.clone(),
-                  }
-              }
-
-              pub fn reset(
-                  &mut self,
-                  project: &Project,
-                  session: &mut ExecutionSession,
-              ) -> Result<(), ExecutionError> {
-                  session.reset(project)?;
-                  self.clear_results();
-                  self.resolve_runtime_instance(project, session)?;
-                  session.record_engine_trace(
-                      Some(self.scope.context_id),
-                      format!(
-                          "Reset Parametric runtime for {}",
-                          readable_element(project, self.scope.context_id)
-                      ),
-                  );
-                  Ok(())
-              }
-
-              fn clear_results(&mut self) {
-                  self.evaluated_constraints = 0;
-                  self.evaluated_constraint_property_ids.clear();
-                  self.updates.clear();
-              }
-
-              fn resolve_runtime_instance(
-                  &mut self,
-                  project: &Project,
-                  session: &ExecutionSession,
-              ) -> Result<(), ExecutionError> {
-                  let context = project
-                      .element(self.scope.context_id)
-                      .map_err(|_| ExecutionError::SemanticElementNotFound)?;
-                  if context.kind == ElementKind::ConstraintBlock {
-                      if self.requested_runtime_instance_path.is_some() {
-                          return Err(engine_error(format!(
-                              "ConstraintBlock '{}' is a reusable definition and has no structural runtime occurrence.",
-                              context.name
-                          )));
-                      }
-                      self.runtime_instance_id = None;
-                      return Ok(());
-                  }
-                  if !matches!(context.kind, ElementKind::Block | ElementKind::AssociationBlock) {
-                      return Err(engine_error(format!(
-                          "Parametric context '{}' ({:?}) is not an executable structural classifier.",
-                          context.name, context.kind
-                      )));
-                  }
-                  let runtime = session
-                      .structural_runtime
-                      .as_ref()
-                      .ok_or(ExecutionError::StructuralRuntimeUnavailable)?;
-                  if let Some(path) = self.requested_runtime_instance_path.as_deref() {
-                      let instance = runtime.instance_by_path(path).ok_or_else(|| {
-                          engine_error(format!(
-                              "Parametric runtime occurrence '{}' was not found under the configured structural root.",
-                              path
-                          ))
-                      })?;
-                      if !runtime.instance_conforms_to(project, instance.id, self.scope.context_id) {
-                          return Err(engine_error(format!(
-                              "Runtime occurrence '{}' is typed by '{}', not Parametric context '{}'.",
-                              path, instance.classifier_name, context.name
-                          )));
-                      }
-                      self.runtime_instance_id = Some(instance.id);
-                      return Ok(());
-                  }
-                  let paths = runtime.compatible_instance_paths(project, self.scope.context_id);
-                  match paths.as_slice() {
-                      [path] => {
-                          self.runtime_instance_id = runtime.instance_by_path(path).map(|instance| instance.id);
-                          Ok(())
-                      }
-                      [] => Err(engine_error(format!(
-                          "Parametric context '{}' has no compatible runtime occurrence under the configured structural root.",
-                          context.name
-                      ))),
-                      _ => Err(engine_error(format!(
-                          "Parametric context '{}' resolves to {} runtime occurrences: {}. Select one in Runtime configuration.",
-                          context.name,
-                          paths.len(),
-                          paths.join(", ")
-                      ))),
-                  }
-              }
-
-              fn evaluate_once(
-                  &mut self,
-                  project: &Project,
-                  session: &mut ExecutionSession,
-              ) -> Result<(), ExecutionError> {
-                  let mut scratch = project.clone();
-                  for element_id in &self.scope.value_property_ids {
-                      if let Some(runtime_value) = session
-                          .value_in_instance_context(self.runtime_instance_id, *element_id)
-                          .cloned()
-                      {
-                          let authored = runtime_value_to_authored(&runtime_value).map_err(|message| {
-                              engine_error(format!(
-                                  "Parametric input '{}' is invalid: {message}",
-                                  readable_element(project, *element_id)
-                              ))
-                          })?;
-                          scratch
-                              .element_mut(*element_id)
-                              .map_err(|_| ExecutionError::SemanticElementNotFound)?
-                              .default_value = authored;
-                      }
-                  }
-
-                  let report = match evaluate_parametrics(&mut scratch, &self.scope) {
-                      Ok(report) => report,
-                      Err(error) => {
-                          let message = readable_model_error(project, error.to_string());
-                          session.fail(Some(self.scope.context_id), message);
-                          self.clear_results();
-                          return Ok(());
-                      }
-                  };
-
-                  let mut runtime_updates = Vec::new();
-                  for update in report.updates {
-                      let value = runtime_value_from_formatted(project, update.element_id, &update.value)?;
-                      let previous_value = session
-                          .value_in_instance_context(self.runtime_instance_id, update.element_id)
-                          .cloned();
-                      session.set_value(
-                          project,
-                          self.runtime_instance_id,
-                          update.element_id,
-                          value.clone(),
-                      )?;
-                      runtime_updates.push(ParametricRuntimeValueUpdate {
-                          element_id: update.element_id,
-                          element_name: readable_element(project, update.element_id),
-                          previous_value,
-                          value,
-                          display_value: update.value,
-                      });
-                  }
-
-                  self.evaluated_constraints = report.evaluated_constraints;
-                  self.evaluated_constraint_property_ids = self.scope.constraint_property_ids.clone();
-                  self.evaluated_constraint_property_ids.sort_by_key(ToString::to_string);
-                  self.updates = runtime_updates;
-
-                  let mut active = self.evaluated_constraint_property_ids.clone();
-                  active.extend(self.updates.iter().map(|update| update.element_id));
-                  session.set_active_semantic_elements(project, active)?;
-                  let target = self
-                      .runtime_instance_id
-                      .and_then(|id| session.instances.get(&id))
-                      .map(|instance| instance.qualified_path.clone())
-                      .unwrap_or_else(|| readable_element(project, self.scope.context_id));
-                  session.record_engine_trace(
-                      Some(self.scope.context_id),
-                      format!(
-                          "Evaluated {} Parametric constraint(s) on {}",
-                          self.evaluated_constraints, target
-                      ),
-                  );
-                  session.complete()?;
-                  Ok(())
-              }
-          }
-
-          impl ExecutionEngine for ParametricExecutionEngine {
-              fn initialize(
-                  &mut self,
-                  project: &Project,
-                  session: &mut ExecutionSession,
-              ) -> Result<(), ExecutionError> {
-                  session.initialize(project)?;
-                  self.clear_results();
-                  self.resolve_runtime_instance(project, session)?;
-                  let target = self
-                      .runtime_instance_id
-                      .and_then(|id| session.instances.get(&id))
-                      .map(|instance| instance.qualified_path.clone())
-                      .unwrap_or_else(|| readable_element(project, self.scope.context_id));
-                  session.record_engine_trace(
-                      Some(self.scope.context_id),
-                      format!("Initialized Parametric runtime for {target}"),
-                  );
-                  Ok(())
-              }
-
-              fn step(
-                  &mut self,
-                  project: &Project,
-                  session: &mut ExecutionSession,
-              ) -> Result<EngineStepOutcome, ExecutionError> {
-                  if !matches!(
-                      session.state,
-                      ExecutionState::Initialized | ExecutionState::Running | ExecutionState::Paused
-                  ) {
-                      return Err(engine_error(format!(
-                          "Cannot evaluate Parametrics while execution session is {:?}.",
-                          session.state
-                      )));
-                  }
-                  session.consume_step_budget()?;
-                  self.evaluate_once(project, session)?;
-                  Ok(EngineStepOutcome::Completed)
-              }
-
-              fn handle_event(
-                  &mut self,
-                  _project: &Project,
-                  _session: &mut ExecutionSession,
-                  _event: &RuntimeEvent,
-              ) -> Result<EngineStepOutcome, ExecutionError> {
-                  Ok(EngineStepOutcome::Idle)
-              }
-          }
-
-          fn runtime_value_to_authored(value: &RuntimeValue) -> Result<Option<String>, String> {
-              match value {
-                  RuntimeValue::Unset => Ok(None),
-                  RuntimeValue::Integer(value) => Ok(Some(value.to_string())),
-                  RuntimeValue::Real(value) if value.is_finite() => Ok(Some(format_number(*value))),
-                  RuntimeValue::Real(_) => Err("numeric value is not finite".into()),
-                  RuntimeValue::Text(value) => Ok(Some(value.clone())),
-                  RuntimeValue::Boolean(_) => Err("boolean values are not numeric Parametric inputs".into()),
-                  RuntimeValue::ElementReference(_) => {
-                      Err("element references are not numeric Parametric inputs".into())
-                  }
-              }
-          }
-
-          fn runtime_value_from_formatted(
-              project: &Project,
-              element_id: ElementId,
-              formatted: &str,
-          ) -> Result<RuntimeValue, ExecutionError> {
-              let property = project
-                  .element(element_id)
-                  .map_err(|_| ExecutionError::SemanticElementNotFound)?;
-              let type_id = property.type_id.ok_or_else(|| {
-                  engine_error(format!("ValueProperty '{}' has no type.", property.name))
-              })?;
-              let value_type = project
-                  .element(type_id)
-                  .map_err(|_| ExecutionError::ClassifierNotFound)?;
-              let number_text = formatted.split_whitespace().next().ok_or_else(|| {
-                  engine_error(format!("Parametric result for '{}' is empty.", property.name))
-              })?;
-              let number = number_text.parse::<f64>().map_err(|_| {
-                  engine_error(format!(
-                      "Parametric result '{}' for '{}' is not numeric.",
-                      formatted, property.name
-                  ))
-              })?;
-              if !number.is_finite() {
-                  return Err(ExecutionError::NonFiniteValue);
-              }
-              if value_type.kind == ElementKind::PrimitiveType {
-                  match value_type.name.trim().to_ascii_lowercase().as_str() {
-                      "integer" | "int" | "natural" => {
-                          if number.fract() != 0.0
-                              || number < i64::MIN as f64
-                              || number > i64::MAX as f64
-                              || (value_type.name.eq_ignore_ascii_case("natural") && number < 0.0)
-                          {
-                              return Err(engine_error(format!(
-                                  "Parametric result '{}' is incompatible with integer type '{}' for '{}'.",
-                                  formatted, value_type.name, property.name
-                              )));
-                          }
-                          return Ok(RuntimeValue::Integer(number as i64));
-                      }
-                      "boolean" | "bool" | "string" | "text" => {
-                          return Err(engine_error(format!(
-                              "Parametric result for '{}' cannot be assigned to nonnumeric type '{}'.",
-                              property.name, value_type.name
-                          )));
-                      }
-                      _ => {}
-                  }
-              }
-              Ok(RuntimeValue::Real(number))
-          }
-
-          fn format_number(value: f64) -> String {
-              let mut text = format!("{value:.12}");
-              while text.contains('.') && text.ends_with('0') {
-                  text.pop();
-              }
-              if text.ends_with('.') {
-                  text.pop();
-              }
-              text
-          }
-
-          fn readable_element(project: &Project, id: ElementId) -> String {
-              project
-                  .qualified_name(id)
-                  .unwrap_or_else(|_| project.element(id).map(|element| element.name.clone()).unwrap_or_else(|_| id.to_string()))
-          }
-
-          fn readable_model_error(project: &Project, mut message: String) -> String {
-              for element in project.elements.values() {
-                  let id = element.id.to_string();
-                  if message.contains(&id) {
-                      message = message.replace(&id, &format!("'{}'", readable_element(project, element.id)));
-                  }
-              }
-              message
-          }
-
-          fn engine_error(message: String) -> ExecutionError {
-              ExecutionError::Engine { message }
-          }
-          '''
-          write('crates/model-core/src/parametric_execution.rs', core)
-
-          replace(
-              'crates/model-core/src/lib.rs',
+          rep('crates/model-core/src/lib.rs',
               'pub mod operation_signal_sequence_execution;\npub use operation_signal_sequence_execution::*;\n',
-              'pub mod operation_signal_sequence_execution;\npub use operation_signal_sequence_execution::*;\n\npub mod parametric_execution;\npub use parametric_execution::*;\n',
-          )
-          replace(
-              'crates/model-core/src/parametrics.rs',
+              'pub mod operation_signal_sequence_execution;\npub use operation_signal_sequence_execution::*;\n\npub mod parametric_execution;\npub use parametric_execution::*;\n')
+          rep('crates/model-core/src/parametrics.rs',
               '#[derive(Debug, Clone, PartialEq, Eq)]\npub struct ParametricEvaluationScope {',
-              '#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub struct ParametricEvaluationScope {',
-          )
+              '#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub struct ParametricEvaluationScope {')
 
-          tests = r'''use systems_modeler_core::*;
-
-          struct ForceFixture {
-              project: Project,
-              context: ElementId,
-              scope: ParametricEvaluationScope,
-              mass: ElementId,
-              acceleration: ElementId,
-              force: ElementId,
-              equation: ElementId,
-          }
-
-          fn endpoint(role_id: ElementId, parameter_id: Option<ElementId>) -> BindingEndpoint {
-              BindingEndpoint { role_id, parameter_id }
-          }
-
-          fn force_fixture() -> ForceFixture {
-              let mut project = Project::new("PR35 Parametric runtime");
-              let package = project
-                  .create_element(ElementKind::Package, "Analysis", project.root_id)
-                  .unwrap();
-              let real = project
-                  .create_element(ElementKind::PrimitiveType, "Real", package)
-                  .unwrap();
-              let context = project
-                  .create_element(ElementKind::Block, "Vehicle", package)
-                  .unwrap();
-              let mass = project
-                  .create_typed_feature(
-                      ElementKind::ValueProperty,
-                      "mass",
-                      context,
-                      real,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              project.element_mut(mass).unwrap().default_value = Some("1000".into());
-              let acceleration = project
-                  .create_typed_feature(
-                      ElementKind::ValueProperty,
-                      "acceleration",
-                      context,
-                      real,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              project.element_mut(acceleration).unwrap().default_value = Some("2".into());
-              let force = project
-                  .create_typed_feature(
-                      ElementKind::ValueProperty,
-                      "force",
-                      context,
-                      real,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              project.element_mut(force).unwrap().is_derived = true;
-
-              let definition = project
-                  .create_element(ElementKind::ConstraintBlock, "ForceEquation", package)
-                  .unwrap();
-              let m = project
-                  .create_typed_feature(
-                      ElementKind::ConstraintParameter,
-                      "m",
-                      definition,
-                      real,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              let a = project
-                  .create_typed_feature(
-                      ElementKind::ConstraintParameter,
-                      "a",
-                      definition,
-                      real,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              let f = project
-                  .create_typed_feature(
-                      ElementKind::ConstraintParameter,
-                      "F",
-                      definition,
-                      real,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              project.element_mut(definition).unwrap().constraint_expression = "F = m * a".into();
-              let equation = project
-                  .create_typed_feature(
-                      ElementKind::ConstraintProperty,
-                      "forceEquation",
-                      context,
-                      definition,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              let bindings = vec![
-                  project
-                      .create_binding_connector(context, endpoint(mass, None), endpoint(equation, Some(m)))
-                      .unwrap(),
-                  project
-                      .create_binding_connector(
-                          context,
-                          endpoint(acceleration, None),
-                          endpoint(equation, Some(a)),
-                      )
-                      .unwrap(),
-                  project
-                      .create_binding_connector(context, endpoint(force, None), endpoint(equation, Some(f)))
-                      .unwrap(),
-              ];
-              project.validate().unwrap();
-              ForceFixture {
-                  project,
-                  context,
-                  scope: ParametricEvaluationScope {
-                      context_id: context,
-                      constraint_property_ids: vec![equation],
-                      value_property_ids: vec![mass, acceleration, force],
-                      binding_relationship_ids: bindings,
-                  },
-                  mass,
-                  acceleration,
-                  force,
-                  equation,
-              }
-          }
-
-          fn session(project: &Project, root: ElementId) -> ExecutionSession {
-              ExecutionSession::with_configuration(
-                  project,
-                  ExecutionConfiguration {
-                      root_semantic_id: root,
-                      random_seed: 0,
-                      max_steps: 100,
-                      max_queued_events: 100,
-                  },
-              )
-              .unwrap()
-          }
-
-          #[test]
-          fn force_equation_evaluates_into_runtime_without_mutating_authored_model() {
-              let fixture = force_fixture();
-              let authored_before = serde_json::to_string(&fixture.project).unwrap();
-              let mut session = session(&fixture.project, fixture.context);
-              let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());
-              engine.initialize(&fixture.project, &mut session).unwrap();
-              assert_eq!(engine.step(&fixture.project, &mut session).unwrap(), EngineStepOutcome::Completed);
-              assert_eq!(session.state, ExecutionState::Completed);
-              let instance = engine.runtime_instance_id().unwrap();
-              assert_eq!(
-                  session.value(Some(instance), fixture.force),
-                  Some(&RuntimeValue::Real(2000.0))
-              );
-              assert_eq!(engine.snapshot(&session).updates[0].display_value, "2000");
-              assert_eq!(serde_json::to_string(&fixture.project).unwrap(), authored_before);
-              assert_eq!(fixture.project.element(fixture.force).unwrap().default_value, None);
-          }
-
-          #[test]
-          fn repeated_vehicle_occurrences_keep_parametric_values_isolated() {
-              let mut fixture = force_fixture();
-              let package = fixture.project.element(fixture.context).unwrap().owner_id.unwrap();
-              let system = fixture
-                  .project
-                  .create_element(ElementKind::Block, "System", package)
-                  .unwrap();
-              let left = fixture
-                  .project
-                  .create_typed_feature(
-                      ElementKind::PartProperty,
-                      "leftVehicle",
-                      system,
-                      fixture.context,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              let right = fixture
-                  .project
-                  .create_typed_feature(
-                      ElementKind::PartProperty,
-                      "rightVehicle",
-                      system,
-                      fixture.context,
-                      Multiplicity::ONE,
-                  )
-                  .unwrap();
-              let preview = StructuralRuntime::build(
-                  &fixture.project,
-                  system,
-                  &StructuralRuntimeConfiguration::default(),
-              )
-              .unwrap();
-              let left_path = preview.instances_for_usage(left)[0].qualified_path.clone();
-              let mut session = session(&fixture.project, system);
-              let mut engine = ParametricExecutionEngine::new(fixture.scope.clone())
-                  .with_runtime_instance_path(Some(left_path));
-              engine.initialize(&fixture.project, &mut session).unwrap();
-              let left_id = engine.runtime_instance_id().unwrap();
-              let right_id = session
-                  .structural_runtime
-                  .as_ref()
-                  .unwrap()
-                  .instances_for_usage(right)[0]
-                  .id;
-              session
-                  .set_value(&fixture.project, Some(left_id), fixture.mass, RuntimeValue::Real(4.0))
-                  .unwrap();
-              session
-                  .set_value(
-                      &fixture.project,
-                      Some(left_id),
-                      fixture.acceleration,
-                      RuntimeValue::Real(5.0),
-                  )
-                  .unwrap();
-              session
-                  .set_value(&fixture.project, Some(right_id), fixture.mass, RuntimeValue::Real(7.0))
-                  .unwrap();
-              session
-                  .set_value(
-                      &fixture.project,
-                      Some(right_id),
-                      fixture.acceleration,
-                      RuntimeValue::Real(8.0),
-                  )
-                  .unwrap();
-              engine.step(&fixture.project, &mut session).unwrap();
-              assert_eq!(
-                  session.value(Some(left_id), fixture.force),
-                  Some(&RuntimeValue::Real(20.0))
-              );
-              assert_eq!(session.value(Some(right_id), fixture.force), None);
-              assert_eq!(
-                  session.value(Some(right_id), fixture.mass),
-                  Some(&RuntimeValue::Real(7.0))
-              );
-          }
-
-          #[test]
-          fn reset_replays_authored_inputs_deterministically() {
-              let fixture = force_fixture();
-              let mut session = session(&fixture.project, fixture.context);
-              let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());
-              engine.initialize(&fixture.project, &mut session).unwrap();
-              engine.step(&fixture.project, &mut session).unwrap();
-              let first = engine.snapshot(&session).updates.clone();
-              engine.reset(&fixture.project, &mut session).unwrap();
-              engine.step(&fixture.project, &mut session).unwrap();
-              let second = engine.snapshot(&session).updates.clone();
-              assert_eq!(first, second);
-              let instance = engine.runtime_instance_id().unwrap();
-              assert_eq!(
-                  session.value(Some(instance), fixture.force),
-                  Some(&RuntimeValue::Real(2000.0))
-              );
-          }
-
-          #[test]
-          fn missing_runtime_input_fails_with_readable_diagnostic_and_no_authored_mutation() {
-              let mut fixture = force_fixture();
-              fixture.project.element_mut(fixture.acceleration).unwrap().default_value = None;
-              let authored_before = serde_json::to_string(&fixture.project).unwrap();
-              let mut session = session(&fixture.project, fixture.context);
-              let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());
-              engine.initialize(&fixture.project, &mut session).unwrap();
-              engine.step(&fixture.project, &mut session).unwrap();
-              assert_eq!(session.state, ExecutionState::Failed);
-              let message = &session.diagnostics.last().unwrap().message;
-              assert!(message.contains("unresolved parameter 'a'"));
-              assert!(message.contains("forceEquation"));
-              assert_eq!(serde_json::to_string(&fixture.project).unwrap(), authored_before);
-          }
-
-          #[test]
-          fn unsupported_expression_is_rejected_instead_of_executed() {
-              let mut fixture = force_fixture();
-              let definition = fixture.project.element(fixture.equation).unwrap().type_id.unwrap();
-              fixture.project.element_mut(definition).unwrap().constraint_expression = "F = m % a".into();
-              let mut session = session(&fixture.project, fixture.context);
-              let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());
-              engine.initialize(&fixture.project, &mut session).unwrap();
-              engine.step(&fixture.project, &mut session).unwrap();
-              assert_eq!(session.state, ExecutionState::Failed);
-              assert!(
-                  session
-                      .diagnostics
-                      .last()
-                      .unwrap()
-                      .message
-                      .contains("unsupported expression character")
-              );
-          }
-
-          #[test]
-          fn ambiguous_repeated_context_requires_explicit_occurrence_selection() {
-              let mut fixture = force_fixture();
-              let package = fixture.project.element(fixture.context).unwrap().owner_id.unwrap();
-              let system = fixture
-                  .project
-                  .create_element(ElementKind::Block, "System", package)
-                  .unwrap();
-              for name in ["first", "second"] {
-                  fixture
-                      .project
-                      .create_typed_feature(
-                          ElementKind::PartProperty,
-                          name,
-                          system,
-                          fixture.context,
-                          Multiplicity::ONE,
-                      )
-                      .unwrap();
-              }
-              let mut session = session(&fixture.project, system);
-              let mut engine = ParametricExecutionEngine::new(fixture.scope.clone());
-              let error = engine.initialize(&fixture.project, &mut session).unwrap_err().to_string();
-              assert!(error.contains("resolves to 2 runtime occurrences"));
-              assert!(error.contains("Vehicle"));
-          }
-          '''
-          write('crates/model-core/tests/pr35_parametric_runtime.rs', tests)
-
-          # Reuse the Parametric scope construction in the new runtime command module.
-          replace(
-              'apps/desktop/src-tauri/src/workspace/parametrics.rs',
-              'fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {',
-              'pub(super) fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {',
-          )
+          p = 'apps/desktop/src-tauri/src/workspace/parametrics.rs'
+          rep(p, 'fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {',
+                 'pub(super) fn diagram_context(diagram: &BddDiagram) -> Result<ElementId, String> {')
           anchor = '''fn parameter_layout(
               parameters: &[&systems_modeler_core::Element],
               width: f64,
@@ -802,36 +55,24 @@ jobs:
           ) -> Result<ParametricEvaluationScope, String> {
               Ok(ParametricEvaluationScope {
                   context_id: diagram_context(diagram)?,
-                  constraint_property_ids: diagram
-                      .nodes
-                      .iter()
-                      .filter_map(|node| {
-                          let id = parse_element_id(&node.element_id).ok()?;
-                          (project.element(id).ok()?.kind == ElementKind::ConstraintProperty)
-                              .then_some(id)
-                      })
-                      .collect(),
-                  value_property_ids: diagram
-                      .nodes
-                      .iter()
-                      .filter_map(|node| {
-                          let id = parse_element_id(&node.element_id).ok()?;
-                          (project.element(id).ok()?.kind == ElementKind::ValueProperty).then_some(id)
-                      })
-                      .collect(),
-                  binding_relationship_ids: diagram
-                      .edges
-                      .iter()
+                  constraint_property_ids: diagram.nodes.iter().filter_map(|node| {
+                      let id = parse_element_id(&node.element_id).ok()?;
+                      (project.element(id).ok()?.kind == ElementKind::ConstraintProperty).then_some(id)
+                  }).collect(),
+                  value_property_ids: diagram.nodes.iter().filter_map(|node| {
+                      let id = parse_element_id(&node.element_id).ok()?;
+                      (project.element(id).ok()?.kind == ElementKind::ValueProperty).then_some(id)
+                  }).collect(),
+                  binding_relationship_ids: diagram.edges.iter()
                       .map(|edge| parse_relationship_id(&edge.relationship_id))
                       .collect::<Result<Vec<_>, _>>()?,
               })
           }
 
           ''' + anchor
-          replace('apps/desktop/src-tauri/src/workspace/parametrics.rs', anchor, helper)
-
-          # Keep the legacy PR25 command non-mutating. Runtime execution is PR35's authoritative path.
-          old_eval_tail = '''    let report = evaluate_parametrics(&mut project, &scope).map_err(|error| error.to_string())?;
+          rep(p, anchor, helper)
+          rep(p,
+              '''    let report = evaluate_parametrics(&mut project, &scope).map_err(|error| error.to_string())?;
               project.validate().map_err(|error| error.to_string())?;
               if !report.updates.is_empty() {
                   checkpoint(&workspace, &activity, &history)?;
@@ -840,540 +81,69 @@ jobs:
                       .lock()
                       .map_err(|_| "project lock poisoned")? = Some(project);
               }
-              Ok(ParametricEvaluationSnapshot {'''
-          new_eval_tail = '''    let report = evaluate_parametrics(&mut project, &scope).map_err(|error| error.to_string())?;
-              // PR35: legacy direct evaluation is now preview-only. The shared
-              // ExecutionSession path owns transient analysis values and authored
-              // ValueProperty defaults are never rewritten by evaluation.
+              Ok(ParametricEvaluationSnapshot {''',
+              '''    let report = evaluate_parametrics(&mut project, &scope).map_err(|error| error.to_string())?;
+              // PR35 legacy direct evaluation is preview-only. Transient analysis
+              // values are owned by the shared ExecutionSession runtime path.
               let _ = (&activity, &history);
-              Ok(ParametricEvaluationSnapshot {'''
-          replace('apps/desktop/src-tauri/src/workspace/parametrics.rs', old_eval_tail, new_eval_tail)
+              Ok(ParametricEvaluationSnapshot {''')
 
-          desktop = r'''use super::{WorkspaceState, parametrics::evaluation_scope};
-          use std::collections::HashMap;
-          use std::sync::Mutex;
-          use systems_modeler_core::{
-              ElementKind, ExecutionConfiguration, ExecutionEngine, ExecutionManager,
-              ExecutionRuntimePreview, ExecutionRuntimeSelection, ExecutionSessionId,
-              ParametricEvaluationScope, ParametricExecutionEngine, ParametricExecutionSnapshot,
-              Project, StructuralRuntime,
+          m = 'apps/desktop/src-tauri/src/main.rs'
+          rep(m, '    mod parametrics;\n    mod presentation_interaction;',
+                 '    mod parametrics;\n    mod parametric_execution;\n    mod presentation_interaction;')
+          rep(m, '''    pub use parametrics::{
+              create_binding_connector, create_constraint_parameter,
+              create_parametric_constraint_property, create_parametric_diagram,
+              create_parametric_value_property, delete_binding_connector, evaluate_parametric_diagram,
+              place_on_parametric_diagram, reconnect_binding_connector, update_constraint_block_details,
+              update_constraint_parameter, update_constraint_parameter_presentation,
+              update_parametric_constraint_property, update_parametric_presentation_geometry,
+              update_parametric_value_property, update_quantity_kind_details, update_unit_details,
+              update_value_type_details,
           };
-
-          #[derive(Default)]
-          struct ParametricExecutionRegistry {
-              manager: ExecutionManager,
-              engines: HashMap<ExecutionSessionId, ParametricExecutionEngine>,
-              sessions_by_diagram: HashMap<String, ExecutionSessionId>,
-              source_fingerprints: HashMap<String, String>,
-              runtime_selections: HashMap<String, ExecutionRuntimeSelection>,
-          }
-
-          #[derive(Default)]
-          pub struct ParametricExecutionState {
-              registry: Mutex<ParametricExecutionRegistry>,
-          }
-
-          fn execution_source(
-              workspace: &WorkspaceState,
-              diagram_id: &str,
-          ) -> Result<(Project, ParametricEvaluationScope, String), String> {
-              let project = workspace
-                  .project
-                  .lock()
-                  .map_err(|_| "project lock poisoned")?
-                  .clone()
-                  .ok_or_else(|| "open a project before evaluating Parametrics".to_string())?;
-              let diagram = workspace
-                  .diagrams
-                  .lock()
-                  .map_err(|_| "diagram lock poisoned")?
-                  .iter()
-                  .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
-                  .cloned()
-                  .ok_or_else(|| format!("Parametric Diagram was not found: {diagram_id}"))?;
-              let scope = evaluation_scope(&diagram, &project)?;
-              let fingerprint = serde_json::to_string(&(&project, &scope))
-                  .map_err(|error| format!("failed to fingerprint Parametric execution source: {error}"))?;
-              Ok((project, scope, fingerprint))
-          }
-
-          fn runtime_preview(
-              project: &Project,
-              scope: &ParametricEvaluationScope,
-              selection: &ExecutionRuntimeSelection,
-          ) -> Result<ExecutionRuntimePreview, String> {
-              let context = project
-                  .element(scope.context_id)
-                  .map_err(|error| format!("Parametric context is invalid: {error}"))?;
-              if context.kind == ElementKind::ConstraintBlock {
-                  if selection.runtime_instance_path.is_some() {
-                      return Err(format!(
-                          "ConstraintBlock '{}' is a reusable definition and cannot select a runtime occurrence.",
-                          context.name
-                      ));
-                  }
-                  return Ok(ExecutionRuntimePreview {
-                      root_semantic_id: project.root_id,
-                      structural_runtime: None,
-                      compatible_runtime_instance_paths: Vec::new(),
-                      selected_runtime_instance_path: None,
-                  });
-              }
-              if !matches!(context.kind, ElementKind::Block | ElementKind::AssociationBlock) {
-                  return Err(format!(
-                      "Parametric context '{}' ({:?}) is not an executable structural classifier.",
-                      context.name, context.kind
-                  ));
-              }
-              let root_semantic_id = selection.root_semantic_id.unwrap_or(scope.context_id);
-              let root = project
-                  .element(root_semantic_id)
-                  .map_err(|error| format!("Parametric runtime root is invalid: {error}"))?;
-              if !matches!(
-                  root.kind,
-                  ElementKind::Block
-                      | ElementKind::AssociationBlock
-                      | ElementKind::PartProperty
-                      | ElementKind::InstanceSpecification
-              ) {
-                  return Err(format!(
-                      "Parametric runtime root '{}' ({:?}) is not a structural execution root.",
-                      root.name, root.kind
-                  ));
-              }
-              let runtime = StructuralRuntime::build(
-                  project,
-                  root_semantic_id,
-                  &selection.structural_configuration,
-              )
-              .map_err(|error| error.to_string())?;
-              let compatible = runtime.compatible_instance_paths(project, scope.context_id);
-              let selected = match selection.runtime_instance_path.as_deref() {
-                  Some(path) if compatible.iter().any(|candidate| candidate == path) => Some(path.to_string()),
-                  Some(path) => {
-                      return Err(format!(
-                          "Parametric runtime occurrence '{}' is not compatible with context '{}'. Compatible occurrence(s): {}.",
-                          path,
-                          context.name,
-                          if compatible.is_empty() { "none".into() } else { compatible.join(", ") }
-                      ));
-                  }
-                  None if compatible.len() == 1 => compatible.first().cloned(),
-                  None => None,
-              };
-              Ok(ExecutionRuntimePreview {
-                  root_semantic_id,
-                  structural_runtime: Some(runtime.snapshot()),
-                  compatible_runtime_instance_paths: compatible,
-                  selected_runtime_instance_path: selected,
-              })
-          }
-
-          fn invalidate(registry: &mut ParametricExecutionRegistry, diagram_id: &str) {
-              if let Some(session_id) = registry.sessions_by_diagram.remove(diagram_id) {
-                  registry.engines.remove(&session_id);
-                  registry.manager.remove_session(session_id);
-              }
-              registry.source_fingerprints.remove(diagram_id);
-          }
-
-          fn start_execution(
-              project: &Project,
-              scope: ParametricEvaluationScope,
-              diagram_id: &str,
-              fingerprint: String,
-              registry: &mut ParametricExecutionRegistry,
-          ) -> Result<ExecutionSessionId, String> {
-              let selection = registry
-                  .runtime_selections
-                  .get(diagram_id)
-                  .cloned()
-                  .unwrap_or_default();
-              let preview = runtime_preview(project, &scope, &selection)?;
-              invalidate(registry, diagram_id);
-              let session_id = registry
-                  .manager
-                  .create_session(
-                      project,
-                      ExecutionConfiguration {
-                          root_semantic_id: preview.root_semantic_id,
-                          random_seed: 0,
-                          max_steps: 100_000,
-                          max_queued_events: 10_000,
-                      },
-                  )
-                  .map_err(|error| error.to_string())?;
-              registry
-                  .manager
-                  .session_mut(session_id)
-                  .map_err(|error| error.to_string())?
-                  .set_structural_configuration(selection.structural_configuration)
-                  .map_err(|error| error.to_string())?;
-              let mut engine = ParametricExecutionEngine::new(scope)
-                  .with_runtime_instance_path(preview.selected_runtime_instance_path);
-              if let Err(error) = engine.initialize(
-                  project,
-                  registry
-                      .manager
-                      .session_mut(session_id)
-                      .map_err(|error| error.to_string())?,
-              ) {
-                  registry.manager.remove_session(session_id);
-                  return Err(error.to_string());
-              }
-              registry.engines.insert(session_id, engine);
-              registry
-                  .sessions_by_diagram
-                  .insert(diagram_id.to_string(), session_id);
-              registry
-                  .source_fingerprints
-                  .insert(diagram_id.to_string(), fingerprint);
-              Ok(session_id)
-          }
-
-          fn snapshot_for(
-              registry: &ParametricExecutionRegistry,
-              session_id: ExecutionSessionId,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let session = registry
-                  .manager
-                  .session(session_id)
-                  .map_err(|error| error.to_string())?;
-              let engine = registry
-                  .engines
-                  .get(&session_id)
-                  .ok_or("Parametric execution engine is unavailable")?;
-              Ok(engine.snapshot(session))
-          }
-
-          fn current_session(
-              registry: &ParametricExecutionRegistry,
-              diagram_id: &str,
-          ) -> Result<ExecutionSessionId, String> {
-              registry
-                  .sessions_by_diagram
-                  .get(diagram_id)
-                  .copied()
-                  .ok_or_else(|| "initialize this Parametric execution first".into())
-          }
-
-          #[tauri::command]
-          pub fn parametric_execution_runtime_selection(
-              diagram_id: String,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ExecutionRuntimeSelection, String> {
-              let registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              Ok(registry
-                  .runtime_selections
-                  .get(&diagram_id)
-                  .cloned()
-                  .unwrap_or_default())
-          }
-
-          #[tauri::command]
-          pub fn preview_parametric_execution_runtime(
-              diagram_id: String,
-              selection: ExecutionRuntimeSelection,
-              workspace: tauri::State<'_, WorkspaceState>,
-          ) -> Result<ExecutionRuntimePreview, String> {
-              let (project, scope, _) = execution_source(&workspace, &diagram_id)?;
-              runtime_preview(&project, &scope, &selection)
-          }
-
-          #[tauri::command]
-          pub fn configure_parametric_execution_runtime(
-              diagram_id: String,
-              selection: ExecutionRuntimeSelection,
-              workspace: tauri::State<'_, WorkspaceState>,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ExecutionRuntimePreview, String> {
-              let (project, scope, _) = execution_source(&workspace, &diagram_id)?;
-              let preview = runtime_preview(&project, &scope, &selection)?;
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              invalidate(&mut registry, &diagram_id);
-              registry.runtime_selections.insert(diagram_id, selection);
-              Ok(preview)
-          }
-
-          #[tauri::command]
-          pub fn initialize_parametric_execution(
-              diagram_id: String,
-              workspace: tauri::State<'_, WorkspaceState>,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let (project, scope, fingerprint) = execution_source(&workspace, &diagram_id)?;
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let session_id = start_execution(
-                  &project,
-                  scope,
-                  &diagram_id,
-                  fingerprint,
-                  &mut registry,
-              )?;
-              snapshot_for(&registry, session_id)
-          }
-
-          #[tauri::command]
-          pub fn parametric_execution_snapshot(
-              diagram_id: String,
-              workspace: tauri::State<'_, WorkspaceState>,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<Option<ParametricExecutionSnapshot>, String> {
-              let (_, _, fingerprint) = execution_source(&workspace, &diagram_id)?;
-              let registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let Some(session_id) = registry.sessions_by_diagram.get(&diagram_id).copied() else {
-                  return Ok(None);
-              };
-              if registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint) {
-                  return Ok(None);
-              }
-              snapshot_for(&registry, session_id).map(Some)
-          }
-
-          #[tauri::command]
-          pub fn run_parametric_execution(
-              diagram_id: String,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let session_id = current_session(&registry, &diagram_id)?;
-              registry
-                  .manager
-                  .session_mut(session_id)
-                  .map_err(|error| error.to_string())?
-                  .run()
-                  .map_err(|error| error.to_string())?;
-              snapshot_for(&registry, session_id)
-          }
-
-          #[tauri::command]
-          pub fn step_parametric_execution(
-              diagram_id: String,
-              workspace: tauri::State<'_, WorkspaceState>,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let (project, _, fingerprint) = execution_source(&workspace, &diagram_id)?;
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let session_id = current_session(&registry, &diagram_id)?;
-              if registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint) {
-                  return Err("Parametric model changed; initialize execution again".into());
-              }
-              let ParametricExecutionRegistry { manager, engines, .. } = &mut *registry;
-              let session = manager
-                  .session_mut(session_id)
-                  .map_err(|error| error.to_string())?;
-              let engine = engines
-                  .get_mut(&session_id)
-                  .ok_or("Parametric execution engine is unavailable")?;
-              engine.step(&project, session).map_err(|error| error.to_string())?;
-              Ok(engine.snapshot(session))
-          }
-
-          #[tauri::command]
-          pub fn evaluate_parametric_execution(
-              diagram_id: String,
-              workspace: tauri::State<'_, WorkspaceState>,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let (project, scope, fingerprint) = execution_source(&workspace, &diagram_id)?;
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let session_id = start_execution(
-                  &project,
-                  scope,
-                  &diagram_id,
-                  fingerprint,
-                  &mut registry,
-              )?;
-              let ParametricExecutionRegistry { manager, engines, .. } = &mut *registry;
-              let session = manager
-                  .session_mut(session_id)
-                  .map_err(|error| error.to_string())?;
-              session.run().map_err(|error| error.to_string())?;
-              let engine = engines
-                  .get_mut(&session_id)
-                  .ok_or("Parametric execution engine is unavailable")?;
-              engine.step(&project, session).map_err(|error| error.to_string())?;
-              Ok(engine.snapshot(session))
-          }
-
-          #[tauri::command]
-          pub fn reset_parametric_execution(
-              diagram_id: String,
-              workspace: tauri::State<'_, WorkspaceState>,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let (project, _, fingerprint) = execution_source(&workspace, &diagram_id)?;
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let session_id = current_session(&registry, &diagram_id)?;
-              if registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint) {
-                  return Err("Parametric model changed; initialize execution again".into());
-              }
-              let ParametricExecutionRegistry { manager, engines, .. } = &mut *registry;
-              let session = manager
-                  .session_mut(session_id)
-                  .map_err(|error| error.to_string())?;
-              let engine = engines
-                  .get_mut(&session_id)
-                  .ok_or("Parametric execution engine is unavailable")?;
-              engine.reset(&project, session).map_err(|error| error.to_string())?;
-              Ok(engine.snapshot(session))
-          }
-
-          #[tauri::command]
-          pub fn terminate_parametric_execution(
-              diagram_id: String,
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<ParametricExecutionSnapshot, String> {
-              let mut registry = execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")?;
-              let session_id = current_session(&registry, &diagram_id)?;
-              registry
-                  .manager
-                  .session_mut(session_id)
-                  .map_err(|error| error.to_string())?
-                  .terminate()
-                  .map_err(|error| error.to_string())?;
-              snapshot_for(&registry, session_id)
-          }
-
-          #[tauri::command]
-          pub fn clear_parametric_executions(
-              execution_state: tauri::State<'_, ParametricExecutionState>,
-          ) -> Result<(), String> {
-              *execution_state
-                  .registry
-                  .lock()
-                  .map_err(|_| "Parametric execution lock poisoned")? =
-                  ParametricExecutionRegistry::default();
-              Ok(())
-          }
-          '''
-          write('apps/desktop/src-tauri/src/workspace/parametric_execution.rs', desktop)
-
-          # Desktop module and command registration.
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    mod parametrics;\n    mod presentation_interaction;',
-              '    mod parametrics;\n    mod parametric_execution;\n    mod presentation_interaction;',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '''    pub use parametrics::{
-                  create_binding_connector, create_constraint_parameter,
-                  create_parametric_constraint_property, create_parametric_diagram,
-                  create_parametric_value_property, delete_binding_connector, evaluate_parametric_diagram,
-                  place_on_parametric_diagram, reconnect_binding_connector, update_constraint_block_details,
-                  update_constraint_parameter, update_constraint_parameter_presentation,
-                  update_parametric_constraint_property, update_parametric_presentation_geometry,
-                  update_parametric_value_property, update_quantity_kind_details, update_unit_details,
-                  update_value_type_details,
-              };
-''',
-              '''    pub use parametrics::{
-                  create_binding_connector, create_constraint_parameter,
-                  create_parametric_constraint_property, create_parametric_diagram,
-                  create_parametric_value_property, delete_binding_connector, evaluate_parametric_diagram,
-                  place_on_parametric_diagram, reconnect_binding_connector, update_constraint_block_details,
-                  update_constraint_parameter, update_constraint_parameter_presentation,
-                  update_parametric_constraint_property, update_parametric_presentation_geometry,
-                  update_parametric_value_property, update_quantity_kind_details, update_unit_details,
-                  update_value_type_details,
-              };
+          ''', '''    pub use parametrics::{
+              create_binding_connector, create_constraint_parameter,
+              create_parametric_constraint_property, create_parametric_diagram,
+              create_parametric_value_property, delete_binding_connector, evaluate_parametric_diagram,
+              place_on_parametric_diagram, reconnect_binding_connector, update_constraint_block_details,
+              update_constraint_parameter, update_constraint_parameter_presentation,
+              update_parametric_constraint_property, update_parametric_presentation_geometry,
+              update_parametric_value_property, update_quantity_kind_details, update_unit_details,
+              update_value_type_details,
+          };
               pub use parametric_execution::{
-                  ParametricExecutionState, clear_parametric_executions,
-                  configure_parametric_execution_runtime, evaluate_parametric_execution,
-                  initialize_parametric_execution, parametric_execution_runtime_selection,
-                  parametric_execution_snapshot, preview_parametric_execution_runtime,
-                  reset_parametric_execution, run_parametric_execution, step_parametric_execution,
-                  terminate_parametric_execution,
-              };
-''',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    ActivityExecutionState, ActivityWorkspaceState, HistoryState, SequenceExecutionState,\n    SharedWorkspaceState, StandardEditingState, StateMachineExecutionState, WorkspaceState,',
-              '    ActivityExecutionState, ActivityWorkspaceState, HistoryState, ParametricExecutionState,\n    SequenceExecutionState, SharedWorkspaceState, StandardEditingState, StateMachineExecutionState,\n    WorkspaceState,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    clear_sequence_executions, clear_state_machine_executions, clear_workspace_interaction,',
-              '    clear_parametric_executions, clear_sequence_executions, clear_state_machine_executions,\n    clear_workspace_interaction,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,',
-              '    diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,\n    evaluate_parametric_execution,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    ibd_item_flow_notation, initialize_activity_execution, initialize_sequence_execution,\n    initialize_state_machine_execution, load_activity_workspace, move_active_selection,',
-              '    ibd_item_flow_notation, initialize_activity_execution, initialize_parametric_execution,\n    initialize_sequence_execution, initialize_state_machine_execution, load_activity_workspace,\n    move_active_selection,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    preview_activity_execution_runtime, preview_sequence_execution_runtime,\n    preview_state_machine_execution_runtime, queue_state_machine_signal, reconnect_activity_edge,',
-              '    preview_activity_execution_runtime, preview_parametric_execution_runtime,\n    preview_sequence_execution_runtime, preview_state_machine_execution_runtime,\n    queue_state_machine_signal, reconnect_activity_edge,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    reset_activity_execution, reset_activity_workspace, reset_sequence_execution,\n    reset_state_machine_execution, resize_sequence_lifeline_timeline, resume_activity_execution,',
-              '    reset_activity_execution, reset_activity_workspace, reset_parametric_execution,\n    reset_sequence_execution, reset_state_machine_execution, resize_sequence_lifeline_timeline,\n    resume_activity_execution,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,\n    run_sequence_execution, run_state_machine_execution, save_activity_workspace,',
-              '    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,\n    run_parametric_execution, run_sequence_execution, run_state_machine_execution,\n    save_activity_workspace,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    sequence_execution_runtime_selection, sequence_execution_snapshot,\n    set_diagram_frame_preference,',
-              '    parametric_execution_runtime_selection, parametric_execution_snapshot,\n    sequence_execution_runtime_selection, sequence_execution_snapshot,\n    set_diagram_frame_preference,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    state_machine_execution_snapshot, step_activity_execution, step_sequence_execution,\n    step_state_machine_execution, terminate_activity_execution, terminate_sequence_execution,\n    terminate_state_machine_execution,',
-              '    state_machine_execution_snapshot, step_activity_execution, step_parametric_execution,\n    step_sequence_execution, step_state_machine_execution, terminate_activity_execution,\n    terminate_parametric_execution, terminate_sequence_execution, terminate_state_machine_execution,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '    clear_workspace_interaction,\n    configure_activity_execution_runtime, configure_sequence_execution_runtime,',
-              '    clear_workspace_interaction,\n    configure_activity_execution_runtime, configure_parametric_execution_runtime,\n    configure_sequence_execution_runtime,',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '        .manage(SequenceExecutionState::default())\n        .manage(HistoryState::default())',
-              '        .manage(SequenceExecutionState::default())\n        .manage(ParametricExecutionState::default())\n        .manage(HistoryState::default())',
-          )
-          replace(
-              'apps/desktop/src-tauri/src/main.rs',
-              '            evaluate_parametric_diagram,\n            create_use_case_diagram,',
-              '''            evaluate_parametric_diagram,
+              ParametricExecutionState, clear_parametric_executions,
+              configure_parametric_execution_runtime, evaluate_parametric_execution,
+              initialize_parametric_execution, parametric_execution_runtime_selection,
+              parametric_execution_snapshot, preview_parametric_execution_runtime,
+              reset_parametric_execution, run_parametric_execution, step_parametric_execution,
+              terminate_parametric_execution,
+          };
+          ''')
+          rep(m, '    ActivityExecutionState, ActivityWorkspaceState, HistoryState, SequenceExecutionState,\n    SharedWorkspaceState, StandardEditingState, StateMachineExecutionState, WorkspaceState,',
+                 '    ActivityExecutionState, ActivityWorkspaceState, HistoryState, ParametricExecutionState,\n    SequenceExecutionState, SharedWorkspaceState, StandardEditingState, StateMachineExecutionState,\n    WorkspaceState,')
+          rep(m, '    clear_sequence_executions, clear_state_machine_executions, clear_workspace_interaction,',
+                 '    clear_parametric_executions, clear_sequence_executions, clear_state_machine_executions,\n    clear_workspace_interaction,')
+          rep(m, '    clear_workspace_interaction,\n    configure_activity_execution_runtime, configure_sequence_execution_runtime,',
+                 '    clear_workspace_interaction,\n    configure_activity_execution_runtime, configure_parametric_execution_runtime,\n    configure_sequence_execution_runtime,')
+          rep(m, '    diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,',
+                 '    diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,\n    evaluate_parametric_execution,')
+          rep(m, '    ibd_item_flow_notation, initialize_activity_execution, initialize_sequence_execution,\n    initialize_state_machine_execution, load_activity_workspace, move_active_selection,',
+                 '    ibd_item_flow_notation, initialize_activity_execution, initialize_parametric_execution,\n    initialize_sequence_execution, initialize_state_machine_execution, load_activity_workspace,\n    move_active_selection,')
+          rep(m, '    preview_activity_execution_runtime, preview_sequence_execution_runtime,\n    preview_state_machine_execution_runtime, queue_state_machine_signal, reconnect_activity_edge,',
+                 '    preview_activity_execution_runtime, preview_parametric_execution_runtime,\n    preview_sequence_execution_runtime, preview_state_machine_execution_runtime,\n    queue_state_machine_signal, reconnect_activity_edge,')
+          rep(m, '    reset_activity_execution, reset_activity_workspace, reset_sequence_execution,\n    reset_state_machine_execution, resize_sequence_lifeline_timeline, resume_activity_execution,',
+                 '    reset_activity_execution, reset_activity_workspace, reset_parametric_execution,\n    reset_sequence_execution, reset_state_machine_execution, resize_sequence_lifeline_timeline,\n    resume_activity_execution,')
+          rep(m, '    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,\n    run_sequence_execution, run_state_machine_execution, save_activity_workspace,',
+                 '    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,\n    run_parametric_execution, run_sequence_execution, run_state_machine_execution,\n    save_activity_workspace,')
+          rep(m, '    sequence_execution_runtime_selection, sequence_execution_snapshot,\n    set_diagram_frame_preference,',
+                 '    parametric_execution_runtime_selection, parametric_execution_snapshot,\n    sequence_execution_runtime_selection, sequence_execution_snapshot,\n    set_diagram_frame_preference,')
+          rep(m, '    state_machine_execution_snapshot, step_activity_execution, step_sequence_execution,\n    step_state_machine_execution, terminate_activity_execution, terminate_sequence_execution,\n    terminate_state_machine_execution,',
+                 '    state_machine_execution_snapshot, step_activity_execution, step_parametric_execution,\n    step_sequence_execution, step_state_machine_execution, terminate_activity_execution,\n    terminate_parametric_execution, terminate_sequence_execution, terminate_state_machine_execution,')
+          rep(m, '        .manage(SequenceExecutionState::default())\n        .manage(HistoryState::default())',
+                 '        .manage(SequenceExecutionState::default())\n        .manage(ParametricExecutionState::default())\n        .manage(HistoryState::default())')
+          rep(m, '            evaluate_parametric_diagram,\n            create_use_case_diagram,',
+                 '''            evaluate_parametric_diagram,
                           parametric_execution_snapshot,
                           parametric_execution_runtime_selection,
                           preview_parametric_execution_runtime,
@@ -1385,93 +155,72 @@ jobs:
                           reset_parametric_execution,
                           terminate_parametric_execution,
                           clear_parametric_executions,
-                          create_use_case_diagram,''',
-          )
+                          create_use_case_diagram,''')
 
-          # Shared Evaluate Parametrics command now uses the shared runtime path.
-          replace(
-              'apps/desktop/src-tauri/src/workspace/presentation_theme.rs',
+          rep('apps/desktop/src-tauri/src/workspace/presentation_theme.rs',
               'rust_adapter: Some("evaluate_parametric_diagram")',
-              'rust_adapter: Some("evaluate_parametric_execution")',
-          )
+              'rust_adapter: Some("evaluate_parametric_execution")')
 
-          # Runtime configuration is generalized to Parametric execution and fixes Sequence refresh.
-          renderer = 'apps/desktop/frontend/behavior-authoritative-renderer.js'
-          replace(
-              renderer,
-              '''    if (kind === 'sequence') return {
-                  get: 'sequence_execution_runtime_selection',
-                  preview: 'preview_sequence_execution_runtime',
-                  configure: 'configure_sequence_execution_runtime',
-                  label: 'Sequence',
-              };
-              return {''',
-              '''    if (kind === 'sequence') return {
-                  get: 'sequence_execution_runtime_selection',
-                  preview: 'preview_sequence_execution_runtime',
-                  configure: 'configure_sequence_execution_runtime',
-                  label: 'Sequence',
-              };
-              if (kind === 'parametric') return {
-                  get: 'parametric_execution_runtime_selection',
-                  preview: 'preview_parametric_execution_runtime',
-                  configure: 'configure_parametric_execution_runtime',
-                  label: 'Parametric',
-              };
-              return {''',
-          )
-          replace(
-              renderer,
-              '''      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this behavior executes on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>''',
-              '''      <header><div><strong>${esc(api.label)} Runtime Context</strong><p>Choose the structural system occurrence this execution runs on. Rust validates and owns the resulting runtime graph.</p></div><button type="button" data-runtime-close aria-label="Close">×</button></header>''',
-          )
-          replace(
-              renderer,
-              '''        if (kind === 'activity') {
-                  window.smpState.activityExecutionSnapshot = null;
-                  window.smpRefreshActivityExecution?.();
-                } else {
-                  window.smpState.stateMachineExecutionSnapshot = null;
-                  window.smpRefreshStateMachineExecution?.();
-                }''',
-              '''        if (kind === 'activity') {
-                  window.smpState.activityExecutionSnapshot = null;
-                  window.smpRefreshActivityExecution?.();
-                } else if (kind === 'sequence') {
-                  window.smpState.sequenceExecutionSnapshot = null;
-                  window.smpRefreshSequenceExecution?.();
-                } else if (kind === 'parametric') {
-                  window.smpState.parametricExecutionSnapshot = null;
-                  window.smpRefreshParametricExecution?.();
-                } else {
-                  window.smpState.stateMachineExecutionSnapshot = null;
-                  window.smpRefreshStateMachineExecution?.();
-                }''',
-          )
-          replace(
-              renderer,
-              "    await requireInvoke()('clear_sequence_executions');\n    Object.assign(state, { stateMachineExecutionSnapshot: null });",
-              "    await requireInvoke()('clear_sequence_executions');\n    await requireInvoke()('clear_parametric_executions');\n    Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });",
-          )
+          r = 'apps/desktop/frontend/behavior-authoritative-renderer.js'
+          rep(r, '''    if (kind === 'sequence') return {
+              get: 'sequence_execution_runtime_selection',
+              preview: 'preview_sequence_execution_runtime',
+              configure: 'configure_sequence_execution_runtime',
+              label: 'Sequence',
+          };
+          return {''', '''    if (kind === 'sequence') return {
+              get: 'sequence_execution_runtime_selection',
+              preview: 'preview_sequence_execution_runtime',
+              configure: 'configure_sequence_execution_runtime',
+              label: 'Sequence',
+          };
+          if (kind === 'parametric') return {
+              get: 'parametric_execution_runtime_selection',
+              preview: 'preview_parametric_execution_runtime',
+              configure: 'configure_parametric_execution_runtime',
+              label: 'Parametric',
+          };
+          return {''')
+          rep(r, 'Choose the structural system occurrence this behavior executes on. Rust validates and owns the resulting runtime graph.',
+                 'Choose the structural system occurrence this execution runs on. Rust validates and owns the resulting runtime graph.')
+          rep(r, '''        if (kind === 'activity') {
+              window.smpState.activityExecutionSnapshot = null;
+              window.smpRefreshActivityExecution?.();
+            } else {
+              window.smpState.stateMachineExecutionSnapshot = null;
+              window.smpRefreshStateMachineExecution?.();
+            }''', '''        if (kind === 'activity') {
+              window.smpState.activityExecutionSnapshot = null;
+              window.smpRefreshActivityExecution?.();
+            } else if (kind === 'sequence') {
+              window.smpState.sequenceExecutionSnapshot = null;
+              window.smpRefreshSequenceExecution?.();
+            } else if (kind === 'parametric') {
+              window.smpState.parametricExecutionSnapshot = null;
+              window.smpRefreshParametricExecution?.();
+            } else {
+              window.smpState.stateMachineExecutionSnapshot = null;
+              window.smpRefreshStateMachineExecution?.();
+            }''')
+          rep(r, "    await requireInvoke()('clear_sequence_executions');\n    Object.assign(state, { stateMachineExecutionSnapshot: null });",
+                 "    await requireInvoke()('clear_sequence_executions');\n    await requireInvoke()('clear_parametric_executions');\n    Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });")
 
-          frontend_path = 'apps/desktop/frontend/parametric-ui.js'
-          frontend = read(frontend_path)
-          insert_after = '''  function selectedParametricDiagram() {
+          f = 'apps/desktop/frontend/parametric-ui.js'
+          text = read(f)
+          anchor = '''  function selectedParametricDiagram() {
               return (state.snapshot?.diagrams || []).find(
                 (diagram) => diagram.id === state.selectedDiagramId && diagram.family === 'parametric',
               );
             }
           '''
-          runtime_ui = r'''
+          runtime = r'''
 
             Object.assign(state, { parametricExecutionSnapshot: null });
 
             function parametricExecutionSnapshot() {
               const diagram = selectedParametricDiagram();
               const snapshot = state.parametricExecutionSnapshot;
-              return snapshot && diagram && String(snapshot.context_id) === String(diagram.semantic_context_id)
-                ? snapshot
-                : null;
+              return snapshot && diagram && String(snapshot.context_id) === String(diagram.semantic_context_id) ? snapshot : null;
             }
 
             function visualizeParametricExecution() {
@@ -1489,16 +238,8 @@ jobs:
               const host = document.querySelector('.diagram-workspace');
               const snapshot = parametricExecutionSnapshot();
               let panel = document.querySelector('.parametric-execution-panel');
-              if (!host || !snapshot) {
-                panel?.remove();
-                return;
-              }
-              if (!panel) {
-                panel = document.createElement('aside');
-                panel.className = 'parametric-execution-panel';
-                panel.dataset.workspaceOverlay = 'true';
-                host.appendChild(panel);
-              }
+              if (!host || !snapshot) { panel?.remove(); return; }
+              if (!panel) { panel = document.createElement('aside'); panel.className = 'parametric-execution-panel'; panel.dataset.workspaceOverlay = 'true'; host.appendChild(panel); }
               const execution = snapshot.execution;
               const diagnostics = (execution.diagnostics || []).slice(-4);
               const trace = (execution.trace || []).slice(-6);
@@ -1517,11 +258,7 @@ jobs:
               if (!group) {
                 group = document.createElement('section');
                 group.className = 'ribbon-group parametric-execution-ribbon-group';
-                const controls = [
-                  ['runtime', '◎', 'Runtime'], ['initialize', '◇', 'Initialize'],
-                  ['evaluate', '▶', 'Evaluate'], ['step', '▸', 'Step'],
-                  ['reset', '↺', 'Reset'], ['terminate', '■', 'Terminate'],
-                ];
+                const controls = [['runtime','◎','Runtime'],['initialize','◇','Initialize'],['evaluate','▶','Evaluate'],['step','▸','Step'],['reset','↺','Reset'],['terminate','■','Terminate']];
                 group.innerHTML = `<div class="ribbon-actions parametric-execution-actions">${controls.map(([command, icon, label]) => `<button class="ribbon-command" data-parametric-execution="${command}"><span class="command-icon">${icon}</span><span>${label}</span></button>`).join('')}</div><div class="ribbon-label">Parametric Execution</div>`;
                 group.addEventListener('click', handleParametricExecutionCommand);
                 document.querySelector('.ribbon')?.insertBefore(group, document.querySelector('.ribbon-context'));
@@ -1531,10 +268,7 @@ jobs:
               const current = snapshot?.execution?.state || 'Not initialized';
               group.querySelectorAll('[data-parametric-execution]').forEach((button) => {
                 const command = button.dataset.parametricExecution;
-                button.disabled = !visible
-                  || (command === 'step' && (!snapshot || ['Completed', 'Failed', 'Terminated'].includes(current)))
-                  || (command === 'reset' && !snapshot)
-                  || (command === 'terminate' && (!snapshot || ['Completed', 'Failed', 'Terminated'].includes(current)));
+                button.disabled = !visible || (command === 'step' && (!snapshot || ['Completed','Failed','Terminated'].includes(current))) || (command === 'reset' && !snapshot) || (command === 'terminate' && (!snapshot || ['Completed','Failed','Terminated'].includes(current)));
               });
               visualizeParametricExecution();
               renderParametricExecutionPanel();
@@ -1548,14 +282,8 @@ jobs:
               refreshParametricExecution();
               return snapshot;
             }
-
-            async function initializeParametricExecution() {
-              return invokeParametricExecution('initialize_parametric_execution');
-            }
-
-            async function evaluateParametricRuntime() {
-              return invokeParametricExecution('evaluate_parametric_execution');
-            }
+            const initializeParametricExecution = () => invokeParametricExecution('initialize_parametric_execution');
+            const evaluateParametricRuntime = () => invokeParametricExecution('evaluate_parametric_execution');
 
             async function handleParametricExecutionCommand(event) {
               const command = event.target.closest?.('[data-parametric-execution]')?.dataset.parametricExecution;
@@ -1571,40 +299,25 @@ jobs:
                 else if (command === 'step') await invokeParametricExecution('step_parametric_execution');
                 else if (command === 'reset') await invokeParametricExecution('reset_parametric_execution');
                 else if (command === 'terminate') await invokeParametricExecution('terminate_parametric_execution');
-              } catch (error) {
-                window.smpDialogs?.notify?.(error?.message || String(error), 'error');
-                refreshParametricExecution();
-              }
+              } catch (error) { window.smpDialogs?.notify?.(error?.message || String(error), 'error'); refreshParametricExecution(); }
             }
 
             async function loadParametricExecutionSnapshot() {
               const diagram = selectedParametricDiagram();
-              if (!diagram) {
-                Object.assign(state, { parametricExecutionSnapshot: null });
-                refreshParametricExecution();
-                return;
-              }
+              if (!diagram) { Object.assign(state, { parametricExecutionSnapshot: null }); refreshParametricExecution(); return; }
               try {
                 const snapshot = await requireInvoke()('parametric_execution_snapshot', { diagramId: diagram.id });
                 Object.assign(state, { parametricExecutionSnapshot: snapshot });
-              } catch (_error) {
-                Object.assign(state, { parametricExecutionSnapshot: null });
-              }
+              } catch (_error) { Object.assign(state, { parametricExecutionSnapshot: null }); }
               refreshParametricExecution();
             }
-
             window.smpRefreshParametricExecution = refreshParametricExecution;
             window.smpEvaluateParametricRuntime = evaluateParametricRuntime;
           '''
-          if insert_after not in frontend:
-              raise SystemExit('missing selectedParametricDiagram insertion anchor')
-          frontend = frontend.replace(insert_after, insert_after + runtime_ui, 1)
-          frontend = frontend.replace(
-              "      presentation.dataset.presentationId = node.id;",
-              "      presentation.dataset.presentationId = node.id;\n      presentation.dataset.elementId = property.id;",
-              1,
-          )
-          old_frame_click = '''    frame.onclick = async (event) => {
+          if anchor not in text: raise SystemExit('missing parametric UI insertion anchor')
+          text = text.replace(anchor, anchor + runtime, 1)
+          text = text.replace('      presentation.dataset.presentationId = node.id;', '      presentation.dataset.presentationId = node.id;\n      presentation.dataset.elementId = property.id;', 1)
+          click = '''    frame.onclick = async (event) => {
               if (state.paletteTool?.category === 'element') {
                 const point = diagramCoordinates(frame, event);
                 await createPaletteElementAt(state.paletteTool, point.x, point.y);
@@ -1619,12 +332,9 @@ jobs:
               render();
             };
           };'''
-          new_frame_click = old_frame_click[:-4] + '''    queueMicrotask(loadParametricExecutionSnapshot);
-          };'''
-          if old_frame_click not in frontend:
-              raise SystemExit('missing Parametric render completion anchor')
-          frontend = frontend.replace(old_frame_click, new_frame_click, 1)
-          old_properties = '''    panel.innerHTML = `<div class="property-heading">Parametric Diagram</div>
+          if click not in text: raise SystemExit('missing parametric render end anchor')
+          text = text.replace(click, click[:-4] + '    queueMicrotask(loadParametricExecutionSnapshot);\n  };', 1)
+          old = '''    panel.innerHTML = `<div class="property-heading">Parametric Diagram</div>
               <label>Name<input value="${escapeAttr(diagram.name)}" disabled></label>
               <label>Semantic context<input value="${escapeAttr(`${context?.name || 'Unresolved'} (${context?.kind || '?'})`)}" disabled></label>
               <div class="parametric-evaluation-summary">Evaluation is explicit. Opening the diagram never changes engineering values.</div>
@@ -1636,7 +346,7 @@ jobs:
               await refresh();
               renderStatus(`Evaluated ${result.evaluated_constraints} constraint(s); ${result.changed_values} value(s) changed.`);
             };'''
-          new_properties = '''    panel.innerHTML = `<div class="property-heading">Parametric Diagram</div>
+          new = '''    panel.innerHTML = `<div class="property-heading">Parametric Diagram</div>
               <label>Name<input value="${escapeAttr(diagram.name)}" disabled></label>
               <label>Semantic context<input value="${escapeAttr(`${context?.name || 'Unresolved'} (${context?.kind || '?'})`)}" disabled></label>
               <div class="parametric-evaluation-summary">Runtime evaluation is transient and occurrence-scoped. Opening or evaluating the diagram never rewrites authored ValueProperty defaults.</div>
@@ -1645,182 +355,49 @@ jobs:
               const result = await runCommand('Evaluating Parametric runtime…', () => evaluateParametricRuntime());
               renderStatus(`Evaluated ${result.evaluated_constraints} constraint(s); ${result.updates?.length || 0} runtime value(s) calculated.`);
             };'''
-          if old_properties not in frontend:
-              raise SystemExit('missing Parametric diagram properties anchor')
-          frontend = frontend.replace(old_properties, new_properties, 1)
-          write(frontend_path, frontend)
+          if old not in text: raise SystemExit('missing parametric properties anchor')
+          write(f, text.replace(old, new, 1))
 
-          # Contextual one-row Parametric runtime presentation.
-          css = 'apps/desktop/frontend/structural-runtime.css'
-          replace(
-              css,
-              'body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group {',
-              'body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group,\nbody:not([data-execution-family="parametric"]) .parametric-execution-ribbon-group {',
-          )
-          replace(css, '.sequence-execution-ribbon-group {', '.sequence-execution-ribbon-group,\n.parametric-execution-ribbon-group {')
-          replace(css, '.sequence-execution-ribbon-group .ribbon-actions {', '.sequence-execution-ribbon-group .ribbon-actions,\n.parametric-execution-ribbon-group .ribbon-actions {')
-          replace(css, '.sequence-execution-ribbon-group .ribbon-label {', '.sequence-execution-ribbon-group .ribbon-label,\n.parametric-execution-ribbon-group .ribbon-label {')
-          replace(css, '.sequence-execution-ribbon-group .ribbon-command {', '.sequence-execution-ribbon-group .ribbon-command,\n.parametric-execution-ribbon-group .ribbon-command {')
-          with (root / css).open('a', encoding='utf-8') as handle:
-              handle.write(r'''
+          c = 'apps/desktop/frontend/structural-runtime.css'
+          rep(c, 'body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group {',
+                 'body:not([data-execution-family="sequence"]) .sequence-execution-ribbon-group,\nbody:not([data-execution-family="parametric"]) .parametric-execution-ribbon-group {')
+          rep(c, '.sequence-execution-ribbon-group {', '.sequence-execution-ribbon-group,\n.parametric-execution-ribbon-group {')
+          rep(c, '.sequence-execution-ribbon-group .ribbon-actions {', '.sequence-execution-ribbon-group .ribbon-actions,\n.parametric-execution-ribbon-group .ribbon-actions {')
+          rep(c, '.sequence-execution-ribbon-group .ribbon-label {', '.sequence-execution-ribbon-group .ribbon-label,\n.parametric-execution-ribbon-group .ribbon-label {')
+          rep(c, '.sequence-execution-ribbon-group .ribbon-command {', '.sequence-execution-ribbon-group .ribbon-command,\n.parametric-execution-ribbon-group .ribbon-command {')
+          with Path(c).open('a', encoding='utf-8') as h:
+              h.write('''\n.parametric-execution-actions{display:flex;flex-wrap:nowrap;gap:4px}.parametric-execution-panel{position:absolute;right:16px;bottom:16px;z-index:12;width:min(440px,40vw);max-height:46vh;overflow:auto;background:rgba(255,255,255,.96);border:1px solid #9aa6b2;border-radius:4px;box-shadow:0 5px 18px rgba(30,42,55,.18);padding:10px;font-size:12px}body:not([data-execution-family="parametric"]) .parametric-execution-panel{display:none!important}.parametric-execution-heading,.parametric-execution-metrics{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}.parametric-execution-values{display:grid;gap:3px;margin:6px 0}.parametric-execution-values>div{display:flex;justify-content:space-between;gap:10px}.parametric-execution-trace>div{display:grid;grid-template-columns:70px 1fr;gap:6px;padding:2px 0}.parametric-execution-diagnostics{margin:6px 0;color:#9b1c1c}.parametric-presentation.runtime-calculated-value{outline:2px solid currentColor;outline-offset:2px}.parametric-presentation.runtime-evaluated-constraint{box-shadow:0 0 0 2px rgba(0,0,0,.16)}\n''')
 
-          .parametric-execution-actions { display:flex; flex-wrap:nowrap; gap:4px; }
-          .parametric-execution-panel { position:absolute; right:16px; bottom:16px; z-index:12; width:min(440px,40vw); max-height:46vh; overflow:auto; background:rgba(255,255,255,.96); border:1px solid #9aa6b2; border-radius:4px; box-shadow:0 5px 18px rgba(30,42,55,.18); padding:10px; font-size:12px; }
-          body:not([data-execution-family="parametric"]) .parametric-execution-panel { display:none !important; }
-          .parametric-execution-heading,.parametric-execution-metrics { display:flex; justify-content:space-between; gap:8px; margin-bottom:6px; }
-          .parametric-execution-values { display:grid; gap:3px; margin:6px 0; }
-          .parametric-execution-values>div { display:flex; justify-content:space-between; gap:10px; }
-          .parametric-execution-trace>div { display:grid; grid-template-columns:70px 1fr; gap:6px; padding:2px 0; }
-          .parametric-execution-diagnostics { margin:6px 0; color:#9b1c1c; }
-          .parametric-presentation.runtime-calculated-value { outline:2px solid currentColor; outline-offset:2px; }
-          .parametric-presentation.runtime-evaluated-constraint { box-shadow:0 0 0 2px rgba(0,0,0,.16); }
-          ''')
+          v = 'scripts/validate_parametric_integration.py'
+          rep(v, 'assert \'rust_adapter: Some("evaluate_parametric_diagram")\' in manifest',
+                 'assert \'rust_adapter: Some("evaluate_parametric_execution")\' in manifest')
+          rep(v, '    "Evaluate Parametrics",', '    "Evaluate Runtime",')
 
-          # Update PR25 static contract to the evolved PR35 runtime adapter.
-          replace(
-              'scripts/validate_parametric_integration.py',
-              "assert 'rust_adapter: Some(\"evaluate_parametric_diagram\")' in manifest",
-              "assert 'rust_adapter: Some(\"evaluate_parametric_execution\")' in manifest",
-          )
-          replace(
-              'scripts/validate_parametric_integration.py',
-              '    "Evaluate Parametrics",',
-              '    "Evaluate Runtime",',
-          )
+          ci = '.github/workflows/ci.yml'
+          rep(ci, '      - name: Parametric desktop integration contract\n        run: python scripts/validate_parametric_integration.py\n',
+                  '      - name: Parametric desktop integration contract\n        run: python scripts/validate_parametric_integration.py\n      - name: Parametric runtime integration contract\n        run: python scripts/validate_parametric_runtime_integration.py\n')
 
-          validator = r'''from pathlib import Path
-
-          root = Path(__file__).resolve().parents[1]
-
-          def read(path: str) -> str:
-              return (root / path).read_text(encoding="utf-8")
-
-          core = read("crates/model-core/src/parametric_execution.rs")
-          parametrics = read("crates/model-core/src/parametrics.rs")
-          tests = read("crates/model-core/tests/pr35_parametric_runtime.rs")
-          desktop = read("apps/desktop/src-tauri/src/workspace/parametric_execution.rs")
-          main = read("apps/desktop/src-tauri/src/main.rs")
-          frontend = read("apps/desktop/frontend/parametric-ui.js")
-          runtime_ui = read("apps/desktop/frontend/behavior-authoritative-renderer.js")
-          css = read("apps/desktop/frontend/structural-runtime.css")
-          workflow = read(".github/workflows/ci.yml")
-          editing = read("scripts/validate_standard_editing_integration.py")
-          pr25_tests = read("crates/model-core/tests/pr25_parametrics.rs")
-
-          for token in [
-              "ParametricExecutionEngine",
-              "ExecutionSession",
-              "evaluate_parametrics(&mut scratch",
-              "value_in_instance_context",
-              "session.set_value",
-              "runtime_instance_id",
-              "runtime_instance_path",
-              "session.complete",
-          ]:
-              assert token in core, f"missing shared Parametric runtime semantic: {token}"
-
-          assert "project.element_mut" not in core, "Parametric runtime must not mutate the authored Project"
-          assert "ParametricEvaluationScope" in parametrics
-          assert "Serialize, Deserialize" in parametrics
-
-          for token in [
-              "force_equation_evaluates_into_runtime_without_mutating_authored_model",
-              "repeated_vehicle_occurrences_keep_parametric_values_isolated",
-              "reset_replays_authored_inputs_deterministically",
-              "missing_runtime_input_fails_with_readable_diagnostic_and_no_authored_mutation",
-              "unsupported_expression_is_rejected_instead_of_executed",
-              "ambiguous_repeated_context_requires_explicit_occurrence_selection",
-          ]:
-              assert token in tests, f"missing PR35 Rust regression: {token}"
-
-          for token in [
-              "ParametricExecutionState",
-              "initialize_parametric_execution",
-              "evaluate_parametric_execution",
-              "step_parametric_execution",
-              "reset_parametric_execution",
-              "terminate_parametric_execution",
-              "parametric_execution_runtime_selection",
-              "ExecutionManager",
-          ]:
-              assert token in desktop and token in main, f"missing desktop Parametric runtime command: {token}"
-
-          for token in [
-              "data-parametric-execution",
-              "parametric-execution-ribbon-group",
-              "Evaluate Runtime",
-              "evaluate_parametric_execution",
-              "smpOpenStructuralRuntimeConfiguration?.('parametric'",
-              "parametric-execution-panel",
-          ]:
-              assert token in frontend or token in css, f"missing thin Parametric runtime UI contract: {token}"
-
-          assert "requireInvoke()('evaluate_parametric_diagram'" not in frontend
-          assert "kind === 'parametric'" in runtime_ui
-          assert 'data-execution-family="parametric"' in css
-          assert "validate_parametric_runtime_integration.py" in workflow
-
-          for token in [
-              "evaluation_rejects_constraint_dependency_cycles",
-              "binding_rejects_incompatible_quantity_kinds_and_self_connections",
-              "evaluation_reports_unbound_mandatory_parameters_without_mutating_values",
-          ]:
-              assert token in pr25_tests, f"PR25 Parametric safety regression lost: {token}"
-
-          for family in [
-              "Bdd", "Ibd", "Requirement", "UseCase", "Parametric", "Package", "Activity",
-              "StateMachine", "Sequence",
-          ]:
-              assert family in editing, f"all-nine-family editing contract lost {family}"
-
-          for forbidden in ["eval(", "new Function("]:
-              assert forbidden not in frontend, f"frontend-owned Parametric evaluation detected: {forbidden}"
-
-          print(
-              "PR35 Parametric runtime integration contract passed: PR25 bounded constraint semantics "
-              "execute through the shared occurrence-scoped ExecutionSession, authored model data remains "
-              "unchanged, contextual controls are presentation-only, and prior runtime/editing contracts remain wired."
-          )
-          '''
-          write('scripts/validate_parametric_runtime_integration.py', validator)
-
-          # CI qualification on both Linux/core and Windows/desktop.
-          replace(
-              '.github/workflows/ci.yml',
-              '      - name: Parametric desktop integration contract\n        run: python scripts/validate_parametric_integration.py\n',
-              '      - name: Parametric desktop integration contract\n        run: python scripts/validate_parametric_integration.py\n      - name: Parametric runtime integration contract\n        run: python scripts/validate_parametric_runtime_integration.py\n',
-          )
-
-          docs = r'''# PR35 Native Parametric Runtime and Constraint Evaluation Integration
+          write('docs/PR35_NATIVE_PARAMETRIC_RUNTIME.md', '''# PR35 Native Parametric Runtime and Constraint Evaluation Integration
 
           PR35 integrates the existing PR25 SysML Parametric semantics with the shared PR31–PR34 execution architecture. It does not introduce a second simulator, clock, event queue, runtime value store, or frontend semantic store.
 
           ## Runtime contract
-
           - Constraint expressions remain Rust-owned authored data on `ConstraintBlock`.
-          - `ConstraintProperty`, definition-owned `ConstraintParameter`, `ValueProperty`, and `BindingConnector` retain the PR25 type, multiplicity, QuantityKind, dimension, unit, producer, and dependency validation.
+          - PR25 type, multiplicity, QuantityKind, dimension, unit, producer, dependency, and cycle validation remains authoritative.
           - The bounded grammar remains `output = expression` with numeric literals, parameter references, parentheses, unary minus, `+ - * / ^`, and deterministic dependency ordering.
-          - `ParametricExecutionEngine` overlays one selected structural occurrence's `ExecutionSession` values onto a scratch project, reuses the qualified PR25 evaluator, and writes calculated values only to the shared transient runtime store.
+          - `ParametricExecutionEngine` overlays one selected structural occurrence's `ExecutionSession` values onto a scratch project, reuses the PR25 evaluator, and writes calculated values only to the shared transient runtime store.
           - Evaluation never rewrites authored `ValueProperty.default_value`, diagram geometry, routing, frames, pan/zoom, or semantic ownership.
           - Repeated classifier occurrences require an unambiguous runtime selection and remain value-isolated.
           - One Parametric execution step performs one bounded evaluation pass; Reset rebuilds authored runtime defaults and replays deterministically.
-          - Runtime configuration, trace, diagnostics, values, and structural inspection use the same shared execution/session infrastructure as Activity, State Machine, and Sequence.
 
           ## Explicit boundaries
-
           PR35 does not add arbitrary symbolic rearrangement, nonlinear numerical solvers, differential equations, optimization, Monte Carlo, external MATLAB/Python execution, arbitrary scripts, or a new unit-conversion framework. Unsupported expressions and unresolved/ambiguous/overconstrained/cyclic models fail with diagnostics rather than guessed values. PR36 unified-kernel work is out of scope.
 
           ## Manual qualification fixture
-
-          Use Block `Vehicle` with `mass : Real = 1000`, `acceleration : Real = 2`, and derived `force : Real`. Define ConstraintBlock `ForceEquation` with parameters `m : Real`, `a : Real`, `F : Real` and expression `F = m * a`. Create `forceEquation : ForceEquation` and bind `mass ↔ m`, `acceleration ↔ a`, `force ↔ F` on a Parametric Diagram.
-
-          Configure Runtime to the `Vehicle` occurrence, Initialize, then Evaluate. The transient runtime result must be `force = 2000`; the authored `force` default remains unchanged. With two repeated Vehicle occurrences, select each occurrence independently and verify runtime values do not cross occurrences.
+          Use Block `Vehicle` with `mass : Real = 1000`, `acceleration : Real = 2`, and derived `force : Real`. Define ConstraintBlock `ForceEquation` with parameters `m : Real`, `a : Real`, `F : Real` and expression `F = m * a`. Create `forceEquation : ForceEquation` and bind `mass ↔ m`, `acceleration ↔ a`, `force ↔ F` on a Parametric Diagram. Configure Runtime to the `Vehicle` occurrence, Initialize, then Evaluate. The transient result must be `force = 2000`; the authored `force` default remains unchanged. With repeated Vehicle occurrences, select each independently and verify values do not cross occurrences.
 
           Do not merge automatically. Do not begin PR36 before PR35 is merged.
-          '''
-          write('docs/PR35_NATIVE_PARAMETRIC_RUNTIME.md', docs)
-
-          # The staging workflow must not remain in the PR.
+          ''')
           Path('.github/workflows/pr35-implement-runtime.yml').unlink()
           PY
           cargo fmt --all
@@ -1833,5 +410,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "PR35: integrate native Parametric runtime"
+          git commit -m "PR35: wire native Parametric runtime"
           git push origin HEAD:agent/pr35-native-parametric-runtime
