@@ -18,6 +18,12 @@
     return state.activitySnapshot?.repository?.activities?.[String(diagram.activity_id)] || null;
   }
 
+  function projectElement(id) {
+    return state.snapshot?.project?.elements?.find(
+      (element) => String(element.id) === String(id),
+    ) || null;
+  }
+
   function semanticNode(id) {
     return activeActivity()?.nodes?.find((node) => String(node.id) === String(id)) || null;
   }
@@ -68,7 +74,17 @@
     clearActivityInteraction();
     await loadActivityPalette();
     const diagram = state.activitySnapshot?.diagrams?.find((candidate) => String(candidate.id) === String(id));
-    await window.smpRendererHost?.activate({ diagramId:id, familyId:'activity', name:diagram?.name || 'Activity Diagram', semanticContextId:diagram?.activity_id || '' });
+    const activity = diagram
+      ? state.activitySnapshot?.repository?.activities?.[String(diagram.activity_id)]
+      : null;
+    const context = projectElement(activity?.context_id);
+    await window.smpRendererHost?.activate({
+      diagramId: id,
+      familyId: 'activity',
+      name: diagram?.name || 'Activity Diagram',
+      modelElementName: context?.name || activity?.name || diagram?.name || 'Activity',
+      semanticContextId: activity?.context_id || '',
+    });
     const execution = await requireInvoke()('activity_execution_snapshot', { diagramId: id });
     Object.assign(state, { activityExecutionSnapshot: execution, activityExecutionRunning: false });
     render();
@@ -78,13 +94,14 @@
   async function createActivityForSelection() {
     if (!state.snapshot?.project) return alert('Create or open a project first.');
     const selected = state.snapshot.project.elements?.find((element) => element.id === state.selectedElementId);
-    const contextId = selected?.kind === 'Block' ? selected.id : null;
+    const hasBehaviorContext = ['Block', 'AssociationBlock', 'InterfaceBlock'].includes(selected?.kind);
+    const contextId = hasBehaviorContext ? selected.id : null;
     const ownerId = state.selectedPackageId
       || (selected?.owner_id && state.snapshot.project.elements?.find((element) => element.id === selected.owner_id)?.kind === 'Package' ? selected.owner_id : null)
       || state.snapshot.project.root_id;
-    const name = prompt('Activity name', selected?.kind === 'Block' ? `${selected.name} Activity` : 'System Activity');
+    const name = prompt('Activity name', hasBehaviorContext ? `${selected.name} Activity` : 'System Activity');
     if (!name) return;
-    state.selectedActivityDiagramId = await runCommand('Creating Activity…', () => requireInvoke()('create_activity_diagram', {
+    const diagramId = await runCommand('Creating Activity…', () => requireInvoke()('create_activity_diagram', {
       ownerId,
       contextId,
       name,
@@ -93,8 +110,7 @@
     state.selectedBehaviorDiagramId = null;
     clearActivityInteraction();
     await loadActivitySnapshot();
-    await loadActivityPalette();
-    render();
+    await selectActivityDiagram(diagramId);
   }
   window.smpCreateActivityForSelection = createActivityForSelection;
 
@@ -343,7 +359,8 @@
     const activity = activeActivity();
     const node = semanticNode(state.selectedActivityNodeId);
     if (!node) {
-      panel.innerHTML = `<div class="property-heading">Activity</div><label>Name<input value="${escapeAttr(activity?.name || diagram.name)}" disabled></label><label>Stable ID<input value="${escapeAttr(diagram.activity_id)}" disabled></label><div class="muted">Select an Activity node to inspect its Rust-owned semantics.</div>`;
+      const context = projectElement(activity?.context_id);
+      panel.innerHTML = `<div class="property-heading">Activity</div><label>Name<input value="${escapeAttr(activity?.name || diagram.name)}" disabled></label><label>Context<input value="${escapeAttr(context?.name || 'Uncontextualized')}" disabled></label><label>Stable ID<input value="${escapeAttr(diagram.activity_id)}" disabled></label><div class="muted">Select an Activity node to inspect its Rust-owned semantics.</div>`;
       return;
     }
     panel.innerHTML = `<div class="property-heading">${escapeHtml(nodeKind(node))}</div><label>Name<input value="${escapeAttr(node.name || '')}" disabled></label><label>Semantic ID<input value="${escapeAttr(node.id)}" disabled></label><div class="muted">Node identity, kind, ownership, and flow connectivity are authoritative in Rust.</div>`;

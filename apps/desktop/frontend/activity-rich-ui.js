@@ -447,6 +447,7 @@
       group = document.createElement('section');
       group.className = 'ribbon-group activity-execution-ribbon-group';
       group.innerHTML = `<div class="ribbon-actions activity-execution-actions">
+        <button class="ribbon-command" data-activity-execution="runtime"><span class="command-icon">◎</span><span>Runtime</span></button>
         <button class="ribbon-command" data-activity-execution="initialize"><span class="command-icon">◇</span><span>Initialize</span></button>
         <button class="ribbon-command" data-activity-execution="run"><span class="command-icon">▶</span><span>Run</span></button>
         <button class="ribbon-command" data-activity-execution="step"><span class="command-icon">▸</span><span>Step</span></button>
@@ -459,7 +460,11 @@
         const command = event.target.closest?.('[data-activity-execution]')?.dataset.activityExecution;
         if (!command) return;
         try {
-          if (command === 'initialize') await initializeExecution();
+          if (command === 'runtime') {
+            await window.smpOpenStructuralRuntimeConfiguration?.('activity', activeDiagram().id);
+            Object.assign(state, { activityExecutionSnapshot: null });
+            refreshExecutionUi();
+          } else if (command === 'initialize') await initializeExecution();
           else if (command === 'run') await runExecution(false);
           else if (command === 'step') await stepExecution();
           else if (command === 'pause') await pauseExecution();
@@ -573,8 +578,11 @@
     panel.innerHTML = `<div class="activity-execution-heading"><strong>${escapeHtml(execution.state)}</strong><span>${execution.simulation_time} ns</span></div>
       <div class="activity-execution-metrics"><span>Step ${execution.steps_executed}</span><span>${snapshot.call_frames?.length || 0} frame(s)</span><span>${(snapshot.token_stores || []).reduce((sum, store) => sum + (store.tokens?.length || 0), 0)} token(s)</span></div>
       ${diagnostics.length ? `<div class="activity-execution-diagnostics">${diagnostics.map((item) => `<div class="runtime-${String(item.severity).toLowerCase()}">${escapeHtml(item.message)}</div>`).join('')}</div>` : ''}
-      <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>`;
+      <div class="activity-execution-trace">${trace.map((item) => `<div><span>${item.simulation_time}</span>${escapeHtml(item.message)}</div>`).join('')}</div>
+      ${window.renderStructuralRuntimeInspector?.(snapshot) || ''}`;
   }
+
+  window.smpRefreshActivityExecution = () => refreshExecutionUi();
 
   function refreshExecutionUi() {
     const diagram = activeDiagram();

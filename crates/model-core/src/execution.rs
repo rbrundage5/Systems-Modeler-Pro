@@ -1,4 +1,7 @@
-use crate::{ElementId, ElementKind, Project, ProjectId};
+use crate::{
+    ElementId, ElementKind, Project, ProjectId, RuntimePortKey, StructuralRuntime,
+    StructuralRuntimeConfiguration, StructuralRuntimeSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
@@ -119,8 +122,22 @@ pub struct RuntimeValueSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeInstance {
     pub id: RuntimeInstanceId,
+    /// Backward-compatible semantic identity for the occurrence. For a
+    /// PartProperty occurrence this is the usage ID, not its Block type.
     pub semantic_element_id: ElementId,
+    #[serde(default)]
+    pub semantic_usage_id: Option<ElementId>,
     pub classifier_id: Option<ElementId>,
+    #[serde(default)]
+    pub classifier_name: String,
+    #[serde(default)]
+    pub owner_runtime_instance_id: Option<RuntimeInstanceId>,
+    #[serde(default)]
+    pub qualified_path: String,
+    #[serde(default)]
+    pub ordinal: u32,
+    #[serde(default)]
+    pub authored_instance_specification_id: Option<ElementId>,
     pub name: String,
 }
 
@@ -140,6 +157,8 @@ pub struct RuntimeEventAddress {
     pub target_semantic_id: Option<ElementId>,
     pub source_runtime_instance_id: Option<RuntimeInstanceId>,
     pub target_runtime_instance_id: Option<RuntimeInstanceId>,
+    pub source_port_id: Option<ElementId>,
+    pub target_port_id: Option<ElementId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -155,6 +174,8 @@ pub struct RuntimeEvent {
     pub target_semantic_id: Option<ElementId>,
     pub source_runtime_instance_id: Option<RuntimeInstanceId>,
     pub target_runtime_instance_id: Option<RuntimeInstanceId>,
+    pub source_port_id: Option<ElementId>,
+    pub target_port_id: Option<ElementId>,
     pub payload: Vec<(String, RuntimeValue)>,
 }
 
@@ -197,6 +218,8 @@ pub struct ExecutionTraceEntry {
     pub target_semantic_id: Option<ElementId>,
     pub source_runtime_instance_id: Option<RuntimeInstanceId>,
     pub target_runtime_instance_id: Option<RuntimeInstanceId>,
+    pub source_port_id: Option<ElementId>,
+    pub target_port_id: Option<ElementId>,
     pub message: String,
 }
 
@@ -249,6 +272,7 @@ pub struct ExecutionSnapshot {
     pub active_semantic_element_ids: Vec<ElementId>,
     pub trace: Vec<ExecutionTraceEntry>,
     pub diagnostics: Vec<ExecutionDiagnostic>,
+    pub structural_runtime: Option<StructuralRuntimeSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,6 +345,15 @@ pub enum ExecutionError {
     CancellationRequested,
     #[error("execution session not found: {0}")]
     SessionNotFound(ExecutionSessionId),
+    #[error("structural runtime validation failed: {message}")]
+    StructuralValidation { message: String },
+    #[error("structural runtime is unavailable for this execution session")]
+    StructuralRuntimeUnavailable,
+    #[error("runtime Port address is invalid for {instance_id}: {port_id}")]
+    RuntimePortAddressInvalid {
+        instance_id: RuntimeInstanceId,
+        port_id: ElementId,
+    },
     #[error("{message}")]
     Engine { message: String },
 }
@@ -334,6 +367,8 @@ struct TraceContext {
     target_semantic_id: Option<ElementId>,
     source_runtime_instance_id: Option<RuntimeInstanceId>,
     target_runtime_instance_id: Option<RuntimeInstanceId>,
+    source_port_id: Option<ElementId>,
+    target_port_id: Option<ElementId>,
 }
 
 #[derive(Debug, Clone)]
@@ -352,6 +387,8 @@ pub struct ExecutionSession {
     pub diagnostics: Vec<ExecutionDiagnostic>,
     pub steps_executed: u64,
     pub cancellation_requested: bool,
+    pub structural_configuration: StructuralRuntimeConfiguration,
+    pub structural_runtime: Option<StructuralRuntime>,
     active_semantic_elements: HashSet<ElementId>,
     next_event_sequence: u64,
     next_trace_sequence: u64,
@@ -390,6 +427,8 @@ impl ExecutionSession {
             diagnostics: Vec::new(),
             steps_executed: 0,
             cancellation_requested: false,
+            structural_configuration: StructuralRuntimeConfiguration::default(),
+            structural_runtime: None,
             active_semantic_elements: HashSet::new(),
             next_event_sequence: 0,
             next_trace_sequence: 0,
@@ -416,6 +455,7 @@ impl ExecutionSession {
             ));
         }
         self.clear_runtime_state();
+        self.build_structural_runtime(project)?;
         self.state = ExecutionState::Initialized;
         self.push_trace(
             TraceKind::Session,
@@ -492,6 +532,8 @@ impl ExecutionSession {
                 target_semantic_id: event.target_semantic_id,
                 source_runtime_instance_id: event.source_runtime_instance_id,
                 target_runtime_instance_id: event.target_runtime_instance_id,
+                source_port_id: event.source_port_id,
+                target_port_id: event.target_port_id,
             },
             format!(
                 "Dispatched {} event '{}'",
@@ -655,6 +697,7 @@ impl ExecutionSession {
     pub fn reset(&mut self, project: &Project) -> Result<(), ExecutionError> {
         self.require_project(project)?;
         self.clear_runtime_state();
+        self.build_structural_runtime(project)?;
         self.state = ExecutionState::Initialized;
         self.push_trace(
             TraceKind::Session,
@@ -693,18 +736,28 @@ impl ExecutionSession {
             .elements
             .get(&semantic_element_id)
             .ok_or(ExecutionError::SemanticElementNotFound)?;
-        if let Some(classifier_id) = classifier_id
-            && !project.elements.contains_key(&classifier_id)
-        {
-            return Err(ExecutionError::ClassifierNotFound);
-        }
+        let classifier_name = match classifier_id {
+            Some(classifier_id) => project
+                .elements
+                .get(&classifier_id)
+                .ok_or(ExecutionError::ClassifierNotFound)?
+                .name
+                .clone(),
+            None => String::new(),
+        };
         let id = RuntimeInstanceId::new();
         self.instances.insert(
             id,
             RuntimeInstance {
                 id,
                 semantic_element_id,
+                semantic_usage_id: None,
                 classifier_id,
+                classifier_name,
+                owner_runtime_instance_id: None,
+                qualified_path: element.name.clone(),
+                ordinal: 0,
+                authored_instance_specification_id: None,
                 name: element.name.clone(),
             },
         );
@@ -724,6 +777,36 @@ impl ExecutionSession {
             .elements
             .get(&semantic_element_id)
             .ok_or(ExecutionError::SemanticElementNotFound)?;
+        // Preserve the pre-PR33 model-scoped API for a single unambiguous
+        // structural occurrence. This lets existing PR31/PR32 callers that write
+        // a ValueProperty with `None` continue to update the owning occurrence,
+        // while repeated classifier occurrences remain isolated and require an
+        // explicit RuntimeInstanceId.
+        let instance_id = if instance_id.is_none() && element.kind == ElementKind::ValueProperty {
+            element.owner_id.and_then(|owner_id| {
+                self.structural_runtime.as_ref().and_then(|runtime| {
+                    let mut candidates: Vec<_> = runtime
+                        .instances
+                        .values()
+                        .filter(|instance| {
+                            instance.classifier_id.is_some_and(|classifier_id| {
+                                crate::structural_runtime::classifier_conforms(
+                                    project,
+                                    classifier_id,
+                                    owner_id,
+                                )
+                            })
+                        })
+                        .map(|instance| instance.id)
+                        .collect();
+                    candidates.sort_by_key(ToString::to_string);
+                    candidates.dedup();
+                    (candidates.len() == 1).then_some(candidates[0])
+                })
+            })
+        } else {
+            instance_id
+        };
         if let Some(instance_id) = instance_id {
             self.require_instance_semantic(instance_id, None)?;
         }
@@ -855,6 +938,14 @@ impl ExecutionSession {
             request.address.target_runtime_instance_id,
             request.address.target_semantic_id,
         )?;
+        self.validate_port_address(
+            request.address.source_runtime_instance_id,
+            request.address.source_port_id,
+        )?;
+        self.validate_port_address(
+            request.address.target_runtime_instance_id,
+            request.address.target_port_id,
+        )?;
         for (_, value) in &request.payload {
             validate_runtime_payload_value(project, value)?;
         }
@@ -870,6 +961,8 @@ impl ExecutionSession {
             target_semantic_id,
             source_runtime_instance_id: request.address.source_runtime_instance_id,
             target_runtime_instance_id: request.address.target_runtime_instance_id,
+            source_port_id: request.address.source_port_id,
+            target_port_id: request.address.target_port_id,
             payload: request.payload,
         };
         self.push_trace(
@@ -882,6 +975,8 @@ impl ExecutionSession {
                 target_semantic_id,
                 source_runtime_instance_id: request.address.source_runtime_instance_id,
                 target_runtime_instance_id: request.address.target_runtime_instance_id,
+                source_port_id: request.address.source_port_id,
+                target_port_id: request.address.target_port_id,
             },
             format!(
                 "Queued {} event '{}'",
@@ -895,6 +990,87 @@ impl ExecutionSession {
         });
         self.touch();
         Ok(sequence)
+    }
+
+    /// Routes one modeled Signal through the semantic runtime topology and
+    /// queues one addressed event per valid receiver on the shared event queue.
+    pub fn queue_structural_signal(
+        &mut self,
+        project: &Project,
+        source_instance_id: RuntimeInstanceId,
+        source_port_id: ElementId,
+        signal_id: ElementId,
+        name: impl Into<String>,
+        payload: Vec<(String, RuntimeValue)>,
+    ) -> Result<Vec<u64>, ExecutionError> {
+        self.require_project(project)?;
+        let runtime = self
+            .structural_runtime
+            .as_ref()
+            .ok_or(ExecutionError::StructuralRuntimeUnavailable)?;
+        let destinations = runtime
+            .signal_destinations(project, source_instance_id, source_port_id, signal_id)
+            .map_err(|error| ExecutionError::StructuralValidation {
+                message: error.to_string(),
+            })?;
+        let source_instance = self
+            .instances
+            .get(&source_instance_id)
+            .ok_or(ExecutionError::RuntimeInstanceNotFound(source_instance_id))?
+            .clone();
+        let source_path = runtime
+            .port(source_instance_id, source_port_id)
+            .map(|port| port.qualified_path.clone())
+            .unwrap_or_else(|| source_instance.qualified_path.clone());
+        let name = name.into();
+        let mut sequences = Vec::with_capacity(destinations.len());
+        for destination in destinations {
+            let target_instance = self
+                .instances
+                .get(&destination.instance_id)
+                .ok_or(ExecutionError::RuntimeInstanceNotFound(
+                    destination.instance_id,
+                ))?
+                .clone();
+            self.push_trace(
+                TraceKind::StateChange,
+                TraceContext {
+                    semantic_element_id: Some(signal_id),
+                    runtime_instance_id: Some(destination.instance_id),
+                    source_semantic_id: Some(source_instance.semantic_element_id),
+                    target_semantic_id: Some(target_instance.semantic_element_id),
+                    source_runtime_instance_id: Some(source_instance_id),
+                    target_runtime_instance_id: Some(destination.instance_id),
+                    source_port_id: Some(source_port_id),
+                    target_port_id: destination.semantic_port_id,
+                    ..TraceContext::default()
+                },
+                format!(
+                    "Structural route selected for Signal '{}': {} -> {}",
+                    name, source_path, destination.qualified_path
+                ),
+            );
+            let sequence = self.queue_typed_event_at(
+                project,
+                RuntimeEventRequest {
+                    due_time: self.simulation_time,
+                    kind: RuntimeEventKind::Signal,
+                    name: name.clone(),
+                    semantic_event_id: Some(signal_id),
+                    address: RuntimeEventAddress {
+                        source_semantic_id: Some(source_instance.semantic_element_id),
+                        target_semantic_id: Some(target_instance.semantic_element_id),
+                        source_runtime_instance_id: Some(source_instance_id),
+                        target_runtime_instance_id: Some(destination.instance_id),
+                        source_port_id: Some(source_port_id),
+                        target_port_id: destination.semantic_port_id,
+                    },
+                    payload: payload.clone(),
+                },
+            )?;
+            sequences.push(sequence);
+        }
+        Ok(sequences)
     }
 
     pub fn next_event(&self) -> Option<&ScheduledEvent> {
@@ -958,7 +1134,48 @@ impl ExecutionSession {
             active_semantic_element_ids,
             trace: self.trace.clone(),
             diagnostics: self.diagnostics.clone(),
+            structural_runtime: self
+                .structural_runtime
+                .as_ref()
+                .map(StructuralRuntime::snapshot),
         }
+    }
+
+    pub fn set_structural_configuration(
+        &mut self,
+        configuration: StructuralRuntimeConfiguration,
+    ) -> Result<(), ExecutionError> {
+        if !matches!(
+            self.state,
+            ExecutionState::Created
+                | ExecutionState::Completed
+                | ExecutionState::Failed
+                | ExecutionState::Terminated
+        ) {
+            return Err(self.invalid_state("configure structural runtime"));
+        }
+        self.structural_configuration = configuration;
+        self.touch();
+        Ok(())
+    }
+
+    pub fn root_runtime_instance_id(&self) -> Option<RuntimeInstanceId> {
+        self.structural_runtime
+            .as_ref()
+            .and_then(StructuralRuntime::root_instance_id)
+    }
+
+    pub fn value_in_instance_context(
+        &self,
+        instance_id: Option<RuntimeInstanceId>,
+        semantic_element_id: ElementId,
+    ) -> Option<&RuntimeValue> {
+        // Runtime-occurrence state is authoritative when an instance context is
+        // supplied. The classifier/model-scoped value remains only a compatibility
+        // fallback for legacy PR31/PR32 sessions that have no occurrence value.
+        instance_id
+            .and_then(|id| self.value(Some(id), semantic_element_id))
+            .or_else(|| self.value(None, semantic_element_id))
     }
 
     fn insert_scheduled_event(&mut self, scheduled: ScheduledEvent) {
@@ -994,7 +1211,9 @@ impl ExecutionSession {
             .instances
             .get(&instance_id)
             .ok_or(ExecutionError::RuntimeInstanceNotFound(instance_id))?;
-        if semantic_id.is_some_and(|id| id != instance.semantic_element_id) {
+        if semantic_id.is_some_and(|id| {
+            id != instance.semantic_element_id && Some(id) != instance.classifier_id
+        }) {
             return Err(ExecutionError::RuntimeInstanceSemanticMismatch);
         }
         Ok(instance)
@@ -1012,6 +1231,86 @@ impl ExecutionSession {
         self.cancellation_requested = false;
         self.next_event_sequence = 0;
         self.next_trace_sequence = 0;
+        self.structural_runtime = None;
+    }
+
+    fn build_structural_runtime(&mut self, project: &Project) -> Result<(), ExecutionError> {
+        let root = project
+            .element(self.configuration.root_semantic_id)
+            .map_err(|_| {
+                ExecutionError::ExecutionRootNotFound(self.configuration.root_semantic_id)
+            })?;
+        if !matches!(
+            root.kind,
+            ElementKind::Block
+                | ElementKind::AssociationBlock
+                | ElementKind::PartProperty
+                | ElementKind::InstanceSpecification
+        ) {
+            return Ok(());
+        }
+        let runtime = StructuralRuntime::build(
+            project,
+            self.configuration.root_semantic_id,
+            &self.structural_configuration,
+        )
+        .map_err(|error| ExecutionError::StructuralValidation {
+            message: error.to_string(),
+        })?;
+        for (key, value) in &runtime.initial_values {
+            let element = project
+                .element(key.semantic_element_id)
+                .map_err(|_| ExecutionError::SemanticElementNotFound)?;
+            validate_runtime_assignment(project, element, value).map_err(|error| {
+                ExecutionError::StructuralValidation {
+                    message: format!(
+                        "Authored default for '{}' at runtime instance {:?} is invalid: {error}",
+                        element.name, key.instance_id
+                    ),
+                }
+            })?;
+        }
+        self.instances = runtime.instances.clone();
+        self.values = runtime.initial_values.clone();
+        for diagnostic in &runtime.diagnostics {
+            self.diagnostics.push(ExecutionDiagnostic {
+                severity: diagnostic.severity,
+                semantic_element_id: diagnostic.semantic_element_id,
+                runtime_instance_id: diagnostic
+                    .runtime_path
+                    .as_deref()
+                    .and_then(|path| runtime.instance_by_path(path).map(|instance| instance.id)),
+                message: diagnostic.message.clone(),
+            });
+        }
+        self.structural_runtime = Some(runtime);
+        Ok(())
+    }
+
+    fn validate_port_address(
+        &self,
+        instance_id: Option<RuntimeInstanceId>,
+        port_id: Option<ElementId>,
+    ) -> Result<(), ExecutionError> {
+        match (instance_id, port_id) {
+            (_, None) => Ok(()),
+            (None, Some(_)) => Err(ExecutionError::StructuralRuntimeUnavailable),
+            (Some(instance_id), Some(port_id)) => {
+                if self.structural_runtime.as_ref().is_some_and(|runtime| {
+                    runtime.ports.contains_key(&RuntimePortKey {
+                        instance_id,
+                        semantic_port_id: port_id,
+                    })
+                }) {
+                    Ok(())
+                } else {
+                    Err(ExecutionError::RuntimePortAddressInvalid {
+                        instance_id,
+                        port_id,
+                    })
+                }
+            }
+        }
     }
 
     fn require_project(&self, project: &Project) -> Result<(), ExecutionError> {
@@ -1046,6 +1345,8 @@ impl ExecutionSession {
             target_semantic_id: context.target_semantic_id,
             source_runtime_instance_id: context.source_runtime_instance_id,
             target_runtime_instance_id: context.target_runtime_instance_id,
+            source_port_id: context.source_port_id,
+            target_port_id: context.target_port_id,
             message,
         });
     }
@@ -1107,7 +1408,7 @@ impl ExecutionManager {
     }
 }
 
-fn validate_runtime_assignment(
+pub(crate) fn validate_runtime_assignment(
     project: &Project,
     element: &crate::Element,
     value: &RuntimeValue,
