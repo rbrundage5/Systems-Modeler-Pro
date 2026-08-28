@@ -62,15 +62,16 @@
     const startX = event.clientX;
     const startY = event.clientY;
     const owner = options.owner;
+    if (!owner) return false;
     const scale = options.scale || { x: 1, y: 1 };
     let started = false;
     let finished = false;
 
     const cleanup = () => {
-      window.removeEventListener('pointermove', onMove, true);
-      window.removeEventListener('pointerup', onUp, true);
-      window.removeEventListener('pointercancel', onCancel, true);
-      try { owner?.releasePointerCapture?.(pointerId); } catch (_) {}
+      owner.removeEventListener('pointermove', onMove, true);
+      owner.removeEventListener('pointerup', onUp, true);
+      owner.removeEventListener('pointercancel', onCancel, true);
+      owner.removeEventListener('lostpointercapture', onLostCapture, true);
     };
 
     const startIfNeeded = (move) => {
@@ -106,102 +107,130 @@
       finished = true;
       cleanup();
       if (!started) return;
-      up.preventDefault();
-      up.stopPropagation();
+      up.preventDefault?.();
+      up.stopPropagation?.();
       if (cancelled) options.onCancel?.();
       else await options.onCommit?.();
     };
     const onUp = (up) => { void finish(up, false); };
     const onCancel = (cancel) => { void finish(cancel, true); };
+    const onLostCapture = (lost) => {
+      if (!finished && lost.pointerId === pointerId) void finish(lost, true);
+    };
 
-    window.addEventListener('pointermove', onMove, true);
-    window.addEventListener('pointerup', onUp, true);
-    window.addEventListener('pointercancel', onCancel, true);
-    try { owner?.setPointerCapture?.(pointerId); } catch (_) {}
+    // Pointer capture is owned by the presentation/handle itself. WebView2 then
+    // continues delivering the complete drag lifecycle to the same owner even
+    // when the pointer leaves its original bounds. Do not depend on window-level
+    // pointermove delivery for core diagram editing.
+    owner.addEventListener('pointermove', onMove, true);
+    owner.addEventListener('pointerup', onUp, true);
+    owner.addEventListener('pointercancel', onCancel, true);
+    owner.addEventListener('lostpointercapture', onLostCapture, true);
+    try { owner.setPointerCapture?.(pointerId); } catch (_) {}
     return true;
   }
 
   window.smpBeginPresentationGesture = beginPointerGesture;
 
+  const htmlGeometryConfigs = new WeakMap();
+  const suppressGeometryClicks = new WeakSet();
+  const geometryCanvas = document.getElementById('canvas');
+
   function bindHtmlGeometry(node, config) {
-    if (!node || node.dataset.smpGeometryBound === '1') return;
+    if (!node) return;
     node.dataset.smpGeometryBound = '1';
     node.classList.add('smp-interactive-presentation');
     if (getComputedStyle(node).position === 'static') node.style.position = 'absolute';
+    // Refresh the adapter every install. Some family renderers preserve DOM nodes
+    // while replacing Rust snapshots, so a one-time closure can become stale.
+    htmlGeometryConfigs.set(node, config);
 
-    const handle = document.createElement('span');
-    handle.className = 'smp-resize-handle';
-    handle.title = 'Drag to resize';
-    handle.setAttribute('aria-label', 'Resize element');
-    handle.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    node.appendChild(handle);
+    let handle = [...node.children].find((child) => child.classList?.contains('smp-resize-handle'));
+    if (!handle) {
+      handle = document.createElement('span');
+      handle.className = 'smp-resize-handle';
+      handle.title = 'Drag to resize';
+      handle.setAttribute('aria-label', 'Resize element');
+      node.appendChild(handle);
+    }
+  }
 
-    let suppressNextClick = false;
-    node.addEventListener('click', (event) => {
-      if (!suppressNextClick) return;
-      suppressNextClick = false;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }, true);
+  function htmlGeometryNode(target) {
+    if (!(target instanceof Element)) return null;
+    return target.closest('.smp-interactive-presentation, .bdd-block, .ibd-property, .ibd-port, .use-case-subject-boundary, .state-vertex');
+  }
 
-    node.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0 || event.target.closest?.('.smp-resize-handle, .constraint-parameter')) return;
-      event.preventDefault();
-      event.stopPropagation();
-      config.select?.();
-      const original = config.geometry();
-      let next = { ...original };
-      beginPointerGesture(event, {
-        owner: node,
-        scale: surfaceScale(node),
-        prepare: cancelTransientAuthoring,
-        disabled: config.disabled,
-        onStart: () => {
-          suppressNextClick = true;
-          node.classList.add('smp-dragging');
-        },
-        onMove: (dx, dy) => {
-          next.x = Math.max(0, original.x + dx);
-          next.y = Math.max(42, original.y + dy);
-          node.style.left = `${next.x}px`;
-          node.style.top = `${next.y}px`;
-          config.preview?.(next);
-        },
-        onCancel: () => node.classList.remove('smp-dragging'),
-        onCommit: async () => {
-          node.classList.remove('smp-dragging');
-          await config.commit(next);
-        },
-      });
-    });
+  function startHtmlGeometryGesture(event) {
+    if (event.button !== 0
+      || event.ctrlKey
+      || event.metaKey
+      || geometryCanvas?.classList.contains('space-pan')
+      || geometryCanvas?.classList.contains('pan-active')
+      || geometryCanvas?.classList.contains('is-panning')) return;
 
-    handle.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      config.select?.();
-      const original = config.geometry();
-      let next = { ...original };
-      beginPointerGesture(event, {
-        owner: handle,
-        scale: surfaceScale(node),
-        prepare: cancelTransientAuthoring,
-        disabled: config.disabled,
-        onStart: () => { suppressNextClick = true; },
-        onMove: (dx, dy) => {
+    const node = htmlGeometryNode(event.target);
+    if (!node || !geometryCanvas?.contains(node)) return;
+
+    // Rendering is layered across legacy family adapters. If a renderer replaced
+    // its DOM between the mutation observer and this pointerdown, synchronously
+    // recover the shared adapter before starting the gesture.
+    if (!htmlGeometryConfigs.has(node)) install();
+    const config = htmlGeometryConfigs.get(node);
+    if (!config) return;
+
+    const handle = event.target.closest?.('.smp-resize-handle');
+    if (!handle && event.target.closest?.('.constraint-parameter, input, select, textarea, a, [contenteditable="true"]')) return;
+
+    // This one capture listener is the HTML presentation gesture authority for
+    // BDD, IBD, Requirement, Use Case, Parametric, Package and State Machine.
+    // It prevents older family-local pointerdown handlers from starting a second
+    // drag while preserving the later click event for ordinary selection.
+    event.stopImmediatePropagation();
+    config.select?.();
+    const original = config.geometry();
+    let next = { ...original };
+    const resizing = Boolean(handle);
+    const owner = handle || node;
+
+    beginPointerGesture(event, {
+      owner,
+      scale: surfaceScale(node),
+      prepare: cancelTransientAuthoring,
+      disabled: config.disabled,
+      onStart: () => {
+        suppressGeometryClicks.add(node);
+        node.classList.toggle('smp-dragging', !resizing);
+      },
+      onMove: (dx, dy) => {
+        if (resizing) {
           next.width = Math.max(config.minWidth, original.width + dx);
           next.height = Math.max(config.minHeight, original.height + dy);
           node.style.width = `${next.width}px`;
           node.style.height = `${next.height}px`;
-          config.preview?.(next);
-        },
-        onCommit: async () => { await config.commit(next); },
-      });
+        } else {
+          next.x = Math.max(0, original.x + dx);
+          next.y = Math.max(42, original.y + dy);
+          node.style.left = `${next.x}px`;
+          node.style.top = `${next.y}px`;
+        }
+        config.preview?.(next);
+      },
+      onCancel: () => node.classList.remove('smp-dragging'),
+      onCommit: async () => {
+        node.classList.remove('smp-dragging');
+        await config.commit(next);
+      },
     });
   }
+
+  geometryCanvas?.addEventListener('pointerdown', startHtmlGeometryGesture, true);
+  geometryCanvas?.addEventListener('click', (event) => {
+    const node = htmlGeometryNode(event.target);
+    if (!node || !suppressGeometryClicks.has(node)) return;
+    suppressGeometryClicks.delete(node);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
 
   function installBdd() {
     const diagram = state.snapshot?.diagrams?.find((item) => item.id === state.selectedDiagramId);
@@ -508,22 +537,30 @@
     installActivity();
   }
 
+  let installQueued = false;
+  function scheduleInstall() {
+    if (installQueued) return;
+    installQueued = true;
+    const run = () => {
+      installQueued = false;
+      install();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else queueMicrotask(run);
+  }
+
+  window.smpInstallPresentationGeometry = install;
   const baseRender = render;
   render = function renderWithSharedPresentationInteraction() {
     baseRender();
     install();
+    scheduleInstall();
   };
-  queueMicrotask(install);
-  const canvas = document.getElementById('canvas');
-  if (canvas) {
-    let installQueued = false;
-    new MutationObserver(() => {
-      if (installQueued) return;
-      installQueued = true;
-      queueMicrotask(() => {
-        installQueued = false;
-        install();
-      });
-    }).observe(canvas, { childList: true, subtree: true });
+  queueMicrotask(() => {
+    install();
+    scheduleInstall();
+  });
+  if (geometryCanvas) {
+    new MutationObserver(scheduleInstall).observe(geometryCanvas, { childList: true, subtree: true });
   }
 })();

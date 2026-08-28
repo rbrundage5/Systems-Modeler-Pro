@@ -61,10 +61,15 @@ assert "finally" in commit_body
 assert "render();" not in commit_body, "commit must not render a pre-refresh snapshot"
 assert "window.smpCommitPresentationGeometry = commit" in frontend
 assert "window.smpBeginPresentationGesture = beginPointerGesture" in frontend
-assert "window.addEventListener('pointermove', onMove, true)" in frontend
-assert "window.addEventListener('pointerup', onUp, true)" in frontend
-assert "window.addEventListener('pointercancel', onCancel, true)" in frontend
-assert "addEventListener('pointerdown'" in frontend
+assert "owner.addEventListener('pointermove', onMove, true)" in frontend
+assert "owner.addEventListener('pointerup', onUp, true)" in frontend
+assert "owner.addEventListener('pointercancel', onCancel, true)" in frontend
+assert "owner.addEventListener('lostpointercapture', onLostCapture, true)" in frontend
+assert "const htmlGeometryConfigs = new WeakMap()" in frontend
+assert "geometryCanvas?.addEventListener('pointerdown', startHtmlGeometryGesture, true)" in frontend
+assert "if (!htmlGeometryConfigs.has(node)) install();" in frontend
+assert "event.stopImmediatePropagation();" in frontend
+assert "window.smpInstallPresentationGeometry = install" in frontend
 assert "DRAG_THRESHOLD_PX = 3" in frontend
 assert "cancelTransientAuthoring" in frontend
 assert ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px;" in frontend
@@ -125,6 +130,7 @@ assert "resize_sequence_lifeline_timeline" in sequence_frontend
 # own the undo checkpoint, and preserve IBD boundary-port attachment. Unrelated
 # stale routes must never make direct geometry editing fail.
 assert "reroute_connected_bdd_edges" in interaction_rs, "BDD geometry must reroute incident edges without making unrelated routes block editing"
+assert "validate_loaded_diagrams(project, diagrams)" not in interaction_rs, "Presentation-only BDD geometry must not be blocked by unrelated diagram validation"
 assert "apply_ibd_property_geometry" in interaction_rs, "IBD property geometry must keep nested ports attached"
 assert "affected_ids" in interaction_rs, "IBD property movement must reroute only incident connectors"
 assert ".filter(|edge|" in interaction_rs and "edge.source_presentation_id == presentation_id" in interaction_rs

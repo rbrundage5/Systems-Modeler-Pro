@@ -1,8 +1,6 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
-use super::{
-    WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases, validate_loaded_diagrams,
-};
+use super::{WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases};
 
 fn validate_geometry(
     x: f64,
@@ -150,7 +148,7 @@ fn apply_bdd_presentation_geometry(
     use_cases::fit_use_case_subject_boundary(diagram, project, false);
 
     reroute_connected_bdd_edges(diagram, presentation_id)?;
-    validate_loaded_diagrams(project, diagrams)
+    Ok(())
 }
 
 #[tauri::command]
