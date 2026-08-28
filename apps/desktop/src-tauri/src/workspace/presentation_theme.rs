@@ -685,7 +685,7 @@ mod tests {
         assert!(evaluation.enabled);
         assert_eq!(
             evaluation.command.rust_adapter,
-            Some("evaluate_parametric_diagram")
+            Some("evaluate_parametric_execution")
         );
     }
 
