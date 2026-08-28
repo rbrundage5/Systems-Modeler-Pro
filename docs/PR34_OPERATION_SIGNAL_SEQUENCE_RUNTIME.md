@@ -22,6 +22,10 @@ second simulator, event queue, clock, value store, or frontend semantic store.
 - `AcceptEventAction` keeps typed Signal matching and exact target occurrence
   filtering. PR32 State Machine Signal triggers continue to consume the same
   `RuntimeEvent` queue.
+- Direct embedded State Machine dispatch applies the same semantic/runtime
+  address relevance filter as normal queued State Machine execution, so an
+  addressed Operation or Signal cannot drive another same-classifier runtime
+  occurrence.
 - Sequence Lifelines resolve their represented structural property paths to
   exact runtime occurrences. Zero or multiple matches are rejected.
 - Sequence message order comes from authored occurrence order, never pixels or
@@ -31,10 +35,7 @@ second simulator, event queue, clock, value store, or frontend semantic store.
 - A Sequence participant with one modeled State Machine is initialized as an
   embedded engine on the same execution session. Operation CallEvents and
   SignalEvents are dispatched through the shared queue to the exact target
-  occurrence, preserving PR32 trigger behavior. Direct embedded-engine dispatch
-  applies the same semantic/runtime-instance address filter as normal queued
-  State Machine execution, so another occurrence of the same classifier cannot
-  consume an event addressed to its peer.
+  occurrence, preserving PR32 trigger behavior.
 - Sequence controls are contextual and presentation-only. Runtime highlighting
   does not mutate Lifeline/message geometry, authored semantics, viewport, or
   routing.
@@ -60,9 +61,14 @@ second simulator, event queue, clock, value store, or frontend semantic store.
 `crates/model-core/tests/pr34_operation_signal_sequence.rs` covers occurrence
 isolation, Operation parameter/target validation, deterministic returns,
 structural Signal targeting, Reception Signal typing, semantic Lifeline binding,
-Operation and Signal Sequence messages, exact target-instance State Machine
-dispatch, deterministic ordering/reset, and authored-model immutability.
+Operation and Signal Sequence messages, deterministic ordering/reset, targeted
+embedded State Machine dispatch, and authored-model immutability.
 
 `scripts/validate_operation_signal_sequence_integration.py` is executed by both
 Linux/core and Windows/desktop CI alongside the existing PR31–PR33 and
 all-nine-family standard editing contracts.
+
+Manual qualification on PR34 verified occurrence-specific Operation execution,
+Signal/Reception delivery, Sequence Operation and Signal messages over PR33
+structural topology, exact target State Machine transition behavior, and
+contextual Activity/State Machine/Sequence execution ribbons.
