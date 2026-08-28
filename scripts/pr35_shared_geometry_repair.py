@@ -1,0 +1,472 @@
+from pathlib import Path
+
+
+def replace_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if old not in text:
+        raise SystemExit(f"expected patch target missing in {path}: {old[:120]!r}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+frontend = Path("apps/desktop/frontend/diagram-interaction.js")
+text = frontend.read_text(encoding="utf-8")
+old_handle = ".smp-resize-handle { position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px; border: 1px solid #315b86; background: #fff; cursor: nwse-resize; z-index: 20; box-sizing: border-box; }"
+new_handle = ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; border: 1px solid #315b86; background: #fff; cursor: nwse-resize; z-index: 20; box-sizing: border-box; pointer-events: auto; }"
+if old_handle not in text:
+    raise SystemExit("shared resize handle style patch target missing")
+text = text.replace(old_handle, new_handle, 1)
+text = text.replace(
+    "    } catch (error) {\n      console.error('Presentation geometry update failed', error);\n    } finally {",
+    "    } catch (error) {\n      const message = error?.message || String(error);\n      console.error('Presentation geometry update failed', error);\n      window.smpDialogs?.notify?.(`Presentation geometry update failed: ${message}`, 'error');\n      renderStatus?.(`Presentation geometry update failed: ${message}`);\n    } finally {",
+    1,
+)
+
+start = text.index("  function bindHtmlGeometry(node, config) {")
+end = text.index("\n\n  function installBdd() {", start)
+shared_html_geometry = r'''  const DRAG_THRESHOLD_PX = 3;
+
+  function cancelTransientAuthoring() {
+    Object.assign(state, {
+      paletteTool: null,
+      pendingRelationship: null,
+      behaviorTool: null,
+      behaviorPending: null,
+      activityTool: null,
+      activityPendingFlow: null,
+    });
+  }
+
+  function beginPointerGesture(event, options) {
+    if (event.button !== 0) return false;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const owner = options.owner;
+    const scale = options.scale || { x: 1, y: 1 };
+    let started = false;
+    let finished = false;
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onCancel, true);
+      try { owner?.releasePointerCapture?.(pointerId); } catch (_) {}
+    };
+
+    const startIfNeeded = (move) => {
+      if (started) return true;
+      const dx = move.clientX - startX;
+      const dy = move.clientY - startY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return false;
+      options.prepare?.();
+      if (options.disabled?.()) {
+        finished = true;
+        cleanup();
+        options.onCancel?.();
+        return false;
+      }
+      started = true;
+      options.onStart?.();
+      return true;
+    };
+
+    const onMove = (move) => {
+      if (finished || move.pointerId !== pointerId || !startIfNeeded(move)) return;
+      move.preventDefault();
+      move.stopPropagation();
+      options.onMove?.(
+        (move.clientX - startX) / Math.max(scale.x || 1, 0.0001),
+        (move.clientY - startY) / Math.max(scale.y || 1, 0.0001),
+        move,
+      );
+    };
+
+    const finish = async (up, cancelled) => {
+      if (finished || up.pointerId !== pointerId) return;
+      finished = true;
+      cleanup();
+      if (!started) return;
+      up.preventDefault();
+      up.stopPropagation();
+      if (cancelled) options.onCancel?.();
+      else await options.onCommit?.();
+    };
+    const onUp = (up) => { void finish(up, false); };
+    const onCancel = (cancel) => { void finish(cancel, true); };
+
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onCancel, true);
+    try { owner?.setPointerCapture?.(pointerId); } catch (_) {}
+    return true;
+  }
+
+  window.smpBeginPresentationGesture = beginPointerGesture;
+
+  function bindHtmlGeometry(node, config) {
+    if (!node || node.dataset.smpGeometryBound === '1') return;
+    node.dataset.smpGeometryBound = '1';
+    node.classList.add('smp-interactive-presentation');
+    if (getComputedStyle(node).position === 'static') node.style.position = 'absolute';
+
+    const handle = document.createElement('span');
+    handle.className = 'smp-resize-handle';
+    handle.title = 'Drag to resize';
+    handle.setAttribute('aria-label', 'Resize element');
+    handle.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    node.appendChild(handle);
+
+    let suppressNextClick = false;
+    node.addEventListener('click', (event) => {
+      if (!suppressNextClick) return;
+      suppressNextClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
+
+    node.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || event.target.closest?.('.smp-resize-handle, .constraint-parameter')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      config.select?.();
+      const original = config.geometry();
+      let next = { ...original };
+      beginPointerGesture(event, {
+        owner: node,
+        scale: surfaceScale(node),
+        prepare: cancelTransientAuthoring,
+        disabled: config.disabled,
+        onStart: () => {
+          suppressNextClick = true;
+          node.classList.add('smp-dragging');
+        },
+        onMove: (dx, dy) => {
+          next.x = Math.max(0, original.x + dx);
+          next.y = Math.max(42, original.y + dy);
+          node.style.left = `${next.x}px`;
+          node.style.top = `${next.y}px`;
+          config.preview?.(next);
+        },
+        onCancel: () => node.classList.remove('smp-dragging'),
+        onCommit: async () => {
+          node.classList.remove('smp-dragging');
+          await config.commit(next);
+        },
+      });
+    });
+
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      config.select?.();
+      const original = config.geometry();
+      let next = { ...original };
+      beginPointerGesture(event, {
+        owner: handle,
+        scale: surfaceScale(node),
+        prepare: cancelTransientAuthoring,
+        disabled: config.disabled,
+        onStart: () => { suppressNextClick = true; },
+        onMove: (dx, dy) => {
+          next.width = Math.max(config.minWidth, original.width + dx);
+          next.height = Math.max(config.minHeight, original.height + dy);
+          node.style.width = `${next.width}px`;
+          node.style.height = `${next.height}px`;
+          config.preview?.(next);
+        },
+        onCommit: async () => { await config.commit(next); },
+      });
+    });
+  }'''
+text = text[:start] + shared_html_geometry + text[end:]
+frontend.write_text(text, encoding="utf-8")
+
+app = Path("apps/desktop/frontend/app.js")
+replace_once(
+    app,
+    "  if (state.selectedDiagramId && !state.snapshot?.diagrams?.some((d) => d.id === state.selectedDiagramId)) {\n    state.selectedDiagramId = null;\n  }",
+    "  const selectedDiagramExists = state.snapshot?.diagrams?.some((d) => d.id === state.selectedDiagramId)\n    || state.snapshot?.ibd_diagrams?.some((d) => d.id === state.selectedDiagramId);\n  if (state.selectedDiagramId && !selectedDiagramExists) {\n    state.selectedDiagramId = null;\n  }",
+)
+
+rust = Path("apps/desktop/src-tauri/src/workspace/presentation_interaction.rs")
+text = rust.read_text(encoding="utf-8")
+marker = "#[allow(clippy::too_many_arguments)] // Shared geometry primitive mirrors the named IPC fields.\nfn apply_bdd_presentation_geometry("
+if marker not in text:
+    raise SystemExit("BDD geometry marker missing")
+helpers = r'''fn reroute_connected_bdd_edges(
+    diagram: &mut super::BddDiagram,
+    presentation_id: &str,
+) -> Result<(), String> {
+    let connected_ids: Vec<_> = diagram
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.source_node_id == presentation_id || edge.target_node_id == presentation_id
+        })
+        .map(|edge| edge.id.clone())
+        .collect();
+    if connected_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Geometry editing must not be rejected by an unrelated stale route. Route
+    // only edges incident to the presentation being manipulated, while retaining
+    // every unrelated route exactly as authored/routed before the gesture.
+    let mut routing_diagram = diagram.clone();
+    routing_diagram
+        .edges
+        .retain(|edge| connected_ids.iter().any(|id| id == &edge.id));
+    let routed = routed_bdd_edges(&routing_diagram, None)?;
+    for routed_edge in routed {
+        if let Some(edge) = diagram
+            .edges
+            .iter_mut()
+            .find(|edge| edge.id == routed_edge.id)
+        {
+            *edge = routed_edge;
+        }
+    }
+    Ok(())
+}
+
+fn apply_ibd_property_geometry(
+    property: &mut ibd::IbdPropertyPresentation,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    let old_left = property.x;
+    let old_right = property.x + property.width;
+    let old_top = property.y;
+    let old_bottom = property.y + property.height;
+    let old_width = property.width.max(1.0);
+    let old_height = property.height.max(1.0);
+    let anchors: Vec<_> = property
+        .ports
+        .iter()
+        .map(|port| {
+            let distances = [
+                (port.x - old_left).abs(),
+                (port.x - old_right).abs(),
+                (port.y - old_top).abs(),
+                (port.y - old_bottom).abs(),
+            ];
+            let side = distances
+                .iter()
+                .enumerate()
+                .min_by(|a, b| a.1.total_cmp(b.1))
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+            let fraction = match side {
+                0 | 1 => ((port.y - old_top) / old_height).clamp(0.0, 1.0),
+                _ => ((port.x - old_left) / old_width).clamp(0.0, 1.0),
+            };
+            (side, fraction)
+        })
+        .collect();
+
+    property.x = x;
+    property.y = y;
+    property.width = width;
+    property.height = height;
+    for (port, (side, fraction)) in property.ports.iter_mut().zip(anchors) {
+        match side {
+            0 => {
+                port.x = x;
+                port.y = y + height * fraction;
+            }
+            1 => {
+                port.x = x + width;
+                port.y = y + height * fraction;
+            }
+            2 => {
+                port.x = x + width * fraction;
+                port.y = y;
+            }
+            _ => {
+                port.x = x + width * fraction;
+                port.y = y + height;
+            }
+        }
+    }
+}
+
+'''
+text = text.replace(marker, helpers + marker, 1)
+text = text.replace(
+    "    diagram.edges = routed_bdd_edges(diagram, None)?;",
+    "    reroute_connected_bdd_edges(diagram, presentation_id)?;",
+    1,
+)
+old_property = '''    let property = diagram
+        .properties
+        .iter_mut()
+        .find(|property| property.id == presentation_id)
+        .ok_or("IBD property presentation not found")?;
+    property.x = x;
+    property.y = y;
+    property.width = width;
+    property.height = height;
+
+    let endpoints: Vec<_> = diagram
+        .connectors
+        .iter()
+        .map(|edge| {
+            (
+                edge.id.clone(),
+                edge.source_presentation_id.clone(),
+                edge.target_presentation_id.clone(),
+            )
+        })
+        .collect();'''
+new_property = '''    let affected_ids = {
+        let property = diagram
+            .properties
+            .iter_mut()
+            .find(|property| property.id == presentation_id)
+            .ok_or("IBD property presentation not found")?;
+        apply_ibd_property_geometry(property, x, y, width, height);
+        let mut ids = vec![property.id.clone()];
+        ids.extend(property.ports.iter().map(|port| port.id.clone()));
+        ids
+    };
+
+    let endpoints: Vec<_> = diagram
+        .connectors
+        .iter()
+        .filter(|edge| {
+            affected_ids.iter().any(|id| {
+                id == &edge.source_presentation_id || id == &edge.target_presentation_id
+            })
+        })
+        .map(|edge| {
+            (
+                edge.id.clone(),
+                edge.source_presentation_id.clone(),
+                edge.target_presentation_id.clone(),
+            )
+        })
+        .collect();'''
+if old_property not in text:
+    raise SystemExit("IBD property geometry patch target missing")
+text = text.replace(old_property, new_property, 1)
+port_endpoints = '''    let endpoints: Vec<_> = diagram
+        .connectors
+        .iter()
+        .map(|edge| {
+            (
+                edge.id.clone(),
+                edge.source_presentation_id.clone(),
+                edge.target_presentation_id.clone(),
+            )
+        })
+        .collect();'''
+port_filtered = '''    let endpoints: Vec<_> = diagram
+        .connectors
+        .iter()
+        .filter(|edge| {
+            edge.source_presentation_id == presentation_id
+                || edge.target_presentation_id == presentation_id
+        })
+        .map(|edge| {
+            (
+                edge.id.clone(),
+                edge.source_presentation_id.clone(),
+                edge.target_presentation_id.clone(),
+            )
+        })
+        .collect();'''
+if port_endpoints not in text:
+    raise SystemExit("IBD port reroute patch target missing")
+text = text.replace(port_endpoints, port_filtered, 1)
+
+test_insert = r'''
+
+    #[test]
+    fn ibd_nested_ports_follow_shared_property_move_and_resize_geometry() {
+        let mut property = ibd::IbdPropertyPresentation {
+            id: "property".into(),
+            element_id: "element".into(),
+            property_path: Vec::new(),
+            x: 100.0,
+            y: 100.0,
+            width: 200.0,
+            height: 100.0,
+            ports: vec![
+                ibd::IbdPortPresentation {
+                    id: "left".into(),
+                    element_id: "port-left".into(),
+                    property_path: Vec::new(),
+                    x: 100.0,
+                    y: 125.0,
+                    size: 16.0,
+                },
+                ibd::IbdPortPresentation {
+                    id: "right".into(),
+                    element_id: "port-right".into(),
+                    property_path: Vec::new(),
+                    x: 300.0,
+                    y: 175.0,
+                    size: 16.0,
+                },
+                ibd::IbdPortPresentation {
+                    id: "top".into(),
+                    element_id: "port-top".into(),
+                    property_path: Vec::new(),
+                    x: 150.0,
+                    y: 100.0,
+                    size: 16.0,
+                },
+                ibd::IbdPortPresentation {
+                    id: "bottom".into(),
+                    element_id: "port-bottom".into(),
+                    property_path: Vec::new(),
+                    x: 250.0,
+                    y: 200.0,
+                    size: 16.0,
+                },
+            ],
+        };
+
+        apply_ibd_property_geometry(&mut property, 300.0, 250.0, 400.0, 200.0);
+        assert_eq!((property.ports[0].x, property.ports[0].y), (300.0, 300.0));
+        assert_eq!((property.ports[1].x, property.ports[1].y), (700.0, 400.0));
+        assert_eq!((property.ports[2].x, property.ports[2].y), (400.0, 250.0));
+        assert_eq!((property.ports[3].x, property.ports[3].y), (600.0, 450.0));
+    }
+'''
+module_close = text.rfind("\n}")
+if module_close < 0:
+    raise SystemExit("presentation interaction test module close missing")
+text = text[:module_close] + test_insert + text[module_close:]
+rust.write_text(text, encoding="utf-8")
+
+contract = Path("scripts/validate_presentation_interaction.py")
+text = contract.read_text(encoding="utf-8")
+old = 'assert "handle.onpointerup = async" in frontend\nassert "await config.commit(next);" in frontend'
+new = '''assert "window.smpBeginPresentationGesture = beginPointerGesture" in frontend
+assert "window.addEventListener('pointermove', onMove, true)" in frontend
+assert "window.addEventListener('pointerup', onUp, true)" in frontend
+assert "window.addEventListener('pointercancel', onCancel, true)" in frontend
+assert "addEventListener('pointerdown'" in frontend
+assert ".smp-resize-handle { position: absolute; right: 2px; bottom: 2px;" in frontend
+assert "await config.commit(next);" in frontend'''
+if old not in text:
+    raise SystemExit("presentation frontend contract patch target missing")
+text = text.replace(old, new, 1)
+text = text.replace(
+    'assert "new MutationObserver" in frontend\nassert "diagram.family === \'parametric\'" in frontend',
+    'assert "new MutationObserver" in frontend\nassert "selectedDiagramExists" in app_frontend and "ibd_diagrams" in app_frontend\nassert "diagram.family === \'parametric\'" in frontend',
+    1,
+)
+text = text.replace(
+    'assert "routed_bdd_edges" in interaction_rs, "shared structural batch rerouting is not integrated"',
+    'assert "reroute_connected_bdd_edges" in interaction_rs, "BDD geometry must reroute incident edges without making unrelated routes block editing"\nassert "apply_ibd_property_geometry" in interaction_rs, "IBD property geometry must keep nested ports attached"\nassert "affected_ids" in interaction_rs, "IBD property movement must reroute only incident connectors"',
+    1,
+)
+contract.write_text(text, encoding="utf-8")
