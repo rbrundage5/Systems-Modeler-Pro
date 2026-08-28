@@ -24,6 +24,10 @@ jobs:
         shell: bash
         run: |
           python scripts/pr35_finish.py
+          # The GitHub Actions token cannot modify workflow files. Restore those
+          # two paths for this bot commit; the user-authenticated connector will
+          # update CI and remove this temporary workflow after the runtime patch lands.
+          git checkout HEAD -- .github/workflows/ci.yml .github/workflows/pr35-implement-runtime.yml
           python <<'PY'
           from pathlib import Path
           path = Path('crates/model-core/tests/pr35_parametric_runtime.rs')
@@ -40,8 +44,6 @@ jobs:
           python scripts/validate_parametric_integration.py
           python scripts/validate_parametric_runtime_integration.py
           cargo test -p systems-modeler-core --test pr35_parametric_runtime
-          # The desktop shell is qualified by the repository's windows-latest desktop-check job.
-          # Ubuntu staging intentionally avoids Tauri GTK/WebKit system-library requirements.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
