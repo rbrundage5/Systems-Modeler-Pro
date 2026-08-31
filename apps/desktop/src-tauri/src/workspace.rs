@@ -303,6 +303,7 @@ fn relationship_display_kind(relationship: &Relationship) -> &'static str {
         RelationshipKind::Composition => "Composition",
         RelationshipKind::Generalization => "Generalization",
         RelationshipKind::Realization => "Realization",
+        RelationshipKind::Allocate => "Allocate",
         RelationshipKind::Connector => "Connector",
         RelationshipKind::ItemFlow => "ItemFlow",
         RelationshipKind::DeriveRequirement => "DeriveRequirement",
