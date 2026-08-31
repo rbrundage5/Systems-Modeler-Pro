@@ -128,7 +128,11 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
     }
 }
 
-fn error(code: &'static str, operation: Option<usize>, message: impl Into<String>) -> BuildDiagnostic {
+fn error(
+    code: &'static str,
+    operation: Option<usize>,
+    message: impl Into<String>,
+) -> BuildDiagnostic {
     BuildDiagnostic {
         severity: BuildDiagnosticSeverity::Error,
         code,
@@ -145,9 +149,10 @@ fn resolve_element(
     operation: usize,
 ) -> Result<ElementId, BuildDiagnostic> {
     match reference {
-        BuildReference::Existing(id) => project.element(*id).map(|_| *id).map_err(|cause| {
-            error("UNRESOLVED_REFERENCE", Some(operation), cause.to_string())
-        }),
+        BuildReference::Existing(id) => project
+            .element(*id)
+            .map(|_| *id)
+            .map_err(|cause| error("UNRESOLVED_REFERENCE", Some(operation), cause.to_string())),
         BuildReference::External(external_id) => {
             let key = external_key(namespace, external_id);
             if let Some(id) = planned.get(&key) {
@@ -188,9 +193,10 @@ fn resolve_relationship(
     operation: usize,
 ) -> Result<RelationshipId, BuildDiagnostic> {
     match reference {
-        BuildReference::Existing(id) => project.relationship(*id).map(|_| *id).map_err(|cause| {
-            error("UNRESOLVED_REFERENCE", Some(operation), cause.to_string())
-        }),
+        BuildReference::Existing(id) => project
+            .relationship(*id)
+            .map(|_| *id)
+            .map_err(|cause| error("UNRESOLVED_REFERENCE", Some(operation), cause.to_string())),
         BuildReference::External(external_id) => {
             let key = external_key(namespace, external_id);
             if let Some(id) = planned.get(&key) {
@@ -320,13 +326,8 @@ fn build_candidate(
                     let owner_id =
                         resolve_element(&project, &element_ids, namespace, owner, index)?;
                     let id = if let Some(type_ref) = type_ref {
-                        let type_id = resolve_element(
-                            &project,
-                            &element_ids,
-                            namespace,
-                            type_ref,
-                            index,
-                        )?;
+                        let type_id =
+                            resolve_element(&project, &element_ids, namespace, type_ref, index)?;
                         project.create_typed_feature(
                             kind.clone(),
                             name,
@@ -337,19 +338,20 @@ fn build_candidate(
                     } else {
                         project.create_element(kind.clone(), name, owner_id)
                     }
-                    .map_err(|cause| error("SEMANTIC_VALIDATION", Some(index), cause.to_string()))?;
+                    .map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
                     let key = external_key(namespace, external_id);
-                    project
-                        .set_external_id(id, key.clone())
-                        .map_err(|cause| error("DUPLICATE_EXTERNAL_ID", Some(index), cause.to_string()))?;
+                    project.set_external_id(id, key.clone()).map_err(|cause| {
+                        error("DUPLICATE_EXTERNAL_ID", Some(index), cause.to_string())
+                    })?;
                     element_ids.insert(key, id);
                 }
                 ModelBuildOperation::UpdateElement { element, name } => {
-                    let id =
-                        resolve_element(&project, &element_ids, namespace, element, index)?;
-                    project
-                        .rename_element(id, name)
-                        .map_err(|cause| error("SEMANTIC_VALIDATION", Some(index), cause.to_string()))?;
+                    let id = resolve_element(&project, &element_ids, namespace, element, index)?;
+                    project.rename_element(id, name).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
                 }
                 ModelBuildOperation::CreateRelationship {
                     external_id,
@@ -365,13 +367,7 @@ fn build_candidate(
                     let owner_id = owner
                         .as_ref()
                         .map(|reference| {
-                            resolve_element(
-                                &project,
-                                &element_ids,
-                                namespace,
-                                reference,
-                                index,
-                            )
+                            resolve_element(&project, &element_ids, namespace, reference, index)
                         })
                         .transpose()?;
                     let id = if *kind == RelationshipKind::Association {
@@ -397,9 +393,14 @@ fn build_candidate(
                     } else {
                         project.create_relationship(kind.clone(), source_id, target_id, owner_id)
                     }
-                    .map_err(|cause| error("SEMANTIC_VALIDATION", Some(index), cause.to_string()))?;
+                    .map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
                     let key = external_key(namespace, external_id);
-                    if project.elements.values().any(|element| element.external_id == key)
+                    if project
+                        .elements
+                        .values()
+                        .any(|element| element.external_id == key)
                         || project.relationships.values().any(|relationship| {
                             relationship.id != id && relationship.external_id == key
                         })
@@ -449,13 +450,7 @@ fn build_candidate(
                     let context_id = semantic_context
                         .as_ref()
                         .map(|reference| {
-                            resolve_element(
-                                &project,
-                                &element_ids,
-                                namespace,
-                                reference,
-                                index,
-                            )
+                            resolve_element(&project, &element_ids, namespace, reference, index)
                         })
                         .transpose()?;
                     let id = DiagramId::new();
@@ -497,7 +492,10 @@ fn build_candidate(
                         return Err(error(
                             "PRESENTATION_TARGET_INVALID",
                             Some(index),
-                            format!("{:?} cannot be presented on {}", element.kind, diagram.family),
+                            format!(
+                                "{:?} cannot be presented on {}",
+                                element.kind, diagram.family
+                            ),
                         ));
                     }
                     if diagram
@@ -540,7 +538,8 @@ fn build_candidate(
                         .iter_mut()
                         .find(|diagram| diagram.id == diagram_id.to_string())
                         .unwrap();
-                    if diagram.family != "bdd" || relationship.kind != RelationshipKind::Association {
+                    if diagram.family != "bdd" || relationship.kind != RelationshipKind::Association
+                    {
                         return Err(error(
                             "PRESENTATION_TARGET_INVALID",
                             Some(index),
@@ -675,12 +674,13 @@ pub fn apply_model_build(
         proposed_operations: proposed_operations.clone(),
         diagnostics: vec![error("NO_PROJECT", None, "no project open")],
     })?;
-    let candidate = build_candidate(plan, project, diagram_guard.clone()).map_err(|diagnostic| {
-        ModelBuildPreview {
-            proposed_operations,
-            diagnostics: vec![diagnostic],
-        }
-    })?;
+    let candidate =
+        build_candidate(plan, project, diagram_guard.clone()).map_err(|diagnostic| {
+            ModelBuildPreview {
+                proposed_operations,
+                diagnostics: vec![diagnostic],
+            }
+        })?;
     *project_guard = Some(candidate.project);
     *diagram_guard = candidate.diagrams;
     Ok(candidate.result)
@@ -808,8 +808,18 @@ mod tests {
         assert_eq!(diagram.owner_id, package.to_string());
         assert_eq!(diagram.nodes.len(), 2);
         assert_eq!(diagram.edges.len(), 1);
-        assert!(diagram.nodes.iter().any(|node| node.element_id == a.to_string()));
-        assert!(diagram.nodes.iter().any(|node| node.element_id == b.to_string()));
+        assert!(
+            diagram
+                .nodes
+                .iter()
+                .any(|node| node.element_id == a.to_string())
+        );
+        assert!(
+            diagram
+                .nodes
+                .iter()
+                .any(|node| node.element_id == b.to_string())
+        );
         assert_eq!(diagram.edges[0].relationship_id, association.to_string());
     }
 
@@ -820,10 +830,27 @@ mod tests {
         if let ModelBuildOperation::CreateRelationship { target, .. } = &mut plan.operations[5] {
             *target = ext("DOES_NOT_EXIST");
         }
-        let before = state.project.lock().unwrap().as_ref().unwrap().elements.len();
+        let before = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .len();
         let failure = apply_model_build(&plan, &state).unwrap_err();
         assert_eq!(failure.diagnostics[0].code, "UNRESOLVED_REFERENCE");
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), before);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
         assert!(state.diagrams.lock().unwrap().is_empty());
     }
 
@@ -836,7 +863,17 @@ mod tests {
         }
         let failure = apply_model_build(&plan, &state).unwrap_err();
         assert_eq!(failure.diagnostics[0].code, "SEMANTIC_VALIDATION");
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), 1);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            1
+        );
         assert!(state.diagrams.lock().unwrap().is_empty());
     }
 
@@ -852,7 +889,17 @@ mod tests {
         });
         let failure = apply_model_build(&plan, &state).unwrap_err();
         assert_eq!(failure.diagnostics[0].code, "DUPLICATE_PRESENTATION");
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), 1);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            1
+        );
         assert!(state.diagrams.lock().unwrap().is_empty());
     }
 
@@ -862,7 +909,17 @@ mod tests {
         let preview = preview_model_build(&valid_plan(root), &state);
         assert!(preview.is_valid());
         assert_eq!(preview.proposed_operations.len(), 10);
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), 1);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            1
+        );
         assert!(state.diagrams.lock().unwrap().is_empty());
     }
 }
