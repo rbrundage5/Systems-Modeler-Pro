@@ -23,6 +23,8 @@ jobs:
         run: python scripts/pr40_fix.py
       - name: Add PR40 focused tests
         run: python scripts/pr40_tests.py
+      - name: Apply PR40 post-test correction
+        run: python scripts/pr40_post_tests_fix.py
       - name: Format
         run: cargo fmt --all
       - name: Check desktop
@@ -47,6 +49,7 @@ jobs:
           Remove-Item scripts/pr40_patch.py
           Remove-Item scripts/pr40_fix.py
           Remove-Item scripts/pr40_tests.py
+          Remove-Item scripts/pr40_post_tests_fix.py
           Remove-Item .github/workflows/pr40-bootstrap.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
