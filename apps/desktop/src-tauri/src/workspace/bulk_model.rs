@@ -49,6 +49,9 @@ pub enum ModelBuildOperation {
         diagram: DiagramReference,
         relationship: RelationshipReference,
     },
+    RestorePortableState {
+        state: Box<super::portable_interchange::PortableAuthoredStateV1>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +128,9 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         } => format!("CREATE diagram {external_id} ({name})"),
         ModelBuildOperation::PresentElement { .. } => "PRESENT element".into(),
         ModelBuildOperation::PresentRelationship { .. } => "PRESENT relationship".into(),
+        ModelBuildOperation::RestorePortableState { .. } => {
+            "RESTORE portable authored project state".into()
+        }
     }
 }
 
@@ -277,6 +283,7 @@ fn preflight(plan: &ModelBuildPlan) -> Result<(), BuildDiagnostic> {
             ModelBuildOperation::CreateElement { external_id, .. }
             | ModelBuildOperation::CreateRelationship { external_id, .. }
             | ModelBuildOperation::CreateDiagram { external_id, .. } => Some(external_id),
+            ModelBuildOperation::RestorePortableState { .. } => None,
             _ => None,
         };
         if let Some(external_id) = external_id {
@@ -595,6 +602,13 @@ fn build_candidate(
                         points,
                     });
                 }
+                ModelBuildOperation::RestorePortableState { .. } => {
+                    return Err(error(
+                        "COMPLETE_BUILD_REQUIRED",
+                        Some(index),
+                        "portable authored state must use the complete PR36 build path",
+                    ));
+                }
             }
             Ok(())
         })();
@@ -684,6 +698,212 @@ pub fn apply_model_build(
     *project_guard = Some(candidate.project);
     *diagram_guard = candidate.diagrams;
     Ok(candidate.result)
+}
+
+fn portable_state_from_plan(
+    plan: &ModelBuildPlan,
+) -> Result<&super::portable_interchange::PortableAuthoredStateV1, BuildDiagnostic> {
+    preflight(plan)?;
+    match plan.operations.as_slice() {
+        [ModelBuildOperation::RestorePortableState { state }] => Ok(state),
+        _ => Err(error(
+            "PORTABLE_PLAN_INVALID",
+            None,
+            "portable import requires exactly one authored-state restore operation",
+        )),
+    }
+}
+
+fn proposed_operations(plan: &ModelBuildPlan) -> Vec<ProposedBuildOperation> {
+    plan.operations
+        .iter()
+        .enumerate()
+        .map(|(operation, item)| ProposedBuildOperation {
+            operation,
+            description: operation_description(item),
+        })
+        .collect()
+}
+
+fn target_is_blank(
+    project: &Option<Project>,
+    diagrams: &[BddDiagram],
+    ibd_diagrams: &[ibd::IbdDiagram],
+    behavior: &systems_modeler_core::BehaviorRepository,
+    behavior_diagrams: &[behavior_workspace::BehaviorDiagram],
+    activities: &systems_modeler_core::ActivityRepository,
+    activity_diagrams: &[activity_workspace::ActivityDiagram],
+) -> bool {
+    let semantic_blank = project.as_ref().is_none_or(|project| {
+        project.elements.len() == 1
+            && project.elements.contains_key(&project.root_id)
+            && project.relationships.is_empty()
+    });
+    semantic_blank
+        && diagrams.is_empty()
+        && ibd_diagrams.is_empty()
+        && behavior.state_machines.is_empty()
+        && behavior.interactions.is_empty()
+        && behavior_diagrams.is_empty()
+        && activities.activities.is_empty()
+        && activity_diagrams.is_empty()
+}
+
+pub fn preview_complete_model_build(
+    plan: &ModelBuildPlan,
+    state: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+) -> ModelBuildPreview {
+    let proposed_operations = proposed_operations(plan);
+    let diagnostic = (|| {
+        let portable = portable_state_from_plan(plan)?;
+        portable
+            .validate(&plan.source_namespace)
+            .map_err(|message| error("PORTABLE_VALIDATION", Some(0), message))?;
+        let project = state
+            .project
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "project lock poisoned"))?;
+        let diagrams = state
+            .diagrams
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "diagram lock poisoned"))?;
+        let ibd_diagrams = state
+            .ibd_diagrams
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "IBD lock poisoned"))?;
+        let behavior = state
+            .behavior
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "behavior lock poisoned"))?;
+        let behavior_diagrams = state
+            .behavior_diagrams
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "behavior diagram lock poisoned"))?;
+        let activities = activity
+            .repository
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "Activity repository lock poisoned"))?;
+        let activity_diagrams = activity
+            .diagrams
+            .lock()
+            .map_err(|_| error("LOCK_FAILURE", None, "Activity diagram lock poisoned"))?;
+        if !target_is_blank(
+            &project,
+            &diagrams,
+            &ibd_diagrams,
+            &behavior,
+            &behavior_diagrams,
+            &activities,
+            &activity_diagrams,
+        ) {
+            return Err(error(
+                "TARGET_NOT_BLANK",
+                None,
+                "portable interchange import requires a blank target project",
+            ));
+        }
+        Ok(())
+    })()
+    .err();
+    ModelBuildPreview {
+        proposed_operations,
+        diagnostics: diagnostic.into_iter().collect(),
+    }
+}
+
+pub fn apply_complete_model_build(
+    plan: &ModelBuildPlan,
+    state: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+) -> Result<ModelBuildResult, ModelBuildPreview> {
+    let preview = preview_complete_model_build(plan, state, activity);
+    if !preview.is_valid() {
+        return Err(preview);
+    }
+    let portable = portable_state_from_plan(plan).map_err(|diagnostic| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![diagnostic],
+    })?;
+
+    let mut project = state.project.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error("LOCK_FAILURE", None, "project lock poisoned")],
+    })?;
+    let mut diagrams = state.diagrams.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error("LOCK_FAILURE", None, "diagram lock poisoned")],
+    })?;
+    let mut ibd_diagrams = state.ibd_diagrams.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error("LOCK_FAILURE", None, "IBD lock poisoned")],
+    })?;
+    let mut behavior = state.behavior.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error("LOCK_FAILURE", None, "behavior lock poisoned")],
+    })?;
+    let mut behavior_diagrams =
+        state
+            .behavior_diagrams
+            .lock()
+            .map_err(|_| ModelBuildPreview {
+                proposed_operations: proposed_operations(plan),
+                diagnostics: vec![error(
+                    "LOCK_FAILURE",
+                    None,
+                    "behavior diagram lock poisoned",
+                )],
+            })?;
+    let mut activities = activity.repository.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error(
+            "LOCK_FAILURE",
+            None,
+            "Activity repository lock poisoned",
+        )],
+    })?;
+    let mut activity_diagrams = activity.diagrams.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error(
+            "LOCK_FAILURE",
+            None,
+            "Activity diagram lock poisoned",
+        )],
+    })?;
+    let mut current_file = state.current_file.lock().map_err(|_| ModelBuildPreview {
+        proposed_operations: proposed_operations(plan),
+        diagnostics: vec![error("LOCK_FAILURE", None, "project path lock poisoned")],
+    })?;
+
+    if !target_is_blank(
+        &project,
+        &diagrams,
+        &ibd_diagrams,
+        &behavior,
+        &behavior_diagrams,
+        &activities,
+        &activity_diagrams,
+    ) {
+        return Err(ModelBuildPreview {
+            proposed_operations: proposed_operations(plan),
+            diagnostics: vec![error(
+                "TARGET_NOT_BLANK",
+                None,
+                "portable interchange import requires a blank target project",
+            )],
+        });
+    }
+
+    let result = portable.build_result(&plan.source_namespace);
+    *project = Some(portable.project.clone());
+    *diagrams = portable.diagrams.clone();
+    *ibd_diagrams = portable.ibd_diagrams.clone();
+    *behavior = portable.behavior_repository.clone();
+    *behavior_diagrams = portable.behavior_diagrams.clone();
+    *activities = portable.activity_repository.clone();
+    *activity_diagrams = portable.activity_diagrams.clone();
+    *current_file = None;
+    Ok(result)
 }
 
 #[cfg(test)]
