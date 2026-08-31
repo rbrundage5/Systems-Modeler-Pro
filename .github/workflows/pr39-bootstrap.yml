@@ -19,6 +19,8 @@ jobs:
           components: rustfmt, clippy
       - name: Apply focused PR39 core patch
         run: python scripts/pr39_patch.py
+      - name: Apply PR38 compatibility and lint fix
+        run: python scripts/pr39_fix.py
       - name: Add PR39 fixture and focused tests
         run: python scripts/pr39_tests.py
       - name: Format
@@ -37,6 +39,7 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item scripts/pr39_patch.py
+          Remove-Item scripts/pr39_fix.py
           Remove-Item scripts/pr39_tests.py
           Remove-Item .github/workflows/pr39-bootstrap.yml
           git config user.name "github-actions[bot]"
