@@ -1,0 +1,29 @@
+name: pr41-focused
+
+on:
+  push:
+    branches: [agent/pr41-requirements-traceability-import]
+
+permissions:
+  contents: write
+
+jobs:
+  focused:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr41-requirements-traceability-import
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply PR41 implementation
+        run: python scripts/pr41_patch.py
+      - name: Add PR41 focused tests and fixture
+        run: python scripts/pr41_tests.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Check desktop
+        run: cargo check -p systems-modeler-desktop
+      - name: Focused PR41 tests
+        run: cargo test -p systems-modeler-desktop pr41_tests -- --nocapture
