@@ -19,6 +19,8 @@ jobs:
           components: rustfmt, clippy
       - name: Apply PR41 implementation
         run: python scripts/pr41_patch.py
+      - name: Apply PR41 regression compatibility fix
+        run: python scripts/pr41_regression_fix.py
       - name: Add PR41 focused tests and fixture
         run: python scripts/pr41_tests.py
       - name: Format
