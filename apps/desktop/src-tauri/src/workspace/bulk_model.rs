@@ -48,6 +48,7 @@ pub enum ModelBuildOperation {
         multiplicity: Option<Multiplicity>,
         default_value: Option<String>,
         flow_direction: Option<FlowDirection>,
+        is_conjugated: Option<bool>,
     },
     CreateRelationship {
         external_id: String,
@@ -415,6 +416,7 @@ fn build_candidate(
                     multiplicity,
                     default_value,
                     flow_direction,
+                    is_conjugated,
                 } => {
                     let id = resolve_element(&project, &element_ids, namespace, element, index)?;
                     if let Some(owner) = owner {
@@ -510,6 +512,28 @@ fn build_candidate(
                                 error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
                             })?
                             .flow_direction = Some(*flow_direction);
+                    }
+                    if let Some(is_conjugated) = is_conjugated {
+                        let kind = project
+                            .element(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .kind
+                            .clone();
+                        if !matches!(kind, ElementKind::ProxyPort | ElementKind::FullPort) {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Conjugated mapping is valid only for ProxyPort or FullPort",
+                            ));
+                        }
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .is_conjugated = *is_conjugated;
                     }
                     if requirement_id.is_some() || requirement_text.is_some() {
                         let current = project.element(id).map_err(|cause| {

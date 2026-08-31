@@ -212,15 +212,35 @@ fn pr43_xlsx_plan_local_proxy_and_full_ports_use_one_atomic_model_build_plan() {
         &xlsx_full_columns(),
     );
     let group = SpreadsheetImportMapGroup {
-        mappings: vec![interfaces, service_types, components, proxy_ports, full_ports],
+        mappings: vec![
+            interfaces,
+            service_types,
+            components,
+            proxy_ports,
+            full_ports,
+        ],
     };
 
-    let before_elements = state.project.lock().unwrap().as_ref().unwrap().elements.len();
+    let before_elements = state
+        .project
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .elements
+        .len();
     let preview = preview_spreadsheet_import_group(&group, &state);
     assert!(preview.is_valid(), "{:?}", preview.diagnostics);
     assert_eq!(preview.totals.create, 10);
     assert_eq!(
-        state.project.lock().unwrap().as_ref().unwrap().elements.len(),
+        state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .len(),
         before_elements,
         "preview must not mutate semantic state"
     );
@@ -276,7 +296,10 @@ fn pr43_xlsx_plan_local_proxy_and_full_ports_use_one_atomic_model_build_plan() {
     let telemetry = project.element(find_ext(project, "PORT-TEL")).unwrap();
     assert_eq!(telemetry.owner_id, Some(controller));
     assert_eq!(telemetry.type_id, Some(tel_type));
-    assert_eq!(telemetry.multiplicity, Some(Multiplicity::new(0, Some(1)).unwrap()));
+    assert_eq!(
+        telemetry.multiplicity,
+        Some(Multiplicity::new(0, Some(1)).unwrap())
+    );
     assert!(!telemetry.is_conjugated);
 
     let peer = project.element(find_ext(project, "PORT-PEER")).unwrap();
@@ -310,9 +333,27 @@ fn pr43_csv_supports_external_and_exact_qualified_owner_and_type_references_for_
     {
         let mut guard = state.project.lock().unwrap();
         let project = guard.as_mut().unwrap();
-        let architecture = seed(project, root, ElementKind::Package, "Architecture", "PKG-ARCH");
-        seed(project, architecture, ElementKind::Block, "Controller", "BLK-CTRL");
-        seed(project, architecture, ElementKind::Block, "PowerUnit", "BLK-PWR");
+        let architecture = seed(
+            project,
+            root,
+            ElementKind::Package,
+            "Architecture",
+            "PKG-ARCH",
+        );
+        seed(
+            project,
+            architecture,
+            ElementKind::Block,
+            "Controller",
+            "BLK-CTRL",
+        );
+        seed(
+            project,
+            architecture,
+            ElementKind::Block,
+            "PowerUnit",
+            "BLK-PWR",
+        );
         seed(
             project,
             architecture,
@@ -320,12 +361,18 @@ fn pr43_csv_supports_external_and_exact_qualified_owner_and_type_references_for_
             "CommandInterface",
             "IF-CMD",
         );
-        seed(project, architecture, ElementKind::DataType, "ServiceAssembly", "DT-SVC");
+        seed(
+            project,
+            architecture,
+            ElementKind::DataType,
+            "ServiceAssembly",
+            "DT-SVC",
+        );
     }
 
-    let proxy_source = temp_csv(&format!(
-        "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-C1,BLK-CTRL,command,PR43 CSV::Architecture::CommandInterface,1,true,Command docs,Private\n"
-    ));
+    let proxy_source = temp_csv(
+        "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-C1,BLK-CTRL,command,PR43 CSV::Architecture::CommandInterface,1,true,Command docs,Private\n",
+    );
     let full_source = temp_csv(
         "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-F1,PR43 CSV::Architecture::PowerUnit,service,DT-SVC,0..*,false,Service docs,Public\n",
     );
@@ -359,8 +406,20 @@ fn pr43_stable_identity_updates_all_supported_port_fields_without_duplication() 
         let mut guard = state.project.lock().unwrap();
         let project = guard.as_mut().unwrap();
         seed(project, root, ElementKind::Block, "Controller", "BLK-1");
-        seed(project, root, ElementKind::InterfaceBlock, "Command", "IF-1");
-        seed(project, root, ElementKind::InterfaceBlock, "SecureCommand", "IF-2");
+        seed(
+            project,
+            root,
+            ElementKind::InterfaceBlock,
+            "Command",
+            "IF-1",
+        );
+        seed(
+            project,
+            root,
+            ElementKind::InterfaceBlock,
+            "SecureCommand",
+            "IF-2",
+        );
         seed(project, root, ElementKind::ValueType, "BadType", "BAD-1");
     }
     let initial_source = temp_csv(
@@ -425,8 +484,7 @@ fn pr43_stable_identity_updates_all_supported_port_fields_without_duplication() 
     let blocked = preview_spreadsheet_import_group(&bad_group, &state);
     assert!(!blocked.is_valid());
     assert!(blocked.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "SEMANTIC_VALIDATION"
-            && diagnostic.reason.contains("cannot be typed by")
+        diagnostic.code == "SEMANTIC_VALIDATION" && diagnostic.reason.contains("cannot be typed by")
     }));
     assert!(apply_spreadsheet_import_group(&bad_group, &state).is_err());
     let after = {
@@ -450,7 +508,12 @@ fn pr43_conjugation_vocabulary_is_deterministic_and_full_port_rule_stays_native(
         "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-T,BLK-1,pTrue,IF-1,1,true,,Public\nP-F,BLK-1,pFalse,IF-1,1,false,,Public\nP-Y,BLK-1,pYes,IF-1,1,yes,,Public\nP-N,BLK-1,pNo,IF-1,1,no,,Public\nP-1,BLK-1,pOne,IF-1,1,1,,Public\nP-0,BLK-1,pZero,IF-1,1,0,,Public\n",
     );
     let group = SpreadsheetImportMapGroup {
-        mappings: vec![one_port_map("Boolean Ports", source, ElementKind::ProxyPort, root)],
+        mappings: vec![one_port_map(
+            "Boolean Ports",
+            source,
+            ElementKind::ProxyPort,
+            root,
+        )],
     };
     let preview = preview_spreadsheet_import_group(&group, &state);
     assert!(preview.is_valid(), "{:?}", preview.diagnostics);
@@ -458,10 +521,20 @@ fn pr43_conjugation_vocabulary_is_deterministic_and_full_port_rule_stays_native(
     let guard = state.project.lock().unwrap();
     let project = guard.as_ref().unwrap();
     for id in ["P-T", "P-Y", "P-1"] {
-        assert!(project.element(find_ext(project, id)).unwrap().is_conjugated);
+        assert!(
+            project
+                .element(find_ext(project, id))
+                .unwrap()
+                .is_conjugated
+        );
     }
     for id in ["P-F", "P-N", "P-0"] {
-        assert!(!project.element(find_ext(project, id)).unwrap().is_conjugated);
+        assert!(
+            !project
+                .element(find_ext(project, id))
+                .unwrap()
+                .is_conjugated
+        );
     }
     drop(guard);
 
@@ -517,7 +590,13 @@ fn pr43_owner_type_and_kind_failures_are_blocked_without_guessing() {
         let owner = seed(project, root, ElementKind::Block, "Owner", "BLK-1");
         let iface = seed(project, root, ElementKind::InterfaceBlock, "Iface", "IF-1");
         value_type = seed(project, root, ElementKind::ValueType, "Value", "VT-1");
-        req = seed(project, root, ElementKind::Requirement, "RequirementOwner", "REQ-1");
+        req = seed(
+            project,
+            root,
+            ElementKind::Requirement,
+            "RequirementOwner",
+            "REQ-1",
+        );
         project.element_mut(req).unwrap().requirement_id = Some("R-1".into());
         project.element_mut(req).unwrap().requirement_text = Some("text".into());
         let wrong = seed(project, root, ElementKind::Block, "WrongKind", "PORT-WRONG");
@@ -542,52 +621,93 @@ fn pr43_owner_type_and_kind_failures_are_blocked_without_guessing() {
     };
 
     let unresolved_owner = preview_for(
-        temp_csv("Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-UO,MISSING,p,IF-1,1,false,,Public\n"),
+        temp_csv(
+            "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-UO,MISSING,p,IF-1,1,false,,Public\n",
+        ),
         ElementKind::ProxyPort,
     );
-    assert!(unresolved_owner.diagnostics.iter().any(|d| d.code == "OWNER_UNRESOLVED"));
+    assert!(
+        unresolved_owner
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "OWNER_UNRESOLVED")
+    );
 
     let illegal_owner = preview_for(
-        temp_csv("Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-IO,REQ-1,p,IF-1,1,false,,Public\n"),
+        temp_csv(
+            "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-IO,REQ-1,p,IF-1,1,false,,Public\n",
+        ),
         ElementKind::ProxyPort,
     );
     assert!(!illegal_owner.is_valid());
-    assert!(illegal_owner.diagnostics.iter().any(|d| d.code == "SEMANTIC_VALIDATION"));
+    assert!(
+        illegal_owner
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "SEMANTIC_VALIDATION")
+    );
 
     let unresolved_type = preview_for(
-        temp_csv("Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-UT,BLK-1,p,MISSING,1,false,,Public\n"),
+        temp_csv(
+            "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-UT,BLK-1,p,MISSING,1,false,,Public\n",
+        ),
         ElementKind::ProxyPort,
     );
-    assert!(unresolved_type.diagnostics.iter().any(|d| d.code == "TYPE_UNRESOLVED"));
+    assert!(
+        unresolved_type
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "TYPE_UNRESOLVED")
+    );
 
     let invalid_type = preview_for(
-        temp_csv("Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-IT,BLK-1,p,VT-1,1,false,,Public\n"),
+        temp_csv(
+            "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-IT,BLK-1,p,VT-1,1,false,,Public\n",
+        ),
         ElementKind::ProxyPort,
     );
     assert!(!invalid_type.is_valid());
-    assert!(invalid_type.diagnostics.iter().any(|d| {
-        d.code == "SEMANTIC_VALIDATION" && d.reason.contains("cannot be typed by")
-    }));
+    assert!(
+        invalid_type.diagnostics.iter().any(|d| {
+            d.code == "SEMANTIC_VALIDATION" && d.reason.contains("cannot be typed by")
+        })
+    );
 
     let wrong_kind = preview_for(
-        temp_csv("Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-WRONG,BLK-1,p,IF-1,1,false,,Public\n"),
+        temp_csv(
+            "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-WRONG,BLK-1,p,IF-1,1,false,,Public\n",
+        ),
         ElementKind::ProxyPort,
     );
-    assert!(wrong_kind
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "IDENTIFICATION_KIND_MISMATCH"));
+    assert!(
+        wrong_kind
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "IDENTIFICATION_KIND_MISMATCH")
+    );
 
     let port_kind_collision = preview_for(
-        temp_csv("Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-COLLIDE,BLK-1,p,IF-1,1,false,,Public\n"),
+        temp_csv(
+            "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nPORT-COLLIDE,BLK-1,p,IF-1,1,false,,Public\n",
+        ),
         ElementKind::ProxyPort,
     );
-    assert!(port_kind_collision
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "IDENTIFICATION_KIND_MISMATCH"));
+    assert!(
+        port_kind_collision
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "IDENTIFICATION_KIND_MISMATCH")
+    );
     assert_eq!(
-        state.project.lock().unwrap().as_ref().unwrap().element(full_collision).unwrap().kind,
+        state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .element(full_collision)
+            .unwrap()
+            .kind,
         ElementKind::FullPort
     );
     let _ = value_type;
@@ -605,8 +725,22 @@ fn pr43_ambiguity_duplicate_and_owner_qualified_name_fallback_are_deterministic(
         owner_a = seed(project, root, ElementKind::Block, "OwnerA", "BLK-A");
         owner_b = seed(project, root, ElementKind::Block, "OwnerB", "BLK-B");
         iface = seed(project, root, ElementKind::InterfaceBlock, "Iface", "IF-1");
-        seed_port(project, owner_a, iface, ElementKind::ProxyPort, "command", "OLD-A");
-        seed_port(project, owner_b, iface, ElementKind::ProxyPort, "command", "OLD-B");
+        seed_port(
+            project,
+            owner_a,
+            iface,
+            ElementKind::ProxyPort,
+            "command",
+            "OLD-A",
+        );
+        seed_port(
+            project,
+            owner_b,
+            iface,
+            ElementKind::ProxyPort,
+            "command",
+            "OLD-B",
+        );
     }
 
     let owner_qualified = temp_csv(
@@ -641,7 +775,10 @@ fn pr43_ambiguity_duplicate_and_owner_qualified_name_fallback_are_deterministic(
         let project = guard.as_ref().unwrap();
         let selected = project.element(find_ext(project, "NEW-A")).unwrap();
         assert_eq!(selected.owner_id, Some(owner_a));
-        assert_eq!(selected.documentation, "Updated by owner-qualified fallback");
+        assert_eq!(
+            selected.documentation,
+            "Updated by owner-qualified fallback"
+        );
         assert_eq!(
             project
                 .elements
@@ -655,8 +792,22 @@ fn pr43_ambiguity_duplicate_and_owner_qualified_name_fallback_are_deterministic(
     {
         let mut guard = state.project.lock().unwrap();
         let project = guard.as_mut().unwrap();
-        seed_port(project, owner_a, iface, ElementKind::ProxyPort, "ambiguous", "AMB-1");
-        seed_port(project, owner_a, iface, ElementKind::ProxyPort, "ambiguous", "AMB-2");
+        seed_port(
+            project,
+            owner_a,
+            iface,
+            ElementKind::ProxyPort,
+            "ambiguous",
+            "AMB-1",
+        );
+        seed_port(
+            project,
+            owner_a,
+            iface,
+            ElementKind::ProxyPort,
+            "ambiguous",
+            "AMB-2",
+        );
     }
     let ambiguous = temp_csv(
         "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nAMB-NEW,BLK-A,ambiguous,IF-1,1,false,,Public\n",
@@ -677,10 +828,12 @@ fn pr43_ambiguity_duplicate_and_owner_qualified_name_fallback_are_deterministic(
         &state,
     );
     assert!(!blocked.is_valid());
-    assert!(blocked
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "AMBIGUOUS_IDENTIFICATION"));
+    assert!(
+        blocked
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "AMBIGUOUS_IDENTIFICATION")
+    );
 
     let duplicate = temp_csv(
         "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nDUP-1,BLK-A,a,IF-1,1,false,,Public\nDUP-1,BLK-B,b,IF-1,1,false,,Public\n",
@@ -697,10 +850,12 @@ fn pr43_ambiguity_duplicate_and_owner_qualified_name_fallback_are_deterministic(
         &state,
     );
     assert!(!duplicate_preview.is_valid());
-    assert!(duplicate_preview
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "DUPLICATE_SOURCE_EXTERNAL_ID"));
+    assert!(
+        duplicate_preview
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "DUPLICATE_SOURCE_EXTERNAL_ID")
+    );
 }
 
 #[test]
@@ -709,8 +864,12 @@ fn pr43_ambiguous_owner_and_type_are_blocked_with_exact_reference_diagnostics() 
     {
         let mut guard = state.project.lock().unwrap();
         let project = guard.as_mut().unwrap();
-        project.create_element(ElementKind::Block, "DupOwner", root).unwrap();
-        project.create_element(ElementKind::Block, "DupOwner", root).unwrap();
+        project
+            .create_element(ElementKind::Block, "DupOwner", root)
+            .unwrap();
+        project
+            .create_element(ElementKind::Block, "DupOwner", root)
+            .unwrap();
         project
             .create_element(ElementKind::InterfaceBlock, "DupType", root)
             .unwrap();
@@ -718,7 +877,13 @@ fn pr43_ambiguous_owner_and_type_are_blocked_with_exact_reference_diagnostics() 
             .create_element(ElementKind::InterfaceBlock, "DupType", root)
             .unwrap();
         seed(project, root, ElementKind::Block, "GoodOwner", "GOOD-OWNER");
-        seed(project, root, ElementKind::InterfaceBlock, "GoodType", "GOOD-TYPE");
+        seed(
+            project,
+            root,
+            ElementKind::InterfaceBlock,
+            "GoodType",
+            "GOOD-TYPE",
+        );
     }
 
     let owner_csv = temp_csv(
@@ -736,10 +901,12 @@ fn pr43_ambiguous_owner_and_type_are_blocked_with_exact_reference_diagnostics() 
         &state,
     );
     assert!(!owner_preview.is_valid());
-    assert!(owner_preview
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "OWNER_AMBIGUOUS"));
+    assert!(
+        owner_preview
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "OWNER_AMBIGUOUS")
+    );
 
     let type_csv = temp_csv(
         "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\nP-AT,GOOD-OWNER,p,PR43 Ambiguity::DupType,1,false,,Public\n",
@@ -756,10 +923,12 @@ fn pr43_ambiguous_owner_and_type_are_blocked_with_exact_reference_diagnostics() 
         &state,
     );
     assert!(!type_preview.is_valid());
-    assert!(type_preview
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "TYPE_AMBIGUOUS"));
+    assert!(
+        type_preview
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "TYPE_AMBIGUOUS")
+    );
 }
 
 #[test]
@@ -822,7 +991,12 @@ fn pr43_late_invalid_port_blocks_the_entire_plan_and_preview_never_mutates() {
 
     let preview = preview_spreadsheet_import_group(&group, &state);
     assert!(!preview.is_valid());
-    assert!(preview.diagnostics.iter().any(|d| d.code == "TYPE_UNRESOLVED"));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "TYPE_UNRESOLVED")
+    );
     let after_preview = {
         let guard = state.project.lock().unwrap();
         serde_json::to_string(guard.as_ref().unwrap()).unwrap()

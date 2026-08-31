@@ -26,6 +26,7 @@ pub enum SpreadsheetSemanticProperty {
     Multiplicity,
     DefaultValue,
     FlowDirection,
+    Conjugated,
     ExternalId,
     Visibility,
     RequirementId,
@@ -275,6 +276,8 @@ fn supported_kind(kind: &ElementKind) -> bool {
             | ElementKind::FlowProperty
             | ElementKind::ConstraintProperty
             | ElementKind::ConstraintParameter
+            | ElementKind::ProxyPort
+            | ElementKind::FullPort
     )
 }
 
@@ -294,6 +297,8 @@ fn is_feature_kind(kind: &ElementKind) -> bool {
             | ElementKind::FlowProperty
             | ElementKind::ConstraintProperty
             | ElementKind::ConstraintParameter
+            | ElementKind::ProxyPort
+            | ElementKind::FullPort
     )
 }
 
@@ -765,6 +770,7 @@ fn validate_map(
             SpreadsheetSemanticProperty::Multiplicity,
             SpreadsheetSemanticProperty::DefaultValue,
             SpreadsheetSemanticProperty::FlowDirection,
+            SpreadsheetSemanticProperty::Conjugated,
             SpreadsheetSemanticProperty::RequirementId,
             SpreadsheetSemanticProperty::RequirementText,
         ]
@@ -881,7 +887,8 @@ fn validate_map(
         && (has_property(SpreadsheetSemanticProperty::Type)
             || has_property(SpreadsheetSemanticProperty::Multiplicity)
             || has_property(SpreadsheetSemanticProperty::DefaultValue)
-            || has_property(SpreadsheetSemanticProperty::FlowDirection))
+            || has_property(SpreadsheetSemanticProperty::FlowDirection)
+            || has_property(SpreadsheetSemanticProperty::Conjugated))
     {
         return Err(diagnostic(
             Some(map),
@@ -890,7 +897,7 @@ fn validate_map(
             None,
             None,
             "SEMANTIC_PROPERTY_INVALID",
-            "Type/Multiplicity/Default Value/Flow Direction mappings are reserved for PR39 owned features",
+            "Type/Multiplicity/Default Value/Flow Direction/Conjugated mappings are reserved for owned features",
         ));
     }
     if map.element_kind != ElementKind::ValueProperty
@@ -927,6 +934,22 @@ fn validate_map(
             None,
             "SEMANTIC_PROPERTY_INVALID",
             "Flow Direction can be mapped only for FlowProperty",
+        ));
+    }
+
+    if !matches!(
+        map.element_kind,
+        ElementKind::ProxyPort | ElementKind::FullPort
+    ) && has_property(SpreadsheetSemanticProperty::Conjugated)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            mapped_column_name(map, SpreadsheetSemanticProperty::Conjugated),
+            Some(SpreadsheetSemanticProperty::Conjugated),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Conjugated can be mapped only for ProxyPort or FullPort",
         ));
     }
 
@@ -1413,6 +1436,7 @@ fn find_existing<'a>(
     map: &SpreadsheetImportMap,
     project: &'a Project,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
+    resolved_owner: Option<&ResolvedOwner>,
 ) -> Result<Option<&'a Element>, SpreadsheetImportDiagnostic> {
     if let Some(external_id) = non_empty_value(values, SpreadsheetSemanticProperty::ExternalId) {
         if let Some(element) = find_by_external_id(map, project, external_id)? {
@@ -1457,6 +1481,21 @@ fn find_existing<'a>(
         .filter(|element| element.kind == map.element_kind)
         .filter(|element| {
             existing_match_in_scope(project, element, map.target_scope, map.search_scope)
+        })
+        .filter(|element| {
+            if map.identification_property == SpreadsheetIdentificationProperty::Name
+                && matches!(
+                    map.element_kind,
+                    ElementKind::ProxyPort | ElementKind::FullPort
+                )
+            {
+                match resolved_owner.map(|owner| &owner.reference) {
+                    Some(BuildReference::Existing(owner_id)) => element.owner_id == Some(*owner_id),
+                    Some(BuildReference::External(_)) | None => false,
+                }
+            } else {
+                true
+            }
         })
         .filter(|element| match map.identification_property {
             SpreadsheetIdentificationProperty::ExternalId => {
@@ -1669,6 +1708,26 @@ fn parse_navigable(
                 "navigability '{}' must be true/false, yes/no, or 1/0",
                 value
             ),
+        )),
+    }
+}
+
+fn parse_conjugated(
+    map: &SpreadsheetImportMap,
+    row: usize,
+    value: &str,
+) -> Result<bool, SpreadsheetImportDiagnostic> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "yes" | "1" => Ok(true),
+        "false" | "no" | "0" => Ok(false),
+        _ => Err(diagnostic(
+            Some(map),
+            Some(row),
+            mapped_column_name(map, SpreadsheetSemanticProperty::Conjugated),
+            Some(SpreadsheetSemanticProperty::Conjugated),
+            None,
+            "CONJUGATED_INVALID",
+            format!("conjugation '{}' must be true/false, yes/no, or 1/0", value),
         )),
     }
 }
@@ -2337,6 +2396,7 @@ fn mapped_field_changes(
     type_ref: Option<ElementReference>,
     multiplicity: Option<Multiplicity>,
     flow_direction: Option<FlowDirection>,
+    is_conjugated: Option<bool>,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
 ) -> Result<(bool, ModelBuildOperation), SpreadsheetImportDiagnostic> {
     let name = values.get(&SpreadsheetSemanticProperty::Name).cloned();
@@ -2391,6 +2451,7 @@ fn mapped_field_changes(
             .is_some_and(|value| element.requirement_text.as_deref() != Some(value.as_str()))
         || multiplicity.is_some_and(|value| element.multiplicity != Some(value))
         || flow_direction.is_some_and(|value| element.flow_direction != Some(value))
+        || is_conjugated.is_some_and(|value| element.is_conjugated != value)
         || default_changed
         || owner_changed
         || type_changed;
@@ -2409,6 +2470,7 @@ fn mapped_field_changes(
             multiplicity,
             default_value,
             flow_direction,
+            is_conjugated,
         },
     ))
 }
@@ -2671,7 +2733,25 @@ fn prepare_spreadsheet_import(
                 None
             };
 
-            let existing = match find_existing(map, project, &values) {
+            let is_conjugated = if matches!(
+                map.element_kind,
+                ElementKind::ProxyPort | ElementKind::FullPort
+            ) {
+                match non_empty_value(&values, SpreadsheetSemanticProperty::Conjugated) {
+                    Some(value) => match parse_conjugated(map, row.row_number, value) {
+                        Ok(value) => Some(value),
+                        Err(error) => {
+                            block_row(error);
+                            continue;
+                        }
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            };
+
+            let existing = match find_existing(map, project, &values, Some(&owner)) {
                 Ok(existing) => existing,
                 Err(error) => {
                     block_row(error);
@@ -2690,6 +2770,7 @@ fn prepare_spreadsheet_import(
                         .map(|value| value.reference.clone()),
                     multiplicity,
                     flow_direction,
+                    is_conjugated,
                     &values,
                 ) {
                     Ok((false, _)) => preview.rows.push(row_preview(
@@ -2802,6 +2883,7 @@ fn prepare_spreadsheet_import(
                 || multiplicity.is_some()
                 || default_value.is_some()
                 || flow_direction.is_some()
+                || is_conjugated.is_some()
             {
                 operations.push(ModelBuildOperation::UpdateElementFields {
                     element: BuildReference::External(external_id.to_string()),
@@ -2816,6 +2898,7 @@ fn prepare_spreadsheet_import(
                     multiplicity,
                     default_value,
                     flow_direction,
+                    is_conjugated,
                 });
                 operation_contexts.push(context);
             }
@@ -7147,3 +7230,6 @@ mod pr42_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod pr43_tests;

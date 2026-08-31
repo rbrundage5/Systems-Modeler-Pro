@@ -63,7 +63,10 @@ fn pr43_proxy_and_full_ports_round_trip_through_native_project_database() {
     assert_eq!(proxy_port.external_id, "catia:pr43::PORT-PROXY");
     assert_eq!(proxy_port.owner_id, Some(owner));
     assert_eq!(proxy_port.type_id, Some(iface));
-    assert_eq!(proxy_port.multiplicity, Some(Multiplicity::new(0, None).unwrap()));
+    assert_eq!(
+        proxy_port.multiplicity,
+        Some(Multiplicity::new(0, None).unwrap())
+    );
     assert!(proxy_port.is_conjugated);
     assert_eq!(proxy_port.documentation, "Persisted proxy port");
     assert_eq!(proxy_port.visibility, VisibilityKind::Private);
@@ -74,7 +77,10 @@ fn pr43_proxy_and_full_ports_round_trip_through_native_project_database() {
     assert_eq!(full_port.external_id, "catia:pr43::PORT-FULL");
     assert_eq!(full_port.owner_id, Some(owner));
     assert_eq!(full_port.type_id, Some(service_type));
-    assert_eq!(full_port.multiplicity, Some(Multiplicity::new(1, Some(2)).unwrap()));
+    assert_eq!(
+        full_port.multiplicity,
+        Some(Multiplicity::new(1, Some(2)).unwrap())
+    );
     assert!(!full_port.is_conjugated);
     assert_eq!(full_port.documentation, "Persisted full port");
     assert_eq!(full_port.visibility, VisibilityKind::Public);

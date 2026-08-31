@@ -37,7 +37,10 @@ fn pr43_proxy_and_full_ports_use_native_owner_type_multiplicity_and_conjugation_
     assert_eq!(proxy_element.kind, ElementKind::ProxyPort);
     assert_eq!(proxy_element.owner_id, Some(owner));
     assert_eq!(proxy_element.type_id, Some(iface));
-    assert_eq!(proxy_element.multiplicity, Some(Multiplicity::new(0, None).unwrap()));
+    assert_eq!(
+        proxy_element.multiplicity,
+        Some(Multiplicity::new(0, None).unwrap())
+    );
     assert!(proxy_element.is_conjugated);
 
     let full = project
