@@ -809,3 +809,52 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod pr42_allocation_tests {
+    use super::*;
+    use systems_modeler_core::{ElementKind, RelationshipKind};
+
+    #[test]
+    fn pr42_portable_json_round_trip_preserves_native_allocate() {
+        let source = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let mut project = Project::new("PR42 Portable Source");
+        let package = project
+            .create_element(ElementKind::Package, "Architecture", project.root_id)
+            .unwrap();
+        let logical = project
+            .create_element(ElementKind::Block, "LogicalController", package)
+            .unwrap();
+        let physical = project
+            .create_element(ElementKind::Block, "PhysicalController", package)
+            .unwrap();
+        let allocation = project
+            .create_relationship(RelationshipKind::Allocate, logical, physical, Some(package))
+            .unwrap();
+        {
+            let relationship = project.relationships.get_mut(&allocation).unwrap();
+            relationship.external_id = "catia:pr42::ALLOC-PORTABLE".into();
+            relationship.name = "Portable allocation".into();
+            relationship.documentation = "Portable round trip".into();
+        }
+        *source.project.lock().unwrap() = Some(project);
+
+        let json = export_from_states(&source, &activity).unwrap();
+        assert!(json.contains("Allocate"));
+
+        let target = WorkspaceState::default();
+        let target_activity = ActivityWorkspaceState::default();
+        import_into_states(&json, &target, &target_activity).unwrap();
+        let guard = target.project.lock().unwrap();
+        let restored = guard.as_ref().unwrap();
+        let relationship = restored.relationship(allocation).unwrap();
+        assert_eq!(relationship.kind, RelationshipKind::Allocate);
+        assert_eq!(relationship.external_id, "catia:pr42::ALLOC-PORTABLE");
+        assert_eq!(relationship.source_id, logical);
+        assert_eq!(relationship.target_id, physical);
+        assert_eq!(relationship.owner_id, Some(package));
+        assert_eq!(relationship.name, "Portable allocation");
+        assert_eq!(relationship.documentation, "Portable round trip");
+    }
+}

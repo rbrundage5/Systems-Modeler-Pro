@@ -304,6 +304,7 @@ fn supported_relationship_kind(kind: &RelationshipKind) -> bool {
             | RelationshipKind::Generalization
             | RelationshipKind::Dependency
             | RelationshipKind::Realization
+            | RelationshipKind::Allocate
             | RelationshipKind::DeriveRequirement
             | RelationshipKind::Satisfy
             | RelationshipKind::Verify
@@ -708,7 +709,10 @@ fn validate_map(
                 Some(SpreadsheetSemanticProperty::RelationshipKind),
                 None,
                 "RELATIONSHIP_KIND_UNSUPPORTED",
-                format!("{:?} is outside the PR40/PR41 relationship scope", kind),
+                format!(
+                    "{:?} is outside the PR40/PR41/PR42 relationship scope",
+                    kind
+                ),
             ));
         }
         if map.relationship_kind.is_none()
@@ -1585,6 +1589,7 @@ fn parse_relationship_kind_value(
         "generalization" => RelationshipKind::Generalization,
         "dependency" => RelationshipKind::Dependency,
         "realization" => RelationshipKind::Realization,
+        "allocate" => RelationshipKind::Allocate,
         "deriverequirement" | "derivereqt" => RelationshipKind::DeriveRequirement,
         "satisfy" => RelationshipKind::Satisfy,
         "verify" => RelationshipKind::Verify,
@@ -1600,7 +1605,7 @@ fn parse_relationship_kind_value(
                 Some(value.trim().to_string()),
                 "RELATIONSHIP_KIND_UNSUPPORTED",
                 format!(
-                    "relationship kind '{}' is outside PR40/PR41; expected Association, Generalization, Dependency, Realization, DeriveRequirement/deriveReqt, Satisfy, Verify, Refine, Trace, or Copy",
+                    "relationship kind '{}' is outside PR40/PR41/PR42; expected Association, Generalization, Dependency, Realization, Allocate, DeriveRequirement/deriveReqt, Satisfy, Verify, Refine, Trace, or Copy",
                     value.trim()
                 ),
             ));
@@ -2102,11 +2107,26 @@ fn plan_relationship_row(
         SpreadsheetSemanticProperty::Target,
         "Target",
     )?;
+    if kind == RelationshipKind::Allocate && source.reference == target.reference {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            None,
+            None,
+            non_empty_value(values, SpreadsheetSemanticProperty::ExternalId).map(ToOwned::to_owned),
+            "ALLOCATION_SELF_REFERENCE",
+            format!(
+                "Allocate source '{}' and target '{}' resolve to the same semantic element",
+                non_empty_value(values, SpreadsheetSemanticProperty::Source).unwrap_or_default(),
+                non_empty_value(values, SpreadsheetSemanticProperty::Target).unwrap_or_default()
+            ),
+        ));
+    }
     let owner = if let Some(owner_text) =
         non_empty_value(values, SpreadsheetSemanticProperty::Owner)
     {
         resolve_owner(map, project, planned, Some(owner_text))?
-    } else if is_pr41_traceability_kind(&kind) {
+    } else if is_pr41_traceability_kind(&kind) || kind == RelationshipKind::Allocate {
         let inferred = resolve_owner(map, project, planned, None)?;
         if map.target_scope == project.root_id {
             return Err(diagnostic(
@@ -2116,7 +2136,7 @@ fn plan_relationship_row(
                 Some(SpreadsheetSemanticProperty::Owner),
                 None,
                 "RELATIONSHIP_OWNER_REQUIRED",
-                "PR41 does not infer a loose root owner; map Owner explicitly or configure a package target scope that contains the relationship endpoints",
+                "PR41/PR42 does not infer a loose root owner; map Owner explicitly or configure a package target scope that contains the relationship endpoints",
             ));
         }
         inferred
@@ -5873,7 +5893,7 @@ mod pr41_tests {
         }));
 
         let unknown_source = temp_csv(
-            "Link Identifier,Link Type,Design Object,Requirement Number,Description\nALLOC-1,allocate,BLK-1,REQ-DUP,unsupported\n",
+            "Link Identifier,Link Type,Design Object,Requirement Number,Description\nUNSUP-1,NotARelationship,BLK-1,REQ-DUP,unsupported\n",
         );
         let unknown_map = relationship_map(
             "Unknown Kind",
@@ -6375,6 +6395,755 @@ mod pr41_tests {
                 .relationships
                 .len(),
             0
+        );
+    }
+}
+
+#[cfg(test)]
+mod pr42_tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use systems_modeler_core::RelationshipId;
+
+    const NS: &str = "catia:pr42-fixture";
+
+    fn workspace(name: &str) -> (WorkspaceState, ElementId, ElementId) {
+        let state = WorkspaceState::default();
+        let mut project = Project::new(name);
+        let root = project.root_id;
+        let package = project
+            .create_element(ElementKind::Package, "Allocation", root)
+            .unwrap();
+        *state.project.lock().unwrap() = Some(project);
+        (state, root, package)
+    }
+
+    fn temp_csv(contents: &str) -> String {
+        let path = std::env::temp_dir().join(format!("pr42-{}.csv", uuid::Uuid::new_v4()));
+        fs::write(&path, contents).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn fixture_path() -> String {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pr42_allocations.xlsx")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn seed(
+        project: &mut Project,
+        owner: ElementId,
+        kind: ElementKind,
+        name: &str,
+        external_id: &str,
+    ) -> ElementId {
+        let id = project.create_element(kind, name, owner).unwrap();
+        project
+            .set_external_id(id, external_key(NS, external_id))
+            .unwrap();
+        id
+    }
+
+    fn relationship_map(
+        name: &str,
+        source: String,
+        worksheet: Option<&str>,
+        target: ElementId,
+        identity: SpreadsheetRelationshipIdentityPolicy,
+        columns: &[(&str, SpreadsheetSemanticProperty)],
+    ) -> SpreadsheetImportMap {
+        SpreadsheetImportMap {
+            name: name.into(),
+            source,
+            worksheet: worksheet.map(ToOwned::to_owned),
+            header_row: 1,
+            element_kind: ElementKind::Block,
+            relationship_kind: Some(RelationshipKind::Allocate),
+            relationship_identity: identity,
+            target_scope: target,
+            identification_property: SpreadsheetIdentificationProperty::ExternalId,
+            search_scope: SpreadsheetSearchScope::TargetRecursive,
+            source_namespace: NS.into(),
+            mapping_version: "1".into(),
+            column_mappings: columns
+                .iter()
+                .map(|(source_column, property)| SpreadsheetColumnMapping {
+                    source_column: (*source_column).into(),
+                    property: *property,
+                })
+                .collect(),
+        }
+    }
+
+    fn element_map(name: &str, source: String, target: ElementId) -> SpreadsheetImportMap {
+        SpreadsheetImportMap {
+            name: name.into(),
+            source,
+            worksheet: None,
+            header_row: 1,
+            element_kind: ElementKind::Block,
+            relationship_kind: None,
+            relationship_identity: SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            target_scope: target,
+            identification_property: SpreadsheetIdentificationProperty::ExternalId,
+            search_scope: SpreadsheetSearchScope::TargetRecursive,
+            source_namespace: NS.into(),
+            mapping_version: "1".into(),
+            column_mappings: vec![
+                SpreadsheetColumnMapping {
+                    source_column: "Element Key".into(),
+                    property: SpreadsheetSemanticProperty::ExternalId,
+                },
+                SpreadsheetColumnMapping {
+                    source_column: "Element Label".into(),
+                    property: SpreadsheetSemanticProperty::Name,
+                },
+            ],
+        }
+    }
+
+    fn business_columns() -> Vec<(&'static str, SpreadsheetSemanticProperty)> {
+        vec![
+            ("Allocation ID", SpreadsheetSemanticProperty::ExternalId),
+            ("Function", SpreadsheetSemanticProperty::Source),
+            ("Allocated Component", SpreadsheetSemanticProperty::Target),
+            ("Description", SpreadsheetSemanticProperty::Documentation),
+        ]
+    }
+
+    #[test]
+    fn pr42_xlsx_maps_to_native_allocate_plan_and_preview_is_non_mutating() {
+        let (state, _root, package) = workspace("PR42 XLSX");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            for (name, external) in [
+                ("LogicalController", "LOGICAL"),
+                ("PhysicalController", "PHYSICAL"),
+                ("BrakeFunction", "BRAKE-FN"),
+                ("BrakeController", "BRAKE-CTRL"),
+                ("PowerFunction", "POWER-FN"),
+                ("PowerUnit", "POWER-UNIT"),
+            ] {
+                seed(project, package, ElementKind::Block, name, external);
+            }
+        }
+        let mapping = relationship_map(
+            "Functional Allocation",
+            fixture_path(),
+            Some("Functional Allocation"),
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &business_columns(),
+        );
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![mapping],
+        };
+        let before = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationships
+            .len();
+        let preview = preview_spreadsheet_import_group(&group, &state);
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert_eq!(preview.totals.create, 3);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationships
+                .len(),
+            before
+        );
+
+        let snapshot = state.project.lock().unwrap().as_ref().unwrap().clone();
+        let prepared = prepare_spreadsheet_import(&group, &snapshot);
+        assert!(prepared.plan.operations.iter().any(|operation| matches!(
+            operation,
+            ModelBuildOperation::CreateRelationship {
+                kind: RelationshipKind::Allocate,
+                ..
+            }
+        )));
+        assert!(!prepared.plan.operations.iter().any(|operation| matches!(
+            operation,
+            ModelBuildOperation::CreateDiagram { .. }
+                | ModelBuildOperation::PresentElement { .. }
+                | ModelBuildOperation::PresentRelationship { .. }
+        )));
+
+        apply_spreadsheet_import_group(&group, &state).unwrap();
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        assert_eq!(
+            project
+                .relationships
+                .values()
+                .filter(|relationship| relationship.kind == RelationshipKind::Allocate)
+                .count(),
+            3
+        );
+        let logical = project
+            .relationships
+            .values()
+            .find(|relationship| relationship.external_id == external_key(NS, "ALLOC-001"))
+            .unwrap();
+        assert_eq!(logical.owner_id, Some(package));
+        assert_eq!(logical.documentation, "Logical to physical allocation");
+    }
+
+    #[test]
+    fn pr42_csv_external_ids_qnames_and_reimport_update_without_duplication() {
+        let (state, _root, package) = workspace("PR42 CSV");
+        let (a, b, c) = {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            (
+                seed(project, package, ElementKind::Block, "A", "A"),
+                seed(project, package, ElementKind::Block, "B", "B"),
+                seed(project, package, ElementKind::Block, "C", "C"),
+            )
+        };
+        let columns = [
+            ("Allocation Key", SpreadsheetSemanticProperty::ExternalId),
+            ("From Element", SpreadsheetSemanticProperty::Source),
+            ("To Element", SpreadsheetSemanticProperty::Target),
+            ("Notes", SpreadsheetSemanticProperty::Documentation),
+        ];
+        let first = relationship_map(
+            "CSV Allocation",
+            temp_csv("Allocation Key,From Element,To Element,Notes\nALLOC-CSV,A,B,first\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &columns,
+        );
+        let first_group = SpreadsheetImportMapGroup {
+            mappings: vec![first],
+        };
+        apply_spreadsheet_import_group(&first_group, &state).unwrap();
+        let relationship_id = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationships
+            .values()
+            .next()
+            .unwrap()
+            .id;
+        assert_eq!(
+            preview_spreadsheet_import_group(&first_group, &state)
+                .totals
+                .no_change,
+            1
+        );
+
+        let metadata_update = relationship_map(
+            "CSV Allocation",
+            temp_csv("Allocation Key,From Element,To Element,Notes\nALLOC-CSV,A,B,updated\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &columns,
+        );
+        let metadata_group = SpreadsheetImportMapGroup {
+            mappings: vec![metadata_update],
+        };
+        assert_eq!(
+            preview_spreadsheet_import_group(&metadata_group, &state)
+                .totals
+                .update,
+            1
+        );
+        apply_spreadsheet_import_group(&metadata_group, &state).unwrap();
+
+        let endpoint_update = relationship_map(
+            "CSV Allocation",
+            temp_csv("Allocation Key,From Element,To Element,Notes\nALLOC-CSV,A,C,updated\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &columns,
+        );
+        let endpoint_group = SpreadsheetImportMapGroup {
+            mappings: vec![endpoint_update],
+        };
+        assert_eq!(
+            preview_spreadsheet_import_group(&endpoint_group, &state)
+                .totals
+                .update,
+            1
+        );
+        apply_spreadsheet_import_group(&endpoint_group, &state).unwrap();
+        {
+            let guard = state.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            let relationship = project.relationship(relationship_id).unwrap();
+            assert_eq!(relationship.id, relationship_id);
+            assert_eq!(relationship.source_id, a);
+            assert_eq!(relationship.target_id, c);
+            assert_eq!(relationship.documentation, "updated");
+            assert_eq!(project.relationships.len(), 1);
+        }
+
+        let (source_qname, target_qname) = {
+            let guard = state.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            (
+                project.qualified_name(b).unwrap(),
+                project.qualified_name(c).unwrap(),
+            )
+        };
+        let qname_map = relationship_map(
+            "Qualified Allocation",
+            temp_csv(&format!(
+                "Allocation Key,From Element,To Element,Notes\nALLOC-Q,{source_qname},{target_qname},qualified\n"
+            )),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &columns,
+        );
+        apply_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![qname_map],
+            },
+            &state,
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationships
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn pr42_plan_local_endpoints_and_late_invalid_row_are_atomic() {
+        let (blocked_state, _root, package) = workspace("PR42 Atomic");
+        let blocks = element_map(
+            "Blocks",
+            temp_csv("Element Key,Element Label\nA,A\nB,B\n"),
+            package,
+        );
+        let links = relationship_map(
+            "Allocations",
+            temp_csv(
+                "Allocation ID,Function,Allocated Component,Description\nALLOC-1,A,B,valid\nALLOC-BAD,A,Missing,invalid\n",
+            ),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &business_columns(),
+        );
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![blocks, links],
+        };
+        let before = blocked_state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .len();
+        let preview = preview_spreadsheet_import_group(&group, &blocked_state);
+        assert!(!preview.is_valid());
+        assert!(
+            preview
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "TARGET_UNRESOLVED")
+        );
+        assert_eq!(
+            blocked_state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
+        assert!(
+            blocked_state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationships
+                .is_empty()
+        );
+        assert!(apply_spreadsheet_import_group(&group, &blocked_state).is_err());
+
+        let (state, _root, package) = workspace("PR42 Plan Local");
+        let blocks = element_map(
+            "Blocks",
+            temp_csv("Element Key,Element Label\nA,A\nB,B\n"),
+            package,
+        );
+        let links = relationship_map(
+            "Allocations",
+            temp_csv("Allocation ID,Function,Allocated Component,Description\nALLOC-1,A,B,valid\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &business_columns(),
+        );
+        let valid_group = SpreadsheetImportMapGroup {
+            mappings: vec![blocks, links],
+        };
+        let project = state.project.lock().unwrap().as_ref().unwrap().clone();
+        let prepared = prepare_spreadsheet_import(&valid_group, &project);
+        assert!(
+            prepared.preview.is_valid(),
+            "{:?}",
+            prepared.preview.diagnostics
+        );
+        let create_element_pos = prepared
+            .plan
+            .operations
+            .iter()
+            .position(|operation| matches!(operation, ModelBuildOperation::CreateElement { .. }))
+            .unwrap();
+        let allocate_pos = prepared
+            .plan
+            .operations
+            .iter()
+            .position(|operation| {
+                matches!(
+                    operation,
+                    ModelBuildOperation::CreateRelationship {
+                        kind: RelationshipKind::Allocate,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert!(create_element_pos < allocate_pos);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            2
+        );
+        apply_spreadsheet_import_group(&valid_group, &state).unwrap();
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationships
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn pr42_self_invalid_endpoint_owner_and_reference_failures_are_blocked() {
+        let (state, _root, package) = workspace("PR42 Diagnostics");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            seed(project, package, ElementKind::Block, "A", "A");
+            seed(project, package, ElementKind::Block, "B", "B");
+            seed(project, package, ElementKind::Comment, "Note", "NOTE");
+            seed(project, package, ElementKind::Block, "Dup", "DUP-1");
+            seed(project, package, ElementKind::Block, "Dup", "DUP-2");
+            seed(project, package, ElementKind::Block, "TargetDup", "TGT-1");
+            seed(project, package, ElementKind::Block, "TargetDup", "TGT-2");
+        }
+        let columns = business_columns();
+        let preview_for = |csv: &str| {
+            let map = relationship_map(
+                "Diagnostics",
+                temp_csv(csv),
+                None,
+                package,
+                SpreadsheetRelationshipIdentityPolicy::ExternalId,
+                &columns,
+            );
+            preview_spreadsheet_import_group(
+                &SpreadsheetImportMapGroup {
+                    mappings: vec![map],
+                },
+                &state,
+            )
+        };
+
+        let self_ref =
+            preview_for("Allocation ID,Function,Allocated Component,Description\nSELF,A,A,self\n");
+        assert!(!self_ref.is_valid());
+        assert!(
+            self_ref
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ALLOCATION_SELF_REFERENCE")
+        );
+
+        let invalid_endpoint = preview_for(
+            "Allocation ID,Function,Allocated Component,Description\nBAD-END,NOTE,B,invalid\n",
+        );
+        assert!(!invalid_endpoint.is_valid());
+        assert!(invalid_endpoint.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "SEMANTIC_VALIDATION"
+                && diagnostic.reason.contains("invalid Allocation endpoints")
+        }));
+
+        let unresolved_source = preview_for(
+            "Allocation ID,Function,Allocated Component,Description\nMISS-S,Missing,B,missing\n",
+        );
+        assert!(
+            unresolved_source
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "SOURCE_UNRESOLVED")
+        );
+        let unresolved_target = preview_for(
+            "Allocation ID,Function,Allocated Component,Description\nMISS-T,A,Missing,missing\n",
+        );
+        assert!(
+            unresolved_target
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "TARGET_UNRESOLVED")
+        );
+        let ambiguous_source = preview_for(
+            "Allocation ID,Function,Allocated Component,Description\nAMB-S,Dup,B,ambiguous\n",
+        );
+        assert!(
+            ambiguous_source
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "SOURCE_AMBIGUOUS")
+        );
+        let ambiguous_target = preview_for(
+            "Allocation ID,Function,Allocated Component,Description\nAMB-T,A,TargetDup,ambiguous\n",
+        );
+        assert!(
+            ambiguous_target
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "TARGET_AMBIGUOUS")
+        );
+
+        let owner_columns = [
+            ("Allocation ID", SpreadsheetSemanticProperty::ExternalId),
+            ("Function", SpreadsheetSemanticProperty::Source),
+            ("Allocated Component", SpreadsheetSemanticProperty::Target),
+            ("Owner", SpreadsheetSemanticProperty::Owner),
+        ];
+        let unresolved_owner = relationship_map(
+            "Owner unresolved",
+            temp_csv("Allocation ID,Function,Allocated Component,Owner\nOWN-1,A,B,MissingOwner\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &owner_columns,
+        );
+        let unresolved_owner = preview_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![unresolved_owner],
+            },
+            &state,
+        );
+        assert!(
+            unresolved_owner
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "OWNER_UNRESOLVED")
+        );
+        let illegal_owner = relationship_map(
+            "Owner illegal",
+            temp_csv("Allocation ID,Function,Allocated Component,Owner\nOWN-2,A,B,A\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &owner_columns,
+        );
+        let illegal_owner = preview_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![illegal_owner],
+            },
+            &state,
+        );
+        assert!(!illegal_owner.is_valid());
+        assert!(illegal_owner.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .reason
+                .contains("Allocation relationships must be owned by a Model or Package")
+        }));
+        assert!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationships
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn pr42_duplicate_source_id_fallback_ambiguity_and_invalid_update_are_blocked() {
+        let (state, _root, package) = workspace("PR42 Identity");
+        let (a, b, c) = {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            (
+                seed(project, package, ElementKind::Block, "A", "A"),
+                seed(project, package, ElementKind::Block, "B", "B"),
+                seed(project, package, ElementKind::Block, "C", "C"),
+            )
+        };
+        let duplicate = relationship_map(
+            "Duplicate IDs",
+            temp_csv(
+                "Allocation ID,Function,Allocated Component,Description\nDUP,A,B,one\nDUP,A,C,two\n",
+            ),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &business_columns(),
+        );
+        let duplicate = preview_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![duplicate],
+            },
+            &state,
+        );
+        assert!(
+            duplicate
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "DUPLICATE_SOURCE_EXTERNAL_ID")
+        );
+
+        let initial = relationship_map(
+            "Initial",
+            temp_csv(
+                "Allocation ID,Function,Allocated Component,Description\nALLOC-1,A,B,initial\n",
+            ),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &business_columns(),
+        );
+        apply_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![initial],
+            },
+            &state,
+        )
+        .unwrap();
+        let relationship_id = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationships
+            .values()
+            .next()
+            .unwrap()
+            .id;
+
+        let invalid_update = relationship_map(
+            "Invalid update",
+            temp_csv(
+                "Allocation ID,Function,Allocated Component,Description\nALLOC-1,NOTE,B,invalid\n",
+            ),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::ExternalId,
+            &business_columns(),
+        );
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            seed(project, package, ElementKind::Comment, "NOTE", "NOTE");
+        }
+        let invalid_preview = preview_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![invalid_update],
+            },
+            &state,
+        );
+        assert!(!invalid_preview.is_valid());
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationship(relationship_id)
+                .unwrap()
+                .source_id,
+            a
+        );
+
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let first = project
+                .create_relationship(RelationshipKind::Allocate, b, c, Some(package))
+                .unwrap();
+            project.relationships.get_mut(&first).unwrap().external_id = "manual::one".into();
+            let mut second = project.relationship(first).unwrap().clone();
+            second.id = RelationshipId::new();
+            second.external_id = "manual::two".into();
+            project.relationships.insert(second.id, second);
+        }
+        let fallback_columns = [
+            ("Function", SpreadsheetSemanticProperty::Source),
+            ("Allocated Component", SpreadsheetSemanticProperty::Target),
+        ];
+        let fallback = relationship_map(
+            "Fallback ambiguity",
+            temp_csv("Function,Allocated Component\nB,C\n"),
+            None,
+            package,
+            SpreadsheetRelationshipIdentityPolicy::KindSourceTarget,
+            &fallback_columns,
+        );
+        let fallback = preview_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![fallback],
+            },
+            &state,
+        );
+        assert!(
+            fallback
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "AMBIGUOUS_RELATIONSHIP")
         );
     }
 }

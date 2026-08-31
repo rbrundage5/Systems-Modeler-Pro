@@ -91,6 +91,8 @@ pub enum RelationshipKind {
     Composition,
     Generalization,
     Realization,
+    /// Explicit SysML allocation from a source semantic element to a target semantic element.
+    Allocate,
     Connector,
     ItemFlow,
     DeriveRequirement,
@@ -330,6 +332,13 @@ impl Element {
                     | ElementKind::Slot
             )
     }
+
+    /// Common semantic endpoint boundary for explicit SysML Allocation.
+    /// Presentation/admin namespaces and Comments are not allocation endpoints;
+    /// all other stable model-core Elements may participate.
+    pub fn is_allocatable(&self) -> bool {
+        !self.is_namespace() && self.kind != ElementKind::Comment
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -544,6 +553,22 @@ pub enum ModelError {
     MissingTraceabilityOwner,
     #[error("Requirement traceability relationships must be owned by a Model or Package: {0}")]
     InvalidTraceabilityOwner(ElementId),
+    #[error("Allocation cannot connect an element to itself")]
+    AllocationSelfReference,
+    #[error("invalid Allocation endpoints: {source_kind:?} -> {target_kind:?}")]
+    InvalidAllocationEndpoints {
+        source_kind: ElementKind,
+        target_kind: ElementKind,
+    },
+    #[error("duplicate Allocation relationship: {source_id} -> {target_id}")]
+    DuplicateAllocationRelationship {
+        source_id: ElementId,
+        target_id: ElementId,
+    },
+    #[error("Allocation relationships require a Model or Package owner")]
+    MissingAllocationOwner,
+    #[error("Allocation relationships must be owned by a Model or Package: {0}")]
+    InvalidAllocationOwner(ElementId),
     #[error("{diagnostic}")]
     InvalidPackageRelationshipEndpoints {
         relationship: RelationshipKind,
@@ -774,6 +799,22 @@ impl Project {
     ) -> Result<RelationshipId, ModelError> {
         let source = self.element(source_id)?;
         let target = self.element(target_id)?;
+        if kind == RelationshipKind::Allocate {
+            validate_allocation_endpoints(source, target)?;
+            if source_id == target_id {
+                return Err(ModelError::AllocationSelfReference);
+            }
+            if self.relationships.values().any(|relationship| {
+                relationship.kind == RelationshipKind::Allocate
+                    && relationship.source_id == source_id
+                    && relationship.target_id == target_id
+            }) {
+                return Err(ModelError::DuplicateAllocationRelationship {
+                    source_id,
+                    target_id,
+                });
+            }
+        }
         let package_relationship =
             is_package_relationship(&kind) || kind == RelationshipKind::Dependency;
         if package_relationship {
@@ -849,10 +890,18 @@ impl Project {
         if traceability && owner_id.is_none() {
             return Err(ModelError::MissingTraceabilityOwner);
         }
+        if kind == RelationshipKind::Allocate && owner_id.is_none() {
+            return Err(ModelError::MissingAllocationOwner);
+        }
         if let Some(owner_id) = owner_id {
             let owner = self.element(owner_id)?;
             if traceability && !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
                 return Err(ModelError::InvalidTraceabilityOwner(owner_id));
+            }
+            if kind == RelationshipKind::Allocate
+                && !matches!(owner.kind, ElementKind::Model | ElementKind::Package)
+            {
+                return Err(ModelError::InvalidAllocationOwner(owner_id));
             }
             if !owner.is_namespace() && !owner.is_classifier() {
                 return Err(ModelError::InvalidOwner(owner_id));
@@ -1287,6 +1336,32 @@ impl Project {
             }
             self.element(relationship.source_id)?;
             self.element(relationship.target_id)?;
+            if relationship.kind == RelationshipKind::Allocate {
+                let source = self.element(relationship.source_id)?;
+                let target = self.element(relationship.target_id)?;
+                validate_allocation_endpoints(source, target)?;
+                if relationship.source_id == relationship.target_id {
+                    return Err(ModelError::AllocationSelfReference);
+                }
+                let owner_id = relationship.owner_id.ok_or(ModelError::MissingAllocationOwner)?;
+                if !matches!(
+                    self.element(owner_id)?.kind,
+                    ElementKind::Model | ElementKind::Package
+                ) {
+                    return Err(ModelError::InvalidAllocationOwner(owner_id));
+                }
+                if self.relationships.values().any(|candidate| {
+                    candidate.id != relationship.id
+                        && candidate.kind == RelationshipKind::Allocate
+                        && candidate.source_id == relationship.source_id
+                        && candidate.target_id == relationship.target_id
+                }) {
+                    return Err(ModelError::DuplicateAllocationRelationship {
+                        source_id: relationship.source_id,
+                        target_id: relationship.target_id,
+                    });
+                }
+            }
             if is_traceability_relationship(&relationship.kind) {
                 if relationship.owner_id.is_none() {
                     return Err(ModelError::MissingTraceabilityOwner);
@@ -1697,6 +1772,17 @@ fn is_traceability_relationship(relationship: &RelationshipKind) -> bool {
     )
 }
 
+fn validate_allocation_endpoints(source: &Element, target: &Element) -> Result<(), ModelError> {
+    if source.is_allocatable() && target.is_allocatable() {
+        Ok(())
+    } else {
+        Err(ModelError::InvalidAllocationEndpoints {
+            source_kind: source.kind.clone(),
+            target_kind: target.kind.clone(),
+        })
+    }
+}
+
 fn validate_traceability_endpoints(
     relationship: &RelationshipKind,
     source: &ElementKind,
@@ -1874,7 +1960,8 @@ pub mod notation {
                 source_decoration: EndDecoration::None,
                 target_decoration: EndDecoration::OpenArrow,
             },
-            RelationshipKind::DeriveRequirement
+            RelationshipKind::Allocate
+            | RelationshipKind::DeriveRequirement
             | RelationshipKind::Satisfy
             | RelationshipKind::Verify
             | RelationshipKind::Refine
