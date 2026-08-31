@@ -18,6 +18,7 @@ mod workspace {
     mod package_diagrams;
     mod parametric_execution;
     mod parametrics;
+    mod portable_interchange;
     mod presentation_interaction;
     mod presentation_theme;
     mod relationship_editing;
@@ -104,6 +105,7 @@ mod workspace {
         update_parametric_value_property, update_quantity_kind_details, update_unit_details,
         update_value_type_details,
     };
+    pub use portable_interchange::{export_portable_project_json, import_portable_project_json};
     pub use presentation_interaction::{
         update_activity_presentation_geometry, update_bdd_presentation_geometry,
         update_ibd_port_geometry, update_ibd_property_geometry, update_state_presentation_geometry,
@@ -192,9 +194,10 @@ use workspace::{
     delete_binding_connector, delete_model_element, delete_package_relationship,
     delete_repository_diagram, delete_use_case_relationship, diagram_command_manifest,
     diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,
-    fit_diagram_viewport, get_diagram_frame_preference, get_panel_preferences,
-    get_viewport_preference, history_checkpoint, history_redo, history_reset, history_undo,
-    ibd_item_flow_notation, initialize_activity_execution, initialize_sequence_execution,
+    export_portable_project_json, fit_diagram_viewport, get_diagram_frame_preference,
+    get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
+    history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
+    initialize_activity_execution, initialize_sequence_execution,
     initialize_state_machine_execution, load_activity_workspace, move_active_selection,
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
     new_project, open_project_file, open_project_file_complete, paste_selection,
@@ -672,6 +675,8 @@ fn main() {
             delete_repository_diagram,
             workspace_snapshot,
             workspace_snapshot_complete,
+            export_portable_project_json,
+            import_portable_project_json,
             activity_snapshot,
             activity_execution_snapshot,
             activity_execution_runtime_selection,

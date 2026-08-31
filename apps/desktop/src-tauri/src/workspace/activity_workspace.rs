@@ -94,7 +94,7 @@ fn node_rect(node: &ActivityDiagramNode) -> routing::RouteRect {
     }
 }
 
-fn validate_activity_diagrams(
+pub(super) fn validate_activity_diagrams(
     repository: &ActivityRepository,
     diagrams: &[ActivityDiagram],
 ) -> Result<(), String> {
