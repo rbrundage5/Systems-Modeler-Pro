@@ -1,6 +1,6 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
-use systems_modeler_core::{DiagramFamilyId, supported_diagram_families};
+use systems_modeler_core::{DiagramFamilyId, FlowDirection, supported_diagram_families};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildReference<T> {
@@ -24,6 +24,22 @@ pub enum ModelBuildOperation {
     UpdateElement {
         element: ElementReference,
         name: String,
+    },
+    /// Spreadsheet/interchange scalar and owned-feature update path.
+    /// Mutation stays inside the PR36 candidate build so preview/apply remain atomic.
+    UpdateElementFields {
+        element: ElementReference,
+        name: Option<String>,
+        owner: Option<ElementReference>,
+        type_ref: Option<ElementReference>,
+        external_id: Option<String>,
+        documentation: Option<String>,
+        visibility: Option<VisibilityKind>,
+        requirement_id: Option<String>,
+        requirement_text: Option<String>,
+        multiplicity: Option<Multiplicity>,
+        default_value: Option<String>,
+        flow_direction: Option<FlowDirection>,
     },
     CreateRelationship {
         external_id: String,
@@ -108,7 +124,7 @@ struct CandidateBuild {
     result: ModelBuildResult,
 }
 
-fn external_key(namespace: &str, external_id: &str) -> String {
+pub(super) fn external_key(namespace: &str, external_id: &str) -> String {
     format!("{namespace}::{external_id}")
 }
 
@@ -120,6 +136,7 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         ModelBuildOperation::UpdateElement { name, .. } => {
             format!("UPDATE element name to {name}")
         }
+        ModelBuildOperation::UpdateElementFields { .. } => "UPDATE mapped element fields".into(),
         ModelBuildOperation::CreateRelationship { external_id, .. } => {
             format!("CREATE relationship {external_id}")
         }
@@ -357,6 +374,148 @@ fn build_candidate(
                 ModelBuildOperation::UpdateElement { element, name } => {
                     let id = resolve_element(&project, &element_ids, namespace, element, index)?;
                     project.rename_element(id, name).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                }
+                ModelBuildOperation::UpdateElementFields {
+                    element,
+                    name,
+                    owner,
+                    type_ref,
+                    external_id,
+                    documentation,
+                    visibility,
+                    requirement_id,
+                    requirement_text,
+                    multiplicity,
+                    default_value,
+                    flow_direction,
+                } => {
+                    let id = resolve_element(&project, &element_ids, namespace, element, index)?;
+                    if let Some(owner) = owner {
+                        let owner_id =
+                            resolve_element(&project, &element_ids, namespace, owner, index)?;
+                        project.move_element(id, owner_id).map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+                    }
+                    if let Some(name) = name {
+                        project.rename_element(id, name.clone()).map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+                    }
+                    if let Some(type_ref) = type_ref {
+                        let type_id =
+                            resolve_element(&project, &element_ids, namespace, type_ref, index)?;
+                        project.set_element_type(id, type_id).map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+                    }
+                    if let Some(external_id) = external_id {
+                        project
+                            .set_external_id(id, external_key(namespace, external_id))
+                            .map_err(|cause| {
+                                error("DUPLICATE_EXTERNAL_ID", Some(index), cause.to_string())
+                            })?;
+                    }
+                    if let Some(documentation) = documentation {
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .documentation = documentation.clone();
+                    }
+                    if let Some(visibility) = visibility {
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .visibility = *visibility;
+                    }
+                    if let Some(multiplicity) = multiplicity {
+                        project
+                            .set_multiplicity(id, *multiplicity)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?;
+                    }
+                    if let Some(default_value) = default_value {
+                        if project
+                            .element(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .kind
+                            != ElementKind::ValueProperty
+                        {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Default Value mapping is valid only for ValueProperty",
+                            ));
+                        }
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .default_value =
+                            (!default_value.trim().is_empty()).then(|| default_value.clone());
+                    }
+                    if let Some(flow_direction) = flow_direction {
+                        if project
+                            .element(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .kind
+                            != ElementKind::FlowProperty
+                        {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Flow Direction mapping is valid only for FlowProperty",
+                            ));
+                        }
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .flow_direction = Some(*flow_direction);
+                    }
+                    if requirement_id.is_some() || requirement_text.is_some() {
+                        let current = project.element(id).map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+                        if current.kind != ElementKind::Requirement {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Requirement ID/Text mappings are valid only for Requirement elements",
+                            ));
+                        }
+                        let next_requirement_id = requirement_id
+                            .clone()
+                            .or_else(|| current.requirement_id.clone())
+                            .ok_or_else(|| error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Requirement ID is required when applying mapped Requirement fields",
+                            ))?;
+                        let next_requirement_text = requirement_text
+                            .clone()
+                            .or_else(|| current.requirement_text.clone())
+                            .unwrap_or_default();
+                        project
+                            .update_requirement(id, next_requirement_id, next_requirement_text)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?;
+                    }
+                    project.validate_element(id).map_err(|cause| {
                         error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
                     })?;
                 }

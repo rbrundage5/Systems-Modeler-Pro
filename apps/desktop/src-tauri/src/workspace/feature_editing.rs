@@ -21,7 +21,9 @@ fn parse_parameter_direction(
     }
 }
 
-fn parse_flow_direction(value: &str) -> Result<systems_modeler_core::FlowDirection, String> {
+pub(super) fn parse_flow_direction(
+    value: &str,
+) -> Result<systems_modeler_core::FlowDirection, String> {
     match value {
         "in" => Ok(systems_modeler_core::FlowDirection::In),
         "out" => Ok(systems_modeler_core::FlowDirection::Out),
