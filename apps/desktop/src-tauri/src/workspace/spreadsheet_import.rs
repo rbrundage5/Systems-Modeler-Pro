@@ -1,21 +1,30 @@
+#![allow(clippy::result_large_err)]
+
 use super::{
     WorkspaceState,
     bulk_model::{
-        BuildDiagnostic, BuildDiagnosticSeverity, BuildReference, ElementReference, ModelBuildOperation,
-        ModelBuildPlan, ModelBuildResult, apply_model_build, external_key, preview_model_build,
+        BuildDiagnostic, BuildDiagnosticSeverity, BuildReference, ElementReference,
+        ModelBuildOperation, ModelBuildPlan, ModelBuildResult, apply_model_build, external_key,
+        preview_model_build,
     },
 };
 use calamine::{Reader, open_workbook_auto};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use systems_modeler_core::{Element, ElementId, ElementKind, Project, VisibilityKind};
+use systems_modeler_core::{
+    Element, ElementId, ElementKind, FlowDirection, Multiplicity, Project, VisibilityKind,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SpreadsheetSemanticProperty {
     Name,
     Documentation,
     Owner,
+    Type,
+    Multiplicity,
+    DefaultValue,
+    FlowDirection,
     ExternalId,
     Visibility,
     RequirementId,
@@ -189,9 +198,7 @@ struct RowContext {
 struct PlannedElement {
     external_id: String,
     kind: ElementKind,
-    name: String,
     qualified_name: String,
-    owner: ElementReference,
     depth_from_target: usize,
 }
 
@@ -227,6 +234,12 @@ fn supported_kind(kind: &ElementKind) -> bool {
             | ElementKind::UseCase
             | ElementKind::Requirement
             | ElementKind::TestCase
+            | ElementKind::PartProperty
+            | ElementKind::ReferenceProperty
+            | ElementKind::ValueProperty
+            | ElementKind::FlowProperty
+            | ElementKind::ConstraintProperty
+            | ElementKind::ConstraintParameter
     )
 }
 
@@ -234,6 +247,18 @@ fn is_namespace_kind(kind: &ElementKind) -> bool {
     matches!(
         kind,
         ElementKind::Model | ElementKind::Package | ElementKind::ModelLibrary
+    )
+}
+
+fn is_feature_kind(kind: &ElementKind) -> bool {
+    matches!(
+        kind,
+        ElementKind::PartProperty
+            | ElementKind::ReferenceProperty
+            | ElementKind::ValueProperty
+            | ElementKind::FlowProperty
+            | ElementKind::ConstraintProperty
+            | ElementKind::ConstraintParameter
     )
 }
 
@@ -262,7 +287,9 @@ fn diagnostic(
     }
 }
 
-fn read_spreadsheet_table(map: &SpreadsheetImportMap) -> Result<SpreadsheetTable, SpreadsheetImportDiagnostic> {
+fn read_spreadsheet_table(
+    map: &SpreadsheetImportMap,
+) -> Result<SpreadsheetTable, SpreadsheetImportDiagnostic> {
     if map.header_row == 0 {
         return Err(diagnostic(
             Some(map),
@@ -294,7 +321,9 @@ fn read_spreadsheet_table(map: &SpreadsheetImportMap) -> Result<SpreadsheetTable
     }
 }
 
-fn read_csv_table(map: &SpreadsheetImportMap) -> Result<SpreadsheetTable, SpreadsheetImportDiagnostic> {
+fn read_csv_table(
+    map: &SpreadsheetImportMap,
+) -> Result<SpreadsheetTable, SpreadsheetImportDiagnostic> {
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
@@ -328,7 +357,9 @@ fn read_csv_table(map: &SpreadsheetImportMap) -> Result<SpreadsheetTable, Spread
     table_from_rows(map, 1, records)
 }
 
-fn read_xlsx_table(map: &SpreadsheetImportMap) -> Result<SpreadsheetTable, SpreadsheetImportDiagnostic> {
+fn read_xlsx_table(
+    map: &SpreadsheetImportMap,
+) -> Result<SpreadsheetTable, SpreadsheetImportDiagnostic> {
     let worksheet = map
         .worksheet
         .as_deref()
@@ -367,10 +398,7 @@ fn read_xlsx_table(map: &SpreadsheetImportMap) -> Result<SpreadsheetTable, Sprea
             format!("worksheet '{worksheet}' could not be read: {error}"),
         )
     })?;
-    let first_physical_row = range
-        .start()
-        .map(|(row, _)| row as usize + 1)
-        .unwrap_or(1);
+    let first_physical_row = range.start().map(|(row, _)| row as usize + 1).unwrap_or(1);
     let rows = range
         .rows()
         .map(|row| row.iter().map(ToString::to_string).collect::<Vec<_>>())
@@ -440,12 +468,18 @@ fn column_indexes(
 ) -> Result<BTreeMap<SpreadsheetSemanticProperty, usize>, SpreadsheetImportDiagnostic> {
     let mut header_indexes: HashMap<&str, Vec<usize>> = HashMap::new();
     for (index, header) in table.headers.iter().enumerate() {
-        header_indexes.entry(header.as_str()).or_default().push(index);
+        header_indexes
+            .entry(header.as_str())
+            .or_default()
+            .push(index);
     }
     let mut result = BTreeMap::new();
     for column_mapping in &map.column_mappings {
         let source_column = column_mapping.source_column.trim();
-        let matches = header_indexes.get(source_column).cloned().unwrap_or_default();
+        let matches = header_indexes
+            .get(source_column)
+            .cloned()
+            .unwrap_or_default();
         match matches.as_slice() {
             [] => {
                 return Err(diagnostic(
@@ -455,7 +489,9 @@ fn column_indexes(
                     Some(column_mapping.property),
                     None,
                     "MAPPED_COLUMN_MISSING",
-                    format!("mapped column '{source_column}' is not present in the configured header row"),
+                    format!(
+                        "mapped column '{source_column}' is not present in the configured header row"
+                    ),
                 ));
             }
             [_] => {}
@@ -479,7 +515,10 @@ fn column_indexes(
                 Some(column_mapping.property),
                 None,
                 "SEMANTIC_PROPERTY_DUPLICATE",
-                format!("semantic property {:?} is mapped more than once", column_mapping.property),
+                format!(
+                    "semantic property {:?} is mapped more than once",
+                    column_mapping.property
+                ),
             ));
         }
     }
@@ -495,7 +534,12 @@ fn mapped_values(
         .map(|(property, index)| {
             (
                 *property,
-                row.values.get(*index).cloned().unwrap_or_default().trim().to_string(),
+                row.values
+                    .get(*index)
+                    .cloned()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
             )
         })
         .collect()
@@ -567,9 +611,98 @@ fn validate_map(
             None,
             None,
             "ELEMENT_KIND_UNSUPPORTED",
-            format!("{:?} is outside the PR38 basic-element scope", map.element_kind),
+            format!(
+                "{:?} is outside the PR39 package/basic-element/owned-feature scope",
+                map.element_kind
+            ),
         ));
     }
+    let has_property = |property| {
+        map.column_mappings
+            .iter()
+            .any(|mapping| mapping.property == property)
+    };
+    if map.element_kind != ElementKind::Requirement
+        && (has_property(SpreadsheetSemanticProperty::RequirementId)
+            || has_property(SpreadsheetSemanticProperty::RequirementText))
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            None,
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Requirement ID/Text columns can be mapped only for Requirement elements",
+        ));
+    }
+    if is_feature_kind(&map.element_kind) && !has_property(SpreadsheetSemanticProperty::Type) {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::Type),
+            None,
+            "FEATURE_TYPE_COLUMN_REQUIRED",
+            format!(
+                "{:?} mappings require an explicit Type column",
+                map.element_kind
+            ),
+        ));
+    }
+    if !is_feature_kind(&map.element_kind)
+        && (has_property(SpreadsheetSemanticProperty::Type)
+            || has_property(SpreadsheetSemanticProperty::Multiplicity)
+            || has_property(SpreadsheetSemanticProperty::DefaultValue)
+            || has_property(SpreadsheetSemanticProperty::FlowDirection))
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            None,
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Type/Multiplicity/Default Value/Flow Direction mappings are reserved for PR39 owned features",
+        ));
+    }
+    if map.element_kind != ElementKind::ValueProperty
+        && has_property(SpreadsheetSemanticProperty::DefaultValue)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::DefaultValue),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Default Value can be mapped only for ValueProperty",
+        ));
+    }
+    if map.element_kind == ElementKind::FlowProperty {
+        if !has_property(SpreadsheetSemanticProperty::FlowDirection) {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                None,
+                Some(SpreadsheetSemanticProperty::FlowDirection),
+                None,
+                "FLOW_DIRECTION_COLUMN_REQUIRED",
+                "FlowProperty mappings require an explicit Flow Direction column",
+            ));
+        }
+    } else if has_property(SpreadsheetSemanticProperty::FlowDirection) {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::FlowDirection),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Flow Direction can be mapped only for FlowProperty",
+        ));
+    }
+
     let target = project.element(map.target_scope).map_err(|_| {
         diagnostic(
             Some(map),
@@ -589,13 +722,18 @@ fn validate_map(
             None,
             None,
             "TARGET_SCOPE_INVALID",
-            format!("target '{}' ({:?}) is not a semantic namespace", target.name, target.kind),
+            format!(
+                "target '{}' ({:?}) is not a semantic namespace",
+                target.name, target.kind
+            ),
         ));
     }
     let required_identification_property = match map.identification_property {
         SpreadsheetIdentificationProperty::ExternalId => SpreadsheetSemanticProperty::ExternalId,
         SpreadsheetIdentificationProperty::Name => SpreadsheetSemanticProperty::Name,
-        SpreadsheetIdentificationProperty::RequirementId => SpreadsheetSemanticProperty::RequirementId,
+        SpreadsheetIdentificationProperty::RequirementId => {
+            SpreadsheetSemanticProperty::RequirementId
+        }
     };
     if map.identification_property == SpreadsheetIdentificationProperty::RequirementId
         && map.element_kind != ElementKind::Requirement
@@ -622,13 +760,20 @@ fn validate_map(
             Some(required_identification_property),
             None,
             "IDENTIFICATION_COLUMN_REQUIRED",
-            format!("{:?} identification requires a mapped {:?} column", map.identification_property, required_identification_property),
+            format!(
+                "{:?} identification requires a mapped {:?} column",
+                map.identification_property, required_identification_property
+            ),
         ));
     }
     Ok(())
 }
 
-fn distance_from_target(project: &Project, element_id: ElementId, target: ElementId) -> Option<usize> {
+fn distance_from_target(
+    project: &Project,
+    element_id: ElementId,
+    target: ElementId,
+) -> Option<usize> {
     if element_id == target {
         return Some(0);
     }
@@ -662,15 +807,23 @@ fn existing_match_in_scope(
     }
 }
 
-fn existing_owner_in_scope(
+fn reference_in_scope(
     project: &Project,
-    owner_id: ElementId,
+    element_id: ElementId,
     target: ElementId,
     search_scope: SpreadsheetSearchScope,
 ) -> bool {
+    if element_id == target {
+        return true;
+    }
     match search_scope {
-        SpreadsheetSearchScope::TargetOnly => owner_id == target,
-        SpreadsheetSearchScope::TargetRecursive => distance_from_target(project, owner_id, target).is_some(),
+        SpreadsheetSearchScope::TargetOnly => project
+            .element(element_id)
+            .ok()
+            .is_some_and(|element| element.owner_id == Some(target)),
+        SpreadsheetSearchScope::TargetRecursive => {
+            distance_from_target(project, element_id, target).is_some()
+        }
     }
 }
 
@@ -680,7 +833,13 @@ fn qname_aliases(canonical: &str, root_name: &str, target_qname: &str) -> Vec<St
         aliases.push(relative.to_string());
     }
     if canonical == target_qname {
-        aliases.push(target_qname.rsplit("::").next().unwrap_or(target_qname).to_string());
+        aliases.push(
+            target_qname
+                .rsplit("::")
+                .next()
+                .unwrap_or(target_qname)
+                .to_string(),
+        );
     } else if let Some(relative) = canonical.strip_prefix(&format!("{target_qname}::")) {
         aliases.push(relative.to_string());
     }
@@ -689,31 +848,98 @@ fn qname_aliases(canonical: &str, root_name: &str, target_qname: &str) -> Vec<St
     aliases
 }
 
-fn resolve_owner(
+fn resolve_semantic_reference(
     map: &SpreadsheetImportMap,
     project: &Project,
     planned: &[PlannedElement],
-    value: Option<&str>,
+    requested: &str,
+    property: SpreadsheetSemanticProperty,
+    label: &str,
 ) -> Result<ResolvedOwner, SpreadsheetImportDiagnostic> {
-    let target = project.element(map.target_scope).expect("validated target");
-    let target_qname = project
-        .qualified_name(map.target_scope)
-        .map_err(|error| diagnostic(Some(map), None, None, Some(SpreadsheetSemanticProperty::Owner), None, "TARGET_SCOPE_UNRESOLVED", error.to_string()))?;
-    let root_name = project.element(project.root_id).map(|root| root.name.as_str()).unwrap_or_default();
-    let Some(requested) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(ResolvedOwner {
-            reference: BuildReference::Existing(map.target_scope),
-            qualified_name: target_qname,
-            kind: target.kind.clone(),
-            depth_from_target: 0,
-        });
-    };
+    let target_qname = project.qualified_name(map.target_scope).map_err(|error| {
+        diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(property),
+            None,
+            "TARGET_SCOPE_UNRESOLVED",
+            error.to_string(),
+        )
+    })?;
+    let root_name = project
+        .element(project.root_id)
+        .map(|root| root.name.as_str())
+        .unwrap_or_default();
+    let requested = requested.trim();
+
+    let mut existing_external = project
+        .elements
+        .values()
+        .filter(|element| {
+            reference_in_scope(project, element.id, map.target_scope, map.search_scope)
+        })
+        .filter(|element| element.external_id == external_key(&map.source_namespace, requested))
+        .collect::<Vec<_>>();
+    existing_external.sort_by_key(|element| element.id.to_string());
+    existing_external.dedup_by_key(|element| element.id);
+    let mut pending_external = planned
+        .iter()
+        .filter(|element| match map.search_scope {
+            SpreadsheetSearchScope::TargetOnly => element.depth_from_target == 1,
+            SpreadsheetSearchScope::TargetRecursive => element.depth_from_target >= 1,
+        })
+        .filter(|element| element.external_id == requested)
+        .collect::<Vec<_>>();
+    pending_external.sort_by(|left, right| left.external_id.cmp(&right.external_id));
+    pending_external.dedup_by(|left, right| left.external_id == right.external_id);
+    match (existing_external.as_slice(), pending_external.as_slice()) {
+        ([element], []) => {
+            let qualified_name = project
+                .qualified_name(element.id)
+                .unwrap_or_else(|_| element.name.clone());
+            return Ok(ResolvedOwner {
+                reference: BuildReference::Existing(element.id),
+                qualified_name,
+                kind: element.kind.clone(),
+                depth_from_target: distance_from_target(project, element.id, map.target_scope)
+                    .unwrap_or(0),
+            });
+        }
+        ([], [element]) => {
+            return Ok(ResolvedOwner {
+                reference: BuildReference::External(element.external_id.clone()),
+                qualified_name: element.qualified_name.clone(),
+                kind: element.kind.clone(),
+                depth_from_target: element.depth_from_target,
+            });
+        }
+        ([], []) => {}
+        _ => {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                mapped_column_name(map, property),
+                Some(property),
+                Some(requested.into()),
+                if property == SpreadsheetSemanticProperty::Owner {
+                    "OWNER_AMBIGUOUS"
+                } else {
+                    "TYPE_AMBIGUOUS"
+                },
+                format!(
+                    "{label} '{requested}' resolves to more than one element by source external identity"
+                ),
+            ));
+        }
+    }
 
     let mut existing = project
         .elements
         .values()
-        .filter(|element| element.is_namespace())
-        .filter(|element| existing_owner_in_scope(project, element.id, map.target_scope, map.search_scope))
+        .filter(|element| {
+            reference_in_scope(project, element.id, map.target_scope, map.search_scope)
+        })
         .filter_map(|element| {
             let canonical = project.qualified_name(element.id).ok()?;
             qname_aliases(&canonical, root_name, &target_qname)
@@ -724,12 +950,10 @@ fn resolve_owner(
         .collect::<Vec<_>>();
     existing.sort_by_key(|(element, _)| element.id.to_string());
     existing.dedup_by_key(|(element, _)| element.id);
-
     let mut pending = planned
         .iter()
-        .filter(|element| is_namespace_kind(&element.kind))
         .filter(|element| match map.search_scope {
-            SpreadsheetSearchScope::TargetOnly => false,
+            SpreadsheetSearchScope::TargetOnly => element.depth_from_target == 1,
             SpreadsheetSearchScope::TargetRecursive => element.depth_from_target >= 1,
         })
         .filter(|element| {
@@ -740,13 +964,13 @@ fn resolve_owner(
         .collect::<Vec<_>>();
     pending.sort_by(|left, right| left.external_id.cmp(&right.external_id));
     pending.dedup_by(|left, right| left.external_id == right.external_id);
-
     match (existing.as_slice(), pending.as_slice()) {
         ([(element, qualified_name)], []) => Ok(ResolvedOwner {
             reference: BuildReference::Existing(element.id),
             qualified_name: qualified_name.clone(),
             kind: element.kind.clone(),
-            depth_from_target: distance_from_target(project, element.id, map.target_scope).unwrap_or(0),
+            depth_from_target: distance_from_target(project, element.id, map.target_scope)
+                .unwrap_or(0),
         }),
         ([], [element]) => Ok(ResolvedOwner {
             reference: BuildReference::External(element.external_id.clone()),
@@ -757,22 +981,99 @@ fn resolve_owner(
         ([], []) => Err(diagnostic(
             Some(map),
             None,
-            mapped_column_name(map, SpreadsheetSemanticProperty::Owner),
-            Some(SpreadsheetSemanticProperty::Owner),
-            None,
-            "OWNER_UNRESOLVED",
-            format!("could not resolve Owner '{requested}' within {:?} search scope", map.search_scope),
+            mapped_column_name(map, property),
+            Some(property),
+            Some(requested.into()),
+            if property == SpreadsheetSemanticProperty::Owner {
+                "OWNER_UNRESOLVED"
+            } else {
+                "TYPE_UNRESOLVED"
+            },
+            format!(
+                "{label} '{requested}' could not be resolved by namespaced External ID or exact qualified name within {:?} search scope",
+                map.search_scope
+            ),
         )),
         _ => Err(diagnostic(
             Some(map),
             None,
-            mapped_column_name(map, SpreadsheetSemanticProperty::Owner),
-            Some(SpreadsheetSemanticProperty::Owner),
-            None,
-            "OWNER_AMBIGUOUS",
-            format!("Owner '{requested}' resolves to more than one semantic namespace"),
+            mapped_column_name(map, property),
+            Some(property),
+            Some(requested.into()),
+            if property == SpreadsheetSemanticProperty::Owner {
+                "OWNER_AMBIGUOUS"
+            } else {
+                "TYPE_AMBIGUOUS"
+            },
+            format!("{label} '{requested}' resolves to more than one semantic element"),
         )),
     }
+}
+
+fn resolve_owner(
+    map: &SpreadsheetImportMap,
+    project: &Project,
+    planned: &[PlannedElement],
+    value: Option<&str>,
+) -> Result<ResolvedOwner, SpreadsheetImportDiagnostic> {
+    let target = project.element(map.target_scope).expect("validated target");
+    let target_qname = project.qualified_name(map.target_scope).map_err(|error| {
+        diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::Owner),
+            None,
+            "TARGET_SCOPE_UNRESOLVED",
+            error.to_string(),
+        )
+    })?;
+    let Some(requested) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(ResolvedOwner {
+            reference: BuildReference::Existing(map.target_scope),
+            qualified_name: target_qname,
+            kind: target.kind.clone(),
+            depth_from_target: 0,
+        });
+    };
+    resolve_semantic_reference(
+        map,
+        project,
+        planned,
+        requested,
+        SpreadsheetSemanticProperty::Owner,
+        "Owner",
+    )
+}
+
+fn resolve_type(
+    map: &SpreadsheetImportMap,
+    project: &Project,
+    planned: &[PlannedElement],
+    value: Option<&str>,
+) -> Result<ResolvedOwner, SpreadsheetImportDiagnostic> {
+    let requested = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            diagnostic(
+                Some(map),
+                None,
+                mapped_column_name(map, SpreadsheetSemanticProperty::Type),
+                Some(SpreadsheetSemanticProperty::Type),
+                None,
+                "TYPE_REQUIRED",
+                format!("{:?} requires a non-empty Type", map.element_kind),
+            )
+        })?;
+    resolve_semantic_reference(
+        map,
+        project,
+        planned,
+        requested,
+        SpreadsheetSemanticProperty::Type,
+        "Type",
+    )
 }
 
 fn find_by_external_id<'a>(
@@ -785,7 +1086,9 @@ fn find_by_external_id<'a>(
         .elements
         .values()
         .filter(|element| element.external_id == expected)
-        .filter(|element| existing_match_in_scope(project, element, map.target_scope, map.search_scope))
+        .filter(|element| {
+            existing_match_in_scope(project, element, map.target_scope, map.search_scope)
+        })
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [] => Ok(None),
@@ -797,7 +1100,10 @@ fn find_by_external_id<'a>(
             Some(SpreadsheetSemanticProperty::ExternalId),
             Some(external_id.into()),
             "IDENTIFICATION_KIND_MISMATCH",
-            format!("external ID identifies {:?}, not {:?}", element.kind, map.element_kind),
+            format!(
+                "external ID identifies {:?}, not {:?}",
+                element.kind, map.element_kind
+            ),
         )),
         _ => Err(diagnostic(
             Some(map),
@@ -847,14 +1153,19 @@ fn find_existing<'a>(
             Some(property),
             None,
             "IDENTIFICATION_VALUE_REQUIRED",
-            format!("{:?} identification value is blank", map.identification_property),
+            format!(
+                "{:?} identification value is blank",
+                map.identification_property
+            ),
         )
     })?;
     let matches = project
         .elements
         .values()
         .filter(|element| element.kind == map.element_kind)
-        .filter(|element| existing_match_in_scope(project, element, map.target_scope, map.search_scope))
+        .filter(|element| {
+            existing_match_in_scope(project, element, map.target_scope, map.search_scope)
+        })
         .filter(|element| match map.identification_property {
             SpreadsheetIdentificationProperty::ExternalId => {
                 element.external_id == external_key(&map.source_namespace, identification_value)
@@ -913,7 +1224,9 @@ fn identification_value(
     let property = match map.identification_property {
         SpreadsheetIdentificationProperty::ExternalId => SpreadsheetSemanticProperty::ExternalId,
         SpreadsheetIdentificationProperty::Name => SpreadsheetSemanticProperty::Name,
-        SpreadsheetIdentificationProperty::RequirementId => SpreadsheetSemanticProperty::RequirementId,
+        SpreadsheetIdentificationProperty::RequirementId => {
+            SpreadsheetSemanticProperty::RequirementId
+        }
     };
     non_empty_value(values, property).map(ToOwned::to_owned)
 }
@@ -951,10 +1264,15 @@ fn row_context(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn mapped_field_changes(
     map: &SpreadsheetImportMap,
+    row: usize,
     element: &Element,
     owner: &ResolvedOwner,
+    type_ref: Option<ElementReference>,
+    multiplicity: Option<Multiplicity>,
+    flow_direction: Option<FlowDirection>,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
 ) -> Result<(bool, ModelBuildOperation), SpreadsheetImportDiagnostic> {
     let name = values.get(&SpreadsheetSemanticProperty::Name).cloned();
@@ -973,22 +1291,33 @@ fn mapped_field_changes(
         .cloned();
     let visibility = values
         .get(&SpreadsheetSemanticProperty::Visibility)
-        .map(|value| parse_visibility(map, 0, value))
+        .map(|value| parse_visibility(map, row, value))
         .transpose()?;
     let owner_mapped = values.contains_key(&SpreadsheetSemanticProperty::Owner);
-
+    let default_value = values
+        .get(&SpreadsheetSemanticProperty::DefaultValue)
+        .cloned();
     let owner_changed = owner_mapped
         && match owner.reference {
             BuildReference::Existing(id) => element.owner_id != Some(id),
             BuildReference::External(_) => true,
         };
+    let type_changed = match &type_ref {
+        Some(BuildReference::Existing(id)) => element.type_id != Some(*id),
+        Some(BuildReference::External(_)) => true,
+        None => false,
+    };
+    let default_changed = default_value.as_ref().is_some_and(|value| {
+        let normalized = (!value.trim().is_empty()).then_some(value.as_str());
+        element.default_value.as_deref() != normalized
+    });
     let changed = name.as_ref().is_some_and(|value| element.name != *value)
         || documentation
             .as_ref()
             .is_some_and(|value| element.documentation != *value)
-        || external_id.as_ref().is_some_and(|value| {
-            element.external_id != external_key(&map.source_namespace, value)
-        })
+        || external_id
+            .as_ref()
+            .is_some_and(|value| element.external_id != external_key(&map.source_namespace, value))
         || visibility.is_some_and(|value| element.visibility != value)
         || requirement_id
             .as_ref()
@@ -996,19 +1325,26 @@ fn mapped_field_changes(
         || requirement_text
             .as_ref()
             .is_some_and(|value| element.requirement_text.as_deref() != Some(value.as_str()))
-        || owner_changed;
-
+        || multiplicity.is_some_and(|value| element.multiplicity != Some(value))
+        || flow_direction.is_some_and(|value| element.flow_direction != Some(value))
+        || default_changed
+        || owner_changed
+        || type_changed;
     Ok((
         changed,
         ModelBuildOperation::UpdateElementFields {
             element: BuildReference::Existing(element.id),
             name,
             owner: owner_mapped.then(|| owner.reference.clone()),
+            type_ref,
             external_id,
             documentation,
             visibility,
             requirement_id,
             requirement_text,
+            multiplicity,
+            default_value,
+            flow_direction,
         },
     ))
 }
@@ -1107,7 +1443,9 @@ fn prepare_spreadsheet_import(
                 ));
             };
 
-            if let Some(external_id) = non_empty_value(&values, SpreadsheetSemanticProperty::ExternalId) {
+            if let Some(external_id) =
+                non_empty_value(&values, SpreadsheetSemanticProperty::ExternalId)
+            {
                 let key = external_key(&map.source_namespace, external_id);
                 if !seen_source_external_ids.insert(key.clone()) {
                     block_row(diagnostic(
@@ -1117,7 +1455,9 @@ fn prepare_spreadsheet_import(
                         Some(SpreadsheetSemanticProperty::ExternalId),
                         Some(external_id.into()),
                         "DUPLICATE_SOURCE_EXTERNAL_ID",
-                        format!("source external ID '{key}' appears more than once in this import group"),
+                        format!(
+                            "source external ID '{key}' appears more than once in this import group"
+                        ),
                     ));
                     continue;
                 }
@@ -1131,7 +1471,7 @@ fn prepare_spreadsheet_import(
                     continue;
                 }
             };
-            if !is_namespace_kind(&owner.kind) {
+            if !is_feature_kind(&map.element_kind) && !is_namespace_kind(&owner.kind) {
                 block_row(diagnostic(
                     Some(map),
                     Some(row.row_number),
@@ -1139,10 +1479,95 @@ fn prepare_spreadsheet_import(
                     Some(SpreadsheetSemanticProperty::Owner),
                     id_value.clone(),
                     "INVALID_OWNERSHIP",
-                    format!("{:?} cannot be owned by {:?} in the PR38 packageable-element scope", map.element_kind, owner.kind),
+                    format!(
+                        "{:?} cannot be owned by {:?} in the PR38 packageable-element scope",
+                        map.element_kind, owner.kind
+                    ),
                 ));
                 continue;
             }
+
+            let type_resolution = if is_feature_kind(&map.element_kind) {
+                match resolve_type(
+                    map,
+                    project,
+                    &planned,
+                    non_empty_value(&values, SpreadsheetSemanticProperty::Type),
+                ) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        block_row(error);
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            let multiplicity =
+                match non_empty_value(&values, SpreadsheetSemanticProperty::Multiplicity) {
+                    Some(value) => match super::parametrics::parse_multiplicity(value) {
+                        Ok(value) => Some(value),
+                        Err(reason) => {
+                            block_row(diagnostic(
+                                Some(map),
+                                Some(row.row_number),
+                                mapped_column_name(map, SpreadsheetSemanticProperty::Multiplicity),
+                                Some(SpreadsheetSemanticProperty::Multiplicity),
+                                id_value.clone(),
+                                "MULTIPLICITY_INVALID",
+                                format!(
+                                    "feature '{}' has invalid multiplicity '{}': {}",
+                                    non_empty_value(&values, SpreadsheetSemanticProperty::Name)
+                                        .unwrap_or("<unnamed>"),
+                                    value,
+                                    reason
+                                ),
+                            ));
+                            continue;
+                        }
+                    },
+                    None => None,
+                };
+            let flow_direction = if map.element_kind == ElementKind::FlowProperty {
+                let Some(value) =
+                    non_empty_value(&values, SpreadsheetSemanticProperty::FlowDirection)
+                else {
+                    block_row(diagnostic(
+                        Some(map),
+                        Some(row.row_number),
+                        mapped_column_name(map, SpreadsheetSemanticProperty::FlowDirection),
+                        Some(SpreadsheetSemanticProperty::FlowDirection),
+                        id_value.clone(),
+                        "FLOW_DIRECTION_INVALID",
+                        "FlowProperty direction is blank; expected in, out, or inout",
+                    ));
+                    continue;
+                };
+                match super::feature_editing::parse_flow_direction(
+                    &value.trim().to_ascii_lowercase(),
+                ) {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        block_row(diagnostic(
+                            Some(map),
+                            Some(row.row_number),
+                            mapped_column_name(map, SpreadsheetSemanticProperty::FlowDirection),
+                            Some(SpreadsheetSemanticProperty::FlowDirection),
+                            id_value.clone(),
+                            "FLOW_DIRECTION_INVALID",
+                            format!(
+                                "FlowProperty '{}' direction '{}' is invalid; expected in, out, or inout",
+                                non_empty_value(&values, SpreadsheetSemanticProperty::Name)
+                                    .unwrap_or("<unnamed>"),
+                                value
+                            ),
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
 
             let existing = match find_existing(map, project, &values) {
                 Ok(existing) => existing,
@@ -1153,7 +1578,18 @@ fn prepare_spreadsheet_import(
             };
 
             if let Some(existing) = existing {
-                match mapped_field_changes(map, existing, &owner, &values) {
+                match mapped_field_changes(
+                    map,
+                    row.row_number,
+                    existing,
+                    &owner,
+                    type_resolution
+                        .as_ref()
+                        .map(|value| value.reference.clone()),
+                    multiplicity,
+                    flow_direction,
+                    &values,
+                ) {
                     Ok((false, _)) => preview.rows.push(row_preview(
                         map,
                         row.row_number,
@@ -1178,7 +1614,9 @@ fn prepare_spreadsheet_import(
                 continue;
             }
 
-            let Some(external_id) = non_empty_value(&values, SpreadsheetSemanticProperty::ExternalId) else {
+            let Some(external_id) =
+                non_empty_value(&values, SpreadsheetSemanticProperty::ExternalId)
+            else {
                 block_row(diagnostic(
                     Some(map),
                     Some(row.row_number),
@@ -1202,21 +1640,21 @@ fn prepare_spreadsheet_import(
                 ));
                 continue;
             };
-            if map.element_kind == ElementKind::Requirement {
-                if non_empty_value(&values, SpreadsheetSemanticProperty::RequirementId).is_none()
-                    || non_empty_value(&values, SpreadsheetSemanticProperty::RequirementText).is_none()
-                {
-                    block_row(diagnostic(
-                        Some(map),
-                        Some(row.row_number),
-                        None,
-                        None,
-                        id_value.clone(),
-                        "REQUIREMENT_FIELDS_REQUIRED",
-                        "new Requirement rows require mapped, non-empty Requirement ID and Requirement Text",
-                    ));
-                    continue;
-                }
+            if map.element_kind == ElementKind::Requirement
+                && (non_empty_value(&values, SpreadsheetSemanticProperty::RequirementId).is_none()
+                    || non_empty_value(&values, SpreadsheetSemanticProperty::RequirementText)
+                        .is_none())
+            {
+                block_row(diagnostic(
+                    Some(map),
+                    Some(row.row_number),
+                    None,
+                    None,
+                    id_value.clone(),
+                    "REQUIREMENT_FIELDS_REQUIRED",
+                    "new Requirement rows require mapped, non-empty Requirement ID and Requirement Text",
+                ));
+                continue;
             }
 
             let context = row_context(map, row.row_number, &values);
@@ -1225,7 +1663,9 @@ fn prepare_spreadsheet_import(
                 kind: map.element_kind.clone(),
                 name: name.to_string(),
                 owner: owner.reference.clone(),
-                type_ref: None,
+                type_ref: type_resolution
+                    .as_ref()
+                    .map(|value| value.reference.clone()),
             });
             operation_contexts.push(context.clone());
 
@@ -1250,20 +1690,30 @@ fn prepare_spreadsheet_import(
             let requirement_text = values
                 .get(&SpreadsheetSemanticProperty::RequirementText)
                 .cloned();
+            let default_value = values
+                .get(&SpreadsheetSemanticProperty::DefaultValue)
+                .cloned();
             if documentation.is_some()
                 || visibility.is_some()
                 || requirement_id.is_some()
                 || requirement_text.is_some()
+                || multiplicity.is_some()
+                || default_value.is_some()
+                || flow_direction.is_some()
             {
                 operations.push(ModelBuildOperation::UpdateElementFields {
                     element: BuildReference::External(external_id.to_string()),
                     name: None,
                     owner: None,
+                    type_ref: None,
                     external_id: None,
                     documentation,
                     visibility,
                     requirement_id,
                     requirement_text,
+                    multiplicity,
+                    default_value,
+                    flow_direction,
                 });
                 operation_contexts.push(context);
             }
@@ -1272,9 +1722,7 @@ fn prepare_spreadsheet_import(
             planned.push(PlannedElement {
                 external_id: external_id.to_string(),
                 kind: map.element_kind.clone(),
-                name: name.to_string(),
                 qualified_name,
-                owner: owner.reference,
                 depth_from_target: owner.depth_from_target + 1,
             });
             preview.rows.push(row_preview(
@@ -1301,7 +1749,9 @@ fn convert_build_diagnostic(
     diagnostic: &BuildDiagnostic,
     contexts: &[RowContext],
 ) -> SpreadsheetImportDiagnostic {
-    let context = diagnostic.operation.and_then(|operation| contexts.get(operation));
+    let context = diagnostic
+        .operation
+        .and_then(|operation| contexts.get(operation));
     SpreadsheetImportDiagnostic {
         severity: match diagnostic.severity {
             BuildDiagnosticSeverity::Error => SpreadsheetDiagnosticSeverity::Error,
@@ -1328,19 +1778,19 @@ fn attach_build_diagnostics(
 ) {
     for build_diagnostic in diagnostics {
         let spreadsheet_diagnostic = convert_build_diagnostic(build_diagnostic, contexts);
-        if let Some(row) = spreadsheet_diagnostic.row {
-            if let Some(row_preview) = preview.rows.iter_mut().find(|candidate| {
+        if let Some(row) = spreadsheet_diagnostic.row
+            && let Some(row_preview) = preview.rows.iter_mut().find(|candidate| {
                 candidate.row == row
                     && spreadsheet_diagnostic
                         .import_map
                         .as_deref()
                         .is_some_and(|map| candidate.import_map == map)
-            }) {
-                row_preview.action = match spreadsheet_diagnostic.severity {
-                    SpreadsheetDiagnosticSeverity::Error => SpreadsheetRowAction::Blocked,
-                    SpreadsheetDiagnosticSeverity::Warning => SpreadsheetRowAction::Warning,
-                };
-            }
+            })
+        {
+            row_preview.action = match spreadsheet_diagnostic.severity {
+                SpreadsheetDiagnosticSeverity::Error => SpreadsheetRowAction::Blocked,
+                SpreadsheetDiagnosticSeverity::Warning => SpreadsheetRowAction::Warning,
+            };
         }
         preview.diagnostics.push(spreadsheet_diagnostic);
     }
@@ -1442,6 +1892,7 @@ fn apply_spreadsheet_import_with_preview(
     }
 }
 
+#[cfg(test)]
 pub fn apply_spreadsheet_import_group(
     group: &SpreadsheetImportMapGroup,
     state: &WorkspaceState,
@@ -1493,6 +1944,7 @@ mod tests {
         path.to_string_lossy().into_owned()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn map(
         name: &str,
         source: String,
@@ -1538,7 +1990,10 @@ mod tests {
             SpreadsheetIdentificationProperty::ExternalId,
             SpreadsheetSearchScope::TargetRecursive,
             &[
-                ("Package Identifier", SpreadsheetSemanticProperty::ExternalId),
+                (
+                    "Package Identifier",
+                    SpreadsheetSemanticProperty::ExternalId,
+                ),
                 ("Package Name", SpreadsheetSemanticProperty::Name),
                 ("Parent Package", SpreadsheetSemanticProperty::Owner),
             ],
@@ -1549,7 +2004,17 @@ mod tests {
         let preview = preview_spreadsheet_import_group(&group, &state);
         assert!(preview.is_valid(), "{:?}", preview.diagnostics);
         assert_eq!(preview.totals.create, 3);
-        assert!(state.project.lock().unwrap().as_ref().unwrap().elements.len() == 1);
+        assert!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len()
+                == 1
+        );
         apply_spreadsheet_import_group(&group, &state).unwrap();
         let project = state.project.lock().unwrap();
         let project = project.as_ref().unwrap();
@@ -1571,7 +2036,10 @@ mod tests {
             SpreadsheetIdentificationProperty::ExternalId,
             SpreadsheetSearchScope::TargetRecursive,
             &[
-                ("Package Identifier", SpreadsheetSemanticProperty::ExternalId),
+                (
+                    "Package Identifier",
+                    SpreadsheetSemanticProperty::ExternalId,
+                ),
                 ("Package Name", SpreadsheetSemanticProperty::Name),
                 ("Parent Package", SpreadsheetSemanticProperty::Owner),
             ],
@@ -1607,7 +2075,10 @@ mod tests {
             .find(|element| element.external_id == "catia:pr38-fixture::BLK-ENG")
             .unwrap();
         assert_eq!(engine.documentation, "Power unit");
-        assert_eq!(project.qualified_name(engine.id).unwrap(), "PR38 Ordered::Vehicle::Structure::Engine");
+        assert_eq!(
+            project.qualified_name(engine.id).unwrap(),
+            "PR38 Ordered::Vehicle::Structure::Engine"
+        );
     }
 
     #[test]
@@ -1635,7 +2106,12 @@ mod tests {
         let group = SpreadsheetImportMapGroup {
             mappings: vec![mapping],
         };
-        assert_eq!(preview_spreadsheet_import_group(&group, &state).totals.create, 1);
+        assert_eq!(
+            preview_spreadsheet_import_group(&group, &state)
+                .totals
+                .create,
+            1
+        );
         apply_spreadsheet_import_group(&group, &state).unwrap();
         let project = state.project.lock().unwrap();
         let controller = project
@@ -1655,8 +2131,12 @@ mod tests {
         {
             let mut guard = state.project.lock().unwrap();
             let project = guard.as_mut().unwrap();
-            let package = project.create_element(ElementKind::Package, "Nested", root).unwrap();
-            nested = project.create_element(ElementKind::Block, "Controller", package).unwrap();
+            let package = project
+                .create_element(ElementKind::Package, "Nested", root)
+                .unwrap();
+            nested = project
+                .create_element(ElementKind::Block, "Controller", package)
+                .unwrap();
         }
         let source = temp_csv("Element ID,Component Name,Description\nNEW-ID,Controller,Updated\n");
         let columns = [
@@ -1688,7 +2168,9 @@ mod tests {
         );
         assert_eq!(
             preview_spreadsheet_import_group(
-                &SpreadsheetImportMapGroup { mappings: vec![target_only] },
+                &SpreadsheetImportMapGroup {
+                    mappings: vec![target_only]
+                },
                 &state,
             )
             .totals
@@ -1697,14 +2179,27 @@ mod tests {
         );
         assert_eq!(
             preview_spreadsheet_import_group(
-                &SpreadsheetImportMapGroup { mappings: vec![recursive] },
+                &SpreadsheetImportMapGroup {
+                    mappings: vec![recursive]
+                },
                 &state,
             )
             .totals
             .update,
             1
         );
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().element(nested).unwrap().documentation, "");
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .element(nested)
+                .unwrap()
+                .documentation,
+            ""
+        );
     }
 
     #[test]
@@ -1713,11 +2208,19 @@ mod tests {
         {
             let mut guard = state.project.lock().unwrap();
             let project = guard.as_mut().unwrap();
-            let block = project.create_element(ElementKind::Block, "Engine", root).unwrap();
-            project.set_external_id(block, "catia:pr38-fixture::BLK-ENGINE").unwrap();
+            let block = project
+                .create_element(ElementKind::Block, "Engine", root)
+                .unwrap();
+            project
+                .set_external_id(block, "catia:pr38-fixture::BLK-ENGINE")
+                .unwrap();
             project.element_mut(block).unwrap().documentation = "Old".into();
-            let requirement = project.create_requirement("Safety", "REQ-7", "Old text", root).unwrap();
-            project.set_external_id(requirement, "legacy::REQ-7").unwrap();
+            let requirement = project
+                .create_requirement("Safety", "REQ-7", "Old text", root)
+                .unwrap();
+            project
+                .set_external_id(requirement, "legacy::REQ-7")
+                .unwrap();
         }
         let ext_source = temp_csv("ID,Name,Description\nBLK-ENGINE,Engine,New\n");
         let ext_map = map(
@@ -1735,7 +2238,9 @@ mod tests {
                 ("Description", SpreadsheetSemanticProperty::Documentation),
             ],
         );
-        let req_source = temp_csv("New External,Requirement Key,Requirement Text,Name\nREQ-NEW,REQ-7,Updated text,Safety\n");
+        let req_source = temp_csv(
+            "New External,Requirement Key,Requirement Text,Name\nREQ-NEW,REQ-7,Updated text,Safety\n",
+        );
         let req_map = map(
             "Requirement ID",
             req_source,
@@ -1747,8 +2252,14 @@ mod tests {
             SpreadsheetSearchScope::TargetOnly,
             &[
                 ("New External", SpreadsheetSemanticProperty::ExternalId),
-                ("Requirement Key", SpreadsheetSemanticProperty::RequirementId),
-                ("Requirement Text", SpreadsheetSemanticProperty::RequirementText),
+                (
+                    "Requirement Key",
+                    SpreadsheetSemanticProperty::RequirementId,
+                ),
+                (
+                    "Requirement Text",
+                    SpreadsheetSemanticProperty::RequirementText,
+                ),
                 ("Name", SpreadsheetSemanticProperty::Name),
             ],
         );
@@ -1779,7 +2290,9 @@ mod tests {
         );
         assert_eq!(
             preview_spreadsheet_import_group(
-                &SpreadsheetImportMapGroup { mappings: vec![no_change] },
+                &SpreadsheetImportMapGroup {
+                    mappings: vec![no_change]
+                },
                 &state,
             )
             .totals
@@ -1794,8 +2307,12 @@ mod tests {
         {
             let mut guard = state.project.lock().unwrap();
             let project = guard.as_mut().unwrap();
-            project.create_element(ElementKind::Block, "Controller", root).unwrap();
-            project.create_element(ElementKind::Block, "Controller", root).unwrap();
+            project
+                .create_element(ElementKind::Block, "Controller", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Controller", root)
+                .unwrap();
         }
         let source = temp_csv("ID,Name\nNEW-ID,Controller\n");
         let mapping = map(
@@ -1813,11 +2330,18 @@ mod tests {
             ],
         );
         let preview = preview_spreadsheet_import_group(
-            &SpreadsheetImportMapGroup { mappings: vec![mapping] },
+            &SpreadsheetImportMapGroup {
+                mappings: vec![mapping],
+            },
             &state,
         );
         assert_eq!(preview.totals.blocked, 1);
-        assert!(preview.diagnostics.iter().any(|diagnostic| diagnostic.code == "AMBIGUOUS_IDENTIFICATION"));
+        assert!(
+            preview
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "AMBIGUOUS_IDENTIFICATION")
+        );
     }
 
     #[test]
@@ -1906,7 +2430,14 @@ mod tests {
             "MAPPED_COLUMN_MISSING",
             "DUPLICATE_SOURCE_EXTERNAL_ID",
         ] {
-            assert!(preview.diagnostics.iter().any(|diagnostic| diagnostic.code == code), "missing {code}: {:?}", preview.diagnostics);
+            assert!(
+                preview
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == code),
+                "missing {code}: {:?}",
+                preview.diagnostics
+            );
         }
     }
 
@@ -1929,12 +2460,29 @@ mod tests {
             ],
         );
         let preview = preview_spreadsheet_import_group(
-            &SpreadsheetImportMapGroup { mappings: vec![mapping] },
+            &SpreadsheetImportMapGroup {
+                mappings: vec![mapping],
+            },
             &state,
         );
         assert!(!preview.is_valid());
-        assert!(preview.diagnostics.iter().any(|diagnostic| diagnostic.code == "TARGET_SCOPE_UNRESOLVED"));
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), 1);
+        assert!(
+            preview
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "TARGET_SCOPE_UNRESOLVED")
+        );
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -1955,13 +2503,32 @@ mod tests {
                 ("Name", SpreadsheetSemanticProperty::Name),
             ],
         );
-        let before = state.project.lock().unwrap().as_ref().unwrap().elements.len();
+        let before = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .len();
         let preview = preview_spreadsheet_import_group(
-            &SpreadsheetImportMapGroup { mappings: vec![valid] },
+            &SpreadsheetImportMapGroup {
+                mappings: vec![valid],
+            },
             &state,
         );
         assert!(preview.is_valid());
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), before);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
 
         let blocked_source = temp_csv("ID,Name,Parent\nB,B,Missing\n");
         let blocked = map(
@@ -1979,12 +2546,26 @@ mod tests {
                 ("Parent", SpreadsheetSemanticProperty::Owner),
             ],
         );
-        assert!(apply_spreadsheet_import_group(
-            &SpreadsheetImportMapGroup { mappings: vec![blocked] },
-            &state,
-        )
-        .is_err());
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), before);
+        assert!(
+            apply_spreadsheet_import_group(
+                &SpreadsheetImportMapGroup {
+                    mappings: vec![blocked]
+                },
+                &state,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
     }
 
     #[test]
@@ -2006,7 +2587,10 @@ mod tests {
                 ("External", SpreadsheetSemanticProperty::ExternalId),
                 ("Name", SpreadsheetSemanticProperty::Name),
                 ("Requirement ID", SpreadsheetSemanticProperty::RequirementId),
-                ("Requirement Text", SpreadsheetSemanticProperty::RequirementText),
+                (
+                    "Requirement Text",
+                    SpreadsheetSemanticProperty::RequirementText,
+                ),
             ],
         );
         let group = SpreadsheetImportMapGroup {
@@ -2017,10 +2601,686 @@ mod tests {
         assert!(prepared.preview.is_valid());
         assert!(prepared.plan.operations.iter().all(|operation| matches!(
             operation,
-            ModelBuildOperation::CreateElement { .. } | ModelBuildOperation::UpdateElementFields { .. }
+            ModelBuildOperation::CreateElement { .. }
+                | ModelBuildOperation::UpdateElementFields { .. }
         )));
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), 1);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            1
+        );
         assert!(apply_model_build(&prepared.plan, &state).is_err());
-        assert_eq!(state.project.lock().unwrap().as_ref().unwrap().elements.len(), 1);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            1
+        );
+    }
+    fn pr39_fixture_path() -> String {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pr39_owned_features.xlsx")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn set_pr39_external(project: &mut Project, id: ElementId, external_id: &str) {
+        project
+            .set_external_id(id, external_key("catia:pr38-fixture", external_id))
+            .unwrap();
+    }
+
+    #[test]
+    fn pr39_xlsx_business_columns_create_typed_owned_features() {
+        let (state, root) = workspace("PR39 XLSX");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project
+                .create_element(ElementKind::Block, "Vehicle", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::InterfaceBlock, "VehicleInterface", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Engine", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Controller", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::ValueType, "Mass", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::DataType, "Command", root)
+                .unwrap();
+        }
+        let parts = map(
+            "Part Properties",
+            pr39_fixture_path(),
+            Some("Component Parts"),
+            1,
+            ElementKind::PartProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetRecursive,
+            &[
+                (
+                    "Feature Identifier",
+                    SpreadsheetSemanticProperty::ExternalId,
+                ),
+                ("Owning Component", SpreadsheetSemanticProperty::Owner),
+                ("Property Name", SpreadsheetSemanticProperty::Name),
+                ("Classifier", SpreadsheetSemanticProperty::Type),
+                ("Cardinality", SpreadsheetSemanticProperty::Multiplicity),
+                ("Description", SpreadsheetSemanticProperty::Documentation),
+            ],
+        );
+        let values = map(
+            "Value Properties",
+            pr39_fixture_path(),
+            Some("Component Values"),
+            1,
+            ElementKind::ValueProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetRecursive,
+            &[
+                (
+                    "Feature Identifier",
+                    SpreadsheetSemanticProperty::ExternalId,
+                ),
+                ("Owning Component", SpreadsheetSemanticProperty::Owner),
+                ("Property Name", SpreadsheetSemanticProperty::Name),
+                ("Classifier", SpreadsheetSemanticProperty::Type),
+                ("Cardinality", SpreadsheetSemanticProperty::Multiplicity),
+                ("Initial Value", SpreadsheetSemanticProperty::DefaultValue),
+                ("Description", SpreadsheetSemanticProperty::Documentation),
+            ],
+        );
+        let flows = map(
+            "Flow Properties",
+            pr39_fixture_path(),
+            Some("Interface Flows"),
+            1,
+            ElementKind::FlowProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetRecursive,
+            &[
+                (
+                    "Feature Identifier",
+                    SpreadsheetSemanticProperty::ExternalId,
+                ),
+                ("Owning Component", SpreadsheetSemanticProperty::Owner),
+                ("Property Name", SpreadsheetSemanticProperty::Name),
+                ("Classifier", SpreadsheetSemanticProperty::Type),
+                ("Cardinality", SpreadsheetSemanticProperty::Multiplicity),
+                ("Flow", SpreadsheetSemanticProperty::FlowDirection),
+                ("Description", SpreadsheetSemanticProperty::Documentation),
+            ],
+        );
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![parts, values, flows],
+        };
+        let preview = preview_spreadsheet_import_group(&group, &state);
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert_eq!(preview.totals.create, 5);
+        apply_spreadsheet_import_group(&group, &state).unwrap();
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        let engine = project
+            .elements
+            .values()
+            .find(|element| element.name == "engine")
+            .unwrap();
+        assert_eq!(engine.kind, ElementKind::PartProperty);
+        assert_eq!(engine.multiplicity.unwrap().notation(), "1");
+        assert_eq!(
+            project.element(engine.type_id.unwrap()).unwrap().name,
+            "Engine"
+        );
+        let backup = project
+            .elements
+            .values()
+            .find(|element| element.name == "backupController")
+            .unwrap();
+        assert_eq!(backup.multiplicity.unwrap().notation(), "0..1");
+        let mass = project
+            .elements
+            .values()
+            .find(|element| element.name == "mass")
+            .unwrap();
+        assert_eq!(mass.default_value.as_deref(), Some("1500"));
+        let command = project
+            .elements
+            .values()
+            .find(|element| element.name == "command")
+            .unwrap();
+        assert_eq!(command.flow_direction, Some(FlowDirection::In));
+    }
+
+    #[test]
+    fn pr39_supports_all_six_feature_kinds() {
+        let (state, root) = workspace("PR39 Six Kinds");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project
+                .create_element(ElementKind::Block, "Vehicle", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::InterfaceBlock, "Iface", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::ConstraintBlock, "Equation", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Engine", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::ValueType, "Scalar", root)
+                .unwrap();
+        }
+        let cases = [
+            (ElementKind::PartProperty, "Vehicle", "Engine", "part", None),
+            (
+                ElementKind::ReferenceProperty,
+                "Vehicle",
+                "Engine",
+                "reference",
+                None,
+            ),
+            (
+                ElementKind::ValueProperty,
+                "Vehicle",
+                "Scalar",
+                "value",
+                None,
+            ),
+            (
+                ElementKind::FlowProperty,
+                "Iface",
+                "Scalar",
+                "flow",
+                Some("out"),
+            ),
+            (
+                ElementKind::ConstraintProperty,
+                "Vehicle",
+                "Equation",
+                "constraint",
+                None,
+            ),
+            (
+                ElementKind::ConstraintParameter,
+                "Equation",
+                "Scalar",
+                "parameter",
+                None,
+            ),
+        ];
+        let mut mappings = Vec::new();
+        for (index, (kind, owner, type_name, name, direction)) in cases.into_iter().enumerate() {
+            let id = format!("F-{index}");
+            let source = if let Some(direction) = direction {
+                temp_csv(&format!(
+                    "ID,Owner,Name,Type,Multiplicity,Flow\n{id},{owner},{name},{type_name},1,{direction}\n"
+                ))
+            } else {
+                temp_csv(&format!(
+                    "ID,Owner,Name,Type,Multiplicity\n{id},{owner},{name},{type_name},1\n"
+                ))
+            };
+            let mut columns = vec![
+                ("ID", SpreadsheetSemanticProperty::ExternalId),
+                ("Owner", SpreadsheetSemanticProperty::Owner),
+                ("Name", SpreadsheetSemanticProperty::Name),
+                ("Type", SpreadsheetSemanticProperty::Type),
+                ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+            ];
+            if direction.is_some() {
+                columns.push(("Flow", SpreadsheetSemanticProperty::FlowDirection));
+            }
+            mappings.push(map(
+                &format!("Feature {index}"),
+                source,
+                None,
+                1,
+                kind,
+                root,
+                SpreadsheetIdentificationProperty::ExternalId,
+                SpreadsheetSearchScope::TargetRecursive,
+                &columns,
+            ));
+        }
+        let group = SpreadsheetImportMapGroup { mappings };
+        let preview = preview_spreadsheet_import_group(&group, &state);
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        apply_spreadsheet_import_group(&group, &state).unwrap();
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        for expected in [
+            ElementKind::PartProperty,
+            ElementKind::ReferenceProperty,
+            ElementKind::ValueProperty,
+            ElementKind::FlowProperty,
+            ElementKind::ConstraintProperty,
+            ElementKind::ConstraintParameter,
+        ] {
+            assert!(
+                project
+                    .elements
+                    .values()
+                    .any(|element| element.kind == expected)
+            );
+        }
+    }
+
+    #[test]
+    fn pr39_resolves_owner_and_type_by_namespaced_external_identity() {
+        let (state, root) = workspace("PR39 External References");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let owner = project
+                .create_element(ElementKind::Block, "Renamed Vehicle", root)
+                .unwrap();
+            let ty = project
+                .create_element(ElementKind::Block, "Renamed Engine", root)
+                .unwrap();
+            set_pr39_external(project, owner, "BLK-VEHICLE");
+            set_pr39_external(project, ty, "BLK-ENGINE");
+        }
+        let source =
+            temp_csv("ID,Owner,Name,Type,Multiplicity\nPART-1,BLK-VEHICLE,engine,BLK-ENGINE,1\n");
+        let mapping = map(
+            "External owner/type",
+            source,
+            None,
+            1,
+            ElementKind::PartProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetRecursive,
+            &[
+                ("ID", SpreadsheetSemanticProperty::ExternalId),
+                ("Owner", SpreadsheetSemanticProperty::Owner),
+                ("Name", SpreadsheetSemanticProperty::Name),
+                ("Type", SpreadsheetSemanticProperty::Type),
+                ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+            ],
+        );
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![mapping],
+        };
+        let preview = preview_spreadsheet_import_group(&group, &state);
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        apply_spreadsheet_import_group(&group, &state).unwrap();
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        let feature = project
+            .elements
+            .values()
+            .find(|element| element.name == "engine")
+            .unwrap();
+        assert_eq!(
+            project.element(feature.owner_id.unwrap()).unwrap().name,
+            "Renamed Vehicle"
+        );
+        assert_eq!(
+            project.element(feature.type_id.unwrap()).unwrap().name,
+            "Renamed Engine"
+        );
+    }
+
+    #[test]
+    fn pr39_ordered_maps_resolve_plan_local_owner_and_type_without_early_commit() {
+        let (state, root) = workspace("PR39 Ordered");
+        let blocks = map(
+            "Blocks",
+            temp_csv("ID,Name\nBLK-VEHICLE,Vehicle\nBLK-ENGINE,Engine\n"),
+            None,
+            1,
+            ElementKind::Block,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetOnly,
+            &[
+                ("ID", SpreadsheetSemanticProperty::ExternalId),
+                ("Name", SpreadsheetSemanticProperty::Name),
+            ],
+        );
+        let features = map(
+            "Features",
+            temp_csv("ID,Owner,Name,Type,Multiplicity\nPART-1,BLK-VEHICLE,engine,BLK-ENGINE,1\n"),
+            None,
+            1,
+            ElementKind::PartProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetOnly,
+            &[
+                ("ID", SpreadsheetSemanticProperty::ExternalId),
+                ("Owner", SpreadsheetSemanticProperty::Owner),
+                ("Name", SpreadsheetSemanticProperty::Name),
+                ("Type", SpreadsheetSemanticProperty::Type),
+                ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+            ],
+        );
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![blocks, features],
+        };
+        let before = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .len();
+        let preview = preview_spreadsheet_import_group(&group, &state);
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
+        apply_spreadsheet_import_group(&group, &state).unwrap();
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        let feature = project
+            .elements
+            .values()
+            .find(|element| element.name == "engine")
+            .unwrap();
+        assert_eq!(
+            project.element(feature.owner_id.unwrap()).unwrap().name,
+            "Vehicle"
+        );
+        assert_eq!(
+            project.element(feature.type_id.unwrap()).unwrap().name,
+            "Engine"
+        );
+    }
+
+    #[test]
+    fn pr39_reimport_updates_same_feature_and_then_noops() {
+        let (state, root) = workspace("PR39 Reimport");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project
+                .create_element(ElementKind::Block, "Vehicle", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Engine", root)
+                .unwrap();
+        }
+        let mapping_for = |source: String| {
+            map(
+                "Part",
+                source,
+                None,
+                1,
+                ElementKind::PartProperty,
+                root,
+                SpreadsheetIdentificationProperty::ExternalId,
+                SpreadsheetSearchScope::TargetRecursive,
+                &[
+                    ("ID", SpreadsheetSemanticProperty::ExternalId),
+                    ("Owner", SpreadsheetSemanticProperty::Owner),
+                    ("Name", SpreadsheetSemanticProperty::Name),
+                    ("Type", SpreadsheetSemanticProperty::Type),
+                    ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+                ],
+            )
+        };
+        let first = SpreadsheetImportMapGroup {
+            mappings: vec![mapping_for(temp_csv(
+                "ID,Owner,Name,Type,Multiplicity\nPART-1,Vehicle,engine,Engine,1\n",
+            ))],
+        };
+        apply_spreadsheet_import_group(&first, &state).unwrap();
+        let update = SpreadsheetImportMapGroup {
+            mappings: vec![mapping_for(temp_csv(
+                "ID,Owner,Name,Type,Multiplicity\nPART-1,Vehicle,propulsionUnit,Engine,0..1\n",
+            ))],
+        };
+        assert_eq!(
+            preview_spreadsheet_import_group(&update, &state)
+                .totals
+                .update,
+            1
+        );
+        apply_spreadsheet_import_group(&update, &state).unwrap();
+        let noop = SpreadsheetImportMapGroup {
+            mappings: vec![mapping_for(temp_csv(
+                "ID,Owner,Name,Type,Multiplicity\nPART-1,Vehicle,propulsionUnit,Engine,0..1\n",
+            ))],
+        };
+        assert_eq!(
+            preview_spreadsheet_import_group(&noop, &state)
+                .totals
+                .no_change,
+            1
+        );
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        assert_eq!(
+            project
+                .elements
+                .values()
+                .filter(|element| element.kind == ElementKind::PartProperty)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn pr39_blocks_ambiguous_unresolved_illegal_multiplicity_and_flow_errors() {
+        let (state, root) = workspace("PR39 Blocking");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project
+                .create_element(ElementKind::Block, "Vehicle", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Vehicle", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::ValueType, "Scalar", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::ValueType, "Scalar", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Package, "WrongOwner", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Engine", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::InterfaceBlock, "Iface", root)
+                .unwrap();
+        }
+        let cases = [
+            (
+                "A,Vehicle,a,Engine,1\n",
+                ElementKind::PartProperty,
+                "OWNER_AMBIGUOUS",
+            ),
+            (
+                "B,Missing,b,Engine,1\n",
+                ElementKind::PartProperty,
+                "OWNER_UNRESOLVED",
+            ),
+            (
+                "C,WrongOwner,c,Engine,1\n",
+                ElementKind::PartProperty,
+                "SEMANTIC_VALIDATION",
+            ),
+            (
+                "D,WrongOwner,d,Missing,1\n",
+                ElementKind::PartProperty,
+                "TYPE_UNRESOLVED",
+            ),
+            (
+                "E,WrongOwner,e,Scalar,1\n",
+                ElementKind::ValueProperty,
+                "TYPE_AMBIGUOUS",
+            ),
+            (
+                "F,WrongOwner,f,Engine,2..1\n",
+                ElementKind::PartProperty,
+                "MULTIPLICITY_INVALID",
+            ),
+        ];
+        for (row, kind, code) in cases {
+            let mapping = map(
+                "Blocked feature",
+                temp_csv(&format!("ID,Owner,Name,Type,Multiplicity\n{row}")),
+                None,
+                1,
+                kind,
+                root,
+                SpreadsheetIdentificationProperty::ExternalId,
+                SpreadsheetSearchScope::TargetRecursive,
+                &[
+                    ("ID", SpreadsheetSemanticProperty::ExternalId),
+                    ("Owner", SpreadsheetSemanticProperty::Owner),
+                    ("Name", SpreadsheetSemanticProperty::Name),
+                    ("Type", SpreadsheetSemanticProperty::Type),
+                    ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+                ],
+            );
+            let preview = preview_spreadsheet_import_group(
+                &SpreadsheetImportMapGroup {
+                    mappings: vec![mapping],
+                },
+                &state,
+            );
+            assert!(!preview.is_valid(), "expected {code}");
+            assert!(
+                preview
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == code),
+                "{:?}",
+                preview.diagnostics
+            );
+        }
+        let flow = map(
+            "Bad flow",
+            temp_csv(
+                "ID,Owner,Name,Type,Multiplicity,Flow\nG,Iface,command,Engine,1,input/output\n",
+            ),
+            None,
+            1,
+            ElementKind::FlowProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetRecursive,
+            &[
+                ("ID", SpreadsheetSemanticProperty::ExternalId),
+                ("Owner", SpreadsheetSemanticProperty::Owner),
+                ("Name", SpreadsheetSemanticProperty::Name),
+                ("Type", SpreadsheetSemanticProperty::Type),
+                ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+                ("Flow", SpreadsheetSemanticProperty::FlowDirection),
+            ],
+        );
+        let preview = preview_spreadsheet_import_group(
+            &SpreadsheetImportMapGroup {
+                mappings: vec![flow],
+            },
+            &state,
+        );
+        assert!(
+            preview
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "FLOW_DIRECTION_INVALID")
+        );
+    }
+
+    #[test]
+    fn pr39_feature_apply_is_atomic_when_one_feature_is_invalid() {
+        let (state, root) = workspace("PR39 Atomic");
+        {
+            let mut guard = state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project
+                .create_element(ElementKind::Block, "Vehicle", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Block, "Engine", root)
+                .unwrap();
+            project
+                .create_element(ElementKind::Package, "WrongOwner", root)
+                .unwrap();
+        }
+        let before = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .len();
+        let mapping = map(
+            "Atomic features",
+            temp_csv(
+                "ID,Owner,Name,Type,Multiplicity\nGOOD,Vehicle,engine,Engine,1\nBAD,WrongOwner,bad,Engine,1\n",
+            ),
+            None,
+            1,
+            ElementKind::PartProperty,
+            root,
+            SpreadsheetIdentificationProperty::ExternalId,
+            SpreadsheetSearchScope::TargetRecursive,
+            &[
+                ("ID", SpreadsheetSemanticProperty::ExternalId),
+                ("Owner", SpreadsheetSemanticProperty::Owner),
+                ("Name", SpreadsheetSemanticProperty::Name),
+                ("Type", SpreadsheetSemanticProperty::Type),
+                ("Multiplicity", SpreadsheetSemanticProperty::Multiplicity),
+            ],
+        );
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![mapping],
+        };
+        let preview = preview_spreadsheet_import_group(&group, &state);
+        assert!(!preview.is_valid());
+        assert!(apply_spreadsheet_import_group(&group, &state).is_err());
+        assert_eq!(
+            state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
     }
 }

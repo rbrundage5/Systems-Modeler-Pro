@@ -40,7 +40,7 @@ fn checkpoint(
     history::checkpoint_states(workspace, activity, history)
 }
 
-fn parse_multiplicity(value: &str) -> Result<Multiplicity, String> {
+pub(super) fn parse_multiplicity(value: &str) -> Result<Multiplicity, String> {
     let value = value.trim();
     if value == "*" {
         return Multiplicity::new(0, None).map_err(|error| error.to_string());

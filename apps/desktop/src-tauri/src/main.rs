@@ -27,6 +27,7 @@ mod workspace {
     mod routing;
     mod sequence_execution;
     mod shared_workspace;
+    mod spreadsheet_import;
     mod state_machine_execution;
     #[rustfmt::skip]
     mod standard_editing;
@@ -141,6 +142,7 @@ mod workspace {
         set_diagram_frame_preference, set_panel_preferences, set_viewport_preference,
         set_workspace_interaction, workspace_interaction_snapshot, zoom_diagram_viewport,
     };
+    pub use spreadsheet_import::{apply_spreadsheet_import, preview_spreadsheet_import};
     pub use standard_editing::StandardEditingState;
     pub use standard_editing_bridge::{
         copy_selection, delete_active_selection, duplicate_selection, move_active_selection,
@@ -176,14 +178,14 @@ use workspace::{
     add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
     add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
     add_state_transition_complete, add_state_vertex, add_structured_activity_node,
-    add_submachine_state, assign_activity_node_partition, assign_activity_node_structured_parent,
-    behavior_lifeline_candidates, behavior_snapshot, clear_activity_executions,
-    clear_sequence_executions, clear_state_machine_executions, clear_workspace_interaction,
-    configure_activity_execution_runtime, configure_sequence_execution_runtime,
-    configure_state_machine_execution_runtime, copy_selection, create_activity_diagram, create_bdd,
-    create_bdd_element, create_bdd_feature, create_bdd_relationship,
-    create_bdd_relationship_complete, create_binding_connector, create_block,
-    create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
+    add_submachine_state, apply_spreadsheet_import, assign_activity_node_partition,
+    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
+    clear_activity_executions, clear_sequence_executions, clear_state_machine_executions,
+    clear_workspace_interaction, configure_activity_execution_runtime,
+    configure_sequence_execution_runtime, configure_state_machine_execution_runtime,
+    copy_selection, create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
+    create_bdd_relationship, create_bdd_relationship_complete, create_binding_connector,
+    create_block, create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
     create_package_diagram, create_package_element, create_package_relationship,
     create_parametric_constraint_property, create_parametric_diagram,
     create_parametric_value_property, create_requirement, create_requirement_diagram,
@@ -205,17 +207,18 @@ use workspace::{
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
     preview_activity_execution_runtime, preview_sequence_execution_runtime,
-    preview_state_machine_execution_runtime, queue_state_machine_signal, reconnect_activity_edge,
-    reconnect_bdd_relationship, reconnect_binding_connector, reconnect_package_relationship,
-    reconnect_sequence_message, reconnect_traceability_relationship,
-    reconnect_use_case_relationship, rename_active_diagram_header, rename_element,
-    reset_activity_execution, reset_activity_workspace, reset_sequence_execution,
-    reset_state_machine_execution, resize_sequence_lifeline_timeline, resume_activity_execution,
-    resume_sequence_execution, resume_state_machine_execution, route_activity_diagram,
-    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,
-    run_sequence_execution, run_state_machine_execution, save_activity_workspace,
-    save_current_project, save_current_project_complete, save_project_file,
-    save_project_file_complete, semantic_presentation_manifest, semantic_presentation_stylesheet,
+    preview_spreadsheet_import, preview_state_machine_execution_runtime,
+    queue_state_machine_signal, reconnect_activity_edge, reconnect_bdd_relationship,
+    reconnect_binding_connector, reconnect_package_relationship, reconnect_sequence_message,
+    reconnect_traceability_relationship, reconnect_use_case_relationship,
+    rename_active_diagram_header, rename_element, reset_activity_execution,
+    reset_activity_workspace, reset_sequence_execution, reset_state_machine_execution,
+    resize_sequence_lifeline_timeline, resume_activity_execution, resume_sequence_execution,
+    resume_state_machine_execution, route_activity_diagram, route_behavior_diagram,
+    route_diagram_geometry, route_ibd, run_activity_execution, run_sequence_execution,
+    run_state_machine_execution, save_activity_workspace, save_current_project,
+    save_current_project_complete, save_project_file, save_project_file_complete,
+    semantic_presentation_manifest, semantic_presentation_stylesheet,
     sequence_execution_runtime_selection, sequence_execution_snapshot,
     set_diagram_frame_preference, set_panel_preferences, set_viewport_preference,
     set_workspace_interaction, state_machine_execution_runtime_selection,
@@ -677,6 +680,8 @@ fn main() {
             workspace_snapshot_complete,
             export_portable_project_json,
             import_portable_project_json,
+            preview_spreadsheet_import,
+            apply_spreadsheet_import,
             activity_snapshot,
             activity_execution_snapshot,
             activity_execution_runtime_selection,
