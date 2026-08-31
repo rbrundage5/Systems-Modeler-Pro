@@ -19,6 +19,13 @@ jobs:
           components: rustfmt, clippy
       - name: Apply focused PR38 patch
         run: python scripts/pr38_bootstrap.py
+      - name: Mark test-only apply helper
+        shell: pwsh
+        run: |
+          $path = "apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs"
+          $text = Get-Content $path -Raw
+          $text = $text.Replace("`npub fn apply_spreadsheet_import_group(", "`n#[cfg(test)]`npub fn apply_spreadsheet_import_group(")
+          Set-Content $path $text -NoNewline
       - name: Format
         run: cargo fmt --all
       - name: Check desktop
