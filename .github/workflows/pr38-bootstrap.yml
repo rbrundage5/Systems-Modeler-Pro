@@ -1,0 +1,48 @@
+name: pr38-bootstrap
+
+on:
+  push:
+    branches: [agent/pr38-spreadsheet-mapping]
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr38-spreadsheet-mapping
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply focused PR38 patch
+        run: python scripts/pr38_bootstrap.py
+      - name: Mark test-only apply helper
+        shell: pwsh
+        run: |
+          $path = "apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs"
+          $text = Get-Content $path -Raw
+          $text = $text.Replace("`npub fn apply_spreadsheet_import_group(", "`n#[cfg(test)]`npub fn apply_spreadsheet_import_group(")
+          Set-Content $path $text -NoNewline
+      - name: Format
+        run: cargo fmt --all
+      - name: Check desktop
+        run: cargo check -p systems-modeler-desktop
+      - name: Focused PR38 tests
+        run: cargo test -p systems-modeler-desktop spreadsheet_import -- --nocapture
+      - name: PR36 regression tests
+        run: cargo test -p systems-modeler-desktop bulk_model
+      - name: Desktop lint
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Commit qualified bootstrap result
+        shell: pwsh
+        run: |
+          Remove-Item scripts/pr38_bootstrap.py
+          Remove-Item .github/workflows/pr38-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "PR38: integrate spreadsheet import foundation"
+          git push origin HEAD:agent/pr38-spreadsheet-mapping
