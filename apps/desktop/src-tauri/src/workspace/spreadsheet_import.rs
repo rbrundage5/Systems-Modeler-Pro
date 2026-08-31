@@ -5893,7 +5893,7 @@ mod pr41_tests {
         }));
 
         let unknown_source = temp_csv(
-            "Link Identifier,Link Type,Design Object,Requirement Number,Description\nALLOC-1,allocate,BLK-1,REQ-DUP,unsupported\n",
+            "Link Identifier,Link Type,Design Object,Requirement Number,Description\nUNSUP-1,NotARelationship,BLK-1,REQ-DUP,unsupported\n",
         );
         let unknown_map = relationship_map(
             "Unknown Kind",
