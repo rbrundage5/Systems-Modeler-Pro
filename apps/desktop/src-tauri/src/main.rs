@@ -8,6 +8,8 @@ mod workspace {
     mod behavior_completion;
     mod behavior_creation;
     mod behavior_workspace;
+    #[allow(dead_code)]
+    mod bulk_model;
     mod feature_editing;
     mod history;
     mod ibd;
