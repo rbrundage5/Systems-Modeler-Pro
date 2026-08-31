@@ -30,3 +30,15 @@ if pos < 0:
     raise SystemExit("non-relationship target validation anchor not found")
 text = text[:pos] + "\n" + validation + text[pos:]
 path.write_text(text)
+
+test_path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr43_tests.rs")
+test_text = test_path.read_text()
+old = '''    let proxy_source = temp_csv(&format!(
+        "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\\nPORT-C1,BLK-CTRL,command,PR43 CSV::Architecture::CommandInterface,1,true,Command docs,Private\\n"
+    ));'''
+new = '''    let proxy_source = temp_csv(
+        "Port ID,Owner,Port Name,Port Type,Multiplicity,Conjugated,Description,Visibility\\nPORT-C1,BLK-CTRL,command,PR43 CSV::Architecture::CommandInterface,1,true,Command docs,Private\\n",
+    );'''
+if old not in test_text:
+    raise SystemExit("strict-Clippy test anchor not found")
+test_path.write_text(test_text.replace(old, new, 1))
