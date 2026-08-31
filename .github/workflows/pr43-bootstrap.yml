@@ -1,0 +1,81 @@
+name: pr43-bootstrap
+
+on:
+  push:
+    branches:
+      - agent/pr43-proxy-full-port-import
+
+permissions:
+  contents: write
+
+jobs:
+  qualify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install fixture dependency
+        run: python -m pip install openpyxl
+      - name: Apply PR43 implementation
+        run: |
+          python scripts/pr43_patch.py
+          python scripts/pr43_fix.py
+      - name: Format implementation
+        run: cargo fmt --all
+      - name: Targeted PR43 model-core
+        run: cargo test -p systems-modeler-core --test pr43_ports -- --nocapture
+      - name: Targeted PR43 persistence
+        run: cargo test -p systems-modeler-persistence --test pr43_port_persistence -- --nocapture
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
+      - name: Targeted PR43 desktop
+        run: cargo test -p systems-modeler-desktop pr43 -- --nocapture
+      - name: Full core and persistence regression
+        run: cargo test --workspace --exclude systems-modeler-desktop
+      - name: Full desktop regression
+        run: cargo test -p systems-modeler-desktop
+      - name: Desktop lint
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Core and persistence lint
+        run: cargo clippy --workspace --exclude systems-modeler-desktop --all-targets -- -D warnings
+      - name: Integration regression contracts
+        run: |
+          python scripts/validate_behavior_integration.py
+          python scripts/validate_activity_integration.py
+          python scripts/validate_state_machine_execution.py
+          python scripts/validate_structural_runtime_integration.py
+          python scripts/validate_operation_signal_sequence_integration.py
+          python scripts/validate_requirements_integration.py
+          python scripts/validate_use_case_integration.py
+          python scripts/validate_parametric_integration.py
+          python scripts/validate_parametric_runtime_integration.py
+          python scripts/validate_package_diagram_integration.py
+          python scripts/validate_package_drilldown_activation.py
+          python scripts/validate_presentation_interaction.py
+          python scripts/validate_history_integration.py
+          python scripts/validate_workspace_convergence.py
+          python scripts/validate_repository_editing.py
+          python scripts/validate_standard_editing_integration.py
+          python scripts/validate_rust_authority.py
+      - name: Format and Cargo lock gate
+        shell: pwsh
+        run: |
+          cargo fmt --all --check
+          git diff --exit-code -- Cargo.lock
+      - name: Commit qualified PR43 implementation
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr43-bootstrap.yml scripts/pr43_patch.py scripts/pr43_fix.py
+          git add -A
+          if (git diff --cached --quiet) { throw "PR43 produced no implementation diff" }
+          git commit -m "PR43: CATIA-style ProxyPort and FullPort spreadsheet import"
+          git push origin HEAD:agent/pr43-proxy-full-port-import
