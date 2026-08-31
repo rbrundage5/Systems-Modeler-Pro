@@ -842,18 +842,17 @@ pub fn apply_complete_model_build(
         proposed_operations: proposed_operations(plan),
         diagnostics: vec![error("LOCK_FAILURE", None, "behavior lock poisoned")],
     })?;
-    let mut behavior_diagrams =
-        state
-            .behavior_diagrams
-            .lock()
-            .map_err(|_| ModelBuildPreview {
-                proposed_operations: proposed_operations(plan),
-                diagnostics: vec![error(
-                    "LOCK_FAILURE",
-                    None,
-                    "behavior diagram lock poisoned",
-                )],
-            })?;
+    let mut behavior_diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| ModelBuildPreview {
+            proposed_operations: proposed_operations(plan),
+            diagnostics: vec![error(
+                "LOCK_FAILURE",
+                None,
+                "behavior diagram lock poisoned",
+            )],
+        })?;
     let mut activities = activity.repository.lock().map_err(|_| ModelBuildPreview {
         proposed_operations: proposed_operations(plan),
         diagnostics: vec![error(
