@@ -5,6 +5,15 @@ ROOT = Path(__file__).resolve().parents[1]
 path = ROOT / "apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs"
 text = path.read_text(encoding="utf-8")
 
+# PR39's supported-kind replacement spans the old namespace helper. Restore the
+# PR38 namespace predicate before applying the compatibility ownership guard.
+if "fn is_namespace_kind(kind: &ElementKind) -> bool {" not in text:
+    anchor = "fn is_feature_kind(kind: &ElementKind) -> bool {"
+    if anchor not in text:
+        raise SystemExit("feature-kind anchor missing")
+    helper = '''fn is_namespace_kind(kind: &ElementKind) -> bool {\n    matches!(\n        kind,\n        ElementKind::Model | ElementKind::Package | ElementKind::ModelLibrary\n    )\n}\n\n'''
+    text = text.replace(anchor, helper + anchor, 1)
+
 # PR38 package/basic-element mappings only permit namespace owners. PR39 feature
 # mappings intentionally resolve structural owners and defer legality to model validation.
 needle = '''            let type_resolution = if is_feature_kind(&map.element_kind) {\n'''
