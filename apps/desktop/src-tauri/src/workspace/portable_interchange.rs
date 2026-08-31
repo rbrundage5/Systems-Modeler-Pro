@@ -183,7 +183,10 @@ fn portable_from_states(
         schema: PORTABLE_SCHEMA.into(),
         version: PORTABLE_VERSION,
         source_namespace: NATIVE_SOURCE_NAMESPACE.into(),
-        diagram_families: DIAGRAM_FAMILIES.iter().map(|value| (*value).into()).collect(),
+        diagram_families: DIAGRAM_FAMILIES
+            .iter()
+            .map(|value| (*value).into())
+            .collect(),
         project: sorted_project(&project),
         diagrams,
         ibd_diagrams,
@@ -205,7 +208,10 @@ impl PortableProjectV1 {
             return Err(format!("unsupported portable schema: {}", self.schema));
         }
         if self.version != PORTABLE_VERSION {
-            return Err(format!("unsupported portable schema version: {}", self.version));
+            return Err(format!(
+                "unsupported portable schema version: {}",
+                self.version
+            ));
         }
         if self.source_namespace.trim().is_empty() {
             return Err("portable source namespace is required".into());
@@ -213,7 +219,9 @@ impl PortableProjectV1 {
         let expected: HashSet<_> = DIAGRAM_FAMILIES.iter().copied().collect();
         let actual: HashSet<_> = self.diagram_families.iter().map(String::as_str).collect();
         if actual != expected || self.diagram_families.len() != DIAGRAM_FAMILIES.len() {
-            return Err("portable v1 must declare exactly the nine qualified diagram families".into());
+            return Err(
+                "portable v1 must declare exactly the nine qualified diagram families".into(),
+            );
         }
 
         let mut elements = HashMap::new();
@@ -224,7 +232,10 @@ impl PortableProjectV1 {
         }
         let mut relationships = HashMap::new();
         for relationship in self.project.relationships {
-            if relationships.insert(relationship.id, relationship).is_some() {
+            if relationships
+                .insert(relationship.id, relationship)
+                .is_some()
+            {
                 return Err("portable project contains a duplicate relationship ID".into());
             }
         }
@@ -439,7 +450,12 @@ mod tests {
         Multiplicity, RelationshipKind,
     };
 
-    fn diagram(family: &str, name: &str, owner: ElementId, context: Option<ElementId>) -> BddDiagram {
+    fn diagram(
+        family: &str,
+        name: &str,
+        owner: ElementId,
+        context: Option<ElementId>,
+    ) -> BddDiagram {
         BddDiagram {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.into(),
@@ -548,7 +564,10 @@ mod tests {
             relationship_id: relationship.to_string(),
             source_node_id: node_a.id.clone(),
             target_node_id: node_b.id.clone(),
-            points: vec![DiagramPoint { x: 270.0, y: 157.0 }, DiagramPoint { x: 380.0, y: 157.0 }],
+            points: vec![
+                DiagramPoint { x: 270.0, y: 157.0 },
+                DiagramPoint { x: 380.0, y: 157.0 },
+            ],
             label_anchor: Some(DiagramPoint { x: 325.0, y: 157.0 }),
         });
         bdd.nodes.extend([node_a, node_b]);
@@ -774,9 +793,19 @@ mod tests {
         let error = import_into_states(&invalid_json, &target, &target_activity).unwrap_err();
         assert!(error.contains(&portable.project.relationships[0].external_id));
         assert!(error.contains("target reference"));
-        assert_eq!(target.project.lock().unwrap().is_some(), before_project.is_some());
+        assert_eq!(
+            target.project.lock().unwrap().is_some(),
+            before_project.is_some()
+        );
         assert!(target.diagrams.lock().unwrap().is_empty());
         assert!(target.ibd_diagrams.lock().unwrap().is_empty());
-        assert!(target_activity.repository.lock().unwrap().activities.is_empty());
+        assert!(
+            target_activity
+                .repository
+                .lock()
+                .unwrap()
+                .activities
+                .is_empty()
+        );
     }
 }
