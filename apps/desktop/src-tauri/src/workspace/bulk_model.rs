@@ -12,6 +12,14 @@ pub type ElementReference = BuildReference<ElementId>;
 pub type RelationshipReference = BuildReference<RelationshipId>;
 pub type DiagramReference = BuildReference<DiagramId>;
 
+#[derive(Debug, Clone, Default)]
+pub struct AssociationEndBuildFields {
+    pub role_name: Option<String>,
+    pub multiplicity: Option<Multiplicity>,
+    pub navigable: Option<bool>,
+    pub aggregation: Option<AggregationKind>,
+}
+
 #[derive(Debug, Clone)]
 pub enum ModelBuildOperation {
     CreateElement {
@@ -47,6 +55,20 @@ pub enum ModelBuildOperation {
         source: ElementReference,
         target: ElementReference,
         owner: Option<ElementReference>,
+    },
+    /// PR40 mapped relationship update path. All endpoint/owner resolution and
+    /// mutation stays in the PR36 candidate so preview/apply remain atomic.
+    UpdateRelationshipFields {
+        relationship: RelationshipReference,
+        name: Option<String>,
+        owner: Option<ElementReference>,
+        source: Option<ElementReference>,
+        target: Option<ElementReference>,
+        external_id: Option<String>,
+        documentation: Option<String>,
+        visibility: Option<VisibilityKind>,
+        source_end: Option<AssociationEndBuildFields>,
+        target_end: Option<AssociationEndBuildFields>,
     },
     CreateDiagram {
         external_id: String,
@@ -139,6 +161,9 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         ModelBuildOperation::UpdateElementFields { .. } => "UPDATE mapped element fields".into(),
         ModelBuildOperation::CreateRelationship { external_id, .. } => {
             format!("CREATE relationship {external_id}")
+        }
+        ModelBuildOperation::UpdateRelationshipFields { .. } => {
+            "UPDATE mapped relationship fields".into()
         }
         ModelBuildOperation::CreateDiagram {
             external_id, name, ..
@@ -579,6 +604,168 @@ fn build_candidate(
                     }
                     project.relationships.get_mut(&id).unwrap().external_id = key.clone();
                     relationship_ids.insert(key, id);
+                }
+                ModelBuildOperation::UpdateRelationshipFields {
+                    relationship,
+                    name,
+                    owner,
+                    source,
+                    target,
+                    external_id,
+                    documentation,
+                    visibility,
+                    source_end,
+                    target_end,
+                } => {
+                    let id = resolve_relationship(
+                        &project,
+                        &relationship_ids,
+                        namespace,
+                        relationship,
+                        index,
+                    )?;
+                    let current = project.relationship(id).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                    let kind = current.kind.clone();
+                    let next_source = source
+                        .as_ref()
+                        .map(|reference| {
+                            resolve_element(&project, &element_ids, namespace, reference, index)
+                        })
+                        .transpose()?
+                        .unwrap_or(current.source_id);
+                    let next_target = target
+                        .as_ref()
+                        .map(|reference| {
+                            resolve_element(&project, &element_ids, namespace, reference, index)
+                        })
+                        .transpose()?
+                        .unwrap_or(current.target_id);
+                    let next_owner = owner
+                        .as_ref()
+                        .map(|reference| {
+                            resolve_element(&project, &element_ids, namespace, reference, index)
+                        })
+                        .transpose()?
+                        .or(current.owner_id);
+
+                    let mut next_association_ends = if kind == RelationshipKind::Association {
+                        if current.association_ends.len() < 2 {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Association update requires two existing semantic ends",
+                            ));
+                        }
+                        let mut ends = current.association_ends.clone();
+                        ends[0].classifier_id = next_source;
+                        ends[1].classifier_id = next_target;
+                        if let Some(fields) = source_end {
+                            if let Some(value) = &fields.role_name {
+                                ends[0].role_name = value.clone();
+                            }
+                            if let Some(value) = fields.multiplicity {
+                                ends[0].multiplicity = value;
+                            }
+                            if let Some(value) = fields.navigable {
+                                ends[0].navigable = value;
+                            }
+                            if let Some(value) = fields.aggregation {
+                                ends[0].aggregation = value;
+                            }
+                        }
+                        if let Some(fields) = target_end {
+                            if let Some(value) = &fields.role_name {
+                                ends[1].role_name = value.clone();
+                            }
+                            if let Some(value) = fields.multiplicity {
+                                ends[1].multiplicity = value;
+                            }
+                            if let Some(value) = fields.navigable {
+                                ends[1].navigable = value;
+                            }
+                            if let Some(value) = fields.aggregation {
+                                ends[1].aggregation = value;
+                            }
+                        }
+                        Some(ends)
+                    } else {
+                        if source_end.is_some() || target_end.is_some() {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Association-end fields are valid only for Association",
+                            ));
+                        }
+                        None
+                    };
+
+                    // Reuse the existing model-core creation validator on a candidate clone
+                    // before reconnecting an existing relationship. This preserves existing
+                    // Generalization cycle checks, Dependency endpoint checks, ownership
+                    // rules, and Association classifier validation without a second importer
+                    // validation model.
+                    let mut validation_project = project.clone();
+                    validation_project.relationships.remove(&id);
+                    if kind == RelationshipKind::Association {
+                        validation_project
+                            .create_association(
+                                next_owner,
+                                next_association_ends.clone().unwrap_or_default(),
+                            )
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?;
+                    } else {
+                        validation_project
+                            .create_relationship(kind.clone(), next_source, next_target, next_owner)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?;
+                    }
+
+                    let next_external_id = external_id
+                        .as_ref()
+                        .map(|value| external_key(namespace, value));
+                    if let Some(key) = &next_external_id
+                        && (project
+                            .elements
+                            .values()
+                            .any(|element| element.external_id == *key)
+                            || project.relationships.values().any(|candidate| {
+                                candidate.id != id && candidate.external_id == *key
+                            }))
+                    {
+                        return Err(error(
+                            "DUPLICATE_EXTERNAL_ID",
+                            Some(index),
+                            format!("external ID already exists: {key}"),
+                        ));
+                    }
+
+                    let relationship = project.relationships.get_mut(&id).unwrap();
+                    relationship.source_id = next_source;
+                    relationship.target_id = next_target;
+                    relationship.owner_id = next_owner;
+                    if let Some(value) = name {
+                        relationship.name = value.clone();
+                    }
+                    if let Some(value) = documentation {
+                        relationship.documentation = value.clone();
+                    }
+                    if let Some(value) = visibility {
+                        relationship.visibility = *value;
+                    }
+                    if let Some(value) = next_external_id {
+                        relationship.external_id = value;
+                    }
+                    if let Some(ends) = next_association_ends.take() {
+                        relationship.association_ends = ends;
+                    }
+                    project.validate().map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
                 }
                 ModelBuildOperation::CreateDiagram {
                     external_id,
