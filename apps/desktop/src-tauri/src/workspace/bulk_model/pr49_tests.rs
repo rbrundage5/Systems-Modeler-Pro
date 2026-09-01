@@ -183,7 +183,7 @@ fn pr49_unified_candidate_builds_native_sequence_and_parametric_semantics_atomic
             ModelBuildOperation::Parametric {
                 operation: ParametricBuildOperation::UpdateElementSemantics {
                     element: BuildReference::Existing(constraint),
-                    constraint_expression: Some("m > 0".into()),
+                    constraint_expression: Some("m = 1".into()),
                     quantity_kind_external_id: None,
                     unit_external_id: None,
                     quantity_dimension: Some(Some("M".into())),
@@ -253,7 +253,7 @@ fn pr49_unified_candidate_builds_native_sequence_and_parametric_semantics_atomic
     let project = project.as_ref().unwrap();
     assert_eq!(
         project.element(constraint).unwrap().constraint_expression,
-        "m > 0"
+        "m = 1"
     );
     assert_eq!(
         project

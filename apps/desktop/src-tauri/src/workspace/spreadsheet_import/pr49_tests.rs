@@ -201,7 +201,7 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
         "CombinedFragment,FRAG,,,INT,,,,,,,,,,,,,opt,LL,,,,,,,,,,,,\n",
         "InteractionOperand,OPERAND,,,,,,,,,,,,,,,FRAG,,,enabled,1,2,,,,,,,,,\n",
         "StateInvariant,INV,,,INT,LL,,2,,,,,,,,,,,,,,,ready,,,,,,,,\n",
-        "ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,,MassConstraint,m > 0,kg,1,,,,\n",
+        "ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,MassConstraint,m = 1,kg,1,,,,\n",
         "BindingConnector,BIND,massBinding,System,,,,,,,,,,,,,,,,,,,,,,,,mass,,massConstraint,m\n"
     ));
     let group = SpreadsheetImportMapGroup {
@@ -242,28 +242,29 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
     ));
     drop(behavior);
 
-    let project = state.project.lock().unwrap();
-    let project = project.as_ref().unwrap();
-    assert_eq!(
-        project.element(constraint).unwrap().constraint_expression,
-        "m > 0"
-    );
-    assert_eq!(
-        project.element(constraint).unwrap().unit_symbol.as_deref(),
-        Some("kg")
-    );
-    assert_eq!(project.element(constraint).unwrap().unit_scale_to_base, 1.0);
-    let binding = project
-        .relationships
-        .values()
-        .find(|record| record.external_id == "catia:pr49::BIND")
-        .unwrap();
-    let endpoints = binding.binding.as_ref().unwrap();
-    assert_eq!(endpoints.source.role_id, value);
-    assert_eq!(endpoints.source.parameter_id, None);
-    assert_eq!(endpoints.target.role_id, constraint_property);
-    assert_eq!(endpoints.target.parameter_id, Some(parameter));
-    drop(project);
+    {
+        let project_guard = state.project.lock().unwrap();
+        let project = project_guard.as_ref().unwrap();
+        assert_eq!(
+            project.element(constraint).unwrap().constraint_expression,
+            "m = 1"
+        );
+        assert_eq!(
+            project.element(constraint).unwrap().unit_symbol.as_deref(),
+            Some("kg")
+        );
+        assert_eq!(project.element(constraint).unwrap().unit_scale_to_base, 1.0);
+        let binding = project
+            .relationships
+            .values()
+            .find(|record| record.external_id == "catia:pr49::BIND")
+            .unwrap();
+        let endpoints = binding.binding.as_ref().unwrap();
+        assert_eq!(endpoints.source.role_id, value);
+        assert_eq!(endpoints.source.parameter_id, None);
+        assert_eq!(endpoints.target.role_id, constraint_property);
+        assert_eq!(endpoints.target.parameter_id, Some(parameter));
+    }
 
     let second = preview_spreadsheet_import_group_with_activity(&group, &state, &activity);
     assert!(second.is_valid(), "{:?}", second.diagnostics);
@@ -281,7 +282,7 @@ fn pr49_rejects_non_finite_unit_scale_without_mutating_project() {
     let root = state.project.lock().unwrap().as_ref().unwrap().root_id;
     let source = temp_csv(concat!(
         "Kind,ID,Name,Context,Interaction,Lifeline,Represented Path,Order,Message Sort,Send,Receive,Signature,Arguments,Start,Finish,Behavior,Combined Fragment,Operator,Covered Lifelines,Guard,Start Order,End Order,Constraint,Target,Constraint Expression,Unit Symbol,Unit Scale To Base,Binding Source Role,Binding Source Parameter,Binding Target Role,Binding Target Parameter\n",
-        "ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,,MassConstraint,,kg,NaN,,,,\n"
+        "ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,MassConstraint,,kg,NaN,,,,\n"
     ));
     let group = SpreadsheetImportMapGroup {
         mappings: vec![semantic_map(source, root)],
