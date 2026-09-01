@@ -20,6 +20,33 @@ jobs:
           components: rustfmt
       - name: Apply narrow PR49 qualification fixes
         run: python scripts/pr49_fix_signature.py
+      - name: Apply Clippy simplifications
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr49_semantics.rs")
+          text = path.read_text()
+          targets = [
+              "ParametricBuildOperation::UpdateElementSemantics",
+              "SequenceBuildOperation::UpdateMessage",
+              "SequenceBuildOperation::UpdateExecution",
+              "SequenceBuildOperation::UpdateFragment",
+              "SequenceBuildOperation::UpdateOperand",
+              "SequenceBuildOperation::UpdateInvariant",
+          ]
+          for target in targets:
+              marker = f".then(|| ModelBuildOperation::{'Parametric' if target.startswith('Parametric') else 'Sequence'} {{\n"
+              search_from = text.find(target)
+              if search_from < 0:
+                  raise SystemExit(f"missing Clippy target: {target}")
+              marker_at = text.rfind(marker, 0, search_from)
+              if marker_at < 0:
+                  raise SystemExit(f"missing then closure for: {target}")
+              text = text[:marker_at] + text[marker_at:].replace(marker, marker.replace(".then(||", ".then_some("), 1)
+          path.write_text(text)
+          PY
       - name: Format fixes
         run: cargo fmt --all
       - name: Commit fixes if needed
