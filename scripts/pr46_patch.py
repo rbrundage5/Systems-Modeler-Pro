@@ -34,4 +34,15 @@ by_external_replacement = '''        .find(|element| element.external_id == key)
 if by_external_anchor not in spreadsheet_test_text:
     raise SystemExit('missing PR46 by_external assertion anchor')
 spreadsheet_test_text = spreadsheet_test_text.replace(by_external_anchor, by_external_replacement, 1)
+
+fixture_identity_replacements = {
+    'PARAM-START-MODE': 'PARAM-MODE',
+    'PARAM-CALC-RESULT': 'PARAM-RESULT',
+    'OP-CALCULATE': 'OP-CALC',
+}
+for old, new in fixture_identity_replacements.items():
+    if old not in spreadsheet_test_text:
+        raise SystemExit(f'missing PR46 fixture identity anchor: {old}')
+    spreadsheet_test_text = spreadsheet_test_text.replace(old, new)
+
 spreadsheet_test_path.write_text(spreadsheet_test_text)
