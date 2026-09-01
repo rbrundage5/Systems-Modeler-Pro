@@ -1,0 +1,42 @@
+name: pr48-bootstrap
+on:
+  push:
+    branches:
+      - agent/pr48-activity-state-machine-import
+permissions:
+  contents: write
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr48-activity-state-machine-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply staged PR48 implementation
+        run: python scripts/pr48_identity_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: PR48 identity tests
+        run: cargo test -p systems-modeler-core --test pr48_specialized_external_identity -- --nocapture
+      - name: Core check
+        run: cargo check -p systems-modeler-core
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr48-activity-state-machine-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply staged PR48 implementation
+        run: python scripts/pr48_identity_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
