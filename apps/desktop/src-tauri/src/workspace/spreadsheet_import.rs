@@ -15,7 +15,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use systems_modeler_core::{
     AggregationKind, ConnectorEnd, ConnectorKind, Element, ElementId, ElementKind, FlowDirection,
-    Multiplicity, Project, Relationship, RelationshipId, RelationshipKind, VisibilityKind,
+    Multiplicity, ParameterDirection, Project, Relationship, RelationshipId, RelationshipKind,
+    VisibilityKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -26,6 +27,8 @@ pub enum SpreadsheetSemanticProperty {
     Type,
     Multiplicity,
     DefaultValue,
+    ParameterDirection,
+    AcceptedSignal,
     FlowDirection,
     Conjugated,
     ExternalId,
@@ -290,6 +293,9 @@ fn supported_kind(kind: &ElementKind) -> bool {
             | ElementKind::ConstraintParameter
             | ElementKind::ProxyPort
             | ElementKind::FullPort
+            | ElementKind::Operation
+            | ElementKind::Parameter
+            | ElementKind::Reception
     )
 }
 
@@ -311,6 +317,33 @@ fn is_feature_kind(kind: &ElementKind) -> bool {
             | ElementKind::ConstraintParameter
             | ElementKind::ProxyPort
             | ElementKind::FullPort
+    )
+}
+
+fn requires_type_mapping(kind: &ElementKind) -> bool {
+    is_feature_kind(kind) || *kind == ElementKind::Parameter
+}
+
+fn supports_multiplicity_mapping(kind: &ElementKind) -> bool {
+    is_feature_kind(kind) || *kind == ElementKind::Parameter
+}
+
+fn classifier_kind(kind: &ElementKind) -> bool {
+    matches!(
+        kind,
+        ElementKind::Block
+            | ElementKind::AssociationBlock
+            | ElementKind::InterfaceBlock
+            | ElementKind::ConstraintBlock
+            | ElementKind::ValueType
+            | ElementKind::DataType
+            | ElementKind::PrimitiveType
+            | ElementKind::Enumeration
+            | ElementKind::Signal
+            | ElementKind::Requirement
+            | ElementKind::TestCase
+            | ElementKind::Actor
+            | ElementKind::UseCase
     )
 }
 
@@ -359,6 +392,8 @@ fn reference_error_code(property: SpreadsheetSemanticProperty, ambiguous: bool) 
         (SpreadsheetSemanticProperty::Owner, false) => "OWNER_UNRESOLVED",
         (SpreadsheetSemanticProperty::Type, true) => "TYPE_AMBIGUOUS",
         (SpreadsheetSemanticProperty::Type, false) => "TYPE_UNRESOLVED",
+        (SpreadsheetSemanticProperty::AcceptedSignal, true) => "ACCEPTED_SIGNAL_AMBIGUOUS",
+        (SpreadsheetSemanticProperty::AcceptedSignal, false) => "ACCEPTED_SIGNAL_UNRESOLVED",
         (SpreadsheetSemanticProperty::Source, true) => "SOURCE_AMBIGUOUS",
         (SpreadsheetSemanticProperty::Source, false) => "SOURCE_UNRESOLVED",
         (SpreadsheetSemanticProperty::Target, true) => "TARGET_AMBIGUOUS",
@@ -851,6 +886,8 @@ fn validate_map(
             SpreadsheetSemanticProperty::Type,
             SpreadsheetSemanticProperty::Multiplicity,
             SpreadsheetSemanticProperty::DefaultValue,
+            SpreadsheetSemanticProperty::ParameterDirection,
+            SpreadsheetSemanticProperty::AcceptedSignal,
             SpreadsheetSemanticProperty::FlowDirection,
             SpreadsheetSemanticProperty::Conjugated,
             SpreadsheetSemanticProperty::RequirementId,
@@ -951,7 +988,8 @@ fn validate_map(
             "Requirement ID/Text columns can be mapped only for Requirement elements",
         ));
     }
-    if is_feature_kind(&map.element_kind) && !has_property(SpreadsheetSemanticProperty::Type) {
+    if requires_type_mapping(&map.element_kind) && !has_property(SpreadsheetSemanticProperty::Type)
+    {
         return Err(diagnostic(
             Some(map),
             None,
@@ -965,10 +1003,26 @@ fn validate_map(
             ),
         ));
     }
-    if !is_feature_kind(&map.element_kind)
+    if map.element_kind == ElementKind::Reception
+        && !has_property(SpreadsheetSemanticProperty::AcceptedSignal)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::AcceptedSignal),
+            None,
+            "ACCEPTED_SIGNAL_COLUMN_REQUIRED",
+            "Reception mappings require an explicit Accepted Signal column",
+        ));
+    }
+    if !requires_type_mapping(&map.element_kind)
+        && map.element_kind != ElementKind::Reception
         && (has_property(SpreadsheetSemanticProperty::Type)
             || has_property(SpreadsheetSemanticProperty::Multiplicity)
             || has_property(SpreadsheetSemanticProperty::DefaultValue)
+            || has_property(SpreadsheetSemanticProperty::ParameterDirection)
+            || has_property(SpreadsheetSemanticProperty::AcceptedSignal)
             || has_property(SpreadsheetSemanticProperty::FlowDirection)
             || has_property(SpreadsheetSemanticProperty::Conjugated))
     {
@@ -979,11 +1033,13 @@ fn validate_map(
             None,
             None,
             "SEMANTIC_PROPERTY_INVALID",
-            "Type/Multiplicity/Default Value/Flow Direction/Conjugated mappings are reserved for owned features",
+            "mapped type/feature fields are not valid for this semantic kind",
         ));
     }
-    if map.element_kind != ElementKind::ValueProperty
-        && has_property(SpreadsheetSemanticProperty::DefaultValue)
+    if !matches!(
+        map.element_kind,
+        ElementKind::ValueProperty | ElementKind::Parameter
+    ) && has_property(SpreadsheetSemanticProperty::DefaultValue)
     {
         return Err(diagnostic(
             Some(map),
@@ -992,7 +1048,71 @@ fn validate_map(
             Some(SpreadsheetSemanticProperty::DefaultValue),
             None,
             "SEMANTIC_PROPERTY_INVALID",
-            "Default Value can be mapped only for ValueProperty",
+            "Default Value can be mapped only for ValueProperty or Parameter",
+        ));
+    }
+    if map.element_kind == ElementKind::Parameter {
+        if !has_property(SpreadsheetSemanticProperty::ParameterDirection) {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                None,
+                Some(SpreadsheetSemanticProperty::ParameterDirection),
+                None,
+                "PARAMETER_DIRECTION_COLUMN_REQUIRED",
+                "Parameter mappings require an explicit Parameter Direction column",
+            ));
+        }
+    } else if has_property(SpreadsheetSemanticProperty::ParameterDirection) {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::ParameterDirection),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Parameter Direction can be mapped only for Parameter",
+        ));
+    }
+    if map.element_kind != ElementKind::Reception
+        && has_property(SpreadsheetSemanticProperty::AcceptedSignal)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::AcceptedSignal),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Accepted Signal can be mapped only for Reception",
+        ));
+    }
+    if map.element_kind == ElementKind::Reception
+        && (has_property(SpreadsheetSemanticProperty::Type)
+            || has_property(SpreadsheetSemanticProperty::Multiplicity)
+            || has_property(SpreadsheetSemanticProperty::DefaultValue))
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            None,
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Reception uses Accepted Signal rather than generic Type/Multiplicity/Default Value mappings",
+        ));
+    }
+    if !supports_multiplicity_mapping(&map.element_kind)
+        && has_property(SpreadsheetSemanticProperty::Multiplicity)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::Multiplicity),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Multiplicity is not valid for this semantic kind",
         ));
     }
     if map.element_kind == ElementKind::FlowProperty {
@@ -1473,6 +1593,52 @@ fn resolve_type(
     )
 }
 
+fn resolve_accepted_signal(
+    map: &SpreadsheetImportMap,
+    project: &Project,
+    planned: &[PlannedElement],
+    value: Option<&str>,
+) -> Result<ResolvedOwner, SpreadsheetImportDiagnostic> {
+    let requested = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            diagnostic(
+                Some(map),
+                None,
+                mapped_column_name(map, SpreadsheetSemanticProperty::AcceptedSignal),
+                Some(SpreadsheetSemanticProperty::AcceptedSignal),
+                None,
+                "ACCEPTED_SIGNAL_REQUIRED",
+                "Reception requires a non-empty modeled Signal reference",
+            )
+        })?;
+    let resolved = resolve_semantic_reference(
+        map,
+        project,
+        planned,
+        requested,
+        SpreadsheetSemanticProperty::AcceptedSignal,
+        "Accepted Signal",
+        false,
+    )?;
+    if resolved.kind != ElementKind::Signal {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            mapped_column_name(map, SpreadsheetSemanticProperty::AcceptedSignal),
+            Some(SpreadsheetSemanticProperty::AcceptedSignal),
+            Some(requested.to_string()),
+            "ACCEPTED_SIGNAL_KIND_INVALID",
+            format!(
+                "Accepted Signal '{}' resolves to {:?}, not Signal",
+                requested, resolved.kind
+            ),
+        ));
+    }
+    Ok(resolved)
+}
+
 fn find_by_external_id<'a>(
     map: &SpreadsheetImportMap,
     project: &'a Project,
@@ -1568,7 +1734,11 @@ fn find_existing<'a>(
             if map.identification_property == SpreadsheetIdentificationProperty::Name
                 && matches!(
                     map.element_kind,
-                    ElementKind::ProxyPort | ElementKind::FullPort
+                    ElementKind::ProxyPort
+                        | ElementKind::FullPort
+                        | ElementKind::Operation
+                        | ElementKind::Parameter
+                        | ElementKind::Reception
                 )
             {
                 match resolved_owner.map(|owner| &owner.reference) {
@@ -1794,6 +1964,28 @@ fn parse_navigable(
             ),
         )),
     }
+}
+
+fn parse_parameter_direction(
+    map: &SpreadsheetImportMap,
+    row: usize,
+    value: &str,
+) -> Result<ParameterDirection, SpreadsheetImportDiagnostic> {
+    let normalized = value.trim().to_ascii_lowercase();
+    super::feature_editing::parse_parameter_direction(&normalized).map_err(|_| {
+        diagnostic(
+            Some(map),
+            Some(row),
+            mapped_column_name(map, SpreadsheetSemanticProperty::ParameterDirection),
+            Some(SpreadsheetSemanticProperty::ParameterDirection),
+            None,
+            "PARAMETER_DIRECTION_INVALID",
+            format!(
+                "Parameter direction '{}' is invalid; expected in, out, inout, or return",
+                value.trim()
+            ),
+        )
+    })
 }
 
 fn parse_conjugated(
@@ -3275,6 +3467,7 @@ fn mapped_field_changes(
     owner: &ResolvedOwner,
     type_ref: Option<ElementReference>,
     multiplicity: Option<Multiplicity>,
+    parameter_direction: Option<ParameterDirection>,
     flow_direction: Option<FlowDirection>,
     is_conjugated: Option<bool>,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
@@ -3330,6 +3523,7 @@ fn mapped_field_changes(
             .as_ref()
             .is_some_and(|value| element.requirement_text.as_deref() != Some(value.as_str()))
         || multiplicity.is_some_and(|value| element.multiplicity != Some(value))
+        || parameter_direction.is_some_and(|value| element.parameter_direction != Some(value))
         || flow_direction.is_some_and(|value| element.flow_direction != Some(value))
         || is_conjugated.is_some_and(|value| element.is_conjugated != value)
         || default_changed
@@ -3349,6 +3543,7 @@ fn mapped_field_changes(
             requirement_text,
             multiplicity,
             default_value,
+            parameter_direction,
             flow_direction,
             is_conjugated,
         },
@@ -3527,7 +3722,13 @@ fn prepare_spreadsheet_import(
                     continue;
                 }
             };
-            if !is_feature_kind(&map.element_kind) && !is_namespace_kind(&owner.kind) {
+            let owner_valid = match map.element_kind {
+                ElementKind::Operation | ElementKind::Reception => classifier_kind(&owner.kind),
+                ElementKind::Parameter => owner.kind == ElementKind::Operation,
+                _ if is_feature_kind(&map.element_kind) => true,
+                _ => is_namespace_kind(&owner.kind),
+            };
+            if !owner_valid {
                 block_row(diagnostic(
                     Some(map),
                     Some(row.row_number),
@@ -3536,14 +3737,18 @@ fn prepare_spreadsheet_import(
                     id_value.clone(),
                     "INVALID_OWNERSHIP",
                     format!(
-                        "{:?} cannot be owned by {:?} in the PR38 packageable-element scope",
-                        map.element_kind, owner.kind
+                        "{:?} '{}' cannot be owned by '{}' ({:?})",
+                        map.element_kind,
+                        non_empty_value(&values, SpreadsheetSemanticProperty::Name)
+                            .unwrap_or("<unnamed>"),
+                        owner.qualified_name,
+                        owner.kind
                     ),
                 ));
                 continue;
             }
 
-            let type_resolution = if is_feature_kind(&map.element_kind) {
+            let type_resolution = if requires_type_mapping(&map.element_kind) {
                 match resolve_type(
                     map,
                     project,
@@ -3556,10 +3761,23 @@ fn prepare_spreadsheet_import(
                         continue;
                     }
                 }
+            } else if map.element_kind == ElementKind::Reception {
+                match resolve_accepted_signal(
+                    map,
+                    project,
+                    &planned,
+                    non_empty_value(&values, SpreadsheetSemanticProperty::AcceptedSignal),
+                ) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        block_row(error);
+                        continue;
+                    }
+                }
             } else {
                 None
             };
-            let multiplicity =
+            let multiplicity = if supports_multiplicity_mapping(&map.element_kind) {
                 match non_empty_value(&values, SpreadsheetSemanticProperty::Multiplicity) {
                     Some(value) => match super::parametrics::parse_multiplicity(value) {
                         Ok(value) => Some(value),
@@ -3583,7 +3801,35 @@ fn prepare_spreadsheet_import(
                         }
                     },
                     None => None,
+                }
+            } else {
+                None
+            };
+            let parameter_direction = if map.element_kind == ElementKind::Parameter {
+                let Some(value) =
+                    non_empty_value(&values, SpreadsheetSemanticProperty::ParameterDirection)
+                else {
+                    block_row(diagnostic(
+                        Some(map),
+                        Some(row.row_number),
+                        mapped_column_name(map, SpreadsheetSemanticProperty::ParameterDirection),
+                        Some(SpreadsheetSemanticProperty::ParameterDirection),
+                        id_value.clone(),
+                        "PARAMETER_DIRECTION_INVALID",
+                        "Parameter direction is blank; expected in, out, inout, or return",
+                    ));
+                    continue;
                 };
+                match parse_parameter_direction(map, row.row_number, value) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        block_row(error);
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             let flow_direction = if map.element_kind == ElementKind::FlowProperty {
                 let Some(value) =
                     non_empty_value(&values, SpreadsheetSemanticProperty::FlowDirection)
@@ -3661,6 +3907,7 @@ fn prepare_spreadsheet_import(
                         .as_ref()
                         .map(|value| value.reference.clone()),
                     multiplicity,
+                    parameter_direction,
                     flow_direction,
                     is_conjugated,
                     &values,
@@ -3774,6 +4021,7 @@ fn prepare_spreadsheet_import(
                 || requirement_text.is_some()
                 || multiplicity.is_some()
                 || default_value.is_some()
+                || parameter_direction.is_some()
                 || flow_direction.is_some()
                 || is_conjugated.is_some()
             {
@@ -3789,6 +4037,7 @@ fn prepare_spreadsheet_import(
                     requirement_text,
                     multiplicity,
                     default_value,
+                    parameter_direction,
                     flow_direction,
                     is_conjugated,
                 });
@@ -8129,3 +8378,5 @@ mod pr43_tests;
 mod pr44_tests;
 #[cfg(test)]
 mod pr45_tests;
+#[cfg(test)]
+mod pr46_tests;
