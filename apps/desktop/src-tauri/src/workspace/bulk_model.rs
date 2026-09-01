@@ -61,6 +61,7 @@ pub enum ModelBuildOperation {
         parameter_direction: Option<ParameterDirection>,
         flow_direction: Option<FlowDirection>,
         is_conjugated: Option<bool>,
+        extension_points: Option<Vec<String>>,
     },
     CreateRelationship {
         external_id: String,
@@ -124,6 +125,9 @@ pub enum ModelBuildOperation {
         visibility: Option<VisibilityKind>,
         source_end: Option<AssociationEndBuildFields>,
         target_end: Option<AssociationEndBuildFields>,
+        alias: Option<Option<String>>,
+        extension_condition: Option<Option<String>>,
+        extension_location: Option<Option<String>>,
     },
     CreateDiagram {
         external_id: String,
@@ -675,6 +679,7 @@ fn build_candidate(
                     parameter_direction,
                     flow_direction,
                     is_conjugated,
+                    extension_points,
                 } => {
                     let id = resolve_element(&project, &element_ids, namespace, element, index)?;
                     if let Some(owner) = owner {
@@ -814,6 +819,28 @@ fn build_candidate(
                                 error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
                             })?
                             .is_conjugated = *is_conjugated;
+                    }
+                    if let Some(extension_points) = extension_points {
+                        if project
+                            .element(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .kind
+                            != ElementKind::UseCase
+                        {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Extension Points mapping is valid only for UseCase elements",
+                            ));
+                        }
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .extension_points = extension_points.clone();
                     }
                     if requirement_id.is_some() || requirement_text.is_some() {
                         let current = project.element(id).map_err(|cause| {
@@ -1253,6 +1280,9 @@ fn build_candidate(
                     visibility,
                     source_end,
                     target_end,
+                    alias,
+                    extension_condition,
+                    extension_location,
                 } => {
                     let id = resolve_relationship(
                         &project,
@@ -1345,22 +1375,40 @@ fn build_candidate(
                     // validation model.
                     let mut validation_project = project.clone();
                     validation_project.relationships.remove(&id);
-                    if kind == RelationshipKind::Association {
-                        validation_project
-                            .create_association(
-                                next_owner,
-                                next_association_ends.clone().unwrap_or_default(),
-                            )
-                            .map_err(|cause| {
-                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
-                            })?;
+                    let replacement_id = if kind == RelationshipKind::Association {
+                        validation_project.create_association(
+                            next_owner,
+                            next_association_ends.clone().unwrap_or_default(),
+                        )
                     } else {
-                        validation_project
-                            .create_relationship(kind.clone(), next_source, next_target, next_owner)
-                            .map_err(|cause| {
-                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
-                            })?;
+                        validation_project.create_relationship(
+                            kind.clone(),
+                            next_source,
+                            next_target,
+                            next_owner,
+                        )
                     }
+                    .map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                    {
+                        let candidate = validation_project
+                            .relationships
+                            .get_mut(&replacement_id)
+                            .expect("replacement relationship exists");
+                        if let Some(value) = alias {
+                            candidate.alias = value.clone();
+                        }
+                        if let Some(value) = extension_condition {
+                            candidate.extension_condition = value.clone();
+                        }
+                        if let Some(value) = extension_location {
+                            candidate.extension_location = value.clone();
+                        }
+                    }
+                    validation_project.validate().map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
 
                     let next_external_id = external_id
                         .as_ref()
@@ -1399,6 +1447,15 @@ fn build_candidate(
                     }
                     if let Some(ends) = next_association_ends.take() {
                         relationship.association_ends = ends;
+                    }
+                    if let Some(value) = alias {
+                        relationship.alias = value.clone();
+                    }
+                    if let Some(value) = extension_condition {
+                        relationship.extension_condition = value.clone();
+                    }
+                    if let Some(value) = extension_location {
+                        relationship.extension_location = value.clone();
                     }
                     project.validate().map_err(|cause| {
                         error("SEMANTIC_VALIDATION", Some(index), cause.to_string())

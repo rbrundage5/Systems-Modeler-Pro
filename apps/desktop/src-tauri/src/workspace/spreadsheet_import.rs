@@ -35,7 +35,11 @@ pub enum SpreadsheetSemanticProperty {
     Visibility,
     RequirementId,
     RequirementText,
+    ExtensionPoints,
     RelationshipKind,
+    Alias,
+    ExtensionCondition,
+    ExtensionLocation,
     ConnectorContext,
     ConnectorKind,
     Connector,
@@ -363,6 +367,11 @@ fn supported_relationship_kind(kind: &RelationshipKind) -> bool {
             | RelationshipKind::Copy
             | RelationshipKind::Connector
             | RelationshipKind::ItemFlow
+            | RelationshipKind::Include
+            | RelationshipKind::Extend
+            | RelationshipKind::PackageImport
+            | RelationshipKind::ElementImport
+            | RelationshipKind::PackageMerge
     )
 }
 
@@ -769,10 +778,7 @@ fn validate_map(
                 Some(SpreadsheetSemanticProperty::RelationshipKind),
                 None,
                 "RELATIONSHIP_KIND_UNSUPPORTED",
-                format!(
-                    "{:?} is outside the PR40/PR41/PR42 relationship scope",
-                    kind
-                ),
+                format!("{:?} is outside the PR40-PR47 relationship scope", kind),
             ));
         }
         if map.relationship_kind.is_none()
@@ -892,6 +898,7 @@ fn validate_map(
             SpreadsheetSemanticProperty::Conjugated,
             SpreadsheetSemanticProperty::RequirementId,
             SpreadsheetSemanticProperty::RequirementText,
+            SpreadsheetSemanticProperty::ExtensionPoints,
         ]
         .into_iter()
         .any(has_property)
@@ -904,6 +911,34 @@ fn validate_map(
                 None,
                 "SEMANTIC_PROPERTY_INVALID",
                 "element/feature-only mapped fields cannot be used by PR40 relationship mappings",
+            ));
+        }
+        let fixed_kind = map.relationship_kind.as_ref();
+        if has_property(SpreadsheetSemanticProperty::Alias)
+            && fixed_kind.is_some_and(|kind| *kind != RelationshipKind::ElementImport)
+        {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                None,
+                Some(SpreadsheetSemanticProperty::Alias),
+                None,
+                "ELEMENT_IMPORT_ALIAS_FIELD_INVALID",
+                "Alias can be mapped only for ElementImport rows",
+            ));
+        }
+        if (has_property(SpreadsheetSemanticProperty::ExtensionCondition)
+            || has_property(SpreadsheetSemanticProperty::ExtensionLocation))
+            && fixed_kind.is_some_and(|kind| *kind != RelationshipKind::Extend)
+        {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                None,
+                None,
+                None,
+                "EXTEND_FIELD_INVALID",
+                "Extension Condition and Extension Location can be mapped only for Extend rows",
             ));
         }
         let association_fields = [
@@ -972,6 +1007,37 @@ fn validate_map(
                 "{:?} is outside the PR39 package/basic-element/owned-feature scope",
                 map.element_kind
             ),
+        ));
+    }
+    if [
+        SpreadsheetSemanticProperty::Alias,
+        SpreadsheetSemanticProperty::ExtensionCondition,
+        SpreadsheetSemanticProperty::ExtensionLocation,
+    ]
+    .into_iter()
+    .any(has_property)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            None,
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "relationship-only PR47 fields cannot be used by element mappings",
+        ));
+    }
+    if map.element_kind != ElementKind::UseCase
+        && has_property(SpreadsheetSemanticProperty::ExtensionPoints)
+    {
+        return Err(diagnostic(
+            Some(map),
+            None,
+            None,
+            Some(SpreadsheetSemanticProperty::ExtensionPoints),
+            None,
+            "SEMANTIC_PROPERTY_INVALID",
+            "Extension Points can be mapped only for UseCase elements",
         ));
     }
     if map.element_kind != ElementKind::Requirement
@@ -1780,6 +1846,33 @@ fn find_existing<'a>(
     }
 }
 
+fn parse_extension_points(value: &str) -> Vec<String> {
+    value
+        .replace("\r\n", "\n")
+        .split(['\n', ';'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn normalized_optional_text(value: &str) -> Option<String> {
+    (!value.trim().is_empty()).then(|| value.trim().to_string())
+}
+
+fn valid_element_import_alias(value: &str) -> bool {
+    let value = value.trim();
+    if value.is_empty() {
+        return true;
+    }
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return true;
+    };
+    (first == '_' || first.is_alphabetic())
+        && chars.all(|character| character == '_' || character.is_alphanumeric())
+}
+
 fn parse_visibility(
     map: &SpreadsheetImportMap,
     row: usize,
@@ -1889,6 +1982,11 @@ fn parse_relationship_kind_value(
         "copy" => RelationshipKind::Copy,
         "connector" => RelationshipKind::Connector,
         "itemflow" | "item flow" => RelationshipKind::ItemFlow,
+        "include" => RelationshipKind::Include,
+        "extend" => RelationshipKind::Extend,
+        "packageimport" | "package import" => RelationshipKind::PackageImport,
+        "elementimport" | "element import" => RelationshipKind::ElementImport,
+        "packagemerge" | "package merge" => RelationshipKind::PackageMerge,
         _ => {
             return Err(diagnostic(
                 Some(map),
@@ -1898,7 +1996,7 @@ fn parse_relationship_kind_value(
                 Some(value.trim().to_string()),
                 "RELATIONSHIP_KIND_UNSUPPORTED",
                 format!(
-                    "relationship kind '{}' is unsupported; expected Association, Generalization, Dependency, Realization, Allocate, DeriveRequirement/deriveReqt, Satisfy, Verify, Refine, Trace, Copy, Connector, or ItemFlow",
+                    "relationship kind '{}' is unsupported; expected Association, Generalization, Dependency, Realization, Allocate, DeriveRequirement/deriveReqt, Satisfy, Verify, Refine, Trace, Copy, Connector, ItemFlow, Include, Extend, PackageImport, ElementImport, or PackageMerge",
                     value.trim()
                 ),
             ));
@@ -2356,6 +2454,15 @@ fn relationship_field_changes(
         .get(&SpreadsheetSemanticProperty::Visibility)
         .map(|value| parse_visibility(map, row, value))
         .transpose()?;
+    let alias = values
+        .get(&SpreadsheetSemanticProperty::Alias)
+        .map(|value| normalized_optional_text(value));
+    let extension_condition = values
+        .get(&SpreadsheetSemanticProperty::ExtensionCondition)
+        .map(|value| normalized_optional_text(value));
+    let extension_location = values
+        .get(&SpreadsheetSemanticProperty::ExtensionLocation)
+        .map(|value| normalized_optional_text(value));
     let external_id_explicit =
         non_empty_value(values, SpreadsheetSemanticProperty::ExternalId).is_some();
     let external_changed =
@@ -2391,6 +2498,15 @@ fn relationship_field_changes(
             .as_ref()
             .is_some_and(|value| relationship.documentation != *value)
         || visibility.is_some_and(|value| relationship.visibility != value)
+        || alias
+            .as_ref()
+            .is_some_and(|value| relationship.alias != *value)
+        || extension_condition
+            .as_ref()
+            .is_some_and(|value| relationship.extension_condition != *value)
+        || extension_location
+            .as_ref()
+            .is_some_and(|value| relationship.extension_location != *value)
         || external_changed;
     Ok((
         changed,
@@ -2406,6 +2522,9 @@ fn relationship_field_changes(
             visibility,
             source_end,
             target_end,
+            alias,
+            extension_condition,
+            extension_location,
         },
     ))
 }
@@ -3238,6 +3357,132 @@ fn plan_relationship_row(
         SpreadsheetSemanticProperty::Target,
         "Target",
     )?;
+    if matches!(kind, RelationshipKind::Include | RelationshipKind::Extend) {
+        if source.kind != ElementKind::UseCase || target.kind != ElementKind::UseCase {
+            return Err(diagnostic(
+                Some(map),
+                Some(row),
+                None,
+                None,
+                non_empty_value(values, SpreadsheetSemanticProperty::ExternalId)
+                    .map(ToOwned::to_owned),
+                "USE_CASE_RELATIONSHIP_ENDPOINT_KIND_INVALID",
+                format!(
+                    "{:?} requires UseCase -> UseCase; resolved {:?} -> {:?}",
+                    kind, source.kind, target.kind
+                ),
+            ));
+        }
+        if source.reference == target.reference {
+            return Err(diagnostic(
+                Some(map),
+                Some(row),
+                None,
+                None,
+                non_empty_value(values, SpreadsheetSemanticProperty::ExternalId)
+                    .map(ToOwned::to_owned),
+                "USE_CASE_RELATIONSHIP_SELF_REFERENCE",
+                format!("{:?} cannot connect a UseCase to itself", kind),
+            ));
+        }
+    }
+    if kind == RelationshipKind::PackageImport
+        && (!is_namespace_kind(&source.kind) || !is_namespace_kind(&target.kind))
+    {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            None,
+            None,
+            None,
+            "PACKAGE_IMPORT_ENDPOINT_KIND_INVALID",
+            format!(
+                "PackageImport requires namespace -> namespace; resolved {:?} -> {:?}",
+                source.kind, target.kind
+            ),
+        ));
+    }
+    if kind == RelationshipKind::ElementImport && !is_namespace_kind(&source.kind) {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            None,
+            None,
+            None,
+            "ELEMENT_IMPORT_SOURCE_KIND_INVALID",
+            format!(
+                "ElementImport source must be a namespace; resolved {:?}",
+                source.kind
+            ),
+        ));
+    }
+    if kind == RelationshipKind::PackageMerge
+        && (!matches!(
+            source.kind,
+            ElementKind::Package | ElementKind::ModelLibrary
+        ) || !matches!(
+            target.kind,
+            ElementKind::Package | ElementKind::ModelLibrary
+        ))
+    {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            None,
+            None,
+            None,
+            "PACKAGE_MERGE_ENDPOINT_KIND_INVALID",
+            format!(
+                "PackageMerge requires Package/ModelLibrary endpoints; resolved {:?} -> {:?}",
+                source.kind, target.kind
+            ),
+        ));
+    }
+    if let Some(alias) = values.get(&SpreadsheetSemanticProperty::Alias) {
+        if kind != RelationshipKind::ElementImport && !alias.trim().is_empty() {
+            return Err(diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, SpreadsheetSemanticProperty::Alias),
+                Some(SpreadsheetSemanticProperty::Alias),
+                Some(alias.clone()),
+                "ELEMENT_IMPORT_ALIAS_FIELD_INVALID",
+                "Alias is valid only for ElementImport",
+            ));
+        }
+        if kind == RelationshipKind::ElementImport && !valid_element_import_alias(alias) {
+            return Err(diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, SpreadsheetSemanticProperty::Alias),
+                Some(SpreadsheetSemanticProperty::Alias),
+                Some(alias.clone()),
+                "ELEMENT_IMPORT_ALIAS_INVALID",
+                format!(
+                    "ElementImport alias '{}' is not a valid identifier",
+                    alias.trim()
+                ),
+            ));
+        }
+    }
+    if kind != RelationshipKind::Extend
+        && [
+            SpreadsheetSemanticProperty::ExtensionCondition,
+            SpreadsheetSemanticProperty::ExtensionLocation,
+        ]
+        .into_iter()
+        .any(|property| non_empty_value(values, property).is_some())
+    {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            None,
+            None,
+            None,
+            "EXTEND_FIELD_INVALID",
+            "Extension Condition/Location are valid only for Extend",
+        ));
+    }
     if kind == RelationshipKind::Allocate && source.reference == target.reference {
         return Err(diagnostic(
             Some(map),
@@ -3253,9 +3498,29 @@ fn plan_relationship_row(
             ),
         ));
     }
-    let owner = if let Some(owner_text) =
-        non_empty_value(values, SpreadsheetSemanticProperty::Owner)
-    {
+    let package_namespace_relationship = matches!(
+        kind,
+        RelationshipKind::PackageImport
+            | RelationshipKind::ElementImport
+            | RelationshipKind::PackageMerge
+    );
+    let owner = if package_namespace_relationship {
+        if let Some(owner_text) = non_empty_value(values, SpreadsheetSemanticProperty::Owner) {
+            let explicit = resolve_owner(map, project, planned, Some(owner_text))?;
+            if explicit.reference != source.reference {
+                return Err(diagnostic(
+                    Some(map),
+                    Some(row),
+                    mapped_column_name(map, SpreadsheetSemanticProperty::Owner),
+                    Some(SpreadsheetSemanticProperty::Owner),
+                    Some(owner_text.to_string()),
+                    "NAMESPACE_RELATIONSHIP_OWNER_INVALID",
+                    "PackageImport, ElementImport, and PackageMerge are owned by their importing/receiving source namespace",
+                ));
+            }
+        }
+        source.clone()
+    } else if let Some(owner_text) = non_empty_value(values, SpreadsheetSemanticProperty::Owner) {
         resolve_owner(map, project, planned, Some(owner_text))?
     } else if is_pr41_traceability_kind(&kind) || kind == RelationshipKind::Allocate {
         let inferred = resolve_owner(map, project, planned, None)?;
@@ -3434,11 +3699,23 @@ fn plan_relationship_row(
         .get(&SpreadsheetSemanticProperty::Visibility)
         .map(|value| parse_visibility(map, row, value))
         .transpose()?;
+    let alias = values
+        .get(&SpreadsheetSemanticProperty::Alias)
+        .map(|value| normalized_optional_text(value));
+    let extension_condition = values
+        .get(&SpreadsheetSemanticProperty::ExtensionCondition)
+        .map(|value| normalized_optional_text(value));
+    let extension_location = values
+        .get(&SpreadsheetSemanticProperty::ExtensionLocation)
+        .map(|value| normalized_optional_text(value));
     if name.is_some()
         || documentation.is_some()
         || visibility.is_some()
         || source_end.is_some()
         || target_end.is_some()
+        || alias.is_some()
+        || extension_condition.is_some()
+        || extension_location.is_some()
     {
         operations.push(ModelBuildOperation::UpdateRelationshipFields {
             relationship: RelationshipReference::External(effective_external_id),
@@ -3451,6 +3728,9 @@ fn plan_relationship_row(
             visibility,
             source_end,
             target_end,
+            alias,
+            extension_condition,
+            extension_location,
         });
     }
     Ok(RelationshipRowPlan {
@@ -3470,6 +3750,7 @@ fn mapped_field_changes(
     parameter_direction: Option<ParameterDirection>,
     flow_direction: Option<FlowDirection>,
     is_conjugated: Option<bool>,
+    extension_points: Option<Vec<String>>,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
 ) -> Result<(bool, ModelBuildOperation), SpreadsheetImportDiagnostic> {
     let name = values.get(&SpreadsheetSemanticProperty::Name).cloned();
@@ -3526,6 +3807,9 @@ fn mapped_field_changes(
         || parameter_direction.is_some_and(|value| element.parameter_direction != Some(value))
         || flow_direction.is_some_and(|value| element.flow_direction != Some(value))
         || is_conjugated.is_some_and(|value| element.is_conjugated != value)
+        || extension_points
+            .as_ref()
+            .is_some_and(|value| element.extension_points != *value)
         || default_changed
         || owner_changed
         || type_changed;
@@ -3546,6 +3830,7 @@ fn mapped_field_changes(
             parameter_direction,
             flow_direction,
             is_conjugated,
+            extension_points,
         },
     ))
 }
@@ -3897,6 +4182,10 @@ fn prepare_spreadsheet_import(
                 }
             };
 
+            let extension_points = values
+                .get(&SpreadsheetSemanticProperty::ExtensionPoints)
+                .map(|value| parse_extension_points(value));
+
             if let Some(existing) = existing {
                 match mapped_field_changes(
                     map,
@@ -3910,6 +4199,7 @@ fn prepare_spreadsheet_import(
                     parameter_direction,
                     flow_direction,
                     is_conjugated,
+                    extension_points.clone(),
                     &values,
                 ) {
                     Ok((false, _)) => preview.rows.push(row_preview(
@@ -4024,6 +4314,7 @@ fn prepare_spreadsheet_import(
                 || parameter_direction.is_some()
                 || flow_direction.is_some()
                 || is_conjugated.is_some()
+                || extension_points.is_some()
             {
                 operations.push(ModelBuildOperation::UpdateElementFields {
                     element: BuildReference::External(external_id.to_string()),
@@ -4040,6 +4331,7 @@ fn prepare_spreadsheet_import(
                     parameter_direction,
                     flow_direction,
                     is_conjugated,
+                    extension_points,
                 });
                 operation_contexts.push(context);
             }
@@ -6229,7 +6521,7 @@ mod pr40_tests {
 
         let unsupported = relationship_map(
             "Unsupported",
-            temp_csv("ID,Kind,Source,Target,Owner\nREL-2,Include,VEH,ENG,Structure\n"),
+            temp_csv("ID,Kind,Source,Target,Owner\nREL-2,BindingConnector,VEH,ENG,Structure\n"),
             None,
             1,
             root,
@@ -8380,3 +8672,5 @@ mod pr44_tests;
 mod pr45_tests;
 #[cfg(test)]
 mod pr46_tests;
+#[cfg(test)]
+mod pr47_tests;
