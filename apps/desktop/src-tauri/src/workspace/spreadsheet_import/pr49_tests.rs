@@ -268,11 +268,14 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
 
     let second = preview_spreadsheet_import_group_with_activity(&group, &state, &activity);
     assert!(second.is_valid(), "{:?}", second.diagnostics);
+    let unexpected = second
+        .rows
+        .iter()
+        .filter(|row| row.action != SpreadsheetRowAction::NoChange)
+        .collect::<Vec<_>>();
     assert!(
-        second
-            .rows
-            .iter()
-            .all(|row| row.action == SpreadsheetRowAction::NoChange)
+        unexpected.is_empty(),
+        "unexpected reimport rows: {unexpected:#?}"
     );
 }
 
