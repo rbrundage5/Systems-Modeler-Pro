@@ -5,6 +5,9 @@ use systems_modeler_core::{
     ParameterDirection, supported_diagram_families,
 };
 
+mod pr48_behavior;
+pub use pr48_behavior::*;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildReference<T> {
     External(String),
@@ -114,6 +117,10 @@ pub enum ModelBuildOperation {
     },
     /// PR40 mapped relationship update path. All endpoint/owner resolution and
     /// mutation stays in the PR36 candidate so preview/apply remain atomic.
+    Activity { operation: ActivityBuildOperation },
+    StateMachine {
+        operation: StateMachineBuildOperation,
+    },
     UpdateRelationshipFields {
         relationship: RelationshipReference,
         name: Option<String>,
@@ -231,6 +238,10 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
             format!("CREATE item flow {external_id}")
         }
         ModelBuildOperation::UpdateItemFlowFields { .. } => "UPDATE mapped item flow fields".into(),
+        ModelBuildOperation::Activity { operation } => behavior_operation_description(operation),
+        ModelBuildOperation::StateMachine { operation } => {
+            state_machine_operation_description(operation)
+        }
         ModelBuildOperation::UpdateRelationshipFields { .. } => {
             "UPDATE mapped relationship fields".into()
         }
@@ -570,6 +581,10 @@ fn preflight(plan: &ModelBuildPlan) -> Result<(), BuildDiagnostic> {
             | ModelBuildOperation::CreateConnector { external_id, .. }
             | ModelBuildOperation::CreateItemFlow { external_id, .. }
             | ModelBuildOperation::CreateDiagram { external_id, .. } => Some(external_id),
+            ModelBuildOperation::Activity { operation } => activity_create_external_id(operation),
+            ModelBuildOperation::StateMachine { operation } => {
+                state_machine_create_external_id(operation)
+            }
             ModelBuildOperation::RestorePortableState { .. } => None,
             _ => None,
         };
@@ -1269,6 +1284,13 @@ fn build_candidate(
                         error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
                     })?;
                 }
+                ModelBuildOperation::Activity { .. } | ModelBuildOperation::StateMachine { .. } => {
+                    return Err(error(
+                        "COMPLETE_BUILD_REQUIRED",
+                        Some(index),
+                        "Activity/State Machine authored semantics require the unified PR48 candidate build path",
+                    ));
+                }
                 ModelBuildOperation::UpdateRelationshipFields {
                     relationship,
                     name,
@@ -1944,6 +1966,9 @@ pub fn apply_complete_model_build(
     *current_file = None;
     Ok(result)
 }
+
+#[cfg(test)]
+mod pr48_tests;
 
 #[cfg(test)]
 mod tests {
