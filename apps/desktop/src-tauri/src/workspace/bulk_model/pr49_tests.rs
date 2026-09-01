@@ -212,14 +212,16 @@ fn pr49_unified_candidate_builds_native_sequence_and_parametric_semantics_atomic
     let preview = preview_unified_model_build(&plan, &workspace, &activity_state);
     assert!(preview.is_valid(), "{:?}", preview.diagnostics);
     assert!(workspace.behavior.lock().unwrap().interactions.is_empty());
-    assert!(workspace
-        .project
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .relationships
-        .is_empty());
+    assert!(
+        workspace
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationships
+            .is_empty()
+    );
 
     apply_unified_model_build(&plan, &workspace, &activity_state).unwrap();
 
@@ -254,10 +256,17 @@ fn pr49_unified_candidate_builds_native_sequence_and_parametric_semantics_atomic
         "m > 0"
     );
     assert_eq!(
-        project.element(constraint).unwrap().quantity_dimension.as_deref(),
+        project
+            .element(constraint)
+            .unwrap()
+            .quantity_dimension
+            .as_deref(),
         Some("M")
     );
-    assert_eq!(project.element(constraint).unwrap().unit_symbol.as_deref(), Some("kg"));
+    assert_eq!(
+        project.element(constraint).unwrap().unit_symbol.as_deref(),
+        Some("kg")
+    );
     assert_eq!(project.element(constraint).unwrap().unit_scale_to_base, 1.0);
     let binding = project
         .relationships
@@ -313,10 +322,12 @@ fn pr49_late_cross_interaction_occurrence_error_rolls_back_sequence_candidate() 
 
     let preview = preview_unified_model_build(&plan, &workspace, &activity_state);
     assert!(!preview.is_valid());
-    assert!(preview
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == "SEQUENCE_INTERACTION_MISMATCH"));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "SEQUENCE_INTERACTION_MISMATCH")
+    );
     assert!(apply_unified_model_build(&plan, &workspace, &activity_state).is_err());
     assert!(workspace.behavior.lock().unwrap().interactions.is_empty());
 }
