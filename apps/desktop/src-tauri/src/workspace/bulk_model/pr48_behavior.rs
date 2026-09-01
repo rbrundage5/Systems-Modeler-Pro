@@ -1598,6 +1598,7 @@ fn machine_for_behavior_identity(
                 }
                 has(&machine.regions, id)
             }
+            _ => false,
         };
         found.then_some(machine.id)
     })

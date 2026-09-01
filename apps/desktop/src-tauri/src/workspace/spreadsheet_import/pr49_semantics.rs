@@ -6,9 +6,8 @@ use crate::workspace::bulk_model::{
     ParametricBuildOperation, SequenceBuildOperation,
 };
 use systems_modeler_core::behavior::{
-    BehaviorRepository, BehaviorSemanticId, CombinedFragment, ExecutionId, FragmentId,
-    InteractionId, InteractionOperator, InvariantId, LifelineId, MessageId, MessageSignature,
-    MessageSort, Occurrence, OccurrenceId, OperandId,
+    BehaviorRepository, BehaviorSemanticId, ExecutionId, FragmentId, InteractionOperator,
+    InvariantId, MessageId, MessageSignature, MessageSort, Occurrence, OccurrenceId, OperandId,
 };
 
 pub(super) fn is_pr49_semantic_row(values: &BTreeMap<SpreadsheetSemanticProperty, String>) -> bool {
@@ -110,17 +109,22 @@ fn parse_optional_f64(
     let Some(value) = non_empty_value(values, property) else {
         return Ok(None);
     };
-    value.parse::<f64>().map(Some).map_err(|_| {
-        diagnostic(
-            Some(map),
-            Some(row),
-            mapped_column_name(map, property),
-            Some(property),
-            Some(value.into()),
-            "PR49_NUMBER_INVALID",
-            format!("{label} must be a finite decimal number"),
-        )
-    })
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|parsed| parsed.is_finite())
+        .map(Some)
+        .ok_or_else(|| {
+            diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, property),
+                Some(property),
+                Some(value.into()),
+                "PR49_NUMBER_INVALID",
+                format!("{label} must be a finite decimal number"),
+            )
+        })
 }
 
 fn list(value: Option<&str>) -> Vec<String> {
