@@ -39,6 +39,7 @@ fixture_identity_replacements = {
     'PARAM-START-MODE': 'PARAM-MODE',
     'PARAM-CALC-RESULT': 'PARAM-RESULT',
     'OP-CALCULATE': 'OP-CALC',
+    'TYPE-OPERATING-MODE': 'TYPE-MODE',
 }
 for old, new in fixture_identity_replacements.items():
     if old not in spreadsheet_test_text:
