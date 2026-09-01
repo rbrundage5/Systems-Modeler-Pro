@@ -1,0 +1,35 @@
+name: pr45-rustfmt
+
+on:
+  push:
+    branches:
+      - agent/pr45-itemflow-import
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr45-itemflow-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply rustfmt
+        run: cargo fmt --all
+      - name: Commit formatting and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr45-rustfmt.yml
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No formatting changes required"
+            exit 1
+          fi
+          git commit -m "PR45: apply Rust formatting"
+          git push origin HEAD:agent/pr45-itemflow-import
