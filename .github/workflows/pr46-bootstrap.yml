@@ -4,21 +4,90 @@ on:
     branches:
       - agent/pr46-operation-parameter-reception-import
 permissions:
-  contents: read
+  contents: write
 jobs:
-  inspect:
+  core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/pr46-operation-parameter-reception-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Apply PR46 implementation
         run: python scripts/pr46_patch.py
-      - name: Show focused test source
+      - name: Format
+        run: cargo fmt --all
+      - name: PR46 native model-core tests
+        run: cargo test -p systems-modeler-core --test pr46_operation_parameter_reception -- --nocapture
+      - name: PR46 persistence round-trip
+        run: cargo test -p systems-modeler-persistence --test pr46_operation_parameter_reception_persistence -- --nocapture
+      - name: Full model-core tests
+        run: cargo test -p systems-modeler-core
+      - name: Full persistence tests
+        run: cargo test -p systems-modeler-persistence
+      - name: Core and persistence Clippy
+        run: cargo clippy -p systems-modeler-core -p systems-modeler-persistence --all-targets -- -D warnings
+      - name: PR34 integration contract
+        run: python scripts/validate_operation_signal_sequence_integration.py
+      - name: Diff hygiene
+        run: git diff --check
+
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr46-operation-parameter-reception-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply PR46 implementation
+        run: python scripts/pr46_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
+      - name: PR46 focused desktop tests
+        run: cargo test -p systems-modeler-desktop pr46_ -- --nocapture
+      - name: Spreadsheet regression chain
+        run: cargo test -p systems-modeler-desktop spreadsheet_import -- --nocapture
+      - name: Portable interchange regression
+        run: cargo test -p systems-modeler-desktop portable_interchange -- --nocapture
+      - name: Full desktop tests
+        run: cargo test -p systems-modeler-desktop
+      - name: Desktop Clippy
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: PR34 integration contract
+        run: python scripts/validate_operation_signal_sequence_integration.py
+      - name: Diff hygiene
+        run: git diff --check
+
+  finalize:
+    needs: [core, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr46-operation-parameter-reception-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply qualified PR46 implementation
+        run: python scripts/pr46_patch.py
+      - name: Format final implementation
+        run: cargo fmt --all
+      - name: Clean qualification artifacts and commit
         shell: bash
         run: |
-          nl -ba apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr46_tests.rs | sed -n '1,760p'
-      - name: Show PR46 spreadsheet implementation anchors
-        shell: bash
-        run: |
-          grep -n -A45 -B20 'ParameterDirection\|AcceptedSignal\|ElementKind::Operation\|ElementKind::Reception\|ElementKind::Parameter' apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs | head -n 1200
+          git rm -f .github/workflows/pr46-bootstrap.yml scripts/pr46_patch.py scripts/pr46_patch.part*
+          git diff --check
+          git add -A
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "PR46: CATIA-style Operation Parameter Reception import"
+          git push origin HEAD:agent/pr46-operation-parameter-reception-import
