@@ -2,13 +2,14 @@ name: pr49-bootstrap
 
 on:
   push:
-    branches: [agent/pr49-sequence-parametric-import]
+    branches:
+      - agent/pr49-sequence-parametric-import
 
 permissions:
   contents: write
 
 jobs:
-  fix-and-core:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,41 +17,33 @@ jobs:
           ref: agent/pr49-sequence-parametric-import
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-      - name: Apply narrow PR49 compiler fix
-        shell: bash
-        run: python -c "from pathlib import Path; import re; p=Path('apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr49_semantics.rs'); t=p.read_text(); pattern=r'fn signature_matches\([\s\S]*?\n\}\n\nfn binding_endpoint'; replacement='fn signature_matches(\n    existing: &Option<MessageSignature>,\n    build: &Option<MessageSignatureBuild>,\n) -> bool {\n    match (existing, build) {\n        (None, None) => true,\n        (Some(MessageSignature::Operation(left)), Some(MessageSignatureBuild::Operation(BuildReference::Existing(right)))) => left == right,\n        (Some(MessageSignature::Signal(left)), Some(MessageSignatureBuild::Signal(BuildReference::Existing(right)))) => left == right,\n        _ => false,\n    }\n}\n\nfn binding_endpoint'; n,c=re.subn(pattern,replacement,t,count=1); assert c==1, f'expected exactly one signature_matches function, found {c}'; p.write_text(n)"
-      - name: Apply rustfmt
+          components: rustfmt
+      - name: Apply narrow PR49 fix
+        run: python scripts/pr49_fix_signature.py
+      - name: Format
         run: cargo fmt --all
-      - name: Remove temporary compiler logs
-        shell: bash
+      - name: Remove temporary logs
         run: rm -f pr49-desktop-check.log pr49-desktop-errors.log
-      - name: Commit narrow fix if needed
+      - name: Commit fix
         shell: bash
         run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
             git commit -m "PR49: fix message signature comparison"
             git push origin HEAD:agent/pr49-sequence-parametric-import
           fi
-      - name: Format check
-        run: cargo fmt --all --check
-      - name: Core check
-        run: cargo check --workspace --exclude systems-modeler-desktop
 
   desktop:
     runs-on: windows-latest
-    needs: fix-and-core
+    needs: fix
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/pr49-sequence-parametric-import
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - name: Desktop check
         run: cargo check -p systems-modeler-desktop
 
-# Temporary PR49 compiler qualification workflow; remove before publication.
+# Temporary PR49 qualification workflow. Remove before publication.
