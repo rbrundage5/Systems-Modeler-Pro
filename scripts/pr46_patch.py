@@ -18,3 +18,13 @@ good_test = '''    assert!(\n        project\n            .create_element(Elemen
 if bad_test not in test_text:
     raise SystemExit('missing PR46 ownership assertion anchor')
 test_path.write_text(test_text.replace(bad_test, good_test, 1))
+
+spreadsheet_test_path = Path('apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr46_tests.rs')
+spreadsheet_test_text = spreadsheet_test_path.read_text()
+old_owner_column = '("Component", SpreadsheetSemanticProperty::Owner),'
+new_owner_column = '("Owning Type", SpreadsheetSemanticProperty::Owner),'
+if old_owner_column not in spreadsheet_test_text:
+    raise SystemExit('missing PR46 Services owner-column anchor')
+spreadsheet_test_path.write_text(
+    spreadsheet_test_text.replace(old_owner_column, new_owner_column, 1)
+)
