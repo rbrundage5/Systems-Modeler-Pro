@@ -2216,6 +2216,23 @@ fn build_unified_candidate(
     state_machine_behavior
         .validate(&project)
         .map_err(|cause| error("STATE_MACHINE_SEMANTIC_VALIDATION", None, cause.to_string()))?;
+    // Preserve PR48's state-machine diagnostic contract while validating the
+    // expanded PR49 behavior repository. Sequence-only identities are removed
+    // from this state-machine projection, then the complete repository is
+    // validated immediately afterward for native Sequence semantics.
+    let mut state_machine_behavior = behavior.clone();
+    state_machine_behavior.interactions.clear();
+    state_machine_behavior.external_ids.retain(|_, identity| {
+        matches!(
+            identity,
+            BehaviorSemanticId::Region(_)
+                | BehaviorSemanticId::Vertex(_)
+                | BehaviorSemanticId::Transition(_)
+        )
+    });
+    state_machine_behavior
+        .validate(&project)
+        .map_err(|cause| error("STATE_MACHINE_SEMANTIC_VALIDATION", None, cause.to_string()))?;
     behavior
         .validate(&project)
         .map_err(|cause| error("BEHAVIOR_SEMANTIC_VALIDATION", None, cause.to_string()))?;

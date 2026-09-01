@@ -799,7 +799,7 @@ fn plan_parametric_element(
         }
     };
     let operations = changed
-        .then(|| ModelBuildOperation::Parametric {
+        .then_some(ModelBuildOperation::Parametric {
             operation: ParametricBuildOperation::UpdateElementSemantics {
                 element,
                 constraint_expression: expression,
@@ -1263,7 +1263,7 @@ pub(super) fn plan_pr49_semantic_row(
                         SpreadsheetRowAction::NoChange
                     },
                     changed
-                        .then(|| ModelBuildOperation::Sequence {
+                        .then_some(ModelBuildOperation::Sequence {
                             operation: SequenceBuildOperation::UpdateMessage {
                                 message: BuildReference::Existing(id),
                                 name: Some(name),
@@ -1386,7 +1386,7 @@ pub(super) fn plan_pr49_semantic_row(
                         SpreadsheetRowAction::NoChange
                     },
                     changed
-                        .then(|| ModelBuildOperation::Sequence {
+                        .then_some(ModelBuildOperation::Sequence {
                             operation: SequenceBuildOperation::UpdateExecution {
                                 execution: BuildReference::Existing(id),
                                 lifeline: Some(lifeline),
@@ -1471,7 +1471,7 @@ pub(super) fn plan_pr49_semantic_row(
                         SpreadsheetRowAction::NoChange
                     },
                     changed
-                        .then(|| ModelBuildOperation::Sequence {
+                        .then_some(ModelBuildOperation::Sequence {
                             operation: SequenceBuildOperation::UpdateFragment {
                                 fragment: BuildReference::Existing(id),
                                 operator: Some(operator),
@@ -1547,7 +1547,7 @@ pub(super) fn plan_pr49_semantic_row(
                         SpreadsheetRowAction::NoChange
                     },
                     changed
-                        .then(|| ModelBuildOperation::Sequence {
+                        .then_some(ModelBuildOperation::Sequence {
                             operation: SequenceBuildOperation::UpdateOperand {
                                 operand: BuildReference::Existing(id),
                                 guard: Some(guard),
@@ -1632,7 +1632,7 @@ pub(super) fn plan_pr49_semantic_row(
                         SpreadsheetRowAction::NoChange
                     },
                     changed
-                        .then(|| ModelBuildOperation::Sequence {
+                        .then_some(ModelBuildOperation::Sequence {
                             operation: SequenceBuildOperation::UpdateInvariant {
                                 invariant: BuildReference::Existing(id),
                                 lifeline: Some(lifeline),
