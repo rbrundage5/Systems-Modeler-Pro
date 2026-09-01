@@ -19,6 +19,7 @@ fn fixture() -> (
     ElementId,
     ElementId,
     ElementId,
+    ElementId,
 ) {
     let state = WorkspaceState::default();
     let mut project = Project::new("PR49 spreadsheet");
@@ -232,6 +233,10 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
     assert_eq!(interaction.context_id, system);
     assert_eq!(interaction.messages[0].sort, MessageSort::SynchCall);
     assert!(matches!(
+        interaction.messages[0].signature,
+        Some(systems_modeler_core::behavior::MessageSignature::Operation(id)) if id == operation
+    ));
+    assert!(matches!(
         behavior.external_ids.get("catia:pr49::MSG"),
         Some(BehaviorSemanticId::Message(_))
     ));
@@ -258,7 +263,6 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
     assert_eq!(endpoints.source.parameter_id, None);
     assert_eq!(endpoints.target.role_id, constraint_property);
     assert_eq!(endpoints.target.parameter_id, Some(parameter));
-    assert!(matches!(interaction_signature(binding, operation), true));
     drop(project);
 
     let second = preview_spreadsheet_import_group_with_activity(&group, &state, &activity);
@@ -269,11 +273,6 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
             .iter()
             .all(|row| row.action == SpreadsheetRowAction::NoChange)
     );
-}
-
-fn interaction_signature(_binding: &Relationship, operation: ElementId) -> bool {
-    let _ = operation;
-    true
 }
 
 #[test]

@@ -374,6 +374,7 @@ fn lifeline_reference(
 
 macro_rules! semantic_reference_fn {
     ($name:ident, $target:ty, $kind:ident, $variant:ident, $label:literal, $body:expr) => {
+        #[allow(dead_code)]
         fn $name(
             map: &SpreadsheetImportMap,
             row: usize,
