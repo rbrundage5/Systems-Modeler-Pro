@@ -187,9 +187,6 @@ test_text = re.sub(
     count=1,
 )
 
-# Keep the CSV fixtures column-exact. These rows exercise the mapped Target,
-# expression, unit, and structured BindingEndpoint fields rather than relying
-# on a fragile comma count.
 test_text = test_text.replace(
     '"ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,,MassConstraint,m > 0,kg,1,,,,\\n",',
     '"ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,MassConstraint,m = 1,kg,1,,,,\\n",',
@@ -200,7 +197,6 @@ test_text = test_text.replace(
 )
 test_text = test_text.replace('"m > 0"\n    );', '"m = 1"\n    );')
 
-# End the project lock guard before idempotent re-preview.
 old_lock = """    let project = state.project.lock().unwrap();
     let project = project.as_ref().unwrap();
 """
@@ -231,3 +227,103 @@ if old_idempotency_assert in test_text:
     test_text = test_text.replace(old_idempotency_assert, new_idempotency_assert, 1)
 
 spreadsheet_test_path.write_text(test_text)
+
+# On reimport, stable persisted semantic identities must take precedence over
+# same-run plan records. Plan-local references remain the fallback for records
+# that are genuinely being created for the first time.
+semantic_path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr49_semantics.rs")
+semantic = semantic_path.read_text()
+interaction_pattern = r"fn interaction_reference\([\s\S]*?\n\}\n\nfn wrong_kind"
+interaction_replacement = """fn interaction_reference(
+    map: &SpreadsheetImportMap,
+    row: usize,
+    behavior: &BehaviorRepository,
+    planned: &BehaviorPlanningIndex,
+    value: &str,
+) -> Result<InteractionReference, SpreadsheetImportDiagnostic> {
+    let key = external_key(&map.source_namespace, value);
+    if let Some(record) = behavior
+        .interactions
+        .values()
+        .find(|record| record.external_id == key)
+    {
+        return Ok(BuildReference::Existing(record.id));
+    }
+    if let Some(record) = planned.by_external(value) {
+        if record.kind == BehaviorRowKind::Interaction {
+            return Ok(BuildReference::External(value.into()));
+        }
+        return Err(wrong_kind(
+            map,
+            row,
+            value,
+            BehaviorRowKind::Interaction,
+            record.kind,
+        ));
+    }
+    let matches = behavior
+        .interactions
+        .values()
+        .filter(|record| record.name == value)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [record] => Ok(BuildReference::Existing(record.id)),
+        [] => Err(reference_error(map, row, value, "Interaction", false)),
+        _ => Err(reference_error(map, row, value, "Interaction", true)),
+    }
+}
+
+fn wrong_kind"""
+semantic, count = re.subn(interaction_pattern, interaction_replacement, semantic, count=1)
+if count != 1:
+    raise SystemExit(f"expected interaction_reference replacement, found {count}")
+
+reference_pattern = r"fn semantic_reference<T: Copy>\([\s\S]*?\n\}\n\nfn lifeline_reference"
+reference_replacement = """fn semantic_reference<T: Copy>(
+    map: &SpreadsheetImportMap,
+    row: usize,
+    behavior: &BehaviorRepository,
+    planned: &BehaviorPlanningIndex,
+    value: &str,
+    expected_kind: BehaviorRowKind,
+    extract: fn(BehaviorSemanticId) -> Option<T>,
+    by_name: impl Fn(&BehaviorRepository, &str) -> Vec<T>,
+    label: &str,
+) -> Result<BuildReference<T>, SpreadsheetImportDiagnostic> {
+    let key = external_key(&map.source_namespace, value);
+    if let Some(identity) = behavior.external_ids.get(&key).copied() {
+        if let Some(id) = extract(identity) {
+            return Ok(BuildReference::Existing(id));
+        }
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            None,
+            None,
+            Some(value.into()),
+            "PR49_IDENTITY_KIND_COLLISION",
+            format!(
+                "semantic External ID '{value}' has kind {:?}, expected {expected_kind:?}",
+                semantic_identity_kind(identity)
+            ),
+        ));
+    }
+    if let Some(record) = planned.by_external(value) {
+        if record.kind == expected_kind {
+            return Ok(BuildReference::External(value.into()));
+        }
+        return Err(wrong_kind(map, row, value, expected_kind, record.kind));
+    }
+    let matches = by_name(behavior, value);
+    match matches.as_slice() {
+        [id] => Ok(BuildReference::Existing(*id)),
+        [] => Err(reference_error(map, row, value, label, false)),
+        _ => Err(reference_error(map, row, value, label, true)),
+    }
+}
+
+fn lifeline_reference"""
+semantic, count = re.subn(reference_pattern, reference_replacement, semantic, count=1)
+if count != 1:
+    raise SystemExit(f"expected semantic_reference replacement, found {count}")
+semantic_path.write_text(semantic)
