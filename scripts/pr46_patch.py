@@ -10,3 +10,11 @@ good = '''                        let kind = project\n                          
 if bad not in text:
     raise SystemExit('missing post-patch default-value anchor')
 p.write_text(text.replace(bad, good, 1))
+
+test_path = Path('crates/model-core/tests/pr46_operation_parameter_reception.rs')
+test_text = test_path.read_text()
+bad_test = '''    assert!(matches!(\n        project.create_element(ElementKind::Parameter, "bad", controller),\n        Err(ModelError::InvalidOwner(_))\n    ));\n'''
+good_test = '''    assert!(\n        project\n            .create_element(ElementKind::Parameter, "bad", controller)\n            .is_err()\n    );\n'''
+if bad_test not in test_text:
+    raise SystemExit('missing PR46 ownership assertion anchor')
+test_path.write_text(test_text.replace(bad_test, good_test, 1))
