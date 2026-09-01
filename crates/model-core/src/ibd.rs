@@ -211,24 +211,31 @@ impl Project {
         if flow.conveyed_item_ids.is_empty() {
             return Err(ModelError::ItemFlowRequiresConveyedItem);
         }
+        let mut conveyed = std::collections::HashSet::new();
         for item_id in &flow.conveyed_item_ids {
+            if !conveyed.insert(*item_id) {
+                return Err(ModelError::DuplicateConveyedItem(*item_id));
+            }
             let item = self.element(*item_id)?;
             if !item.is_classifier() {
                 return Err(ModelError::InvalidConveyedItem(*item_id));
             }
         }
-        self.validate_connector_end(self.connector_context(flow.connector_id)?, &flow.source)?;
-        self.validate_connector_end(self.connector_context(flow.connector_id)?, &flow.target)?;
-        Ok(())
-    }
-
-    fn connector_context(&self, connector_id: RelationshipId) -> Result<ElementId, ModelError> {
-        let relationship = self.relationship(connector_id)?;
-        relationship
+        let relationship = self.relationship(flow.connector_id)?;
+        let connector = relationship
             .connector
             .as_ref()
-            .map(|connector| connector.context_id)
-            .ok_or(ModelError::RelationshipIsNotConnector(connector_id))
+            .ok_or(ModelError::RelationshipIsNotConnector(flow.connector_id))?;
+        self.validate_connector_end(connector.context_id, &flow.source)?;
+        self.validate_connector_end(connector.context_id, &flow.target)?;
+        if !((flow.source == connector.source && flow.target == connector.target)
+            || (flow.source == connector.target && flow.target == connector.source))
+        {
+            return Err(ModelError::ItemFlowEndpointsDoNotMatchConnector(
+                flow.connector_id,
+            ));
+        }
+        Ok(())
     }
 
     fn is_generalization_related(&self, specific: ElementId, general: ElementId) -> bool {

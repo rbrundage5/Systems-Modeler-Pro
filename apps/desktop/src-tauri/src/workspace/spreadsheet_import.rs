@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use systems_modeler_core::{
     AggregationKind, ConnectorEnd, ConnectorKind, Element, ElementId, ElementKind, FlowDirection,
-    Multiplicity, Project, Relationship, RelationshipKind, VisibilityKind,
+    Multiplicity, Project, Relationship, RelationshipId, RelationshipKind, VisibilityKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -35,6 +35,8 @@ pub enum SpreadsheetSemanticProperty {
     RelationshipKind,
     ConnectorContext,
     ConnectorKind,
+    Connector,
+    ConveyedItems,
     Source,
     Target,
     SourceEndRole,
@@ -242,6 +244,13 @@ struct PlannedElement {
 }
 
 #[derive(Debug, Clone)]
+struct PlannedRelationship {
+    external_id: String,
+    kind: RelationshipKind,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
 struct ResolvedOwner {
     reference: ElementReference,
     qualified_name: String,
@@ -320,6 +329,7 @@ fn supported_relationship_kind(kind: &RelationshipKind) -> bool {
             | RelationshipKind::Trace
             | RelationshipKind::Copy
             | RelationshipKind::Connector
+            | RelationshipKind::ItemFlow
     )
 }
 
@@ -355,6 +365,10 @@ fn reference_error_code(property: SpreadsheetSemanticProperty, ambiguous: bool) 
         (SpreadsheetSemanticProperty::Target, false) => "TARGET_UNRESOLVED",
         (SpreadsheetSemanticProperty::ConnectorContext, true) => "CONNECTOR_CONTEXT_AMBIGUOUS",
         (SpreadsheetSemanticProperty::ConnectorContext, false) => "CONNECTOR_CONTEXT_UNRESOLVED",
+        (SpreadsheetSemanticProperty::Connector, true) => "CONNECTOR_AMBIGUOUS",
+        (SpreadsheetSemanticProperty::Connector, false) => "CONNECTOR_UNRESOLVED",
+        (SpreadsheetSemanticProperty::ConveyedItems, true) => "CONVEYED_ITEM_AMBIGUOUS",
+        (SpreadsheetSemanticProperty::ConveyedItems, false) => "CONVEYED_ITEM_UNRESOLVED",
         (_, true) => "REFERENCE_AMBIGUOUS",
         (_, false) => "REFERENCE_UNRESOLVED",
     }
@@ -759,6 +773,7 @@ fn validate_map(
             }
         }
         let connector_map = map.relationship_kind == Some(RelationshipKind::Connector);
+        let item_flow_map = map.relationship_kind == Some(RelationshipKind::ItemFlow);
         let has_connector_fields = has_property(SpreadsheetSemanticProperty::ConnectorContext)
             || has_property(SpreadsheetSemanticProperty::ConnectorKind);
         if connector_map {
@@ -787,6 +802,36 @@ fn validate_map(
                 None,
                 "CONNECTOR_FIELD_INVALID",
                 "ConnectorContext and ConnectorKind can be mapped only on a fixed native Connector relationship map",
+            ));
+        }
+        let has_item_flow_fields = has_property(SpreadsheetSemanticProperty::Connector)
+            || has_property(SpreadsheetSemanticProperty::ConveyedItems);
+        if item_flow_map {
+            for property in [
+                SpreadsheetSemanticProperty::Connector,
+                SpreadsheetSemanticProperty::ConveyedItems,
+            ] {
+                if !has_property(property) {
+                    return Err(diagnostic(
+                        Some(map),
+                        None,
+                        None,
+                        Some(property),
+                        None,
+                        "ITEM_FLOW_COLUMN_REQUIRED",
+                        format!("ItemFlow mappings require a mapped {property:?} column"),
+                    ));
+                }
+            }
+        } else if has_item_flow_fields {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                None,
+                None,
+                None,
+                "ITEM_FLOW_FIELD_INVALID",
+                "Connector and ConveyedItems can be mapped only on a fixed native ItemFlow relationship map",
             ));
         }
         if map.relationship_identity == SpreadsheetRelationshipIdentityPolicy::ExternalId
@@ -1673,6 +1718,7 @@ fn parse_relationship_kind_value(
         "trace" => RelationshipKind::Trace,
         "copy" => RelationshipKind::Copy,
         "connector" => RelationshipKind::Connector,
+        "itemflow" | "item flow" => RelationshipKind::ItemFlow,
         _ => {
             return Err(diagnostic(
                 Some(map),
@@ -1682,7 +1728,7 @@ fn parse_relationship_kind_value(
                 Some(value.trim().to_string()),
                 "RELATIONSHIP_KIND_UNSUPPORTED",
                 format!(
-                    "relationship kind '{}' is outside PR40/PR41/PR42; expected Association, Generalization, Dependency, Realization, Allocate, DeriveRequirement/deriveReqt, Satisfy, Verify, Refine, Trace, or Copy",
+                    "relationship kind '{}' is unsupported; expected Association, Generalization, Dependency, Realization, Allocate, DeriveRequirement/deriveReqt, Satisfy, Verify, Refine, Trace, Copy, Connector, or ItemFlow",
                     value.trim()
                 ),
             ));
@@ -2515,17 +2561,472 @@ fn plan_connector_row(
     })
 }
 
+#[derive(Debug, Clone)]
+struct ResolvedRelationship {
+    reference: RelationshipReference,
+    id: Option<RelationshipId>,
+}
+
+fn resolve_item_flow_connector(
+    map: &SpreadsheetImportMap,
+    project: &Project,
+    planned: &[PlannedRelationship],
+    requested: &str,
+) -> Result<ResolvedRelationship, SpreadsheetImportDiagnostic> {
+    let key = external_key(&map.source_namespace, requested);
+    let existing_external = project
+        .relationships
+        .values()
+        .filter(|relationship| relationship.external_id == key)
+        .collect::<Vec<_>>();
+    let planned_external = planned
+        .iter()
+        .filter(|relationship| relationship.external_id == requested)
+        .collect::<Vec<_>>();
+    match (existing_external.as_slice(), planned_external.as_slice()) {
+        ([relationship], []) if relationship.kind == RelationshipKind::Connector => {
+            return Ok(ResolvedRelationship {
+                reference: BuildReference::Existing(relationship.id),
+                id: Some(relationship.id),
+            });
+        }
+        ([relationship], []) => {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+                Some(SpreadsheetSemanticProperty::Connector),
+                Some(requested.into()),
+                "ITEM_FLOW_CONNECTOR_KIND_MISMATCH",
+                format!(
+                    "relationship '{requested}' is {:?}, not a native Connector",
+                    relationship.kind
+                ),
+            ));
+        }
+        ([], [relationship]) if relationship.kind == RelationshipKind::Connector => {
+            return Ok(ResolvedRelationship {
+                reference: BuildReference::External(relationship.external_id.clone()),
+                id: None,
+            });
+        }
+        ([], [relationship]) => {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+                Some(SpreadsheetSemanticProperty::Connector),
+                Some(requested.into()),
+                "ITEM_FLOW_CONNECTOR_KIND_MISMATCH",
+                format!(
+                    "plan-local relationship '{requested}' is {:?}, not a native Connector",
+                    relationship.kind
+                ),
+            ));
+        }
+        ([], []) => {}
+        _ => {
+            return Err(diagnostic(
+                Some(map),
+                None,
+                mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+                Some(SpreadsheetSemanticProperty::Connector),
+                Some(requested.into()),
+                "CONNECTOR_AMBIGUOUS",
+                format!("Connector '{requested}' resolves to more than one relationship"),
+            ));
+        }
+    }
+
+    let existing_name = project
+        .relationships
+        .values()
+        .filter(|relationship| relationship_in_scope(map, project, relationship))
+        .filter(|relationship| relationship.name == requested)
+        .collect::<Vec<_>>();
+    let planned_name = planned
+        .iter()
+        .filter(|relationship| relationship.name == requested)
+        .collect::<Vec<_>>();
+    match (existing_name.as_slice(), planned_name.as_slice()) {
+        ([relationship], []) if relationship.kind == RelationshipKind::Connector => {
+            Ok(ResolvedRelationship {
+                reference: BuildReference::Existing(relationship.id),
+                id: Some(relationship.id),
+            })
+        }
+        ([], [relationship]) if relationship.kind == RelationshipKind::Connector => {
+            Ok(ResolvedRelationship {
+                reference: BuildReference::External(relationship.external_id.clone()),
+                id: None,
+            })
+        }
+        ([], []) => Err(diagnostic(
+            Some(map),
+            None,
+            mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+            Some(SpreadsheetSemanticProperty::Connector),
+            Some(requested.into()),
+            "CONNECTOR_UNRESOLVED",
+            format!(
+                "Connector '{requested}' was not found by namespaced External ID or exact relationship name"
+            ),
+        )),
+        ([relationship], []) => Err(diagnostic(
+            Some(map),
+            None,
+            mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+            Some(SpreadsheetSemanticProperty::Connector),
+            Some(requested.into()),
+            "ITEM_FLOW_CONNECTOR_KIND_MISMATCH",
+            format!(
+                "relationship '{requested}' is {:?}, not a native Connector",
+                relationship.kind
+            ),
+        )),
+        ([], [relationship]) => Err(diagnostic(
+            Some(map),
+            None,
+            mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+            Some(SpreadsheetSemanticProperty::Connector),
+            Some(requested.into()),
+            "ITEM_FLOW_CONNECTOR_KIND_MISMATCH",
+            format!(
+                "plan-local relationship '{requested}' is {:?}, not a native Connector",
+                relationship.kind
+            ),
+        )),
+        _ => Err(diagnostic(
+            Some(map),
+            None,
+            mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+            Some(SpreadsheetSemanticProperty::Connector),
+            Some(requested.into()),
+            "CONNECTOR_AMBIGUOUS",
+            format!("Connector name '{requested}' resolves to more than one relationship"),
+        )),
+    }
+}
+
+fn resolve_conveyed_items(
+    map: &SpreadsheetImportMap,
+    row: usize,
+    values: &BTreeMap<SpreadsheetSemanticProperty, String>,
+    project: &Project,
+    planned: &[PlannedElement],
+) -> Result<Vec<ElementReference>, SpreadsheetImportDiagnostic> {
+    let value =
+        non_empty_value(values, SpreadsheetSemanticProperty::ConveyedItems).ok_or_else(|| {
+            diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, SpreadsheetSemanticProperty::ConveyedItems),
+                Some(SpreadsheetSemanticProperty::ConveyedItems),
+                None,
+                "CONVEYED_ITEMS_REQUIRED",
+                "ItemFlow requires at least one conveyed semantic classifier",
+            )
+        })?;
+    let references = value
+        .split('\n')
+        .map(|item| item.trim_end_matches('\r').trim())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    if references.is_empty() {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            mapped_column_name(map, SpreadsheetSemanticProperty::ConveyedItems),
+            Some(SpreadsheetSemanticProperty::ConveyedItems),
+            None,
+            "CONVEYED_ITEMS_REQUIRED",
+            "ItemFlow requires at least one conveyed semantic classifier",
+        ));
+    }
+    let mut resolved = Vec::new();
+    for requested in references {
+        let item = resolve_semantic_reference(
+            map,
+            project,
+            planned,
+            requested,
+            SpreadsheetSemanticProperty::ConveyedItems,
+            "Conveyed item",
+            false,
+        )?;
+        if resolved.contains(&item.reference) {
+            return Err(diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, SpreadsheetSemanticProperty::ConveyedItems),
+                Some(SpreadsheetSemanticProperty::ConveyedItems),
+                Some(requested.into()),
+                "DUPLICATE_CONVEYED_ITEM",
+                format!("conveyed item '{requested}' appears more than once"),
+            ));
+        }
+        resolved.push(item.reference);
+    }
+    Ok(resolved)
+}
+
+fn resolved_element_ids(references: &[ElementReference]) -> Option<Vec<ElementId>> {
+    references
+        .iter()
+        .map(|reference| match reference {
+            BuildReference::Existing(id) => Some(*id),
+            BuildReference::External(_) => None,
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_item_flow_row(
+    map: &SpreadsheetImportMap,
+    row: usize,
+    values: &BTreeMap<SpreadsheetSemanticProperty, String>,
+    project: &Project,
+    planned: &[PlannedElement],
+    planned_relationships: &[PlannedRelationship],
+    seen_source_external_ids: &mut HashSet<String>,
+) -> Result<RelationshipRowPlan, SpreadsheetImportDiagnostic> {
+    let connector_text = non_empty_value(values, SpreadsheetSemanticProperty::Connector)
+        .ok_or_else(|| {
+            diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+                Some(SpreadsheetSemanticProperty::Connector),
+                None,
+                "ITEM_FLOW_CONNECTOR_REQUIRED",
+                "ItemFlow requires an explicit native Connector reference",
+            )
+        })?;
+    let connector =
+        resolve_item_flow_connector(map, project, planned_relationships, connector_text)?;
+    let source = parse_connector_end_spec(map, row, values, SpreadsheetSemanticProperty::Source)?;
+    let target = parse_connector_end_spec(map, row, values, SpreadsheetSemanticProperty::Target)?;
+    let conveyed_items = resolve_conveyed_items(map, row, values, project, planned)?;
+
+    let explicit_external_id = non_empty_value(values, SpreadsheetSemanticProperty::ExternalId);
+    if explicit_external_id.is_none()
+        && map.relationship_identity == SpreadsheetRelationshipIdentityPolicy::ExternalId
+    {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            mapped_column_name(map, SpreadsheetSemanticProperty::ExternalId),
+            Some(SpreadsheetSemanticProperty::ExternalId),
+            None,
+            "RELATIONSHIP_EXTERNAL_ID_REQUIRED",
+            "ItemFlow External ID is blank and no topology fallback identity policy was configured",
+        ));
+    }
+    let conveyed_text = non_empty_value(values, SpreadsheetSemanticProperty::ConveyedItems)
+        .unwrap_or_default()
+        .replace("\r\n", "/")
+        .replace('\n', "/");
+    let effective_external_id = explicit_external_id
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            format!(
+                "fallback::ItemFlow::{connector_text}::{}=>{}::{conveyed_text}",
+                source.segments.join("/"),
+                target.segments.join("/")
+            )
+        });
+    let key = external_key(&map.source_namespace, &effective_external_id);
+    if !seen_source_external_ids.insert(key.clone()) {
+        return Err(diagnostic(
+            Some(map),
+            Some(row),
+            mapped_column_name(map, SpreadsheetSemanticProperty::ExternalId),
+            Some(SpreadsheetSemanticProperty::ExternalId),
+            Some(effective_external_id),
+            "DUPLICATE_SOURCE_EXTERNAL_ID",
+            format!("source ItemFlow identity '{key}' appears more than once in this import group"),
+        ));
+    }
+
+    let mut existing = find_relationship_by_external_id(
+        map,
+        project,
+        &effective_external_id,
+        &RelationshipKind::ItemFlow,
+    )?;
+    let resolved_topology = if let Some(connector_id) = connector.id {
+        let connector_relationship = project.relationship(connector_id).map_err(|cause| {
+            diagnostic(
+                Some(map),
+                Some(row),
+                mapped_column_name(map, SpreadsheetSemanticProperty::Connector),
+                Some(SpreadsheetSemanticProperty::Connector),
+                Some(connector_text.into()),
+                "CONNECTOR_UNRESOLVED",
+                cause.to_string(),
+            )
+        })?;
+        let context_id = connector_relationship
+            .connector
+            .as_ref()
+            .unwrap()
+            .context_id;
+        let source_end = resolved_existing_connector_end(
+            map,
+            row,
+            project,
+            context_id,
+            &source,
+            SpreadsheetSemanticProperty::Source,
+        )?;
+        let target_end = resolved_existing_connector_end(
+            map,
+            row,
+            project,
+            context_id,
+            &target,
+            SpreadsheetSemanticProperty::Target,
+        )?;
+        resolved_element_ids(&conveyed_items)
+            .map(|items| (connector_id, source_end, target_end, items))
+    } else {
+        None
+    };
+    if existing.is_none()
+        && explicit_external_id.is_none()
+        && let Some((connector_id, source_end, target_end, items)) = &resolved_topology
+    {
+        let matches = project
+            .relationships
+            .values()
+            .filter(|relationship| relationship_in_scope(map, project, relationship))
+            .filter(|relationship| {
+                relationship.item_flow.as_ref().is_some_and(|flow| {
+                    flow.connector_id == *connector_id
+                        && flow.source == *source_end
+                        && flow.target == *target_end
+                        && flow.conveyed_item_ids == *items
+                })
+            })
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => {}
+            [relationship] => existing = Some(*relationship),
+            _ => {
+                return Err(diagnostic(
+                    Some(map),
+                    Some(row),
+                    None,
+                    None,
+                    Some(effective_external_id),
+                    "AMBIGUOUS_RELATIONSHIP",
+                    format!(
+                        "full ItemFlow topology matches {} relationships",
+                        matches.len()
+                    ),
+                ));
+            }
+        }
+    }
+
+    let name = values.get(&SpreadsheetSemanticProperty::Name).cloned();
+    let documentation = values
+        .get(&SpreadsheetSemanticProperty::Documentation)
+        .cloned();
+    let visibility = values
+        .get(&SpreadsheetSemanticProperty::Visibility)
+        .map(|value| parse_visibility(map, row, value))
+        .transpose()?;
+    if let Some(existing) = existing {
+        let current = existing.item_flow.as_ref().ok_or_else(|| {
+            diagnostic(
+                Some(map),
+                Some(row),
+                None,
+                None,
+                Some(effective_external_id.clone()),
+                "RELATIONSHIP_IDENTITY_KIND_MISMATCH",
+                "existing ItemFlow relationship has no native ItemFlow payload",
+            )
+        })?;
+        let topology_changed = resolved_topology.as_ref().is_none_or(
+            |(connector_id, source_end, target_end, items)| {
+                current.connector_id != *connector_id
+                    || current.source != *source_end
+                    || current.target != *target_end
+                    || current.conveyed_item_ids != *items
+            },
+        );
+        let external_changed = existing.external_id != key;
+        let changed = topology_changed
+            || external_changed
+            || name.as_ref().is_some_and(|value| existing.name != *value)
+            || documentation
+                .as_ref()
+                .is_some_and(|value| existing.documentation != *value)
+            || visibility.is_some_and(|value| existing.visibility != value);
+        return Ok(RelationshipRowPlan {
+            action: if changed {
+                SpreadsheetRowAction::Update
+            } else {
+                SpreadsheetRowAction::NoChange
+            },
+            operations: changed
+                .then(|| ModelBuildOperation::UpdateItemFlowFields {
+                    relationship: BuildReference::Existing(existing.id),
+                    connector: connector.reference,
+                    source,
+                    target,
+                    conveyed_items,
+                    external_id: (external_changed || explicit_external_id.is_some())
+                        .then_some(effective_external_id),
+                    name,
+                    documentation,
+                    visibility,
+                })
+                .into_iter()
+                .collect(),
+        });
+    }
+
+    Ok(RelationshipRowPlan {
+        action: SpreadsheetRowAction::Create,
+        operations: vec![ModelBuildOperation::CreateItemFlow {
+            external_id: effective_external_id,
+            connector: connector.reference,
+            source,
+            target,
+            conveyed_items,
+            name: name.unwrap_or_default(),
+            documentation: documentation.unwrap_or_default(),
+            visibility: visibility.unwrap_or_default(),
+        }],
+    })
+}
+
 fn plan_relationship_row(
     map: &SpreadsheetImportMap,
     row: usize,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
     project: &Project,
     planned: &[PlannedElement],
+    planned_relationships: &[PlannedRelationship],
     seen_source_external_ids: &mut HashSet<String>,
 ) -> Result<RelationshipRowPlan, SpreadsheetImportDiagnostic> {
     let kind = relationship_kind_for_row(map, row, values)?;
     if kind == RelationshipKind::Connector {
         return plan_connector_row(map, row, values, project, planned, seen_source_external_ids);
+    }
+    if kind == RelationshipKind::ItemFlow {
+        return plan_item_flow_row(
+            map,
+            row,
+            values,
+            project,
+            planned,
+            planned_relationships,
+            seen_source_external_ids,
+        );
     }
     let source = resolve_relationship_endpoint(
         map,
@@ -2909,6 +3410,7 @@ fn prepare_spreadsheet_import(
     let mut operations = Vec::new();
     let mut operation_contexts = Vec::new();
     let mut planned = Vec::<PlannedElement>::new();
+    let mut planned_relationships = Vec::<PlannedRelationship>::new();
     let mut seen_source_external_ids = HashSet::<String>::new();
 
     for map in &group.mappings {
@@ -2955,6 +3457,7 @@ fn prepare_spreadsheet_import(
                     &values,
                     project,
                     &planned,
+                    &planned_relationships,
                     &mut seen_source_external_ids,
                 ) {
                     Ok(planned_relationship) => {
@@ -2966,6 +3469,16 @@ fn prepare_spreadsheet_import(
                         ));
                         let context = row_context(map, row.row_number, &values);
                         for operation in planned_relationship.operations {
+                            if let ModelBuildOperation::CreateConnector {
+                                external_id, name, ..
+                            } = &operation
+                            {
+                                planned_relationships.push(PlannedRelationship {
+                                    external_id: external_id.clone(),
+                                    kind: RelationshipKind::Connector,
+                                    name: name.clone(),
+                                });
+                            }
                             operations.push(operation);
                             operation_contexts.push(context.clone());
                         }
@@ -7614,3 +8127,5 @@ mod pr42_tests {
 mod pr43_tests;
 #[cfg(test)]
 mod pr44_tests;
+#[cfg(test)]
+mod pr45_tests;
