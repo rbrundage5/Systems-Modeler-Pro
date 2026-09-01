@@ -33,9 +33,22 @@ activity_id_type!(PinId);
 activity_id_type!(ActivityPartitionId);
 activity_id_type!(StructuredNodeId);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ActivitySemanticId {
+    Node(ActivityNodeId),
+    Pin(PinId),
+    Edge(ActivityEdgeId),
+    Partition(ActivityPartitionId),
+    StructuredNode(StructuredNodeId),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActivityRepository {
     pub activities: HashMap<ActivityId, Activity>,
+    /// Stable source identities for specialized authored Activity records.
+    /// Internal typed UUIDs remain implementation identity and are never workbook identity.
+    #[serde(default)]
+    pub external_ids: HashMap<String, ActivitySemanticId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,6 +285,14 @@ pub enum ActivityError {
     InvalidActivityParameter(ElementId),
     #[error("interrupting edge must reference an InterruptibleActivityRegion")]
     InvalidInterruptingRegion,
+    #[error("activity external identity must be non-empty")]
+    EmptyExternalIdentity,
+    #[error(
+        "activity external identity is duplicated or collides with another semantic record: {0}"
+    )]
+    DuplicateExternalIdentity(String),
+    #[error("activity external identity references a missing specialized semantic record: {0}")]
+    UnknownExternalIdentity(String),
     #[error(transparent)]
     Model(#[from] ModelError),
 }
@@ -315,6 +336,67 @@ impl ActivityRepository {
     pub fn validate(&self, project: &Project) -> Result<(), ActivityError> {
         for activity in self.activities.values() {
             validate_activity(self, project, activity)?;
+        }
+        self.validate_external_identities()?;
+        Ok(())
+    }
+
+    fn semantic_identity_exists(&self, identity: ActivitySemanticId) -> bool {
+        match identity {
+            ActivitySemanticId::Node(id) => self
+                .activities
+                .values()
+                .any(|activity| activity.nodes.iter().any(|node| node.id == id)),
+            ActivitySemanticId::Pin(id) => self.activities.values().any(|activity| {
+                activity.nodes.iter().any(|node| match &node.kind {
+                    ActivityNodeKind::Action(action) => action.pins.iter().any(|pin| pin.id == id),
+                    _ => false,
+                })
+            }),
+            ActivitySemanticId::Edge(id) => self
+                .activities
+                .values()
+                .any(|activity| activity.edges.iter().any(|edge| edge.id == id)),
+            ActivitySemanticId::Partition(id) => self.activities.values().any(|activity| {
+                activity
+                    .partitions
+                    .iter()
+                    .any(|partition| partition.id == id)
+            }),
+            ActivitySemanticId::StructuredNode(id) => self.activities.values().any(|activity| {
+                activity
+                    .structured_nodes
+                    .iter()
+                    .any(|structured| structured.id == id)
+            }),
+        }
+    }
+
+    fn validate_external_identities(&self) -> Result<(), ActivityError> {
+        let mut keys = HashSet::new();
+        for activity in self.activities.values() {
+            if activity.external_id.trim().is_empty() {
+                return Err(ActivityError::EmptyExternalIdentity);
+            }
+            if !keys.insert(activity.external_id.clone()) {
+                return Err(ActivityError::DuplicateExternalIdentity(
+                    activity.external_id.clone(),
+                ));
+            }
+        }
+        let mut targets = HashSet::new();
+        for (external_id, identity) in &self.external_ids {
+            if external_id.trim().is_empty() {
+                return Err(ActivityError::EmptyExternalIdentity);
+            }
+            if !keys.insert(external_id.clone()) || !targets.insert(*identity) {
+                return Err(ActivityError::DuplicateExternalIdentity(
+                    external_id.clone(),
+                ));
+            }
+            if !self.semantic_identity_exists(*identity) {
+                return Err(ActivityError::UnknownExternalIdentity(external_id.clone()));
+            }
         }
         Ok(())
     }

@@ -39,10 +39,20 @@ behavior_id_type!(FragmentId);
 behavior_id_type!(OperandId);
 behavior_id_type!(InvariantId);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BehaviorSemanticId {
+    Region(RegionId),
+    Vertex(VertexId),
+    Transition(TransitionId),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BehaviorRepository {
     pub state_machines: HashMap<StateMachineId, StateMachine>,
     pub interactions: HashMap<InteractionId, Interaction>,
+    /// Stable source identities for specialized State Machine records.
+    #[serde(default)]
+    pub external_ids: HashMap<String, BehaviorSemanticId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -306,6 +316,12 @@ pub enum BehaviorError {
     InvariantUnknownLifeline,
     #[error("state invariant constraint cannot be empty")]
     EmptyStateInvariant,
+    #[error("behavior external identity must be non-empty")]
+    EmptyExternalIdentity,
+    #[error("behavior external identity is duplicated or collides with another semantic record: {0}")]
+    DuplicateExternalIdentity(String),
+    #[error("behavior external identity references a missing specialized semantic record: {0}")]
+    UnknownExternalIdentity(String),
     #[error(transparent)]
     Model(#[from] ModelError),
 }
@@ -369,6 +385,75 @@ impl BehaviorRepository {
         validate_submachine_references(self)?;
         for interaction in self.interactions.values() {
             validate_interaction(project, interaction)?;
+        }
+        self.validate_external_identities()?;
+        Ok(())
+    }
+
+    fn semantic_identity_exists(&self, identity: BehaviorSemanticId) -> bool {
+        fn region_contains(regions: &[Region], identity: BehaviorSemanticId) -> bool {
+            for region in regions {
+                if identity == BehaviorSemanticId::Region(region.id) {
+                    return true;
+                }
+                if region
+                    .transitions
+                    .iter()
+                    .any(|transition| identity == BehaviorSemanticId::Transition(transition.id))
+                {
+                    return true;
+                }
+                for vertex in &region.vertices {
+                    if identity == BehaviorSemanticId::Vertex(vertex.id) {
+                        return true;
+                    }
+                    if let VertexKind::State(state) = &vertex.kind
+                        && region_contains(&state.regions, identity)
+                    {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        self.state_machines
+            .values()
+            .any(|machine| region_contains(&machine.regions, identity))
+    }
+
+    fn validate_external_identities(&self) -> Result<(), BehaviorError> {
+        let mut keys = HashSet::new();
+        for machine in self.state_machines.values() {
+            if machine.external_id.trim().is_empty() {
+                return Err(BehaviorError::EmptyExternalIdentity);
+            }
+            if !keys.insert(machine.external_id.clone()) {
+                return Err(BehaviorError::DuplicateExternalIdentity(
+                    machine.external_id.clone(),
+                ));
+            }
+        }
+        for interaction in self.interactions.values() {
+            if interaction.external_id.trim().is_empty() {
+                return Err(BehaviorError::EmptyExternalIdentity);
+            }
+            if !keys.insert(interaction.external_id.clone()) {
+                return Err(BehaviorError::DuplicateExternalIdentity(
+                    interaction.external_id.clone(),
+                ));
+            }
+        }
+        let mut targets = HashSet::new();
+        for (external_id, identity) in &self.external_ids {
+            if external_id.trim().is_empty() {
+                return Err(BehaviorError::EmptyExternalIdentity);
+            }
+            if !keys.insert(external_id.clone()) || !targets.insert(*identity) {
+                return Err(BehaviorError::DuplicateExternalIdentity(external_id.clone()));
+            }
+            if !self.semantic_identity_exists(*identity) {
+                return Err(BehaviorError::UnknownExternalIdentity(external_id.clone()));
+            }
         }
         Ok(())
     }

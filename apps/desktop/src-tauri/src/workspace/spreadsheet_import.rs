@@ -1,12 +1,13 @@
 #![allow(clippy::result_large_err)]
 
+#[cfg(test)]
+use super::bulk_model::{ModelBuildResult, apply_model_build, preview_model_build};
 use super::{
     WorkspaceState,
     bulk_model::{
         AssociationEndBuildFields, BuildDiagnostic, BuildDiagnosticSeverity, BuildReference,
         ConnectorEndBuildSpec, ElementReference, ModelBuildOperation, ModelBuildPlan,
-        ModelBuildResult, RelationshipReference, apply_model_build, external_key,
-        preview_model_build,
+        RelationshipReference, external_key,
     },
 };
 use calamine::{Reader, open_workbook_auto};
@@ -18,6 +19,9 @@ use systems_modeler_core::{
     Multiplicity, ParameterDirection, Project, Relationship, RelationshipId, RelationshipKind,
     VisibilityKind,
 };
+
+mod pr48_behavior;
+use pr48_behavior::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SpreadsheetSemanticProperty {
@@ -54,6 +58,48 @@ pub enum SpreadsheetSemanticProperty {
     TargetNavigable,
     SourceAggregation,
     TargetAggregation,
+    BehaviorKind,
+    Context,
+    Activity,
+    StateMachine,
+    Region,
+    ParentState,
+    Partition,
+    StructuredNode,
+    StructuredKind,
+    ParentStructuredNode,
+    RepresentedElement,
+    IsDimension,
+    IsExternal,
+    Body,
+    CalledActivity,
+    Operation,
+    Signal,
+    Expression,
+    DecisionInput,
+    JoinSpecification,
+    ObjectOrdering,
+    Selection,
+    Parameter,
+    PinDirection,
+    Ordered,
+    Unique,
+    Value,
+    Guard,
+    Weight,
+    Transformation,
+    InterruptingRegion,
+    OwnerAction,
+    Entry,
+    DoActivity,
+    Exit,
+    Submachine,
+    TransitionKind,
+    TriggerKind,
+    TriggerReference,
+    TriggerExpression,
+    TriggerRelative,
+    Effect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1897,6 +1943,10 @@ fn identification_value(
     map: &SpreadsheetImportMap,
     values: &BTreeMap<SpreadsheetSemanticProperty, String>,
 ) -> Option<String> {
+    if is_behavior_map(map) {
+        return non_empty_value(values, SpreadsheetSemanticProperty::ExternalId)
+            .map(ToOwned::to_owned);
+    }
     if is_relationship_map(map) {
         return non_empty_value(values, SpreadsheetSemanticProperty::ExternalId)
             .map(ToOwned::to_owned)
@@ -3835,9 +3885,21 @@ fn mapped_field_changes(
     ))
 }
 
+#[cfg(test)]
 fn prepare_spreadsheet_import(
     group: &SpreadsheetImportMapGroup,
     project: &Project,
+) -> PreparedSpreadsheetImport {
+    let activities = systems_modeler_core::ActivityRepository::default();
+    let behavior = systems_modeler_core::BehaviorRepository::default();
+    prepare_spreadsheet_import_with_behavior(group, project, &activities, &behavior)
+}
+
+fn prepare_spreadsheet_import_with_behavior(
+    group: &SpreadsheetImportMapGroup,
+    project: &Project,
+    activities: &systems_modeler_core::ActivityRepository,
+    behavior: &systems_modeler_core::BehaviorRepository,
 ) -> PreparedSpreadsheetImport {
     let mut preview = SpreadsheetImportPreview::default();
     if group.mappings.is_empty() {
@@ -3891,10 +3953,16 @@ fn prepare_spreadsheet_import(
     let mut operation_contexts = Vec::new();
     let mut planned = Vec::<PlannedElement>::new();
     let mut planned_relationships = Vec::<PlannedRelationship>::new();
+    let mut planned_behavior = BehaviorPlanningIndex::default();
     let mut seen_source_external_ids = HashSet::<String>::new();
 
     for map in &group.mappings {
-        if let Err(error) = validate_map(map, project) {
+        let map_validation = if is_behavior_map(map) {
+            validate_behavior_map(map, project)
+        } else {
+            validate_map(map, project)
+        };
+        if let Err(error) = map_validation {
             preview.diagnostics.push(error);
             continue;
         }
@@ -3912,6 +3980,56 @@ fn prepare_spreadsheet_import(
                 continue;
             }
         };
+
+        if is_behavior_map(map) {
+            for row in &table.rows {
+                let values = mapped_values(row, &indexes);
+                match plan_behavior_row(
+                    map,
+                    row.row_number,
+                    &values,
+                    project,
+                    activities,
+                    behavior,
+                    &planned,
+                    &planned_behavior,
+                    &mut seen_source_external_ids,
+                ) {
+                    Ok(row_plan) => {
+                        preview.rows.push(row_preview(
+                            map,
+                            row.row_number,
+                            &values,
+                            row_plan.action,
+                        ));
+                        let context = row_context(map, row.row_number, &values);
+                        if let Some(planned_record) = row_plan.planned {
+                            planned_behavior.register(planned_record);
+                        }
+                        for operation in row_plan.operations {
+                            operations.push(operation);
+                            operation_contexts.push(context.clone());
+                        }
+                    }
+                    Err(mut error) => {
+                        error.row = Some(row.row_number);
+                        if error.identification_value.is_none() {
+                            error.identification_value =
+                                non_empty_value(&values, SpreadsheetSemanticProperty::ExternalId)
+                                    .map(ToOwned::to_owned);
+                        }
+                        preview.diagnostics.push(error);
+                        preview.rows.push(row_preview(
+                            map,
+                            row.row_number,
+                            &values,
+                            SpreadsheetRowAction::Blocked,
+                        ));
+                    }
+                }
+            }
+            continue;
+        }
 
         for row in &table.rows {
             let values = mapped_values(row, &indexes);
@@ -4424,11 +4542,11 @@ fn attach_build_diagnostics(
     preview.recount();
 }
 
-fn prepare_from_state(
+fn project_snapshot_for_import(
     group: &SpreadsheetImportMapGroup,
     state: &WorkspaceState,
-) -> Result<PreparedSpreadsheetImport, SpreadsheetImportPreview> {
-    let project = state
+) -> Result<Project, SpreadsheetImportPreview> {
+    state
         .project
         .lock()
         .map_err(|_| {
@@ -4459,10 +4577,91 @@ fn prepare_from_state(
             ));
             preview.recount();
             preview
-        })?;
+        })
+}
+
+#[cfg(test)]
+fn prepare_from_state(
+    group: &SpreadsheetImportMapGroup,
+    state: &WorkspaceState,
+) -> Result<PreparedSpreadsheetImport, SpreadsheetImportPreview> {
+    let project = project_snapshot_for_import(group, state)?;
     Ok(prepare_spreadsheet_import(group, &project))
 }
 
+fn prepare_from_states(
+    group: &SpreadsheetImportMapGroup,
+    state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+) -> Result<PreparedSpreadsheetImport, SpreadsheetImportPreview> {
+    let project = project_snapshot_for_import(group, state)?;
+    let activities = activity
+        .repository
+        .lock()
+        .map_err(|_| {
+            let mut preview = SpreadsheetImportPreview::default();
+            preview.diagnostics.push(diagnostic(
+                group.mappings.first(),
+                None,
+                None,
+                None,
+                None,
+                "LOCK_FAILURE",
+                "Activity repository lock poisoned",
+            ));
+            preview.recount();
+            preview
+        })?
+        .clone();
+    let behavior = state
+        .behavior
+        .lock()
+        .map_err(|_| {
+            let mut preview = SpreadsheetImportPreview::default();
+            preview.diagnostics.push(diagnostic(
+                group.mappings.first(),
+                None,
+                None,
+                None,
+                None,
+                "LOCK_FAILURE",
+                "behavior repository lock poisoned",
+            ));
+            preview.recount();
+            preview
+        })?
+        .clone();
+    Ok(prepare_spreadsheet_import_with_behavior(
+        group,
+        &project,
+        &activities,
+        &behavior,
+    ))
+}
+
+pub fn preview_spreadsheet_import_group_with_activity(
+    group: &SpreadsheetImportMapGroup,
+    state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+) -> SpreadsheetImportPreview {
+    let mut prepared = match prepare_from_states(group, state, activity) {
+        Ok(prepared) => prepared,
+        Err(preview) => return preview,
+    };
+    if !prepared.preview.is_valid() {
+        return prepared.preview;
+    }
+    let build_preview =
+        super::bulk_model::preview_unified_model_build(&prepared.plan, state, activity);
+    attach_build_diagnostics(
+        &mut prepared.preview,
+        &build_preview.diagnostics,
+        &prepared.operation_contexts,
+    );
+    prepared.preview
+}
+
+#[cfg(test)]
 pub fn preview_spreadsheet_import_group(
     group: &SpreadsheetImportMapGroup,
     state: &WorkspaceState,
@@ -4483,6 +4682,7 @@ pub fn preview_spreadsheet_import_group(
     prepared.preview
 }
 
+#[cfg(test)]
 fn apply_spreadsheet_import_with_preview(
     group: &SpreadsheetImportMapGroup,
     state: &WorkspaceState,
@@ -4520,6 +4720,39 @@ fn apply_spreadsheet_import_with_preview(
 }
 
 #[cfg(test)]
+pub fn apply_spreadsheet_import_group_with_activity(
+    group: &SpreadsheetImportMapGroup,
+    state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+) -> Result<ModelBuildResult, SpreadsheetImportPreview> {
+    let mut prepared = prepare_from_states(group, state, activity)?;
+    if !prepared.preview.is_valid() {
+        return Err(prepared.preview);
+    }
+    let build_preview =
+        super::bulk_model::preview_unified_model_build(&prepared.plan, state, activity);
+    attach_build_diagnostics(
+        &mut prepared.preview,
+        &build_preview.diagnostics,
+        &prepared.operation_contexts,
+    );
+    if !prepared.preview.is_valid() {
+        return Err(prepared.preview);
+    }
+    match super::bulk_model::apply_unified_model_build(&prepared.plan, state, activity) {
+        Ok(result) => Ok(result),
+        Err(build_preview) => {
+            attach_build_diagnostics(
+                &mut prepared.preview,
+                &build_preview.diagnostics,
+                &prepared.operation_contexts,
+            );
+            Err(prepared.preview)
+        }
+    }
+}
+
+#[cfg(test)]
 pub fn apply_spreadsheet_import_group(
     group: &SpreadsheetImportMapGroup,
     state: &WorkspaceState,
@@ -4532,16 +4765,48 @@ pub fn apply_spreadsheet_import_group(
 pub fn preview_spreadsheet_import(
     group: SpreadsheetImportMapGroup,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
 ) -> SpreadsheetImportPreview {
-    preview_spreadsheet_import_group(&group, &workspace)
+    preview_spreadsheet_import_group_with_activity(&group, &workspace, &activity)
 }
 
 #[tauri::command]
 pub fn apply_spreadsheet_import(
     group: SpreadsheetImportMapGroup,
     workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
 ) -> SpreadsheetImportPreview {
-    apply_spreadsheet_import_with_preview(&group, &workspace).1
+    let mut prepared = match prepare_from_states(&group, &workspace, &activity) {
+        Ok(prepared) => prepared,
+        Err(preview) => return preview,
+    };
+    if !prepared.preview.is_valid() {
+        return prepared.preview;
+    }
+    let build_preview =
+        super::bulk_model::preview_unified_model_build(&prepared.plan, &workspace, &activity);
+    attach_build_diagnostics(
+        &mut prepared.preview,
+        &build_preview.diagnostics,
+        &prepared.operation_contexts,
+    );
+    if !prepared.preview.is_valid() {
+        return prepared.preview;
+    }
+    match super::bulk_model::apply_unified_model_build(&prepared.plan, &workspace, &activity) {
+        Ok(_) => {
+            prepared.preview.applied = true;
+            prepared.preview
+        }
+        Err(build_preview) => {
+            attach_build_diagnostics(
+                &mut prepared.preview,
+                &build_preview.diagnostics,
+                &prepared.operation_contexts,
+            );
+            prepared.preview
+        }
+    }
 }
 
 #[cfg(test)]
@@ -8674,3 +8939,5 @@ mod pr45_tests;
 mod pr46_tests;
 #[cfg(test)]
 mod pr47_tests;
+#[cfg(test)]
+mod pr48_tests;

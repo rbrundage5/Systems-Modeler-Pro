@@ -10,9 +10,11 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use systems_modeler_core::behavior::{BehaviorRepository, Interaction, StateMachine};
+use systems_modeler_core::behavior::{
+    BehaviorRepository, BehaviorSemanticId, Interaction, StateMachine,
+};
 use systems_modeler_core::{
-    Activity, ActivityRepository, Element, Project, ProjectId, Relationship,
+    Activity, ActivityRepository, ActivitySemanticId, Element, Project, ProjectId, Relationship,
 };
 
 pub const PORTABLE_SCHEMA: &str = "systems-modeler-interchange";
@@ -43,6 +45,8 @@ pub struct PortableSemanticProjectV1 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortableActivityStateV1 {
     pub activities: Vec<Activity>,
+    #[serde(default)]
+    pub external_ids: HashMap<String, ActivitySemanticId>,
     pub diagrams: Vec<ActivityDiagram>,
 }
 
@@ -50,6 +54,8 @@ pub struct PortableActivityStateV1 {
 pub struct PortableBehaviorStateV1 {
     pub state_machines: Vec<StateMachine>,
     pub interactions: Vec<Interaction>,
+    #[serde(default)]
+    pub external_ids: HashMap<String, BehaviorSemanticId>,
     pub diagrams: Vec<BehaviorDiagram>,
 }
 
@@ -192,11 +198,13 @@ fn portable_from_states(
         ibd_diagrams,
         activity: PortableActivityStateV1 {
             activities: activity_records,
+            external_ids: activities.external_ids.clone(),
             diagrams: activity_diagrams,
         },
         behavior: PortableBehaviorStateV1 {
             state_machines,
             interactions,
+            external_ids: behavior.external_ids.clone(),
             diagrams: behavior_diagrams,
         },
     })
@@ -246,7 +254,10 @@ impl PortableProjectV1 {
             elements,
             relationships,
         };
-        let mut activity_repository = ActivityRepository::default();
+        let mut activity_repository = ActivityRepository {
+            external_ids: self.activity.external_ids,
+            ..ActivityRepository::default()
+        };
         for record in self.activity.activities {
             if activity_repository
                 .activities
@@ -256,7 +267,10 @@ impl PortableProjectV1 {
                 return Err("portable project contains a duplicate Activity ID".into());
             }
         }
-        let mut behavior_repository = BehaviorRepository::default();
+        let mut behavior_repository = BehaviorRepository {
+            external_ids: self.behavior.external_ids,
+            ..BehaviorRepository::default()
+        };
         for record in self.behavior.state_machines {
             if behavior_repository
                 .state_machines
