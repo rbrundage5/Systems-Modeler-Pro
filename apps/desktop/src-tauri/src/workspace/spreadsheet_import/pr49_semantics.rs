@@ -666,10 +666,18 @@ fn signature_matches(
     existing: &Option<MessageSignature>,
     build: &Option<MessageSignatureBuild>,
 ) -> bool {
-    matches!((existing, build),
-        (None, None)
-        | (Some(MessageSignature::Operation(left)), Some(MessageSignatureBuild::Operation(BuildReference::Existing(right)))) if left == right
-        | (Some(MessageSignature::Signal(left)), Some(MessageSignatureBuild::Signal(BuildReference::Existing(right)))) if left == right)
+    match (existing, build) {
+        (None, None) => true,
+        (
+            Some(MessageSignature::Operation(left)),
+            Some(MessageSignatureBuild::Operation(BuildReference::Existing(right))),
+        ) => left == right,
+        (
+            Some(MessageSignature::Signal(left)),
+            Some(MessageSignatureBuild::Signal(BuildReference::Existing(right))),
+        ) => left == right,
+        _ => false,
+    }
 }
 
 fn binding_endpoint(
