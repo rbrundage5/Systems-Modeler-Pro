@@ -21,3 +21,5 @@ jobs:
         run: cargo check --workspace --exclude systems-modeler-desktop
       - name: Desktop check
         run: cargo check -p systems-modeler-desktop
+
+# Temporary PR49 compiler qualification workflow; remove before publication.
