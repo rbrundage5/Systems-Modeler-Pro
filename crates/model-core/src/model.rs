@@ -523,6 +523,12 @@ pub enum ModelError {
     ItemFlowRequiresConveyedItem,
     #[error("invalid conveyed item: {0}; ItemFlow conveyed items must be semantic classifiers")]
     InvalidConveyedItem(ElementId),
+    #[error("duplicate conveyed item: {0}; each ItemFlow classifier may be conveyed only once")]
+    DuplicateConveyedItem(ElementId),
+    #[error(
+        "ItemFlow endpoints do not match either orientation of the realizing Connector: {0}"
+    )]
+    ItemFlowEndpointsDoNotMatchConnector(RelationshipId),
     #[error("relationship is not a connector: {0}")]
     RelationshipIsNotConnector(RelationshipId),
     #[error("item flow must realize an existing connector: {0}")]

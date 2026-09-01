@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
 use systems_modeler_core::{
-    Connector, ConnectorEnd, ConnectorKind, DiagramFamilyId, FlowDirection,
+    Connector, ConnectorEnd, ConnectorKind, DiagramFamilyId, FlowDirection, ItemFlow,
     supported_diagram_families,
 };
 
@@ -84,6 +84,27 @@ pub enum ModelBuildOperation {
         kind: ConnectorKind,
         source: ConnectorEndBuildSpec,
         target: ConnectorEndBuildSpec,
+        external_id: Option<String>,
+        name: Option<String>,
+        documentation: Option<String>,
+        visibility: Option<VisibilityKind>,
+    },
+    CreateItemFlow {
+        external_id: String,
+        connector: RelationshipReference,
+        source: ConnectorEndBuildSpec,
+        target: ConnectorEndBuildSpec,
+        conveyed_items: Vec<ElementReference>,
+        name: String,
+        documentation: String,
+        visibility: VisibilityKind,
+    },
+    UpdateItemFlowFields {
+        relationship: RelationshipReference,
+        connector: RelationshipReference,
+        source: ConnectorEndBuildSpec,
+        target: ConnectorEndBuildSpec,
+        conveyed_items: Vec<ElementReference>,
         external_id: Option<String>,
         name: Option<String>,
         documentation: Option<String>,
@@ -200,6 +221,12 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         }
         ModelBuildOperation::UpdateConnectorFields { .. } => {
             "UPDATE mapped connector fields".into()
+        }
+        ModelBuildOperation::CreateItemFlow { external_id, .. } => {
+            format!("CREATE item flow {external_id}")
+        }
+        ModelBuildOperation::UpdateItemFlowFields { .. } => {
+            "UPDATE mapped item flow fields".into()
         }
         ModelBuildOperation::UpdateRelationshipFields { .. } => {
             "UPDATE mapped relationship fields".into()
@@ -538,6 +565,7 @@ fn preflight(plan: &ModelBuildPlan) -> Result<(), BuildDiagnostic> {
             ModelBuildOperation::CreateElement { external_id, .. }
             | ModelBuildOperation::CreateRelationship { external_id, .. }
             | ModelBuildOperation::CreateConnector { external_id, .. }
+            | ModelBuildOperation::CreateItemFlow { external_id, .. }
             | ModelBuildOperation::CreateDiagram { external_id, .. } => Some(external_id),
             ModelBuildOperation::RestorePortableState { .. } => None,
             _ => None,
@@ -969,6 +997,196 @@ fn build_candidate(
                         .port_id
                         .unwrap_or(next_connector.target.role_id);
                     relationship.connector = Some(next_connector);
+                    if let Some(value) = next_external_id {
+                        relationship.external_id = value;
+                    }
+                    if let Some(value) = name {
+                        relationship.name = value.clone();
+                    }
+                    if let Some(value) = documentation {
+                        relationship.documentation = value.clone();
+                    }
+                    if let Some(value) = visibility {
+                        relationship.visibility = *value;
+                    }
+                    project.validate().map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                }
+                ModelBuildOperation::CreateItemFlow {
+                    external_id,
+                    connector,
+                    source,
+                    target,
+                    conveyed_items,
+                    name,
+                    documentation,
+                    visibility,
+                } => {
+                    let connector_id = resolve_relationship(
+                        &project,
+                        &relationship_ids,
+                        namespace,
+                        connector,
+                        index,
+                    )?;
+                    let connector = project.relationship(connector_id).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                    let context_id = connector
+                        .connector
+                        .as_ref()
+                        .filter(|_| connector.kind == RelationshipKind::Connector)
+                        .map(|connector| connector.context_id)
+                        .ok_or_else(|| {
+                            error(
+                                "RELATIONSHIP_IDENTITY_KIND_MISMATCH",
+                                Some(index),
+                                "ItemFlow Connector reference is not a native Connector",
+                            )
+                        })?;
+                    let source =
+                        resolve_connector_end(&project, namespace, context_id, source, index)?;
+                    let target =
+                        resolve_connector_end(&project, namespace, context_id, target, index)?;
+                    let conveyed_item_ids = conveyed_items
+                        .iter()
+                        .map(|reference| {
+                            resolve_element(&project, &element_ids, namespace, reference, index)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let id = project
+                        .create_item_flow(ItemFlow {
+                            connector_id,
+                            source,
+                            target,
+                            conveyed_item_ids,
+                        })
+                        .map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+                    let key = external_key(namespace, external_id);
+                    if project
+                        .elements
+                        .values()
+                        .any(|element| element.external_id == key)
+                        || project.relationships.values().any(|relationship| {
+                            relationship.id != id && relationship.external_id == key
+                        })
+                    {
+                        return Err(error(
+                            "DUPLICATE_EXTERNAL_ID",
+                            Some(index),
+                            format!("external ID already exists: {key}"),
+                        ));
+                    }
+                    let relationship = project.relationships.get_mut(&id).unwrap();
+                    relationship.external_id = key.clone();
+                    relationship.name = name.clone();
+                    relationship.documentation = documentation.clone();
+                    relationship.visibility = *visibility;
+                    relationship_ids.insert(key, id);
+                }
+                ModelBuildOperation::UpdateItemFlowFields {
+                    relationship,
+                    connector,
+                    source,
+                    target,
+                    conveyed_items,
+                    external_id,
+                    name,
+                    documentation,
+                    visibility,
+                } => {
+                    let id = resolve_relationship(
+                        &project,
+                        &relationship_ids,
+                        namespace,
+                        relationship,
+                        index,
+                    )?;
+                    let current = project.relationship(id).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                    if current.kind != RelationshipKind::ItemFlow || current.item_flow.is_none() {
+                        return Err(error(
+                            "RELATIONSHIP_IDENTITY_KIND_MISMATCH",
+                            Some(index),
+                            "ItemFlow update target is not a native ItemFlow",
+                        ));
+                    }
+                    let connector_id = resolve_relationship(
+                        &project,
+                        &relationship_ids,
+                        namespace,
+                        connector,
+                        index,
+                    )?;
+                    let connector = project.relationship(connector_id).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                    let context_id = connector
+                        .connector
+                        .as_ref()
+                        .filter(|_| connector.kind == RelationshipKind::Connector)
+                        .map(|connector| connector.context_id)
+                        .ok_or_else(|| {
+                            error(
+                                "RELATIONSHIP_IDENTITY_KIND_MISMATCH",
+                                Some(index),
+                                "ItemFlow Connector reference is not a native Connector",
+                            )
+                        })?;
+                    let source =
+                        resolve_connector_end(&project, namespace, context_id, source, index)?;
+                    let target =
+                        resolve_connector_end(&project, namespace, context_id, target, index)?;
+                    let conveyed_item_ids = conveyed_items
+                        .iter()
+                        .map(|reference| {
+                            resolve_element(&project, &element_ids, namespace, reference, index)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let next_flow = ItemFlow {
+                        connector_id,
+                        source,
+                        target,
+                        conveyed_item_ids,
+                    };
+                    let mut validation_project = project.clone();
+                    validation_project.relationships.remove(&id);
+                    validation_project
+                        .create_item_flow(next_flow.clone())
+                        .map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+
+                    let next_external_id = external_id
+                        .as_ref()
+                        .map(|value| external_key(namespace, value));
+                    if let Some(key) = &next_external_id
+                        && (project
+                            .elements
+                            .values()
+                            .any(|element| element.external_id == *key)
+                            || project.relationships.values().any(|candidate| {
+                                candidate.id != id && candidate.external_id == *key
+                            }))
+                    {
+                        return Err(error(
+                            "DUPLICATE_EXTERNAL_ID",
+                            Some(index),
+                            format!("external ID already exists: {key}"),
+                        ));
+                    }
+
+                    let relationship = project.relationships.get_mut(&id).unwrap();
+                    relationship.owner_id = Some(context_id);
+                    relationship.source_id =
+                        next_flow.source.port_id.unwrap_or(next_flow.source.role_id);
+                    relationship.target_id =
+                        next_flow.target.port_id.unwrap_or(next_flow.target.role_id);
+                    relationship.item_flow = Some(next_flow);
                     if let Some(value) = next_external_id {
                         relationship.external_id = value;
                     }
