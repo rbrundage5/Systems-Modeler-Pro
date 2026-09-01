@@ -1,9 +1,9 @@
 use super::*;
 use systems_modeler_core::behavior::{
-    BehaviorRepository, BehaviorSemanticId, CombinedFragment, ExecutionId,
-    ExecutionSpecification, FragmentId, Interaction, InteractionId, InteractionOperand,
-    InteractionOperator, InvariantId, Lifeline, LifelineId, Message, MessageId, MessageSignature,
-    MessageSort, Occurrence, OccurrenceId, OperandId, StateInvariant,
+    BehaviorRepository, BehaviorSemanticId, CombinedFragment, ExecutionId, ExecutionSpecification,
+    FragmentId, Interaction, InteractionId, InteractionOperand, InteractionOperator, InvariantId,
+    Lifeline, LifelineId, Message, MessageId, MessageSignature, MessageSort, Occurrence,
+    OccurrenceId, OperandId, StateInvariant,
 };
 use systems_modeler_core::{BindingConnector, BindingEndpoint, ElementId, RelationshipId};
 
@@ -233,34 +233,40 @@ pub(super) fn parametric_create_external_id(
 
 pub(super) fn sequence_operation_description(operation: &SequenceBuildOperation) -> String {
     let (action, kind, external) = match operation {
-        SequenceBuildOperation::CreateInteraction { external_id, .. } =>
-            ("CREATE", "Interaction", Some(external_id)),
-        SequenceBuildOperation::CreateLifeline { external_id, .. } =>
-            ("CREATE", "Lifeline", Some(external_id)),
-        SequenceBuildOperation::CreateOccurrence { external_id, .. } =>
-            ("CREATE", "Occurrence", Some(external_id)),
-        SequenceBuildOperation::CreateMessage { external_id, .. } =>
-            ("CREATE", "Message", Some(external_id)),
-        SequenceBuildOperation::CreateExecution { external_id, .. } =>
-            ("CREATE", "ExecutionSpecification", Some(external_id)),
-        SequenceBuildOperation::CreateFragment { external_id, .. } =>
-            ("CREATE", "CombinedFragment", Some(external_id)),
-        SequenceBuildOperation::CreateOperand { external_id, .. } =>
-            ("CREATE", "InteractionOperand", Some(external_id)),
-        SequenceBuildOperation::CreateInvariant { external_id, .. } =>
-            ("CREATE", "StateInvariant", Some(external_id)),
+        SequenceBuildOperation::CreateInteraction { external_id, .. } => {
+            ("CREATE", "Interaction", Some(external_id))
+        }
+        SequenceBuildOperation::CreateLifeline { external_id, .. } => {
+            ("CREATE", "Lifeline", Some(external_id))
+        }
+        SequenceBuildOperation::CreateOccurrence { external_id, .. } => {
+            ("CREATE", "Occurrence", Some(external_id))
+        }
+        SequenceBuildOperation::CreateMessage { external_id, .. } => {
+            ("CREATE", "Message", Some(external_id))
+        }
+        SequenceBuildOperation::CreateExecution { external_id, .. } => {
+            ("CREATE", "ExecutionSpecification", Some(external_id))
+        }
+        SequenceBuildOperation::CreateFragment { external_id, .. } => {
+            ("CREATE", "CombinedFragment", Some(external_id))
+        }
+        SequenceBuildOperation::CreateOperand { external_id, .. } => {
+            ("CREATE", "InteractionOperand", Some(external_id))
+        }
+        SequenceBuildOperation::CreateInvariant { external_id, .. } => {
+            ("CREATE", "StateInvariant", Some(external_id))
+        }
         SequenceBuildOperation::UpdateInteraction { .. } => ("UPDATE", "Interaction", None),
         SequenceBuildOperation::UpdateLifeline { .. } => ("UPDATE", "Lifeline", None),
         SequenceBuildOperation::UpdateOccurrence { .. } => ("UPDATE", "Occurrence", None),
         SequenceBuildOperation::UpdateMessage { .. } => ("UPDATE", "Message", None),
-        SequenceBuildOperation::UpdateExecution { .. } =>
-            ("UPDATE", "ExecutionSpecification", None),
-        SequenceBuildOperation::UpdateFragment { .. } =>
-            ("UPDATE", "CombinedFragment", None),
-        SequenceBuildOperation::UpdateOperand { .. } =>
-            ("UPDATE", "InteractionOperand", None),
-        SequenceBuildOperation::UpdateInvariant { .. } =>
-            ("UPDATE", "StateInvariant", None),
+        SequenceBuildOperation::UpdateExecution { .. } => {
+            ("UPDATE", "ExecutionSpecification", None)
+        }
+        SequenceBuildOperation::UpdateFragment { .. } => ("UPDATE", "CombinedFragment", None),
+        SequenceBuildOperation::UpdateOperand { .. } => ("UPDATE", "InteractionOperand", None),
+        SequenceBuildOperation::UpdateInvariant { .. } => ("UPDATE", "StateInvariant", None),
     };
     external.map_or_else(
         || format!("{action} {kind}"),
@@ -270,10 +276,12 @@ pub(super) fn sequence_operation_description(operation: &SequenceBuildOperation)
 
 pub(super) fn parametric_operation_description(operation: &ParametricBuildOperation) -> String {
     match operation {
-        ParametricBuildOperation::UpdateElementSemantics { .. } =>
-            "UPDATE Parametric element semantics".into(),
-        ParametricBuildOperation::CreateBinding { external_id, .. } =>
-            format!("CREATE BindingConnector {external_id}"),
+        ParametricBuildOperation::UpdateElementSemantics { .. } => {
+            "UPDATE Parametric element semantics".into()
+        }
+        ParametricBuildOperation::CreateBinding { external_id, .. } => {
+            format!("CREATE BindingConnector {external_id}")
+        }
         ParametricBuildOperation::UpdateBinding { .. } => "UPDATE BindingConnector".into(),
     }
 }
@@ -420,13 +428,55 @@ macro_rules! semantic_resolver {
     };
 }
 
-semantic_resolver!(resolve_lifeline, LifelineReference, LifelineId, Lifeline, "Lifeline");
-semantic_resolver!(resolve_occurrence, OccurrenceReference, OccurrenceId, Occurrence, "Occurrence");
-semantic_resolver!(resolve_message, MessageReference, MessageId, Message, "Message");
-semantic_resolver!(resolve_execution, ExecutionReference, ExecutionId, Execution, "ExecutionSpecification");
-semantic_resolver!(resolve_fragment, FragmentReference, FragmentId, Fragment, "CombinedFragment");
-semantic_resolver!(resolve_operand, OperandReference, OperandId, Operand, "InteractionOperand");
-semantic_resolver!(resolve_invariant, InvariantReference, InvariantId, Invariant, "StateInvariant");
+semantic_resolver!(
+    resolve_lifeline,
+    LifelineReference,
+    LifelineId,
+    Lifeline,
+    "Lifeline"
+);
+semantic_resolver!(
+    resolve_occurrence,
+    OccurrenceReference,
+    OccurrenceId,
+    Occurrence,
+    "Occurrence"
+);
+semantic_resolver!(
+    resolve_message,
+    MessageReference,
+    MessageId,
+    Message,
+    "Message"
+);
+semantic_resolver!(
+    resolve_execution,
+    ExecutionReference,
+    ExecutionId,
+    Execution,
+    "ExecutionSpecification"
+);
+semantic_resolver!(
+    resolve_fragment,
+    FragmentReference,
+    FragmentId,
+    Fragment,
+    "CombinedFragment"
+);
+semantic_resolver!(
+    resolve_operand,
+    OperandReference,
+    OperandId,
+    Operand,
+    "InteractionOperand"
+);
+semantic_resolver!(
+    resolve_invariant,
+    InvariantReference,
+    InvariantId,
+    Invariant,
+    "StateInvariant"
+);
 
 fn resolve_signature(
     signature: &MessageSignatureBuild,
@@ -456,7 +506,10 @@ fn interaction_for_lifeline(
         .map(|interaction| interaction.id)
 }
 
-fn interaction_for_message(repository: &BehaviorRepository, id: MessageId) -> Option<InteractionId> {
+fn interaction_for_message(
+    repository: &BehaviorRepository,
+    id: MessageId,
+) -> Option<InteractionId> {
     repository
         .interactions
         .values()
@@ -505,7 +558,12 @@ fn interaction_for_invariant(
     repository
         .interactions
         .values()
-        .find(|interaction| interaction.state_invariants.iter().any(|record| record.id == id))
+        .find(|interaction| {
+            interaction
+                .state_invariants
+                .iter()
+                .any(|record| record.id == id)
+        })
         .map(|interaction| interaction.id)
 }
 
@@ -535,10 +593,18 @@ fn occurrence_value(
 fn propagate_occurrence(repository: &mut BehaviorRepository, occurrence: &Occurrence) {
     for interaction in repository.interactions.values_mut() {
         for message in &mut interaction.messages {
-            if message.send_event.as_ref().is_some_and(|record| record.id == occurrence.id) {
+            if message
+                .send_event
+                .as_ref()
+                .is_some_and(|record| record.id == occurrence.id)
+            {
                 message.send_event = Some(occurrence.clone());
             }
-            if message.receive_event.as_ref().is_some_and(|record| record.id == occurrence.id) {
+            if message
+                .receive_event
+                .as_ref()
+                .is_some_and(|record| record.id == occurrence.id)
+            {
                 message.receive_event = Some(occurrence.clone());
             }
         }
@@ -564,228 +630,702 @@ pub(super) fn apply_sequence_operation(
     operation: usize,
 ) -> Result<(), BuildDiagnostic> {
     match build {
-        SequenceBuildOperation::CreateInteraction { external_id, name, context } => {
+        SequenceBuildOperation::CreateInteraction {
+            external_id,
+            name,
+            context,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
             let context_id = resolve_element_reference(
-                project, planned_elements, namespace, context, operation,
+                project,
+                planned_elements,
+                namespace,
+                context,
+                operation,
             )?;
             let id = InteractionId::new();
-            repository.interactions.insert(id, Interaction {
+            repository.interactions.insert(
                 id,
-                external_id: key,
-                name: name.clone(),
-                context_id,
-                lifelines: Vec::new(),
-                messages: Vec::new(),
-                executions: Vec::new(),
-                fragments: Vec::new(),
-                state_invariants: Vec::new(),
-            });
+                Interaction {
+                    id,
+                    external_id: key,
+                    name: name.clone(),
+                    context_id,
+                    lifelines: Vec::new(),
+                    messages: Vec::new(),
+                    executions: Vec::new(),
+                    fragments: Vec::new(),
+                    state_invariants: Vec::new(),
+                },
+            );
         }
-        SequenceBuildOperation::UpdateInteraction { interaction, name, context } => {
+        SequenceBuildOperation::UpdateInteraction {
+            interaction,
+            name,
+            context,
+        } => {
             let id = resolve_interaction(repository, namespace, interaction, operation)?;
-            let context_id = context.as_ref().map(|reference| {
-                resolve_element_reference(project, planned_elements, namespace, reference, operation)
-            }).transpose()?;
-            let record = repository.interactions.get_mut(&id).expect("resolved Interaction");
-            if let Some(value) = name { record.name = value.clone(); }
-            if let Some(value) = context_id { record.context_id = value; }
+            let context_id = context
+                .as_ref()
+                .map(|reference| {
+                    resolve_element_reference(
+                        project,
+                        planned_elements,
+                        namespace,
+                        reference,
+                        operation,
+                    )
+                })
+                .transpose()?;
+            let record = repository
+                .interactions
+                .get_mut(&id)
+                .expect("resolved Interaction");
+            if let Some(value) = name {
+                record.name = value.clone();
+            }
+            if let Some(value) = context_id {
+                record.context_id = value;
+            }
         }
-        SequenceBuildOperation::CreateLifeline { external_id, interaction, name, represented_path } => {
+        SequenceBuildOperation::CreateLifeline {
+            external_id,
+            interaction,
+            name,
+            represented_path,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
-            let interaction_id = resolve_interaction(repository, namespace, interaction, operation)?;
-            let path = represented_path.iter().map(|reference| {
-                resolve_element_reference(project, planned_elements, namespace, reference, operation)
-            }).collect::<Result<Vec<_>, _>>()?;
+            let interaction_id =
+                resolve_interaction(repository, namespace, interaction, operation)?;
+            let path = represented_path
+                .iter()
+                .map(|reference| {
+                    resolve_element_reference(
+                        project,
+                        planned_elements,
+                        namespace,
+                        reference,
+                        operation,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let id = LifelineId::new();
-            repository.interactions.get_mut(&interaction_id).expect("resolved Interaction")
-                .lifelines.push(Lifeline { id, name: name.clone(), represented_path: path });
-            repository.external_ids.insert(key, BehaviorSemanticId::Lifeline(id));
+            repository
+                .interactions
+                .get_mut(&interaction_id)
+                .expect("resolved Interaction")
+                .lifelines
+                .push(Lifeline {
+                    id,
+                    name: name.clone(),
+                    represented_path: path,
+                });
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Lifeline(id));
         }
-        SequenceBuildOperation::UpdateLifeline { lifeline, name, represented_path } => {
+        SequenceBuildOperation::UpdateLifeline {
+            lifeline,
+            name,
+            represented_path,
+        } => {
             let id = resolve_lifeline(repository, namespace, lifeline, operation)?;
-            let interaction_id = interaction_for_lifeline(repository, id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("Lifeline {id} was not found")))?;
-            let path = represented_path.as_ref().map(|values| values.iter().map(|reference| {
-                resolve_element_reference(project, planned_elements, namespace, reference, operation)
-            }).collect::<Result<Vec<_>, _>>()).transpose()?;
-            let record = repository.interactions.get_mut(&interaction_id).unwrap().lifelines
-                .iter_mut().find(|record| record.id == id).unwrap();
-            if let Some(value) = name { record.name = value.clone(); }
-            if let Some(value) = path { record.represented_path = value; }
+            let interaction_id = interaction_for_lifeline(repository, id).ok_or_else(|| {
+                error(
+                    "UNRESOLVED_SEQUENCE_REFERENCE",
+                    Some(operation),
+                    format!("Lifeline {id} was not found"),
+                )
+            })?;
+            let path = represented_path
+                .as_ref()
+                .map(|values| {
+                    values
+                        .iter()
+                        .map(|reference| {
+                            resolve_element_reference(
+                                project,
+                                planned_elements,
+                                namespace,
+                                reference,
+                                operation,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?;
+            let record = repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .lifelines
+                .iter_mut()
+                .find(|record| record.id == id)
+                .unwrap();
+            if let Some(value) = name {
+                record.name = value.clone();
+            }
+            if let Some(value) = path {
+                record.represented_path = value;
+            }
         }
-        SequenceBuildOperation::CreateOccurrence { external_id, interaction, lifeline, order } => {
+        SequenceBuildOperation::CreateOccurrence {
+            external_id,
+            interaction,
+            lifeline,
+            order,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
-            let interaction_id = resolve_interaction(repository, namespace, interaction, operation)?;
+            let interaction_id =
+                resolve_interaction(repository, namespace, interaction, operation)?;
             let lifeline_id = resolve_lifeline(repository, namespace, lifeline, operation)?;
             if interaction_for_lifeline(repository, lifeline_id) != Some(interaction_id) {
-                return Err(error("SEQUENCE_INTERACTION_MISMATCH", Some(operation),
-                    "Occurrence Lifeline belongs to a different Interaction"));
+                return Err(error(
+                    "SEQUENCE_INTERACTION_MISMATCH",
+                    Some(operation),
+                    "Occurrence Lifeline belongs to a different Interaction",
+                ));
             }
             let id = OccurrenceId::new();
-            state.occurrences.insert(id, (interaction_id, Occurrence { id, lifeline_id, order: *order }));
-            repository.external_ids.insert(key, BehaviorSemanticId::Occurrence(id));
+            state.occurrences.insert(
+                id,
+                (
+                    interaction_id,
+                    Occurrence {
+                        id,
+                        lifeline_id,
+                        order: *order,
+                    },
+                ),
+            );
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Occurrence(id));
         }
-        SequenceBuildOperation::UpdateOccurrence { occurrence, lifeline, order } => {
+        SequenceBuildOperation::UpdateOccurrence {
+            occurrence,
+            lifeline,
+            order,
+        } => {
             let id = resolve_occurrence(repository, namespace, occurrence, operation)?;
-            let (interaction_id, current) = state.occurrences.get(&id).cloned().ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("Occurrence {id} was not found")))?;
-            let lifeline_id = lifeline.as_ref().map(|reference| resolve_lifeline(
-                repository, namespace, reference, operation)).transpose()?.unwrap_or(current.lifeline_id);
+            let (interaction_id, current) =
+                state.occurrences.get(&id).cloned().ok_or_else(|| {
+                    error(
+                        "UNRESOLVED_SEQUENCE_REFERENCE",
+                        Some(operation),
+                        format!("Occurrence {id} was not found"),
+                    )
+                })?;
+            let lifeline_id = lifeline
+                .as_ref()
+                .map(|reference| resolve_lifeline(repository, namespace, reference, operation))
+                .transpose()?
+                .unwrap_or(current.lifeline_id);
             if interaction_for_lifeline(repository, lifeline_id) != Some(interaction_id) {
-                return Err(error("SEQUENCE_INTERACTION_MISMATCH", Some(operation),
-                    "Occurrence Lifeline belongs to a different Interaction"));
+                return Err(error(
+                    "SEQUENCE_INTERACTION_MISMATCH",
+                    Some(operation),
+                    "Occurrence Lifeline belongs to a different Interaction",
+                ));
             }
-            let updated = Occurrence { id, lifeline_id, order: order.unwrap_or(current.order) };
-            state.occurrences.insert(id, (interaction_id, updated.clone()));
+            let updated = Occurrence {
+                id,
+                lifeline_id,
+                order: order.unwrap_or(current.order),
+            };
+            state
+                .occurrences
+                .insert(id, (interaction_id, updated.clone()));
             propagate_occurrence(repository, &updated);
         }
-        SequenceBuildOperation::CreateMessage { external_id, interaction, name, sort, send, receive, signature, arguments } => {
+        SequenceBuildOperation::CreateMessage {
+            external_id,
+            interaction,
+            name,
+            sort,
+            send,
+            receive,
+            signature,
+            arguments,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
-            let interaction_id = resolve_interaction(repository, namespace, interaction, operation)?;
-            let send_event = send.as_ref().map(|reference| resolve_occurrence(repository, namespace, reference, operation)
-                .and_then(|id| occurrence_value(state, id, interaction_id, operation))).transpose()?;
-            let receive_event = receive.as_ref().map(|reference| resolve_occurrence(repository, namespace, reference, operation)
-                .and_then(|id| occurrence_value(state, id, interaction_id, operation))).transpose()?;
-            let native_signature = signature.as_ref().map(|value| resolve_signature(
-                value, project, planned_elements, namespace, operation)).transpose()?;
+            let interaction_id =
+                resolve_interaction(repository, namespace, interaction, operation)?;
+            let send_event = send
+                .as_ref()
+                .map(|reference| {
+                    resolve_occurrence(repository, namespace, reference, operation)
+                        .and_then(|id| occurrence_value(state, id, interaction_id, operation))
+                })
+                .transpose()?;
+            let receive_event = receive
+                .as_ref()
+                .map(|reference| {
+                    resolve_occurrence(repository, namespace, reference, operation)
+                        .and_then(|id| occurrence_value(state, id, interaction_id, operation))
+                })
+                .transpose()?;
+            let native_signature = signature
+                .as_ref()
+                .map(|value| {
+                    resolve_signature(value, project, planned_elements, namespace, operation)
+                })
+                .transpose()?;
             let id = MessageId::new();
-            repository.interactions.get_mut(&interaction_id).unwrap().messages.push(Message {
-                id, name: name.clone(), sort: *sort, send_event, receive_event,
-                signature: native_signature, arguments: arguments.clone(),
-            });
-            repository.external_ids.insert(key, BehaviorSemanticId::Message(id));
+            repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .messages
+                .push(Message {
+                    id,
+                    name: name.clone(),
+                    sort: *sort,
+                    send_event,
+                    receive_event,
+                    signature: native_signature,
+                    arguments: arguments.clone(),
+                });
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Message(id));
         }
-        SequenceBuildOperation::UpdateMessage { message, name, sort, send, receive, signature, arguments } => {
+        SequenceBuildOperation::UpdateMessage {
+            message,
+            name,
+            sort,
+            send,
+            receive,
+            signature,
+            arguments,
+        } => {
             let id = resolve_message(repository, namespace, message, operation)?;
-            let interaction_id = interaction_for_message(repository, id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("Message {id} was not found")))?;
-            let send_event = send.as_ref().map(|value| value.as_ref().map(|reference| resolve_occurrence(
-                repository, namespace, reference, operation).and_then(|occurrence| occurrence_value(
-                    state, occurrence, interaction_id, operation))).transpose()).transpose()?;
-            let receive_event = receive.as_ref().map(|value| value.as_ref().map(|reference| resolve_occurrence(
-                repository, namespace, reference, operation).and_then(|occurrence| occurrence_value(
-                    state, occurrence, interaction_id, operation))).transpose()).transpose()?;
-            let native_signature = signature.as_ref().map(|value| value.as_ref().map(|signature| resolve_signature(
-                signature, project, planned_elements, namespace, operation)).transpose()).transpose()?;
-            let record = repository.interactions.get_mut(&interaction_id).unwrap().messages
-                .iter_mut().find(|record| record.id == id).unwrap();
-            if let Some(value) = name { record.name = value.clone(); }
-            if let Some(value) = sort { record.sort = *value; }
-            if let Some(value) = send_event { record.send_event = value; }
-            if let Some(value) = receive_event { record.receive_event = value; }
-            if let Some(value) = native_signature { record.signature = value; }
-            if let Some(value) = arguments { record.arguments = value.clone(); }
+            let interaction_id = interaction_for_message(repository, id).ok_or_else(|| {
+                error(
+                    "UNRESOLVED_SEQUENCE_REFERENCE",
+                    Some(operation),
+                    format!("Message {id} was not found"),
+                )
+            })?;
+            let send_event = send
+                .as_ref()
+                .map(|value| {
+                    value
+                        .as_ref()
+                        .map(|reference| {
+                            resolve_occurrence(repository, namespace, reference, operation)
+                                .and_then(|occurrence| {
+                                    occurrence_value(state, occurrence, interaction_id, operation)
+                                })
+                        })
+                        .transpose()
+                })
+                .transpose()?;
+            let receive_event = receive
+                .as_ref()
+                .map(|value| {
+                    value
+                        .as_ref()
+                        .map(|reference| {
+                            resolve_occurrence(repository, namespace, reference, operation)
+                                .and_then(|occurrence| {
+                                    occurrence_value(state, occurrence, interaction_id, operation)
+                                })
+                        })
+                        .transpose()
+                })
+                .transpose()?;
+            let native_signature = signature
+                .as_ref()
+                .map(|value| {
+                    value
+                        .as_ref()
+                        .map(|signature| {
+                            resolve_signature(
+                                signature,
+                                project,
+                                planned_elements,
+                                namespace,
+                                operation,
+                            )
+                        })
+                        .transpose()
+                })
+                .transpose()?;
+            let record = repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .messages
+                .iter_mut()
+                .find(|record| record.id == id)
+                .unwrap();
+            if let Some(value) = name {
+                record.name = value.clone();
+            }
+            if let Some(value) = sort {
+                record.sort = *value;
+            }
+            if let Some(value) = send_event {
+                record.send_event = value;
+            }
+            if let Some(value) = receive_event {
+                record.receive_event = value;
+            }
+            if let Some(value) = native_signature {
+                record.signature = value;
+            }
+            if let Some(value) = arguments {
+                record.arguments = value.clone();
+            }
         }
-        SequenceBuildOperation::CreateExecution { external_id, interaction, lifeline, start, finish, behavior } => {
+        SequenceBuildOperation::CreateExecution {
+            external_id,
+            interaction,
+            lifeline,
+            start,
+            finish,
+            behavior,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
-            let interaction_id = resolve_interaction(repository, namespace, interaction, operation)?;
+            let interaction_id =
+                resolve_interaction(repository, namespace, interaction, operation)?;
             let lifeline_id = resolve_lifeline(repository, namespace, lifeline, operation)?;
-            let start = occurrence_value(state, resolve_occurrence(repository, namespace, start, operation)?, interaction_id, operation)?;
-            let finish = occurrence_value(state, resolve_occurrence(repository, namespace, finish, operation)?, interaction_id, operation)?;
-            let behavior_id = behavior.as_ref().map(|reference| resolve_element_reference(
-                project, planned_elements, namespace, reference, operation)).transpose()?;
+            let start = occurrence_value(
+                state,
+                resolve_occurrence(repository, namespace, start, operation)?,
+                interaction_id,
+                operation,
+            )?;
+            let finish = occurrence_value(
+                state,
+                resolve_occurrence(repository, namespace, finish, operation)?,
+                interaction_id,
+                operation,
+            )?;
+            let behavior_id = behavior
+                .as_ref()
+                .map(|reference| {
+                    resolve_element_reference(
+                        project,
+                        planned_elements,
+                        namespace,
+                        reference,
+                        operation,
+                    )
+                })
+                .transpose()?;
             let id = ExecutionId::new();
-            repository.interactions.get_mut(&interaction_id).unwrap().executions.push(
-                ExecutionSpecification { id, lifeline_id, start, finish, behavior_id });
-            repository.external_ids.insert(key, BehaviorSemanticId::Execution(id));
+            repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .executions
+                .push(ExecutionSpecification {
+                    id,
+                    lifeline_id,
+                    start,
+                    finish,
+                    behavior_id,
+                });
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Execution(id));
         }
-        SequenceBuildOperation::UpdateExecution { execution, lifeline, start, finish, behavior } => {
+        SequenceBuildOperation::UpdateExecution {
+            execution,
+            lifeline,
+            start,
+            finish,
+            behavior,
+        } => {
             let id = resolve_execution(repository, namespace, execution, operation)?;
-            let interaction_id = interaction_for_execution(repository, id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("ExecutionSpecification {id} was not found")))?;
-            let lifeline_id = lifeline.as_ref().map(|reference| resolve_lifeline(
-                repository, namespace, reference, operation)).transpose()?;
-            let start_value = start.as_ref().map(|reference| resolve_occurrence(repository, namespace, reference, operation)
-                .and_then(|occurrence| occurrence_value(state, occurrence, interaction_id, operation))).transpose()?;
-            let finish_value = finish.as_ref().map(|reference| resolve_occurrence(repository, namespace, reference, operation)
-                .and_then(|occurrence| occurrence_value(state, occurrence, interaction_id, operation))).transpose()?;
-            let behavior_id = behavior.as_ref().map(|value| value.as_ref().map(|reference| resolve_element_reference(
-                project, planned_elements, namespace, reference, operation)).transpose()).transpose()?;
-            let record = repository.interactions.get_mut(&interaction_id).unwrap().executions
-                .iter_mut().find(|record| record.id == id).unwrap();
-            if let Some(value) = lifeline_id { record.lifeline_id = value; }
-            if let Some(value) = start_value { record.start = value; }
-            if let Some(value) = finish_value { record.finish = value; }
-            if let Some(value) = behavior_id { record.behavior_id = value; }
+            let interaction_id = interaction_for_execution(repository, id).ok_or_else(|| {
+                error(
+                    "UNRESOLVED_SEQUENCE_REFERENCE",
+                    Some(operation),
+                    format!("ExecutionSpecification {id} was not found"),
+                )
+            })?;
+            let lifeline_id = lifeline
+                .as_ref()
+                .map(|reference| resolve_lifeline(repository, namespace, reference, operation))
+                .transpose()?;
+            let start_value = start
+                .as_ref()
+                .map(|reference| {
+                    resolve_occurrence(repository, namespace, reference, operation).and_then(
+                        |occurrence| occurrence_value(state, occurrence, interaction_id, operation),
+                    )
+                })
+                .transpose()?;
+            let finish_value = finish
+                .as_ref()
+                .map(|reference| {
+                    resolve_occurrence(repository, namespace, reference, operation).and_then(
+                        |occurrence| occurrence_value(state, occurrence, interaction_id, operation),
+                    )
+                })
+                .transpose()?;
+            let behavior_id = behavior
+                .as_ref()
+                .map(|value| {
+                    value
+                        .as_ref()
+                        .map(|reference| {
+                            resolve_element_reference(
+                                project,
+                                planned_elements,
+                                namespace,
+                                reference,
+                                operation,
+                            )
+                        })
+                        .transpose()
+                })
+                .transpose()?;
+            let record = repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .executions
+                .iter_mut()
+                .find(|record| record.id == id)
+                .unwrap();
+            if let Some(value) = lifeline_id {
+                record.lifeline_id = value;
+            }
+            if let Some(value) = start_value {
+                record.start = value;
+            }
+            if let Some(value) = finish_value {
+                record.finish = value;
+            }
+            if let Some(value) = behavior_id {
+                record.behavior_id = value;
+            }
         }
-        SequenceBuildOperation::CreateFragment { external_id, interaction, operator, covered_lifelines } => {
+        SequenceBuildOperation::CreateFragment {
+            external_id,
+            interaction,
+            operator,
+            covered_lifelines,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
-            let interaction_id = resolve_interaction(repository, namespace, interaction, operation)?;
-            let covered = covered_lifelines.iter().map(|reference| resolve_lifeline(
-                repository, namespace, reference, operation)).collect::<Result<Vec<_>, _>>()?;
-            if covered.iter().any(|lifeline| interaction_for_lifeline(repository, *lifeline) != Some(interaction_id)) {
-                return Err(error("SEQUENCE_INTERACTION_MISMATCH", Some(operation),
-                    "CombinedFragment covered Lifeline belongs to a different Interaction"));
+            let interaction_id =
+                resolve_interaction(repository, namespace, interaction, operation)?;
+            let covered = covered_lifelines
+                .iter()
+                .map(|reference| resolve_lifeline(repository, namespace, reference, operation))
+                .collect::<Result<Vec<_>, _>>()?;
+            if covered.iter().any(|lifeline| {
+                interaction_for_lifeline(repository, *lifeline) != Some(interaction_id)
+            }) {
+                return Err(error(
+                    "SEQUENCE_INTERACTION_MISMATCH",
+                    Some(operation),
+                    "CombinedFragment covered Lifeline belongs to a different Interaction",
+                ));
             }
             let id = FragmentId::new();
-            repository.interactions.get_mut(&interaction_id).unwrap().fragments.push(
-                CombinedFragment { id, operator: *operator, covered_lifelines: covered, operands: Vec::new() });
-            repository.external_ids.insert(key, BehaviorSemanticId::Fragment(id));
+            repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .fragments
+                .push(CombinedFragment {
+                    id,
+                    operator: *operator,
+                    covered_lifelines: covered,
+                    operands: Vec::new(),
+                });
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Fragment(id));
         }
-        SequenceBuildOperation::UpdateFragment { fragment, operator, covered_lifelines } => {
+        SequenceBuildOperation::UpdateFragment {
+            fragment,
+            operator,
+            covered_lifelines,
+        } => {
             let id = resolve_fragment(repository, namespace, fragment, operation)?;
-            let interaction_id = interaction_for_fragment(repository, id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("CombinedFragment {id} was not found")))?;
-            let covered = covered_lifelines.as_ref().map(|values| values.iter().map(|reference| resolve_lifeline(
-                repository, namespace, reference, operation)).collect::<Result<Vec<_>, _>>()).transpose()?;
-            let record = repository.interactions.get_mut(&interaction_id).unwrap().fragments
-                .iter_mut().find(|record| record.id == id).unwrap();
-            if let Some(value) = operator { record.operator = *value; }
-            if let Some(value) = covered { record.covered_lifelines = value; }
+            let interaction_id = interaction_for_fragment(repository, id).ok_or_else(|| {
+                error(
+                    "UNRESOLVED_SEQUENCE_REFERENCE",
+                    Some(operation),
+                    format!("CombinedFragment {id} was not found"),
+                )
+            })?;
+            let covered = covered_lifelines
+                .as_ref()
+                .map(|values| {
+                    values
+                        .iter()
+                        .map(|reference| {
+                            resolve_lifeline(repository, namespace, reference, operation)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?;
+            let record = repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .fragments
+                .iter_mut()
+                .find(|record| record.id == id)
+                .unwrap();
+            if let Some(value) = operator {
+                record.operator = *value;
+            }
+            if let Some(value) = covered {
+                record.covered_lifelines = value;
+            }
         }
-        SequenceBuildOperation::CreateOperand { external_id, fragment, guard, start_order, end_order } => {
+        SequenceBuildOperation::CreateOperand {
+            external_id,
+            fragment,
+            guard,
+            start_order,
+            end_order,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
             let fragment_id = resolve_fragment(repository, namespace, fragment, operation)?;
-            let interaction_id = interaction_for_fragment(repository, fragment_id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("CombinedFragment {fragment_id} was not found")))?;
+            let interaction_id =
+                interaction_for_fragment(repository, fragment_id).ok_or_else(|| {
+                    error(
+                        "UNRESOLVED_SEQUENCE_REFERENCE",
+                        Some(operation),
+                        format!("CombinedFragment {fragment_id} was not found"),
+                    )
+                })?;
             let id = OperandId::new();
-            repository.interactions.get_mut(&interaction_id).unwrap().fragments.iter_mut()
-                .find(|record| record.id == fragment_id).unwrap().operands.push(InteractionOperand {
-                    id, guard: guard.clone(), start_order: *start_order, end_order: *end_order,
+            repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .fragments
+                .iter_mut()
+                .find(|record| record.id == fragment_id)
+                .unwrap()
+                .operands
+                .push(InteractionOperand {
+                    id,
+                    guard: guard.clone(),
+                    start_order: *start_order,
+                    end_order: *end_order,
                 });
-            repository.external_ids.insert(key, BehaviorSemanticId::Operand(id));
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Operand(id));
         }
-        SequenceBuildOperation::UpdateOperand { operand, guard, start_order, end_order } => {
+        SequenceBuildOperation::UpdateOperand {
+            operand,
+            guard,
+            start_order,
+            end_order,
+        } => {
             let id = resolve_operand(repository, namespace, operand, operation)?;
-            let fragment_id = fragment_for_operand(repository, id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("InteractionOperand {id} was not found")))?;
+            let fragment_id = fragment_for_operand(repository, id).ok_or_else(|| {
+                error(
+                    "UNRESOLVED_SEQUENCE_REFERENCE",
+                    Some(operation),
+                    format!("InteractionOperand {id} was not found"),
+                )
+            })?;
             let interaction_id = interaction_for_fragment(repository, fragment_id).unwrap();
-            let record = repository.interactions.get_mut(&interaction_id).unwrap().fragments.iter_mut()
-                .find(|record| record.id == fragment_id).unwrap().operands.iter_mut()
-                .find(|record| record.id == id).unwrap();
-            if let Some(value) = guard { record.guard = value.clone(); }
-            if let Some(value) = start_order { record.start_order = *value; }
-            if let Some(value) = end_order { record.end_order = *value; }
+            let record = repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .fragments
+                .iter_mut()
+                .find(|record| record.id == fragment_id)
+                .unwrap()
+                .operands
+                .iter_mut()
+                .find(|record| record.id == id)
+                .unwrap();
+            if let Some(value) = guard {
+                record.guard = value.clone();
+            }
+            if let Some(value) = start_order {
+                record.start_order = *value;
+            }
+            if let Some(value) = end_order {
+                record.end_order = *value;
+            }
         }
-        SequenceBuildOperation::CreateInvariant { external_id, interaction, lifeline, order, constraint } => {
+        SequenceBuildOperation::CreateInvariant {
+            external_id,
+            interaction,
+            lifeline,
+            order,
+            constraint,
+        } => {
             let key = external_key(namespace, external_id);
             behavior_external_available(&key, project, repository, operation)?;
-            let interaction_id = resolve_interaction(repository, namespace, interaction, operation)?;
+            let interaction_id =
+                resolve_interaction(repository, namespace, interaction, operation)?;
             let lifeline_id = resolve_lifeline(repository, namespace, lifeline, operation)?;
             let id = InvariantId::new();
-            repository.interactions.get_mut(&interaction_id).unwrap().state_invariants.push(
-                StateInvariant { id, lifeline_id, order: *order, constraint: constraint.clone() });
-            repository.external_ids.insert(key, BehaviorSemanticId::Invariant(id));
+            repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .state_invariants
+                .push(StateInvariant {
+                    id,
+                    lifeline_id,
+                    order: *order,
+                    constraint: constraint.clone(),
+                });
+            repository
+                .external_ids
+                .insert(key, BehaviorSemanticId::Invariant(id));
         }
-        SequenceBuildOperation::UpdateInvariant { invariant, lifeline, order, constraint } => {
+        SequenceBuildOperation::UpdateInvariant {
+            invariant,
+            lifeline,
+            order,
+            constraint,
+        } => {
             let id = resolve_invariant(repository, namespace, invariant, operation)?;
-            let interaction_id = interaction_for_invariant(repository, id).ok_or_else(|| error(
-                "UNRESOLVED_SEQUENCE_REFERENCE", Some(operation), format!("StateInvariant {id} was not found")))?;
-            let lifeline_id = lifeline.as_ref().map(|reference| resolve_lifeline(
-                repository, namespace, reference, operation)).transpose()?;
-            let record = repository.interactions.get_mut(&interaction_id).unwrap().state_invariants
-                .iter_mut().find(|record| record.id == id).unwrap();
-            if let Some(value) = lifeline_id { record.lifeline_id = value; }
-            if let Some(value) = order { record.order = *value; }
-            if let Some(value) = constraint { record.constraint = value.clone(); }
+            let interaction_id = interaction_for_invariant(repository, id).ok_or_else(|| {
+                error(
+                    "UNRESOLVED_SEQUENCE_REFERENCE",
+                    Some(operation),
+                    format!("StateInvariant {id} was not found"),
+                )
+            })?;
+            let lifeline_id = lifeline
+                .as_ref()
+                .map(|reference| resolve_lifeline(repository, namespace, reference, operation))
+                .transpose()?;
+            let record = repository
+                .interactions
+                .get_mut(&interaction_id)
+                .unwrap()
+                .state_invariants
+                .iter_mut()
+                .find(|record| record.id == id)
+                .unwrap();
+            if let Some(value) = lifeline_id {
+                record.lifeline_id = value;
+            }
+            if let Some(value) = order {
+                record.order = *value;
+            }
+            if let Some(value) = constraint {
+                record.constraint = value.clone();
+            }
         }
     }
     Ok(())
@@ -800,8 +1340,13 @@ fn resolve_binding_endpoint(
 ) -> Result<BindingEndpoint, BuildDiagnostic> {
     Ok(BindingEndpoint {
         role_id: resolve_element_reference(project, planned, namespace, &build.role, operation)?,
-        parameter_id: build.parameter.as_ref().map(|reference| resolve_element_reference(
-            project, planned, namespace, reference, operation)).transpose()?,
+        parameter_id: build
+            .parameter
+            .as_ref()
+            .map(|reference| {
+                resolve_element_reference(project, planned, namespace, reference, operation)
+            })
+            .transpose()?,
     })
 }
 
@@ -816,52 +1361,155 @@ pub(super) fn apply_parametric_operation(
 ) -> Result<(), BuildDiagnostic> {
     match build {
         ParametricBuildOperation::UpdateElementSemantics {
-            element, constraint_expression, quantity_kind_external_id, unit_external_id,
-            quantity_dimension, unit_symbol, unit_scale_to_base,
+            element,
+            constraint_expression,
+            quantity_kind_external_id,
+            unit_external_id,
+            quantity_dimension,
+            unit_symbol,
+            unit_scale_to_base,
         } => {
-            let id = resolve_element_reference(project, planned_elements, namespace, element, operation)?;
-            let record = project.element_mut(id).map_err(|cause| error(
-                "PARAMETRIC_REFERENCE_UNRESOLVED", Some(operation), cause.to_string()))?;
-            if let Some(value) = constraint_expression { record.constraint_expression = value.clone(); }
-            if let Some(value) = quantity_kind_external_id { record.quantity_kind_external_id = value.clone(); }
-            if let Some(value) = unit_external_id { record.unit_external_id = value.clone(); }
-            if let Some(value) = quantity_dimension { record.quantity_dimension = value.clone(); }
-            if let Some(value) = unit_symbol { record.unit_symbol = value.clone(); }
-            if let Some(value) = unit_scale_to_base { record.unit_scale_to_base = *value; }
-        }
-        ParametricBuildOperation::CreateBinding { external_id, name, owner, source, target } => {
-            let key = external_key(namespace, external_id);
-            if project.elements.values().any(|record| record.external_id == key)
-                || project.relationships.values().any(|record| record.external_id == key)
-            {
-                return Err(error("DUPLICATE_EXTERNAL_ID", Some(operation),
-                    format!("external ID already exists in Project: {key}")));
+            let id = resolve_element_reference(
+                project,
+                planned_elements,
+                namespace,
+                element,
+                operation,
+            )?;
+            let record = project.element_mut(id).map_err(|cause| {
+                error(
+                    "PARAMETRIC_REFERENCE_UNRESOLVED",
+                    Some(operation),
+                    cause.to_string(),
+                )
+            })?;
+            if let Some(value) = constraint_expression {
+                record.constraint_expression = value.clone();
             }
-            let owner_id = resolve_element_reference(project, planned_elements, namespace, owner, operation)?;
-            let source = resolve_binding_endpoint(source, project, planned_elements, namespace, operation)?;
-            let target = resolve_binding_endpoint(target, project, planned_elements, namespace, operation)?;
-            let id = project.create_binding_connector(owner_id, source, target).map_err(|cause| error(
-                "PARAMETRIC_SEMANTIC_VALIDATION", Some(operation), cause.to_string()))?;
+            if let Some(value) = quantity_kind_external_id {
+                record.quantity_kind_external_id = value.clone();
+            }
+            if let Some(value) = unit_external_id {
+                record.unit_external_id = value.clone();
+            }
+            if let Some(value) = quantity_dimension {
+                record.quantity_dimension = value.clone();
+            }
+            if let Some(value) = unit_symbol {
+                record.unit_symbol = value.clone();
+            }
+            if let Some(value) = unit_scale_to_base {
+                record.unit_scale_to_base = *value;
+            }
+        }
+        ParametricBuildOperation::CreateBinding {
+            external_id,
+            name,
+            owner,
+            source,
+            target,
+        } => {
+            let key = external_key(namespace, external_id);
+            if project
+                .elements
+                .values()
+                .any(|record| record.external_id == key)
+                || project
+                    .relationships
+                    .values()
+                    .any(|record| record.external_id == key)
+            {
+                return Err(error(
+                    "DUPLICATE_EXTERNAL_ID",
+                    Some(operation),
+                    format!("external ID already exists in Project: {key}"),
+                ));
+            }
+            let owner_id =
+                resolve_element_reference(project, planned_elements, namespace, owner, operation)?;
+            let source =
+                resolve_binding_endpoint(source, project, planned_elements, namespace, operation)?;
+            let target =
+                resolve_binding_endpoint(target, project, planned_elements, namespace, operation)?;
+            let id = project
+                .create_binding_connector(owner_id, source, target)
+                .map_err(|cause| {
+                    error(
+                        "PARAMETRIC_SEMANTIC_VALIDATION",
+                        Some(operation),
+                        cause.to_string(),
+                    )
+                })?;
             let relationship = project.relationships.get_mut(&id).unwrap();
             relationship.external_id = key.clone();
             relationship.name = name.clone();
             planned_relationships.insert(key, id);
         }
-        ParametricBuildOperation::UpdateBinding { relationship, name, owner, source, target } => {
-            let id = resolve_relationship_reference(project, planned_relationships, namespace, relationship, operation)?;
-            let owner_id = owner.as_ref().map(|reference| resolve_element_reference(
-                project, planned_elements, namespace, reference, operation)).transpose()?;
-            let current = project.relationship(id).map_err(|cause| error(
-                "PARAMETRIC_REFERENCE_UNRESOLVED", Some(operation), cause.to_string()))?
-                .binding.clone().ok_or_else(|| error("PARAMETRIC_BINDING_REQUIRED", Some(operation),
-                    "relationship does not contain native BindingConnector endpoints"))?;
-            let source = source.as_ref().map(|value| resolve_binding_endpoint(
-                value, project, planned_elements, namespace, operation)).transpose()?.unwrap_or(current.source);
-            let target = target.as_ref().map(|value| resolve_binding_endpoint(
-                value, project, planned_elements, namespace, operation)).transpose()?.unwrap_or(current.target);
+        ParametricBuildOperation::UpdateBinding {
+            relationship,
+            name,
+            owner,
+            source,
+            target,
+        } => {
+            let id = resolve_relationship_reference(
+                project,
+                planned_relationships,
+                namespace,
+                relationship,
+                operation,
+            )?;
+            let owner_id = owner
+                .as_ref()
+                .map(|reference| {
+                    resolve_element_reference(
+                        project,
+                        planned_elements,
+                        namespace,
+                        reference,
+                        operation,
+                    )
+                })
+                .transpose()?;
+            let current = project
+                .relationship(id)
+                .map_err(|cause| {
+                    error(
+                        "PARAMETRIC_REFERENCE_UNRESOLVED",
+                        Some(operation),
+                        cause.to_string(),
+                    )
+                })?
+                .binding
+                .clone()
+                .ok_or_else(|| {
+                    error(
+                        "PARAMETRIC_BINDING_REQUIRED",
+                        Some(operation),
+                        "relationship does not contain native BindingConnector endpoints",
+                    )
+                })?;
+            let source = source
+                .as_ref()
+                .map(|value| {
+                    resolve_binding_endpoint(value, project, planned_elements, namespace, operation)
+                })
+                .transpose()?
+                .unwrap_or(current.source);
+            let target = target
+                .as_ref()
+                .map(|value| {
+                    resolve_binding_endpoint(value, project, planned_elements, namespace, operation)
+                })
+                .transpose()?
+                .unwrap_or(current.target);
             let record = project.relationships.get_mut(&id).unwrap();
-            if let Some(value) = name { record.name = value.clone(); }
-            if let Some(value) = owner_id { record.owner_id = Some(value); }
+            if let Some(value) = name {
+                record.name = value.clone();
+            }
+            if let Some(value) = owner_id {
+                record.owner_id = Some(value);
+            }
             record.source_id = source.role_id;
             record.target_id = target.role_id;
             record.binding = Some(BindingConnector { source, target });

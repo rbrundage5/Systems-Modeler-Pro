@@ -119,7 +119,9 @@ pub enum ModelBuildOperation {
     },
     /// PR40 mapped relationship update path. All endpoint/owner resolution and
     /// mutation stays in the PR36 candidate so preview/apply remain atomic.
-    Activity { operation: ActivityBuildOperation },
+    Activity {
+        operation: ActivityBuildOperation,
+    },
     StateMachine {
         operation: StateMachineBuildOperation,
     },
