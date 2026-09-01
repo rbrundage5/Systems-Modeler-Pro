@@ -67,6 +67,18 @@ new_parse = """    value
 """
 if old_parse in text:
     text = text.replace(old_parse, new_parse, 1)
+
+macro_marker = """macro_rules! semantic_reference_fn {
+    ($name:ident, $target:ty, $kind:ident, $variant:ident, $label:literal, $body:expr) => {
+        fn $name(
+"""
+macro_replacement = """macro_rules! semantic_reference_fn {
+    ($name:ident, $target:ty, $kind:ident, $variant:ident, $label:literal, $body:expr) => {
+        #[allow(dead_code)]
+        fn $name(
+"""
+if macro_marker in text:
+    text = text.replace(macro_marker, macro_replacement, 1)
 spreadsheet_path.write_text(text)
 
 behavior_path = Path("apps/desktop/src-tauri/src/workspace/bulk_model/pr48_behavior.rs")
@@ -103,3 +115,39 @@ for filename, previous, current in [
             raise SystemExit(f"PR48 test declaration not found in {filename}")
         source = source.replace(previous, current, 1)
     path.write_text(source)
+
+spreadsheet_test_path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr49_tests.rs")
+test_text = spreadsheet_test_path.read_text()
+fixture_match = re.search(r"fn fixture\(\) -> \((.*?)\n\) \{", test_text, re.S)
+if fixture_match is None:
+    raise SystemExit("PR49 spreadsheet fixture signature not found")
+fixture_body = fixture_match.group(1)
+if fixture_body.count("ElementId") == 6:
+    fixture_body = fixture_body + "\n    ElementId,"
+    test_text = test_text[: fixture_match.start(1)] + fixture_body + test_text[fixture_match.end(1) :]
+elif fixture_body.count("ElementId") != 7:
+    raise SystemExit(f"unexpected PR49 spreadsheet fixture ElementId count: {fixture_body.count('ElementId')}")
+
+sort_assert = """    assert_eq!(interaction.messages[0].sort, MessageSort::SynchCall);
+"""
+signature_assert = """    assert_eq!(interaction.messages[0].sort, MessageSort::SynchCall);
+    assert!(matches!(
+        interaction.messages[0].signature,
+        Some(systems_modeler_core::behavior::MessageSignature::Operation(id)) if id == operation
+    ));
+"""
+if sort_assert in test_text and "interaction.messages[0].signature" not in test_text:
+    test_text = test_text.replace(sort_assert, signature_assert, 1)
+
+test_text = test_text.replace(
+    "    assert!(matches!(interaction_signature(binding, operation), true));\n",
+    "",
+    1,
+)
+test_text = re.sub(
+    r"\nfn interaction_signature\(_binding: &Relationship, operation: ElementId\) -> bool \{\n    let _ = operation;\n    true\n\}\n",
+    "\n",
+    test_text,
+    count=1,
+)
+spreadsheet_test_path.write_text(test_text)
