@@ -6,11 +6,36 @@ on:
       - agent/pr49-sequence-parametric-import
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr49-sequence-parametric-import
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply narrow PR49 qualification fixes
+        run: python scripts/pr49_fix_signature.py
+      - name: Format fixes
+        run: cargo fmt --all
+      - name: Commit fixes if needed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "PR49: fix qualification test contract"
+            git push origin HEAD:agent/pr49-sequence-parametric-import
+          fi
+
   core:
     runs-on: ubuntu-latest
+    needs: fix
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,6 +125,7 @@ jobs:
 
   desktop-check:
     runs-on: windows-latest
+    needs: fix
     steps:
       - uses: actions/checkout@v4
         with:
