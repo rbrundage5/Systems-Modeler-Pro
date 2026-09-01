@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  core:
+  fix-and-core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +17,49 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Apply narrow PR49 compiler fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr49_semantics.rs')
+          text = path.read_text()
+          old = '''    matches!((existing, build),
+              (None, None)
+              | (Some(MessageSignature::Operation(left)), Some(MessageSignatureBuild::Operation(BuildReference::Existing(right)))) if left == right
+              | (Some(MessageSignature::Signal(left)), Some(MessageSignatureBuild::Signal(BuildReference::Existing(right)))) if left == right)
+'''
+          new = '''    match (existing, build) {
+        (None, None) => true,
+        (
+            Some(MessageSignature::Operation(left)),
+            Some(MessageSignatureBuild::Operation(BuildReference::Existing(right))),
+        ) => left == right,
+        (
+            Some(MessageSignature::Signal(left)),
+            Some(MessageSignatureBuild::Signal(BuildReference::Existing(right))),
+        ) => left == right,
+        _ => false,
+    }
+'''
+          if old not in text:
+              raise SystemExit('expected signature_matches source not found; refusing broad edit')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+      - name: Remove temporary compiler logs
+        shell: bash
+        run: rm -f pr49-desktop-check.log pr49-desktop-errors.log
+      - name: Commit narrow fix if needed
+        shell: bash
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "PR49: fix message signature comparison"
+            git push origin HEAD:agent/pr49-sequence-parametric-import
+          fi
       - name: Format check
         run: cargo fmt --all --check
       - name: Core check
@@ -24,6 +67,7 @@ jobs:
 
   desktop:
     runs-on: windows-latest
+    needs: fix-and-core
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,20 +75,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Desktop check with compiler diagnostic capture
-        shell: pwsh
-        run: |
-          cmd /c "cargo check -p systems-modeler-desktop > pr49-desktop-check.log 2>&1"
-          $status = $LASTEXITCODE
-          if ($status -ne 0) {
-            Select-String -Path pr49-desktop-check.log -Pattern 'error\[E[0-9]+\]:','error:','could not compile' -Context 10,10 | Out-File -Encoding utf8 pr49-desktop-errors.log
-            Get-Content pr49-desktop-errors.log
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add pr49-desktop-errors.log
-            git commit -m "PR49: capture Windows desktop compiler errors"
-            git push origin HEAD:agent/pr49-sequence-parametric-import
-            exit $status
-          }
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
 
 # Temporary PR49 compiler qualification workflow; remove before publication.
