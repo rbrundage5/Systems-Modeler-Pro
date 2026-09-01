@@ -13,7 +13,13 @@ path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr48_behavi
 if path.exists():
     text = path.read_text()
     import_anchor = "use super::*;\n"
-    imports = """use super::*;
+    imports = """#![allow(
+    clippy::collapsible_if,
+    clippy::redundant_closure,
+    clippy::too_many_arguments
+)]
+
+use super::*;
 use crate::workspace::bulk_model::{
     ActionBuildKind, ActivityBuildOperation, ActivityEndpointReference, ActivityNodeBuildKind,
     ActivityNodeReference, ActivityPartitionReference, ActivityReference, RegionParentReference,
@@ -141,4 +147,49 @@ fn region_ref(
         "fn vertex_build_kind(map:&SpreadsheetImportMap,row:usize,",
         "fn vertex_build_kind(map:&SpreadsheetImportMap,_row:usize,",
     )
+    text = text.replace(
+        "fn normalized(value:Option<&String>)->Option<String>{value.map(|v|v.trim()).filter(|v|!v.is_empty()).map(ToOwned::to_owned)}\n",
+        "",
+    )
+    path.write_text(text)
+
+path = Path("apps/desktop/src-tauri/src/workspace/bulk_model/pr48_behavior.rs")
+if path.exists():
+    text = path.read_text()
+    anchor = "use super::*;\n"
+    if anchor not in text:
+        raise SystemExit("missing PR48 bulk behavior import anchor")
+    text = text.replace(
+        anchor,
+        "#![allow(clippy::collapsible_if)]\n\nuse super::*;\n",
+        1,
+    )
+    path.write_text(text)
+
+path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs")
+if path.exists():
+    text = path.read_text()
+    old_imports = """        ModelBuildResult, RelationshipReference, apply_model_build, external_key,
+        preview_model_build,
+    },
+};
+use calamine"""
+    new_imports = """        RelationshipReference, external_key,
+    },
+};
+#[cfg(test)]
+use super::bulk_model::{ModelBuildResult, apply_model_build, preview_model_build};
+use calamine"""
+    if old_imports not in text:
+        raise SystemExit("missing legacy spreadsheet build import anchor")
+    text = text.replace(old_imports, new_imports, 1)
+    for anchor in (
+        "fn prepare_spreadsheet_import(\n",
+        "fn prepare_from_state(\n",
+        "pub fn preview_spreadsheet_import_group(\n",
+        "fn apply_spreadsheet_import_with_preview(\n",
+    ):
+        if anchor not in text:
+            raise SystemExit(f"missing legacy spreadsheet test helper anchor: {anchor!r}")
+        text = text.replace(anchor, f"#[cfg(test)]\n{anchor}", 1)
     path.write_text(text)
