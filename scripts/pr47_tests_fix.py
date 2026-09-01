@@ -31,3 +31,14 @@ if old_late not in text:
     raise SystemExit('late invalid assertion anchor missing')
 text = text.replace(old_late, new_late, 1)
 p.write_text(text)
+
+# PR40 used Include as the representative unsupported relationship kind. PR47 now
+# intentionally supports Include, so keep the old regression's original purpose by
+# using BindingConnector, which remains outside the spreadsheet-import scope.
+spreadsheet = Path('apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs')
+source = spreadsheet.read_text()
+old = 'temp_csv("ID,Kind,Source,Target,Owner\\nREL-2,Include,VEH,ENG,Structure\\n"),'
+new = 'temp_csv("ID,Kind,Source,Target,Owner\\nREL-2,BindingConnector,VEH,ENG,Structure\\n"),'
+if old not in source:
+    raise SystemExit('PR40 unsupported-kind compatibility anchor missing')
+spreadsheet.write_text(source.replace(old, new, 1))
