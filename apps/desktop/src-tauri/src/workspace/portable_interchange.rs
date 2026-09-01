@@ -867,3 +867,5 @@ mod pr44_connector_tests;
 mod pr45_item_flow_tests;
 #[cfg(test)]
 mod pr46_operation_parameter_reception_tests;
+#[cfg(test)]
+mod pr47_core_namespace_relationship_tests;
