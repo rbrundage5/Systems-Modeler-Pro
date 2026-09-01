@@ -84,12 +84,22 @@ if old_match_tail in behavior:
     behavior = behavior.replace(old_match_tail, new_match_tail, 1)
 behavior_path.write_text(behavior)
 
-bulk_path = Path("apps/desktop/src-tauri/src/workspace/bulk_model.rs")
-bulk = bulk_path.read_text()
-needle = "#[cfg(test)]\nmod pr48_tests;\n"
-addition = "#[cfg(test)]\nmod pr48_tests;\n#[cfg(test)]\nmod pr49_tests;\n"
-if "mod pr49_tests;" not in bulk:
-    if needle not in bulk:
-        raise SystemExit("PR48 bulk-model test declaration not found")
-    bulk = bulk.replace(needle, addition, 1)
-bulk_path.write_text(bulk)
+for filename, previous, current in [
+    (
+        "apps/desktop/src-tauri/src/workspace/bulk_model.rs",
+        "#[cfg(test)]\nmod pr48_tests;\n",
+        "#[cfg(test)]\nmod pr48_tests;\n#[cfg(test)]\nmod pr49_tests;\n",
+    ),
+    (
+        "apps/desktop/src-tauri/src/workspace/spreadsheet_import.rs",
+        "#[cfg(test)]\nmod pr48_tests;\n",
+        "#[cfg(test)]\nmod pr48_tests;\n#[cfg(test)]\nmod pr49_tests;\n",
+    ),
+]:
+    path = Path(filename)
+    source = path.read_text()
+    if "mod pr49_tests;" not in source:
+        if previous not in source:
+            raise SystemExit(f"PR48 test declaration not found in {filename}")
+        source = source.replace(previous, current, 1)
+    path.write_text(source)
