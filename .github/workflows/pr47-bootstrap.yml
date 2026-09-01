@@ -23,6 +23,7 @@ jobs:
         run: |
           python scripts/pr47_patch.py
           python scripts/pr47_fix.py
+          python scripts/pr47_tests_fix.py
       - name: Format
         run: cargo fmt --all
       - name: PR47 native model-core tests
@@ -109,6 +110,7 @@ jobs:
         run: |
           python scripts/pr47_patch.py
           python scripts/pr47_fix.py
+          python scripts/pr47_tests_fix.py
       - name: Format
         run: cargo fmt --all
       - name: Desktop check
@@ -164,12 +166,13 @@ jobs:
         run: |
           python scripts/pr47_patch.py
           python scripts/pr47_fix.py
+          python scripts/pr47_tests_fix.py
       - name: Format final implementation
         run: cargo fmt --all
       - name: Clean qualification artifacts and commit
         shell: bash
         run: |
-          git rm -f .github/workflows/pr47-bootstrap.yml scripts/pr47_patch.py scripts/pr47_fix.py
+          git rm -f .github/workflows/pr47-bootstrap.yml scripts/pr47_patch.py scripts/pr47_fix.py scripts/pr47_tests_fix.py
           git diff --check
           git add -A
           git config user.name github-actions[bot]
