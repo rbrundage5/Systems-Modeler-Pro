@@ -9,7 +9,7 @@ fn parse_aggregation(value: &str) -> Result<AggregationKind, String> {
     }
 }
 
-fn parse_parameter_direction(
+pub(super) fn parse_parameter_direction(
     value: &str,
 ) -> Result<systems_modeler_core::ParameterDirection, String> {
     match value {

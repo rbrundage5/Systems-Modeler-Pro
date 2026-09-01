@@ -2,7 +2,7 @@ use super::*;
 use std::collections::{HashMap, HashSet};
 use systems_modeler_core::{
     Connector, ConnectorEnd, ConnectorKind, DiagramFamilyId, FlowDirection, ItemFlow,
-    supported_diagram_families,
+    ParameterDirection, supported_diagram_families,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +58,7 @@ pub enum ModelBuildOperation {
         requirement_text: Option<String>,
         multiplicity: Option<Multiplicity>,
         default_value: Option<String>,
+        parameter_direction: Option<ParameterDirection>,
         flow_direction: Option<FlowDirection>,
         is_conjugated: Option<bool>,
     },
@@ -617,19 +618,36 @@ fn build_candidate(
                     let id = if let Some(type_ref) = type_ref {
                         let type_id =
                             resolve_element(&project, &element_ids, namespace, type_ref, index)?;
-                        project.create_typed_feature(
-                            kind.clone(),
-                            name,
-                            owner_id,
-                            type_id,
-                            Multiplicity::ONE,
-                        )
+                        if *kind == ElementKind::Reception {
+                            let id = project
+                                .create_element(kind.clone(), name, owner_id)
+                                .map_err(|cause| {
+                                    error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                                })?;
+                            project.set_element_type(id, type_id).map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?;
+                            Ok::<ElementId, BuildDiagnostic>(id)
+                        } else {
+                            project
+                                .create_typed_feature(
+                                    kind.clone(),
+                                    name,
+                                    owner_id,
+                                    type_id,
+                                    Multiplicity::ONE,
+                                )
+                                .map_err(|cause| {
+                                    error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                                })
+                        }
                     } else {
-                        project.create_element(kind.clone(), name, owner_id)
-                    }
-                    .map_err(|cause| {
-                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
-                    })?;
+                        project
+                            .create_element(kind.clone(), name, owner_id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })
+                    }?;
                     let key = external_key(namespace, external_id);
                     project.set_external_id(id, key.clone()).map_err(|cause| {
                         error("DUPLICATE_EXTERNAL_ID", Some(index), cause.to_string())
@@ -654,6 +672,7 @@ fn build_candidate(
                     requirement_text,
                     multiplicity,
                     default_value,
+                    parameter_direction,
                     flow_direction,
                     is_conjugated,
                 } => {
@@ -708,18 +727,18 @@ fn build_candidate(
                             })?;
                     }
                     if let Some(default_value) = default_value {
-                        if project
+                        let kind = project
                             .element(id)
                             .map_err(|cause| {
                                 error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
                             })?
                             .kind
-                            != ElementKind::ValueProperty
-                        {
+                            .clone();
+                        if !matches!(kind, ElementKind::ValueProperty | ElementKind::Parameter) {
                             return Err(error(
                                 "SEMANTIC_VALIDATION",
                                 Some(index),
-                                "Default Value mapping is valid only for ValueProperty",
+                                "Default Value mapping is valid only for ValueProperty or Parameter",
                             ));
                         }
                         project
@@ -729,6 +748,28 @@ fn build_candidate(
                             })?
                             .default_value =
                             (!default_value.trim().is_empty()).then(|| default_value.clone());
+                    }
+                    if let Some(parameter_direction) = parameter_direction {
+                        let kind = project
+                            .element(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .kind
+                            .clone();
+                        if kind != ElementKind::Parameter {
+                            return Err(error(
+                                "SEMANTIC_VALIDATION",
+                                Some(index),
+                                "Parameter Direction mapping is valid only for Parameter",
+                            ));
+                        }
+                        project
+                            .element_mut(id)
+                            .map_err(|cause| {
+                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                            })?
+                            .parameter_direction = Some(*parameter_direction);
                     }
                     if let Some(flow_direction) = flow_direction {
                         if project
