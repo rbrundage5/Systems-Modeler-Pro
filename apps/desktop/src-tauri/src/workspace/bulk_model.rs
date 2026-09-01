@@ -1,6 +1,9 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
-use systems_modeler_core::{DiagramFamilyId, FlowDirection, supported_diagram_families};
+use systems_modeler_core::{
+    Connector, ConnectorEnd, ConnectorKind, DiagramFamilyId, FlowDirection,
+    supported_diagram_families,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildReference<T> {
@@ -18,6 +21,14 @@ pub struct AssociationEndBuildFields {
     pub multiplicity: Option<Multiplicity>,
     pub navigable: Option<bool>,
     pub aggregation: Option<AggregationKind>,
+}
+
+/// Unresolved CATIA-style connector end carried through the PR36 plan. Each
+/// segment is resolved in the classifier reached by the preceding segment,
+/// after earlier plan-local element operations have populated the candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorEndBuildSpec {
+    pub segments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +67,27 @@ pub enum ModelBuildOperation {
         source: ElementReference,
         target: ElementReference,
         owner: Option<ElementReference>,
+    },
+    CreateConnector {
+        external_id: String,
+        context: ElementReference,
+        kind: ConnectorKind,
+        source: ConnectorEndBuildSpec,
+        target: ConnectorEndBuildSpec,
+        name: String,
+        documentation: String,
+        visibility: VisibilityKind,
+    },
+    UpdateConnectorFields {
+        relationship: RelationshipReference,
+        context: ElementReference,
+        kind: ConnectorKind,
+        source: ConnectorEndBuildSpec,
+        target: ConnectorEndBuildSpec,
+        external_id: Option<String>,
+        name: Option<String>,
+        documentation: Option<String>,
+        visibility: Option<VisibilityKind>,
     },
     /// PR40 mapped relationship update path. All endpoint/owner resolution and
     /// mutation stays in the PR36 candidate so preview/apply remain atomic.
@@ -162,6 +194,12 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         ModelBuildOperation::UpdateElementFields { .. } => "UPDATE mapped element fields".into(),
         ModelBuildOperation::CreateRelationship { external_id, .. } => {
             format!("CREATE relationship {external_id}")
+        }
+        ModelBuildOperation::CreateConnector { external_id, .. } => {
+            format!("CREATE connector {external_id}")
+        }
+        ModelBuildOperation::UpdateConnectorFields { .. } => {
+            "UPDATE mapped connector fields".into()
         }
         ModelBuildOperation::UpdateRelationshipFields { .. } => {
             "UPDATE mapped relationship fields".into()
@@ -312,6 +350,180 @@ fn resolve_diagram(
     }
 }
 
+fn resolve_connector_segment(
+    project: &Project,
+    namespace: &str,
+    classifier_id: ElementId,
+    requested: &str,
+    operation: usize,
+) -> Result<ElementId, BuildDiagnostic> {
+    let external = external_key(namespace, requested);
+    let by_external = project
+        .elements
+        .values()
+        .filter(|element| element.owner_id == Some(classifier_id))
+        .filter(|element| element.external_id == external)
+        .map(|element| element.id)
+        .collect::<Vec<_>>();
+    match by_external.as_slice() {
+        [id] => return Ok(*id),
+        [] => {}
+        _ => {
+            return Err(error(
+                "CONNECTOR_PATH_AMBIGUOUS",
+                Some(operation),
+                format!("connector path segment \"{requested}\" is ambiguous by external identity"),
+            ));
+        }
+    }
+
+    let by_exact_name = project
+        .elements
+        .values()
+        .filter(|element| element.owner_id == Some(classifier_id))
+        .filter(|element| {
+            element.name == requested
+                || project
+                    .qualified_name(element.id)
+                    .is_ok_and(|qualified| qualified == requested)
+        })
+        .map(|element| element.id)
+        .collect::<Vec<_>>();
+    match by_exact_name.as_slice() {
+        [id] => Ok(*id),
+        [] => Err(error(
+            "CONNECTOR_PATH_UNRESOLVED",
+            Some(operation),
+            format!(
+                "connector path segment \"{requested}\" was not found in {}",
+                project
+                    .qualified_name(classifier_id)
+                    .unwrap_or_else(|_| classifier_id.to_string())
+            ),
+        )),
+        _ => Err(error(
+            "CONNECTOR_PATH_AMBIGUOUS",
+            Some(operation),
+            format!(
+                "connector path segment \"{requested}\" resolves to more than one feature in {}",
+                project
+                    .qualified_name(classifier_id)
+                    .unwrap_or_else(|_| classifier_id.to_string())
+            ),
+        )),
+    }
+}
+
+pub(super) fn resolve_connector_end(
+    project: &Project,
+    namespace: &str,
+    context_id: ElementId,
+    spec: &ConnectorEndBuildSpec,
+    operation: usize,
+) -> Result<ConnectorEnd, BuildDiagnostic> {
+    if spec.segments.is_empty()
+        || spec
+            .segments
+            .iter()
+            .any(|segment| segment.trim().is_empty())
+    {
+        return Err(error(
+            "CONNECTOR_PATH_INVALID",
+            Some(operation),
+            "connector end must contain one or more non-empty path segments",
+        ));
+    }
+
+    let mut classifier_id = context_id;
+    let mut property_path = Vec::new();
+    for (index, segment) in spec.segments.iter().enumerate() {
+        let id = resolve_connector_segment(
+            project,
+            namespace,
+            classifier_id,
+            segment.trim(),
+            operation,
+        )?;
+        let element = project.element(id).map_err(|cause| {
+            error(
+                "CONNECTOR_PATH_UNRESOLVED",
+                Some(operation),
+                cause.to_string(),
+            )
+        })?;
+        let terminal = index + 1 == spec.segments.len();
+
+        if element.is_port() {
+            if !terminal {
+                return Err(error(
+                    "CONNECTOR_PATH_INVALID",
+                    Some(operation),
+                    format!(
+                        "port '{}' must be the terminal connector path segment",
+                        element.name
+                    ),
+                ));
+            }
+            return Ok(if property_path.is_empty() {
+                ConnectorEnd::boundary(id)
+            } else {
+                ConnectorEnd::nested_port(property_path, id)
+            });
+        }
+
+        if !matches!(
+            element.kind,
+            ElementKind::PartProperty | ElementKind::ReferenceProperty
+        ) {
+            return Err(error(
+                "CONNECTOR_PATH_INVALID",
+                Some(operation),
+                format!(
+                    "connector path segment '{}' is {:?}, not a structural property or port",
+                    element.name, element.kind
+                ),
+            ));
+        }
+        property_path.push(id);
+        if terminal {
+            return Ok(ConnectorEnd {
+                property_path,
+                role_id: id,
+                port_id: None,
+            });
+        }
+        let type_id = element.type_id.ok_or_else(|| {
+            error(
+                "CONNECTOR_PATH_UNTYPED",
+                Some(operation),
+                format!("structural property '{}' has no type", element.name),
+            )
+        })?;
+        let type_element = project.element(type_id).map_err(|cause| {
+            error(
+                "CONNECTOR_PATH_UNRESOLVED",
+                Some(operation),
+                cause.to_string(),
+            )
+        })?;
+        if !matches!(
+            type_element.kind,
+            ElementKind::Block | ElementKind::AssociationBlock | ElementKind::InterfaceBlock
+        ) {
+            return Err(error(
+                "CONNECTOR_PATH_INVALID",
+                Some(operation),
+                format!(
+                    "structural property '{}' is typed by non-structured {:?}",
+                    element.name, type_element.kind
+                ),
+            ));
+        }
+        classifier_id = type_id;
+    }
+    unreachable!("non-empty connector paths return from the loop")
+}
+
 fn preflight(plan: &ModelBuildPlan) -> Result<(), BuildDiagnostic> {
     if plan.source_namespace.trim().is_empty() {
         return Err(error(
@@ -325,6 +537,7 @@ fn preflight(plan: &ModelBuildPlan) -> Result<(), BuildDiagnostic> {
         let external_id = match operation {
             ModelBuildOperation::CreateElement { external_id, .. }
             | ModelBuildOperation::CreateRelationship { external_id, .. }
+            | ModelBuildOperation::CreateConnector { external_id, .. }
             | ModelBuildOperation::CreateDiagram { external_id, .. } => Some(external_id),
             ModelBuildOperation::RestorePortableState { .. } => None,
             _ => None,
@@ -628,6 +841,149 @@ fn build_candidate(
                     }
                     project.relationships.get_mut(&id).unwrap().external_id = key.clone();
                     relationship_ids.insert(key, id);
+                }
+                ModelBuildOperation::CreateConnector {
+                    external_id,
+                    context,
+                    kind,
+                    source,
+                    target,
+                    name,
+                    documentation,
+                    visibility,
+                } => {
+                    let context_id =
+                        resolve_element(&project, &element_ids, namespace, context, index)?;
+                    let source =
+                        resolve_connector_end(&project, namespace, context_id, source, index)?;
+                    let target =
+                        resolve_connector_end(&project, namespace, context_id, target, index)?;
+                    let id = project
+                        .create_connector(Connector {
+                            context_id,
+                            kind: *kind,
+                            source,
+                            target,
+                        })
+                        .map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+                    let key = external_key(namespace, external_id);
+                    if project
+                        .elements
+                        .values()
+                        .any(|element| element.external_id == key)
+                        || project.relationships.values().any(|relationship| {
+                            relationship.id != id && relationship.external_id == key
+                        })
+                    {
+                        return Err(error(
+                            "DUPLICATE_EXTERNAL_ID",
+                            Some(index),
+                            format!("external ID already exists: {key}"),
+                        ));
+                    }
+                    let relationship = project.relationships.get_mut(&id).unwrap();
+                    relationship.external_id = key.clone();
+                    relationship.name = name.clone();
+                    relationship.documentation = documentation.clone();
+                    relationship.visibility = *visibility;
+                    relationship_ids.insert(key, id);
+                }
+                ModelBuildOperation::UpdateConnectorFields {
+                    relationship,
+                    context,
+                    kind,
+                    source,
+                    target,
+                    external_id,
+                    name,
+                    documentation,
+                    visibility,
+                } => {
+                    let id = resolve_relationship(
+                        &project,
+                        &relationship_ids,
+                        namespace,
+                        relationship,
+                        index,
+                    )?;
+                    let current = project.relationship(id).map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
+                    if current.kind != RelationshipKind::Connector || current.connector.is_none() {
+                        return Err(error(
+                            "RELATIONSHIP_IDENTITY_KIND_MISMATCH",
+                            Some(index),
+                            "connector update target is not a native Connector",
+                        ));
+                    }
+                    let context_id =
+                        resolve_element(&project, &element_ids, namespace, context, index)?;
+                    let source =
+                        resolve_connector_end(&project, namespace, context_id, source, index)?;
+                    let target =
+                        resolve_connector_end(&project, namespace, context_id, target, index)?;
+                    let next_connector = Connector {
+                        context_id,
+                        kind: *kind,
+                        source,
+                        target,
+                    };
+
+                    let mut validation_project = project.clone();
+                    validation_project.relationships.remove(&id);
+                    validation_project
+                        .create_connector(next_connector.clone())
+                        .map_err(|cause| {
+                            error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                        })?;
+
+                    let next_external_id = external_id
+                        .as_ref()
+                        .map(|value| external_key(namespace, value));
+                    if let Some(key) = &next_external_id
+                        && (project
+                            .elements
+                            .values()
+                            .any(|element| element.external_id == *key)
+                            || project.relationships.values().any(|candidate| {
+                                candidate.id != id && candidate.external_id == *key
+                            }))
+                    {
+                        return Err(error(
+                            "DUPLICATE_EXTERNAL_ID",
+                            Some(index),
+                            format!("external ID already exists: {key}"),
+                        ));
+                    }
+
+                    let relationship = project.relationships.get_mut(&id).unwrap();
+                    relationship.owner_id = Some(context_id);
+                    relationship.source_id = next_connector
+                        .source
+                        .port_id
+                        .unwrap_or(next_connector.source.role_id);
+                    relationship.target_id = next_connector
+                        .target
+                        .port_id
+                        .unwrap_or(next_connector.target.role_id);
+                    relationship.connector = Some(next_connector);
+                    if let Some(value) = next_external_id {
+                        relationship.external_id = value;
+                    }
+                    if let Some(value) = name {
+                        relationship.name = value.clone();
+                    }
+                    if let Some(value) = documentation {
+                        relationship.documentation = value.clone();
+                    }
+                    if let Some(value) = visibility {
+                        relationship.visibility = *value;
+                    }
+                    project.validate().map_err(|cause| {
+                        error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
+                    })?;
                 }
                 ModelBuildOperation::UpdateRelationshipFields {
                     relationship,
