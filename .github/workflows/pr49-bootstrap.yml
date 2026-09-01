@@ -1,4 +1,4 @@
-name: pr49-bootstrap
+name: pr49-qualification
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
       - agent/pr49-sequence-parametric-import
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix:
+  core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,33 +17,138 @@ jobs:
           ref: agent/pr49-sequence-parametric-import
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-      - name: Apply narrow PR49 fix
-        run: python scripts/pr49_fix_signature.py
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Format
-        run: cargo fmt --all
-      - name: Remove temporary logs
-        run: rm -f pr49-desktop-check.log pr49-desktop-errors.log
-      - name: Commit fix
+        run: cargo fmt --all --check
+      - name: Core and persistence tests
+        run: cargo test --workspace --exclude systems-modeler-desktop
+      - name: Core and persistence lint
+        run: cargo clippy --workspace --exclude systems-modeler-desktop --all-targets -- -D warnings
+      - name: Behavior and Activity frontend syntax
         shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "PR49: fix message signature comparison"
-            git push origin HEAD:agent/pr49-sequence-parametric-import
-          fi
+          for file in \
+            apps/desktop/frontend/behavior-ui.js \
+            apps/desktop/frontend/behavior-ribbon.js \
+            apps/desktop/frontend/ui-shell.js \
+            apps/desktop/frontend/behavior-completion-ui.js \
+            apps/desktop/frontend/behavior-atomic-message.js \
+            apps/desktop/frontend/behavior-delete-ui.js \
+            apps/desktop/frontend/behavior-message-notation.js \
+            apps/desktop/frontend/behavior-submachine.js \
+            apps/desktop/frontend/behavior-region-placement.js \
+            apps/desktop/frontend/behavior-sequence-input.js \
+            apps/desktop/frontend/behavior-command-authority.js \
+            apps/desktop/frontend/behavior-authoritative-renderer.js \
+            apps/desktop/frontend/behavior-runtime-hardening.js \
+            apps/desktop/frontend/activity-ui.js \
+            apps/desktop/frontend/activity-rich-ui.js \
+            apps/desktop/frontend/activity-navigation-ui.js \
+            apps/desktop/frontend/activity-mutation-ui.js \
+            apps/desktop/frontend/project-open-compat.js \
+            apps/desktop/frontend/diagram-interaction.js \
+            apps/desktop/frontend/repository-tree-ui.js \
+            apps/desktop/frontend/interaction-runtime-fixes.js \
+            apps/desktop/frontend/state-bar-resize.js \
+            apps/desktop/frontend/bdd-compartment-visibility.js \
+            apps/desktop/frontend/use-case-ui.js \
+            apps/desktop/frontend/parametric-ui.js \
+            apps/desktop/frontend/standard-editing-ui.js \
+            apps/desktop/frontend/marquee-selection.js \
+            apps/desktop/frontend/undo-redo-ui.js; do
+            node --check "$file"
+          done
+          node --check apps/desktop/frontend/shared-dialogs.js
+          node --check apps/desktop/frontend/shared-workspace.js
+      - name: Behavior desktop integration contract
+        run: python scripts/validate_behavior_integration.py
+      - name: Activity desktop integration contract
+        run: python scripts/validate_activity_integration.py
+      - name: State Machine execution integration contract
+        run: python scripts/validate_state_machine_execution.py
+      - name: Structural runtime integration contract
+        run: python scripts/validate_structural_runtime_integration.py
+      - name: Operation Signal Sequence integration contract
+        run: python scripts/validate_operation_signal_sequence_integration.py
+      - name: Requirements desktop integration contract
+        run: python scripts/validate_requirements_integration.py
+      - name: Use Case desktop integration contract
+        run: python scripts/validate_use_case_integration.py
+      - name: Parametric desktop integration contract
+        run: python scripts/validate_parametric_integration.py
+      - name: Parametric runtime integration contract
+        run: python scripts/validate_parametric_runtime_integration.py
+      - name: Package Diagram desktop integration contract
+        run: python scripts/validate_package_diagram_integration.py
+      - name: Package drill-down activation contract
+        run: python scripts/validate_package_drilldown_activation.py
+      - name: Presentation interaction contract
+        run: python scripts/validate_presentation_interaction.py
+      - name: History integration contract
+        run: python scripts/validate_history_integration.py
+      - name: Shared workspace convergence contract
+        run: python scripts/validate_workspace_convergence.py
+      - name: Repository editing contract
+        run: python scripts/validate_repository_editing.py
+      - name: Standard editing integration contract
+        run: python scripts/validate_standard_editing_integration.py
+      - name: Rust authority and frontend debt gate
+        run: python scripts/validate_rust_authority.py
 
-  desktop:
+  desktop-check:
     runs-on: windows-latest
-    needs: fix
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/pr49-sequence-parametric-import
       - uses: dtolnay/rust-toolchain@stable
-      - name: Desktop check
+        with:
+          components: rustfmt, clippy
+      - name: Check desktop shell
         run: cargo check -p systems-modeler-desktop
+      - name: Desktop tests
+        run: cargo test -p systems-modeler-desktop
+      - name: Desktop lint
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Behavior desktop integration contract
+        run: python scripts/validate_behavior_integration.py
+      - name: Activity desktop integration contract
+        run: python scripts/validate_activity_integration.py
+      - name: State Machine execution integration contract
+        run: python scripts/validate_state_machine_execution.py
+      - name: Structural runtime integration contract
+        run: python scripts/validate_structural_runtime_integration.py
+      - name: Operation Signal Sequence integration contract
+        run: python scripts/validate_operation_signal_sequence_integration.py
+      - name: Requirements desktop integration contract
+        run: python scripts/validate_requirements_integration.py
+      - name: Use Case desktop integration contract
+        run: python scripts/validate_use_case_integration.py
+      - name: Parametric desktop integration contract
+        run: python scripts/validate_parametric_integration.py
+      - name: Parametric runtime integration contract
+        run: python scripts/validate_parametric_runtime_integration.py
+      - name: Package Diagram desktop integration contract
+        run: python scripts/validate_package_diagram_integration.py
+      - name: Package drill-down activation contract
+        run: python scripts/validate_package_drilldown_activation.py
+      - name: Presentation interaction contract
+        run: python scripts/validate_presentation_interaction.py
+      - name: History integration contract
+        run: python scripts/validate_history_integration.py
+      - name: Shared workspace convergence contract
+        run: python scripts/validate_workspace_convergence.py
+      - name: Repository editing contract
+        run: python scripts/validate_repository_editing.py
+      - name: Standard editing integration contract
+        run: python scripts/validate_standard_editing_integration.py
+      - name: Rust authority and frontend debt gate
+        run: python scripts/validate_rust_authority.py
+      - name: Verify Cargo.lock remains clean
+        shell: pwsh
+        run: git diff --exit-code -- Cargo.lock
 
-# Temporary PR49 qualification workflow. Remove before publication.
+# Temporary PR49 pre-publication qualification workflow. Remove before publication.
