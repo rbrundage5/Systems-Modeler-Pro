@@ -131,4 +131,13 @@ fn region_ref(
     ))
 }'''
     text = text[:macro_start] + reference_helpers + text[macro_end:]
+    text = text.replace(",name,", ",name:name.clone(),")
+    text = text.replace(
+        "PlannedBehaviorRecord{external_id:external,kind,name:create_name().ok()}",
+        "PlannedBehaviorRecord{external_id:external.clone(),kind,name:name.clone()}",
+    )
+    text = text.replace(
+        "fn vertex_build_kind(map:&SpreadsheetImportMap,row:usize,",
+        "fn vertex_build_kind(map:&SpreadsheetImportMap,_row:usize,",
+    )
     path.write_text(text)
