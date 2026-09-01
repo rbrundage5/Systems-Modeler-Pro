@@ -7,6 +7,8 @@ use systems_modeler_core::{
 
 mod pr48_behavior;
 pub use pr48_behavior::*;
+mod pr49_semantics;
+pub use pr49_semantics::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildReference<T> {
@@ -120,6 +122,12 @@ pub enum ModelBuildOperation {
     Activity { operation: ActivityBuildOperation },
     StateMachine {
         operation: StateMachineBuildOperation,
+    },
+    Sequence {
+        operation: SequenceBuildOperation,
+    },
+    Parametric {
+        operation: ParametricBuildOperation,
     },
     UpdateRelationshipFields {
         relationship: RelationshipReference,
@@ -241,6 +249,10 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         ModelBuildOperation::Activity { operation } => behavior_operation_description(operation),
         ModelBuildOperation::StateMachine { operation } => {
             state_machine_operation_description(operation)
+        }
+        ModelBuildOperation::Sequence { operation } => sequence_operation_description(operation),
+        ModelBuildOperation::Parametric { operation } => {
+            parametric_operation_description(operation)
         }
         ModelBuildOperation::UpdateRelationshipFields { .. } => {
             "UPDATE mapped relationship fields".into()
@@ -584,6 +596,10 @@ fn preflight(plan: &ModelBuildPlan) -> Result<(), BuildDiagnostic> {
             ModelBuildOperation::Activity { operation } => activity_create_external_id(operation),
             ModelBuildOperation::StateMachine { operation } => {
                 state_machine_create_external_id(operation)
+            }
+            ModelBuildOperation::Sequence { operation } => sequence_create_external_id(operation),
+            ModelBuildOperation::Parametric { operation } => {
+                parametric_create_external_id(operation)
             }
             ModelBuildOperation::RestorePortableState { .. } => None,
             _ => None,
@@ -1284,11 +1300,14 @@ fn build_candidate(
                         error("SEMANTIC_VALIDATION", Some(index), cause.to_string())
                     })?;
                 }
-                ModelBuildOperation::Activity { .. } | ModelBuildOperation::StateMachine { .. } => {
+                ModelBuildOperation::Activity { .. }
+                | ModelBuildOperation::StateMachine { .. }
+                | ModelBuildOperation::Sequence { .. }
+                | ModelBuildOperation::Parametric { .. } => {
                     return Err(error(
                         "COMPLETE_BUILD_REQUIRED",
                         Some(index),
-                        "Activity/State Machine authored semantics require the unified PR48 candidate build path",
+                        "specialized authored semantics require the unified candidate build path",
                     ));
                 }
                 ModelBuildOperation::UpdateRelationshipFields {

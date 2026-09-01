@@ -1,0 +1,23 @@
+name: pr49-bootstrap
+
+on:
+  push:
+    branches: [agent/pr49-sequence-parametric-import]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --all --check
+      - name: Core check
+        run: cargo check --workspace --exclude systems-modeler-desktop
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop

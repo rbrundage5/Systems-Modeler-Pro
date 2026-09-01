@@ -61,13 +61,23 @@ pub(super) enum BehaviorRowKind {
     ExitPoint,
     Terminate,
     Transition,
+    Interaction,
+    Lifeline,
+    Occurrence,
+    Message,
+    ExecutionSpecification,
+    CombinedFragment,
+    InteractionOperand,
+    StateInvariant,
+    ParametricElement,
+    BindingConnector,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct PlannedBehaviorRecord {
-    external_id: String,
-    kind: BehaviorRowKind,
-    name: Option<String>,
+    pub(super) external_id: String,
+    pub(super) kind: BehaviorRowKind,
+    pub(super) name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,12 +88,12 @@ impl BehaviorPlanningIndex {
     pub(super) fn register(&mut self, record: PlannedBehaviorRecord) {
         self.records.push(record);
     }
-    fn by_external(&self, external: &str) -> Option<&PlannedBehaviorRecord> {
+    pub(super) fn by_external(&self, external: &str) -> Option<&PlannedBehaviorRecord> {
         self.records
             .iter()
             .find(|record| record.external_id == external)
     }
-    fn named(&self, kind: BehaviorRowKind, name: &str) -> Vec<&PlannedBehaviorRecord> {
+    pub(super) fn named(&self, kind: BehaviorRowKind, name: &str) -> Vec<&PlannedBehaviorRecord> {
         self.records
             .iter()
             .filter(|record| record.kind == kind && record.name.as_deref() == Some(name))
@@ -541,6 +551,13 @@ fn behavior_record_for_identity(
                 kind: BehaviorRowKind::Transition,
                 target: ExistingTarget::Transition(tid),
             }),
+        BehaviorSemanticId::Lifeline(_)
+        | BehaviorSemanticId::Occurrence(_)
+        | BehaviorSemanticId::Message(_)
+        | BehaviorSemanticId::Execution(_)
+        | BehaviorSemanticId::Fragment(_)
+        | BehaviorSemanticId::Operand(_)
+        | BehaviorSemanticId::Invariant(_) => None,
     }
 }
 
@@ -1475,6 +1492,18 @@ pub(super) fn plan_behavior_row(
     planned: &BehaviorPlanningIndex,
     seen: &mut HashSet<String>,
 ) -> Result<BehaviorRowPlan, SpreadsheetImportDiagnostic> {
+    if is_pr49_semantic_row(values) {
+        return plan_pr49_semantic_row(
+            map,
+            row,
+            values,
+            project,
+            behavior,
+            planned_project,
+            planned,
+            seen,
+        );
+    }
     let kind = behavior_row_kind(map, row, values)?;
     let external = required(
         map,

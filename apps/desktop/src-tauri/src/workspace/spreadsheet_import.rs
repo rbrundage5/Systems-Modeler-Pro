@@ -22,6 +22,8 @@ use systems_modeler_core::{
 
 mod pr48_behavior;
 use pr48_behavior::*;
+mod pr49_semantics;
+use pr49_semantics::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SpreadsheetSemanticProperty {
@@ -100,6 +102,34 @@ pub enum SpreadsheetSemanticProperty {
     TriggerExpression,
     TriggerRelative,
     Effect,
+    Interaction,
+    Lifeline,
+    RepresentedPath,
+    Order,
+    MessageSort,
+    SendOccurrence,
+    ReceiveOccurrence,
+    Signature,
+    Arguments,
+    StartOccurrence,
+    FinishOccurrence,
+    Behavior,
+    CombinedFragment,
+    Operator,
+    CoveredLifelines,
+    StartOrder,
+    EndOrder,
+    Constraint,
+    ConstraintExpression,
+    QuantityKind,
+    Unit,
+    QuantityDimension,
+    UnitSymbol,
+    UnitScaleToBase,
+    BindingSourceRole,
+    BindingSourceParameter,
+    BindingTargetRole,
+    BindingTargetParameter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,12 +318,12 @@ struct RowContext {
 }
 
 #[derive(Debug, Clone)]
-struct PlannedElement {
-    external_id: String,
-    kind: ElementKind,
-    qualified_name: String,
-    requirement_id: Option<String>,
-    depth_from_target: usize,
+pub(super) struct PlannedElement {
+    pub(super) external_id: String,
+    pub(super) kind: ElementKind,
+    pub(super) qualified_name: String,
+    pub(super) requirement_id: Option<String>,
+    pub(super) depth_from_target: usize,
 }
 
 #[derive(Debug, Clone)]
