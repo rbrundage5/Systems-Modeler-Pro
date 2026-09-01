@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  compile:
+  core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,38 +17,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply rustfmt
-        run: cargo fmt --all
-      - name: Commit formatting if needed
-        shell: bash
-        run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "PR49: apply rustfmt"
-            git push origin HEAD:agent/pr49-sequence-parametric-import
-          fi
       - name: Format check
         run: cargo fmt --all --check
       - name: Core check
         run: cargo check --workspace --exclude systems-modeler-desktop
+
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr49-sequence-parametric-import
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Desktop check with compiler diagnostic capture
-        shell: bash
+        shell: pwsh
         run: |
-          set +e
-          cargo check -p systems-modeler-desktop > /tmp/pr49-desktop-check.log 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            grep -n -E -C 10 'error(\[E[0-9]+\])?:|could not compile|aborting due to|previous error' /tmp/pr49-desktop-check.log > pr49-desktop-errors.log || tail -n 160 /tmp/pr49-desktop-check.log > pr49-desktop-errors.log
-            cat pr49-desktop-errors.log
+          cmd /c "cargo check -p systems-modeler-desktop > pr49-desktop-check.log 2>&1"
+          $status = $LASTEXITCODE
+          if ($status -ne 0) {
+            Select-String -Path pr49-desktop-check.log -Pattern 'error\[E[0-9]+\]:','error:','could not compile' -Context 10,10 | Out-File -Encoding utf8 pr49-desktop-errors.log
+            Get-Content pr49-desktop-errors.log
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add pr49-desktop-errors.log
-            git commit -m "PR49: capture compiler errors" || true
+            git commit -m "PR49: capture Windows desktop compiler errors"
             git push origin HEAD:agent/pr49-sequence-parametric-import
-            exit "$status"
-          fi
-          rm -f pr49-desktop-errors.log
+            exit $status
+          }
 
 # Temporary PR49 compiler qualification workflow; remove before publication.
