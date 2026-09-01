@@ -99,7 +99,10 @@ fn semantic_map(source: String, root: ElementId) -> SpreadsheetImportMap {
         ("Context", SpreadsheetSemanticProperty::Context),
         ("Interaction", SpreadsheetSemanticProperty::Interaction),
         ("Lifeline", SpreadsheetSemanticProperty::Lifeline),
-        ("Represented Path", SpreadsheetSemanticProperty::RepresentedPath),
+        (
+            "Represented Path",
+            SpreadsheetSemanticProperty::RepresentedPath,
+        ),
         ("Order", SpreadsheetSemanticProperty::Order),
         ("Message Sort", SpreadsheetSemanticProperty::MessageSort),
         ("Send", SpreadsheetSemanticProperty::SendOccurrence),
@@ -109,9 +112,15 @@ fn semantic_map(source: String, root: ElementId) -> SpreadsheetImportMap {
         ("Start", SpreadsheetSemanticProperty::StartOccurrence),
         ("Finish", SpreadsheetSemanticProperty::FinishOccurrence),
         ("Behavior", SpreadsheetSemanticProperty::Behavior),
-        ("Combined Fragment", SpreadsheetSemanticProperty::CombinedFragment),
+        (
+            "Combined Fragment",
+            SpreadsheetSemanticProperty::CombinedFragment,
+        ),
         ("Operator", SpreadsheetSemanticProperty::Operator),
-        ("Covered Lifelines", SpreadsheetSemanticProperty::CoveredLifelines),
+        (
+            "Covered Lifelines",
+            SpreadsheetSemanticProperty::CoveredLifelines,
+        ),
         ("Guard", SpreadsheetSemanticProperty::Guard),
         ("Start Order", SpreadsheetSemanticProperty::StartOrder),
         ("End Order", SpreadsheetSemanticProperty::EndOrder),
@@ -168,15 +177,18 @@ fn semantic_map(source: String, root: ElementId) -> SpreadsheetImportMap {
 
 #[test]
 fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_idempotently() {
-    let (state, activity, system, _part, operation, value, constraint, parameter, constraint_property) =
-        fixture();
-    let root = state
-        .project
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .root_id;
+    let (
+        state,
+        activity,
+        system,
+        _part,
+        operation,
+        value,
+        constraint,
+        parameter,
+        constraint_property,
+    ) = fixture();
+    let root = state.project.lock().unwrap().as_ref().unwrap().root_id;
     let source = temp_csv(concat!(
         "Kind,ID,Name,Context,Interaction,Lifeline,Represented Path,Order,Message Sort,Send,Receive,Signature,Arguments,Start,Finish,Behavior,Combined Fragment,Operator,Covered Lifelines,Guard,Start Order,End Order,Constraint,Target,Constraint Expression,Unit Symbol,Unit Scale To Base,Binding Source Role,Binding Source Parameter,Binding Target Role,Binding Target Parameter\n",
         "Interaction,INT,ControlExchange,System,,,,,,,,,,,,,,,,,,,,,,,,,,,,\n",
@@ -198,14 +210,16 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
     let preview = preview_spreadsheet_import_group_with_activity(&group, &state, &activity);
     assert!(preview.is_valid(), "{:?}", preview.diagnostics);
     assert!(state.behavior.lock().unwrap().interactions.is_empty());
-    assert!(state
-        .project
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .relationships
-        .is_empty());
+    assert!(
+        state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationships
+            .is_empty()
+    );
 
     apply_spreadsheet_import_group_with_activity(&group, &state, &activity).unwrap();
 
@@ -229,7 +243,10 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
         project.element(constraint).unwrap().constraint_expression,
         "m > 0"
     );
-    assert_eq!(project.element(constraint).unwrap().unit_symbol.as_deref(), Some("kg"));
+    assert_eq!(
+        project.element(constraint).unwrap().unit_symbol.as_deref(),
+        Some("kg")
+    );
     assert_eq!(project.element(constraint).unwrap().unit_scale_to_base, 1.0);
     let binding = project
         .relationships
@@ -241,18 +258,17 @@ fn pr49_csv_constructs_sequence_and_parametric_native_semantics_and_reimports_id
     assert_eq!(endpoints.source.parameter_id, None);
     assert_eq!(endpoints.target.role_id, constraint_property);
     assert_eq!(endpoints.target.parameter_id, Some(parameter));
-    assert!(matches!(
-        interaction_signature(binding, operation),
-        true
-    ));
+    assert!(matches!(interaction_signature(binding, operation), true));
     drop(project);
 
     let second = preview_spreadsheet_import_group_with_activity(&group, &state, &activity);
     assert!(second.is_valid(), "{:?}", second.diagnostics);
-    assert!(second
-        .rows
-        .iter()
-        .all(|row| row.action == SpreadsheetRowAction::NoChange));
+    assert!(
+        second
+            .rows
+            .iter()
+            .all(|row| row.action == SpreadsheetRowAction::NoChange)
+    );
 }
 
 fn interaction_signature(_binding: &Relationship, operation: ElementId) -> bool {
@@ -263,13 +279,7 @@ fn interaction_signature(_binding: &Relationship, operation: ElementId) -> bool 
 #[test]
 fn pr49_rejects_non_finite_unit_scale_without_mutating_project() {
     let (state, activity, _system, _part, _operation, _value, constraint, ..) = fixture();
-    let root = state
-        .project
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .root_id;
+    let root = state.project.lock().unwrap().as_ref().unwrap().root_id;
     let source = temp_csv(concat!(
         "Kind,ID,Name,Context,Interaction,Lifeline,Represented Path,Order,Message Sort,Send,Receive,Signature,Arguments,Start,Finish,Behavior,Combined Fragment,Operator,Covered Lifelines,Guard,Start Order,End Order,Constraint,Target,Constraint Expression,Unit Symbol,Unit Scale To Base,Binding Source Role,Binding Source Parameter,Binding Target Role,Binding Target Parameter\n",
         "ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,,MassConstraint,,kg,NaN,,,,\n"
@@ -280,10 +290,12 @@ fn pr49_rejects_non_finite_unit_scale_without_mutating_project() {
 
     let preview = preview_spreadsheet_import_group_with_activity(&group, &state, &activity);
     assert!(!preview.is_valid());
-    assert!(preview
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == "PR49_NUMBER_INVALID"));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "PR49_NUMBER_INVALID")
+    );
     assert!(apply_spreadsheet_import_group_with_activity(&group, &state, &activity).is_err());
     let project = state.project.lock().unwrap();
     assert_eq!(
