@@ -17,7 +17,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply staged PR48 implementation
-        run: python scripts/pr48_identity_patch.py
+        run: |
+          python scripts/pr48_identity_patch.py
+          python scripts/pr48_build_patch.py
       - name: Format
         run: cargo fmt --all
       - name: PR48 identity tests
@@ -35,8 +37,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Apply staged PR48 implementation
-        run: python scripts/pr48_identity_patch.py
+        run: |
+          python scripts/pr48_identity_patch.py
+          python scripts/pr48_build_patch.py
       - name: Format
         run: cargo fmt --all
       - name: Desktop check
         run: cargo check -p systems-modeler-desktop
+      - name: PR48 unified candidate tests
+        run: cargo test -p systems-modeler-desktop bulk_model::pr48_tests -- --nocapture
