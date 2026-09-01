@@ -94,6 +94,36 @@ new_match_tail = """                has(&machine.regions, id)
 """
 if old_match_tail in behavior:
     behavior = behavior.replace(old_match_tail, new_match_tail, 1)
+
+old_behavior_validation = """    behavior
+        .validate(&project)
+        .map_err(|cause| error(\"BEHAVIOR_SEMANTIC_VALIDATION\", None, cause.to_string()))?;
+"""
+new_behavior_validation = """    // Preserve PR48's state-machine diagnostic contract while validating the
+    // expanded PR49 behavior repository. Sequence-only identities are removed
+    // from this state-machine projection, then the complete repository is
+    // validated immediately afterward for native Sequence semantics.
+    let mut state_machine_behavior = behavior.clone();
+    state_machine_behavior.interactions.clear();
+    state_machine_behavior.external_ids.retain(|_, identity| {
+        matches!(
+            identity,
+            BehaviorSemanticId::Region(_)
+                | BehaviorSemanticId::Vertex(_)
+                | BehaviorSemanticId::Transition(_)
+        )
+    });
+    state_machine_behavior
+        .validate(&project)
+        .map_err(|cause| error(\"STATE_MACHINE_SEMANTIC_VALIDATION\", None, cause.to_string()))?;
+    behavior
+        .validate(&project)
+        .map_err(|cause| error(\"BEHAVIOR_SEMANTIC_VALIDATION\", None, cause.to_string()))?;
+"""
+if old_behavior_validation in behavior:
+    behavior = behavior.replace(old_behavior_validation, new_behavior_validation, 1)
+elif "let mut state_machine_behavior = behavior.clone();" not in behavior:
+    raise SystemExit("unified behavior validation block not found")
 behavior_path.write_text(behavior)
 
 for filename, previous, current in [
@@ -115,6 +145,12 @@ for filename, previous, current in [
             raise SystemExit(f"PR48 test declaration not found in {filename}")
         source = source.replace(previous, current, 1)
     path.write_text(source)
+
+bulk_test_path = Path("apps/desktop/src-tauri/src/workspace/bulk_model/pr49_tests.rs")
+bulk_test = bulk_test_path.read_text()
+bulk_test = bulk_test.replace('constraint_expression: Some("m > 0".into())', 'constraint_expression: Some("m = 1".into())')
+bulk_test = bulk_test.replace('"m > 0"\n    );', '"m = 1"\n    );')
+bulk_test_path.write_text(bulk_test)
 
 spreadsheet_test_path = Path("apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr49_tests.rs")
 test_text = spreadsheet_test_path.read_text()
@@ -150,4 +186,31 @@ test_text = re.sub(
     test_text,
     count=1,
 )
+
+# Keep the CSV fixtures column-exact. These rows exercise the mapped Target,
+# expression, unit, and structured BindingEndpoint fields rather than relying
+# on a fragile comma count.
+test_text = test_text.replace(
+    '"ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,,MassConstraint,m > 0,kg,1,,,,\\n",',
+    '"ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,MassConstraint,m = 1,kg,1,,,,\\n",',
+)
+test_text = test_text.replace(
+    '"ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,,MassConstraint,,kg,NaN,,,,\\n"',
+    '"ParametricElement,META,,,,,,,,,,,,,,,,,,,,,,MassConstraint,,kg,NaN,,,,\\n"',
+)
+test_text = test_text.replace('"m > 0"\n    );', '"m = 1"\n    );')
+
+# End the project lock guard before idempotent re-preview.
+old_lock = """    let project = state.project.lock().unwrap();
+    let project = project.as_ref().unwrap();
+"""
+new_lock = """    {
+        let project_guard = state.project.lock().unwrap();
+        let project = project_guard.as_ref().unwrap();
+"""
+if old_lock in test_text:
+    test_text = test_text.replace(old_lock, new_lock, 1)
+if "    drop(project);\n\n    let second" in test_text:
+    test_text = test_text.replace("    drop(project);\n\n    let second", "    }\n\n    let second", 1)
+
 spreadsheet_test_path.write_text(test_text)
