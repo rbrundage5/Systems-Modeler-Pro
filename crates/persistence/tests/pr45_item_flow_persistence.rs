@@ -56,8 +56,11 @@ fn pr45_database_round_trip_preserves_complete_item_flow_payload() {
             target: target.clone(),
         })
         .unwrap();
-    project.relationships.get_mut(&connector).unwrap().external_id =
-        "catia:pr45::CONN-1".into();
+    project
+        .relationships
+        .get_mut(&connector)
+        .unwrap()
+        .external_id = "catia:pr45::CONN-1".into();
     let flow = project
         .create_item_flow(ItemFlow {
             connector_id: connector,

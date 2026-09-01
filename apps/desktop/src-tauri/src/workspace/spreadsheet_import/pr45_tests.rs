@@ -156,14 +156,19 @@ fn plan_local_group(root: ElementId, flows: String) -> SpreadsheetImportMapGroup
         root,
     );
     SpreadsheetImportMapGroup {
-        mappings: vec![interface, blocks, parts, ports, signals, connectors, item_flow_map(flows, root)],
+        mappings: vec![
+            interface,
+            blocks,
+            parts,
+            ports,
+            signals,
+            connectors,
+            item_flow_map(flows, root),
+        ],
     }
 }
 
-fn relationship_by_external<'a>(
-    project: &'a Project,
-    external_id: &str,
-) -> &'a Relationship {
+fn relationship_by_external<'a>(project: &'a Project, external_id: &str) -> &'a Relationship {
     project
         .relationships
         .values()
@@ -186,13 +191,7 @@ fn pr45_xlsx_arbitrary_sheets_build_plan_local_connectors_and_item_flows() {
         false,
     );
     interface.worksheet = Some("Interface Definitions".into());
-    let mut blocks = element_map(
-        "Blocks",
-        fixture.clone(),
-        ElementKind::Block,
-        root,
-        false,
-    );
+    let mut blocks = element_map("Blocks", fixture.clone(), ElementKind::Block, root, false);
     blocks.worksheet = Some("Components".into());
     let mut parts = element_map(
         "Parts",
@@ -202,21 +201,9 @@ fn pr45_xlsx_arbitrary_sheets_build_plan_local_connectors_and_item_flows() {
         true,
     );
     parts.worksheet = Some("Structural Roles".into());
-    let mut ports = element_map(
-        "Ports",
-        fixture.clone(),
-        ElementKind::ProxyPort,
-        root,
-        true,
-    );
+    let mut ports = element_map("Ports", fixture.clone(), ElementKind::ProxyPort, root, true);
     ports.worksheet = Some("Component Ports".into());
-    let mut signals = element_map(
-        "Signals",
-        fixture.clone(),
-        ElementKind::Signal,
-        root,
-        false,
-    );
+    let mut signals = element_map("Signals", fixture.clone(), ElementKind::Signal, root, false);
     signals.worksheet = Some("Traffic Types".into());
     let mut connectors = connector_map(fixture.clone(), root);
     connectors.worksheet = Some("Internal Connections".into());
@@ -244,7 +231,10 @@ fn pr45_xlsx_arbitrary_sheets_build_plan_local_connectors_and_item_flows() {
     apply_spreadsheet_import_group(&group, &state).unwrap();
     let guard = state.project.lock().unwrap();
     let project = guard.as_ref().unwrap();
-    assert_eq!(relationship_by_external(project, "FLOW-CMD").kind, RelationshipKind::ItemFlow);
+    assert_eq!(
+        relationship_by_external(project, "FLOW-CMD").kind,
+        RelationshipKind::ItemFlow
+    );
     assert_eq!(
         relationship_by_external(project, "FLOW-TEL")
             .item_flow
@@ -276,7 +266,10 @@ FLOW-TEL,CONN-TEL,\"PART-CTRL\r\nPORT-CTRL-TEL\",\"PART-SENSOR\r\nPORT-SENSOR-TE
     {
         let guard = state.project.lock().unwrap();
         let project = guard.as_ref().unwrap();
-        assert_eq!((project.elements.len(), project.relationships.len()), before);
+        assert_eq!(
+            (project.elements.len(), project.relationships.len()),
+            before
+        );
     }
 
     apply_spreadsheet_import_group(&group, &state).unwrap();
@@ -285,11 +278,19 @@ FLOW-TEL,CONN-TEL,\"PART-CTRL\r\nPORT-CTRL-TEL\",\"PART-SENSOR\r\nPORT-SENSOR-TE
     let command = relationship_by_external(project, "FLOW-CMD");
     assert_eq!(command.kind, RelationshipKind::ItemFlow);
     assert_eq!(command.visibility, VisibilityKind::Private);
-    assert_eq!(command.item_flow.as_ref().unwrap().conveyed_item_ids.len(), 1);
+    assert_eq!(
+        command.item_flow.as_ref().unwrap().conveyed_item_ids.len(),
+        1
+    );
     let telemetry = relationship_by_external(project, "FLOW-TEL");
     let payload = telemetry.item_flow.as_ref().unwrap();
     assert_eq!(payload.conveyed_item_ids.len(), 2);
-    let connector = project.relationship(payload.connector_id).unwrap().connector.as_ref().unwrap();
+    let connector = project
+        .relationship(payload.connector_id)
+        .unwrap()
+        .connector
+        .as_ref()
+        .unwrap();
     assert_eq!(payload.source, connector.target);
     assert_eq!(payload.target, connector.source);
     assert!(state.ibd_diagrams.lock().unwrap().is_empty());
@@ -304,7 +305,8 @@ fn pr45_reimport_is_no_change_and_conveyed_items_update_same_identity() {
 FLOW-CMD,CONN-CMD,\"PART-CTRL\nPORT-CTRL-CMD\",\"PART-DISP\nPORT-DISP-CMD\",SIG-COMMAND,command traffic,Initial,Public\n",
     );
     apply_spreadsheet_import_group(&plan_local_group(root, initial), &state).unwrap();
-    let id = relationship_by_external(state.project.lock().unwrap().as_ref().unwrap(), "FLOW-CMD").id;
+    let id =
+        relationship_by_external(state.project.lock().unwrap().as_ref().unwrap(), "FLOW-CMD").id;
 
     let identical = item_flow_map(
         temp_csv(
@@ -314,7 +316,9 @@ FLOW-CMD,CONN-CMD,\"PART-CTRL\nPORT-CTRL-CMD\",\"PART-DISP\nPORT-DISP-CMD\",SIG-
         root,
     );
     let preview = preview_spreadsheet_import_group(
-        &SpreadsheetImportMapGroup { mappings: vec![identical] },
+        &SpreadsheetImportMapGroup {
+            mappings: vec![identical],
+        },
         &state,
     );
     assert!(preview.is_valid(), "{:?}", preview.diagnostics);
@@ -327,7 +331,9 @@ FLOW-CMD,CONN-CMD,\"PART-CTRL\nPORT-CTRL-CMD\",\"PART-DISP\nPORT-DISP-CMD\",\"SI
         ),
         root,
     );
-    let update_group = SpreadsheetImportMapGroup { mappings: vec![updated] };
+    let update_group = SpreadsheetImportMapGroup {
+        mappings: vec![updated],
+    };
     let preview = preview_spreadsheet_import_group(&update_group, &state);
     assert!(preview.is_valid(), "{:?}", preview.diagnostics);
     assert_eq!(preview.totals.update, 1);
@@ -337,7 +343,15 @@ FLOW-CMD,CONN-CMD,\"PART-CTRL\nPORT-CTRL-CMD\",\"PART-DISP\nPORT-DISP-CMD\",\"SI
     assert_eq!(relationship.id, id);
     assert_eq!(relationship.documentation, "Updated");
     assert_eq!(relationship.visibility, VisibilityKind::Private);
-    assert_eq!(relationship.item_flow.as_ref().unwrap().conveyed_item_ids.len(), 2);
+    assert_eq!(
+        relationship
+            .item_flow
+            .as_ref()
+            .unwrap()
+            .conveyed_item_ids
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -351,11 +365,21 @@ FLOW-BAD,CONN-CMD,\"PART-SENSOR\nPORT-SENSOR-TEL\",\"PART-CTRL\nPORT-CTRL-TEL\",
     let group = plan_local_group(root, flows);
     let preview = preview_spreadsheet_import_group(&group, &state);
     assert!(!preview.is_valid());
-    assert!(preview.diagnostics.iter().any(|item| item.code == "SEMANTIC_VALIDATION"));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|item| item.code == "SEMANTIC_VALIDATION")
+    );
     assert!(apply_spreadsheet_import_group(&group, &state).is_err());
     let guard = state.project.lock().unwrap();
     let project = guard.as_ref().unwrap();
-    assert!(project.elements.values().all(|element| !element.external_id.starts_with(NS)));
+    assert!(
+        project
+            .elements
+            .values()
+            .all(|element| !element.external_id.starts_with(NS))
+    );
     assert!(project.relationships.is_empty());
 
     drop(guard);
@@ -367,10 +391,17 @@ FLOW-X,MISSING,A,B,SIG-COMMAND,x,x,Public\n",
         root,
     );
     let preview = preview_spreadsheet_import_group(
-        &SpreadsheetImportMapGroup { mappings: vec![unresolved] },
+        &SpreadsheetImportMapGroup {
+            mappings: vec![unresolved],
+        },
         &state,
     );
-    assert!(preview.diagnostics.iter().any(|item| item.code == "CONNECTOR_UNRESOLVED"));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|item| item.code == "CONNECTOR_UNRESOLVED")
+    );
 }
 
 #[test]
@@ -390,9 +421,15 @@ FLOW-CMD,CONN-CMD,\"PART-CTRL\nPORT-CTRL-CMD\",\"PART-DISP\nPORT-DISP-CMD\",SIG-
             "Flow ID,Connection ID,From Endpoint,To Endpoint,Payload,Name,Description,Visibility\nFLOW-{code},CONN-CMD,\"PART-CTRL\nPORT-CTRL-CMD\",\"PART-DISP\nPORT-DISP-CMD\",\"{payload}\",x,x,Public\n"
         ));
         let preview = preview_spreadsheet_import_group(
-            &SpreadsheetImportMapGroup { mappings: vec![item_flow_map(source, root)] },
+            &SpreadsheetImportMapGroup {
+                mappings: vec![item_flow_map(source, root)],
+            },
             &state,
         );
-        assert!(preview.diagnostics.iter().any(|item| item.code == code), "{:?}", preview.diagnostics);
+        assert!(
+            preview.diagnostics.iter().any(|item| item.code == code),
+            "{:?}",
+            preview.diagnostics
+        );
     }
 }

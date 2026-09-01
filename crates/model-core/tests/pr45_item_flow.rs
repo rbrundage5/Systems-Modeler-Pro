@@ -89,7 +89,11 @@ fn pr45_native_item_flow_accepts_both_connector_orientations() {
 fn pr45_native_item_flow_rejects_unrelated_ends_and_duplicate_items() {
     let (mut project, connector, source, target, signal) = fixture();
     let context = project.relationship(connector).unwrap().owner_id.unwrap();
-    let interface = project.element(source.port_id.unwrap()).unwrap().type_id.unwrap();
+    let interface = project
+        .element(source.port_id.unwrap())
+        .unwrap()
+        .type_id
+        .unwrap();
     let unrelated = ConnectorEnd::boundary(
         project
             .create_typed_feature(

@@ -225,9 +225,7 @@ fn operation_description(operation: &ModelBuildOperation) -> String {
         ModelBuildOperation::CreateItemFlow { external_id, .. } => {
             format!("CREATE item flow {external_id}")
         }
-        ModelBuildOperation::UpdateItemFlowFields { .. } => {
-            "UPDATE mapped item flow fields".into()
-        }
+        ModelBuildOperation::UpdateItemFlowFields { .. } => "UPDATE mapped item flow fields".into(),
         ModelBuildOperation::UpdateRelationshipFields { .. } => {
             "UPDATE mapped relationship fields".into()
         }

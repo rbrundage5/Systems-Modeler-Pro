@@ -60,8 +60,11 @@ fn pr45_portable_json_round_trip_preserves_item_flow_semantics() {
             target: target.clone(),
         })
         .unwrap();
-    project.relationships.get_mut(&connector).unwrap().external_id =
-        "catia:pr45::CONN-TRAFFIC".into();
+    project
+        .relationships
+        .get_mut(&connector)
+        .unwrap()
+        .external_id = "catia:pr45::CONN-TRAFFIC".into();
     let flow = project
         .create_item_flow(ItemFlow {
             connector_id: connector,

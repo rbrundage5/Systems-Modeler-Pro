@@ -2715,8 +2715,8 @@ fn resolve_conveyed_items(
     project: &Project,
     planned: &[PlannedElement],
 ) -> Result<Vec<ElementReference>, SpreadsheetImportDiagnostic> {
-    let value = non_empty_value(values, SpreadsheetSemanticProperty::ConveyedItems).ok_or_else(
-        || {
+    let value =
+        non_empty_value(values, SpreadsheetSemanticProperty::ConveyedItems).ok_or_else(|| {
             diagnostic(
                 Some(map),
                 Some(row),
@@ -2726,8 +2726,7 @@ fn resolve_conveyed_items(
                 "CONVEYED_ITEMS_REQUIRED",
                 "ItemFlow requires at least one conveyed semantic classifier",
             )
-        },
-    )?;
+        })?;
     let references = value
         .split('\n')
         .map(|item| item.trim_end_matches('\r').trim())
@@ -2867,7 +2866,11 @@ fn plan_item_flow_row(
                 cause.to_string(),
             )
         })?;
-        let context_id = connector_relationship.connector.as_ref().unwrap().context_id;
+        let context_id = connector_relationship
+            .connector
+            .as_ref()
+            .unwrap()
+            .context_id;
         let source_end = resolved_existing_connector_end(
             map,
             row,
@@ -2917,7 +2920,10 @@ fn plan_item_flow_row(
                     None,
                     Some(effective_external_id),
                     "AMBIGUOUS_RELATIONSHIP",
-                    format!("full ItemFlow topology matches {} relationships", matches.len()),
+                    format!(
+                        "full ItemFlow topology matches {} relationships",
+                        matches.len()
+                    ),
                 ));
             }
         }
