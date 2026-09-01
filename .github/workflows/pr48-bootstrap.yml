@@ -20,12 +20,15 @@ jobs:
         run: |
           python scripts/pr48_identity_patch.py
           python scripts/pr48_build_patch.py
+          python scripts/pr48_completion_patch.py
       - name: Format
-        run: cargo fmt --all
+        run: cargo fmt --all --check
       - name: PR48 identity tests
         run: cargo test -p systems-modeler-core --test pr48_specialized_external_identity -- --nocapture
       - name: Core check
         run: cargo check -p systems-modeler-core
+      - name: Core clippy
+        run: cargo clippy -p systems-modeler-core --all-targets -- -D warnings
   desktop:
     runs-on: windows-latest
     steps:
@@ -40,9 +43,15 @@ jobs:
         run: |
           python scripts/pr48_identity_patch.py
           python scripts/pr48_build_patch.py
+          python scripts/pr48_spreadsheet_patch.py
+          python scripts/pr48_completion_patch.py
       - name: Format
         run: cargo fmt --all
       - name: Desktop check
         run: cargo check -p systems-modeler-desktop
       - name: PR48 unified candidate tests
         run: cargo test -p systems-modeler-desktop bulk_model::pr48_tests -- --nocapture
+      - name: PR48 spreadsheet behavior tests
+        run: cargo test -p systems-modeler-desktop spreadsheet_import::pr48_tests -- --nocapture
+      - name: Desktop clippy
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
