@@ -33,21 +33,22 @@ jobs:
         run: cargo fmt --all --check
       - name: Core check
         run: cargo check --workspace --exclude systems-modeler-desktop
-      - name: Desktop check with diagnostic capture
+      - name: Desktop check with concise diagnostic capture
         shell: bash
         run: |
           set +e
-          cargo check -p systems-modeler-desktop > pr49-desktop-check.log 2>&1
+          cargo check -p systems-modeler-desktop > /tmp/pr49-desktop-check.log 2>&1
           status=$?
-          cat pr49-desktop-check.log
+          tail -n 260 /tmp/pr49-desktop-check.log > pr49-desktop-errors.log
+          cat pr49-desktop-errors.log
           if [ "$status" -ne 0 ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add pr49-desktop-check.log
-            git commit -m "PR49: capture desktop compiler diagnostic" || true
+            git add pr49-desktop-errors.log
+            git commit -m "PR49: capture concise desktop compiler diagnostic" || true
             git push origin HEAD:agent/pr49-sequence-parametric-import
             exit "$status"
           fi
-          rm -f pr49-desktop-check.log
+          rm -f pr49-desktop-errors.log
 
 # Temporary PR49 compiler qualification workflow; remove before publication.
