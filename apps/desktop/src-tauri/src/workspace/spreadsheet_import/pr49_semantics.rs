@@ -214,6 +214,14 @@ fn interaction_reference(
     planned: &BehaviorPlanningIndex,
     value: &str,
 ) -> Result<InteractionReference, SpreadsheetImportDiagnostic> {
+    let key = external_key(&map.source_namespace, value);
+    if let Some(record) = behavior
+        .interactions
+        .values()
+        .find(|record| record.external_id == key)
+    {
+        return Ok(BuildReference::Existing(record.id));
+    }
     if let Some(record) = planned.by_external(value) {
         if record.kind == BehaviorRowKind::Interaction {
             return Ok(BuildReference::External(value.into()));
@@ -226,11 +234,10 @@ fn interaction_reference(
             record.kind,
         ));
     }
-    let key = external_key(&map.source_namespace, value);
     let matches = behavior
         .interactions
         .values()
-        .filter(|record| record.external_id == key || record.name == value)
+        .filter(|record| record.name == value)
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [record] => Ok(BuildReference::Existing(record.id)),
@@ -309,12 +316,6 @@ fn semantic_reference<T: Copy>(
     by_name: impl Fn(&BehaviorRepository, &str) -> Vec<T>,
     label: &str,
 ) -> Result<BuildReference<T>, SpreadsheetImportDiagnostic> {
-    if let Some(record) = planned.by_external(value) {
-        if record.kind == expected_kind {
-            return Ok(BuildReference::External(value.into()));
-        }
-        return Err(wrong_kind(map, row, value, expected_kind, record.kind));
-    }
     let key = external_key(&map.source_namespace, value);
     if let Some(identity) = behavior.external_ids.get(&key).copied() {
         if let Some(id) = extract(identity) {
@@ -332,6 +333,12 @@ fn semantic_reference<T: Copy>(
                 semantic_identity_kind(identity)
             ),
         ));
+    }
+    if let Some(record) = planned.by_external(value) {
+        if record.kind == expected_kind {
+            return Ok(BuildReference::External(value.into()));
+        }
+        return Err(wrong_kind(map, row, value, expected_kind, record.kind));
     }
     let matches = by_name(behavior, value);
     match matches.as_slice() {
