@@ -65,9 +65,8 @@ new_parse = """    value
             )
         })
 """
-if old_parse not in text:
-    raise SystemExit("expected PR49 optional-f64 parser not found")
-text = text.replace(old_parse, new_parse, 1)
+if old_parse in text:
+    text = text.replace(old_parse, new_parse, 1)
 spreadsheet_path.write_text(text)
 
 behavior_path = Path("apps/desktop/src-tauri/src/workspace/bulk_model/pr48_behavior.rs")
@@ -81,6 +80,16 @@ new_match_tail = """                has(&machine.regions, id)
             _ => false,
         };
 """
-if old_match_tail not in behavior:
-    raise SystemExit("expected PR48 behavior-identity match tail not found")
-behavior_path.write_text(behavior.replace(old_match_tail, new_match_tail, 1))
+if old_match_tail in behavior:
+    behavior = behavior.replace(old_match_tail, new_match_tail, 1)
+behavior_path.write_text(behavior)
+
+bulk_path = Path("apps/desktop/src-tauri/src/workspace/bulk_model.rs")
+bulk = bulk_path.read_text()
+needle = "#[cfg(test)]\nmod pr48_tests;\n"
+addition = "#[cfg(test)]\nmod pr48_tests;\n#[cfg(test)]\nmod pr49_tests;\n"
+if "mod pr49_tests;" not in bulk:
+    if needle not in bulk:
+        raise SystemExit("PR48 bulk-model test declaration not found")
+    bulk = bulk.replace(needle, addition, 1)
+bulk_path.write_text(bulk)
