@@ -3,6 +3,7 @@ import base64
 import zlib
 payload = ''.join(Path(f'scripts/pr46_patch.part{i}').read_text() for i in range(8))
 exec(zlib.decompress(base64.b64decode(payload)).decode())
+
 p = Path('apps/desktop/src-tauri/src/workspace/bulk_model.rs')
 text = p.read_text()
 bad = '''                        if project\n                            .element(id)\n                            .map_err(|cause| {\n                                error("SEMANTIC_VALIDATION", Some(index), cause.to_string())\n                            })?\n                            .kind\n                            .clone();\n                        if !matches!(kind, ElementKind::ValueProperty | ElementKind::Parameter) {\n'''
@@ -21,10 +22,16 @@ test_path.write_text(test_text.replace(bad_test, good_test, 1))
 
 spreadsheet_test_path = Path('apps/desktop/src-tauri/src/workspace/spreadsheet_import/pr46_tests.rs')
 spreadsheet_test_text = spreadsheet_test_path.read_text()
-old_owner_column = '("Component", SpreadsheetSemanticProperty::Owner),'
-new_owner_column = '("Owning Type", SpreadsheetSemanticProperty::Owner),'
-if old_owner_column not in spreadsheet_test_text:
-    raise SystemExit('missing PR46 Services owner-column anchor')
-spreadsheet_test_path.write_text(
-    spreadsheet_test_text.replace(old_owner_column, new_owner_column, 1)
-)
+
+signals_anchor = '''    let signals = basic_map(\n        "Signals",\n        fixture.clone(),\n        Some("Signals"),\n        ElementKind::Signal,\n        root,\n        "Signal ID",\n        "Signal Name",\n    );\n    SpreadsheetImportMapGroup {\n        mappings: vec![\n            components,\n            enumerations,\n            value_types,\n            primitives,\n            signals,\n            operation_map(fixture.clone(), Some("Services"), root),\n'''
+signals_replacement = '''    let signals = basic_map(\n        "Signals",\n        fixture.clone(),\n        Some("Signals"),\n        ElementKind::Signal,\n        root,\n        "Signal ID",\n        "Signal Name",\n    );\n    let mut operations = operation_map(fixture.clone(), Some("Services"), root);\n    operations\n        .column_mappings\n        .iter_mut()\n        .find(|mapping| mapping.property == SpreadsheetSemanticProperty::Owner)\n        .expect("Operation mapping includes owner")\n        .source_column = "Owning Type".into();\n    SpreadsheetImportMapGroup {\n        mappings: vec![\n            components,\n            enumerations,\n            value_types,\n            primitives,\n            signals,\n            operations,\n'''
+if signals_anchor not in spreadsheet_test_text:
+    raise SystemExit('missing PR46 XLSX mapping anchor')
+spreadsheet_test_text = spreadsheet_test_text.replace(signals_anchor, signals_replacement, 1)
+
+by_external_anchor = '''        .find(|element| element.external_id == key)\n        .unwrap()\n'''
+by_external_replacement = '''        .find(|element| element.external_id == key)\n        .unwrap_or_else(|| panic!("missing imported element with external ID {key}"))\n'''
+if by_external_anchor not in spreadsheet_test_text:
+    raise SystemExit('missing PR46 by_external assertion anchor')
+spreadsheet_test_text = spreadsheet_test_text.replace(by_external_anchor, by_external_replacement, 1)
+spreadsheet_test_path.write_text(spreadsheet_test_text)
