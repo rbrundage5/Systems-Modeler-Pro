@@ -213,4 +213,21 @@ if old_lock in test_text:
 if "    drop(project);\n\n    let second" in test_text:
     test_text = test_text.replace("    drop(project);\n\n    let second", "    }\n\n    let second", 1)
 
+old_idempotency_assert = """    assert!(
+        second
+            .rows
+            .iter()
+            .all(|row| row.action == SpreadsheetRowAction::NoChange)
+    );
+"""
+new_idempotency_assert = """    let unexpected = second
+        .rows
+        .iter()
+        .filter(|row| row.action != SpreadsheetRowAction::NoChange)
+        .collect::<Vec<_>>();
+    assert!(unexpected.is_empty(), "unexpected reimport rows: {unexpected:#?}");
+"""
+if old_idempotency_assert in test_text:
+    test_text = test_text.replace(old_idempotency_assert, new_idempotency_assert, 1)
+
 spreadsheet_test_path.write_text(test_text)
