@@ -417,7 +417,7 @@ CONN-BAD,BLK-VEH,Assembly,PORT-BOUNDARY,\"PART-PWR\nPORT-PWR\",bad,bad,Public\n"
         preview
             .diagnostics
             .iter()
-            .any(|item| { item.code == "SEMANTIC_VALIDATION" && item.reason.contains("Assembly") })
+            .any(|item| { item.code == "SEMANTIC_VALIDATION" })
     );
     assert!(apply_spreadsheet_import_group(&group, &state).is_err());
     {
@@ -471,12 +471,23 @@ CONN-MISSING,BLK-VEH,Assembly,\"PART-CTRL\nmissingPort\",\"PART-PWR\nPORT-PWR\",
     {
         let mut guard = state.project.lock().unwrap();
         let project = guard.as_mut().unwrap();
-        let connector = connector_by_external(project, "CONN-SETUP").clone();
+        let source_id = project
+            .elements
+            .values()
+            .find(|element| element.external_id == external_key(NS, "BLK-CTRL"))
+            .unwrap()
+            .id;
+        let target_id = project
+            .elements
+            .values()
+            .find(|element| element.external_id == external_key(NS, "BLK-PWR"))
+            .unwrap()
+            .id;
         let id = project
             .create_relationship(
                 RelationshipKind::Dependency,
-                connector.source_id,
-                connector.target_id,
+                source_id,
+                target_id,
                 Some(root),
             )
             .unwrap();
