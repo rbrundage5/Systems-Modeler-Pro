@@ -74,11 +74,7 @@ fn element_map(
     map(name, source, kind, None, target, &columns)
 }
 
-fn connector_map(
-    name: &str,
-    source: String,
-    target: ElementId,
-) -> SpreadsheetImportMap {
+fn connector_map(name: &str, source: String, target: ElementId) -> SpreadsheetImportMap {
     map(
         name,
         source,
@@ -86,9 +82,18 @@ fn connector_map(
         Some(RelationshipKind::Connector),
         target,
         &[
-            ("Connection Identifier", SpreadsheetSemanticProperty::ExternalId),
-            ("Owning Block", SpreadsheetSemanticProperty::ConnectorContext),
-            ("Connection Type", SpreadsheetSemanticProperty::ConnectorKind),
+            (
+                "Connection Identifier",
+                SpreadsheetSemanticProperty::ExternalId,
+            ),
+            (
+                "Owning Block",
+                SpreadsheetSemanticProperty::ConnectorContext,
+            ),
+            (
+                "Connection Type",
+                SpreadsheetSemanticProperty::ConnectorKind,
+            ),
             ("From Endpoint", SpreadsheetSemanticProperty::Source),
             ("To Endpoint", SpreadsheetSemanticProperty::Target),
             ("Name", SpreadsheetSemanticProperty::Name),
@@ -215,9 +220,18 @@ fn pr44_xlsx_arbitrary_business_sheets_and_headers_build_connector_topology() {
         Some(RelationshipKind::Connector),
         root,
         &[
-            ("Connection Identifier", SpreadsheetSemanticProperty::ExternalId),
-            ("Owning Block", SpreadsheetSemanticProperty::ConnectorContext),
-            ("Connection Type", SpreadsheetSemanticProperty::ConnectorKind),
+            (
+                "Connection Identifier",
+                SpreadsheetSemanticProperty::ExternalId,
+            ),
+            (
+                "Owning Block",
+                SpreadsheetSemanticProperty::ConnectorContext,
+            ),
+            (
+                "Connection Type",
+                SpreadsheetSemanticProperty::ConnectorKind,
+            ),
             ("From Endpoint", SpreadsheetSemanticProperty::Source),
             ("To Endpoint", SpreadsheetSemanticProperty::Target),
             ("Description", SpreadsheetSemanticProperty::Documentation),
@@ -276,7 +290,10 @@ CONN-R,BLK-VEH,Assembly,PART-CTRL,PART-PEER,roleLink,Role docs,Public\n",
     {
         let guard = state.project.lock().unwrap();
         let project = guard.as_ref().unwrap();
-        assert_eq!((project.elements.len(), project.relationships.len()), before);
+        assert_eq!(
+            (project.elements.len(), project.relationships.len()),
+            before
+        );
     }
 
     apply_spreadsheet_import_group(&group, &state).unwrap();
@@ -284,21 +301,33 @@ CONN-R,BLK-VEH,Assembly,PART-CTRL,PART-PEER,roleLink,Role docs,Public\n",
     let project = guard.as_ref().unwrap();
     project.validate().unwrap();
 
-    let assembly = connector_by_external(project, "CONN-A").connector.as_ref().unwrap();
+    let assembly = connector_by_external(project, "CONN-A")
+        .connector
+        .as_ref()
+        .unwrap();
     assert_eq!(assembly.kind, ConnectorKind::Assembly);
     assert_eq!(assembly.source.property_path.len(), 1);
     assert!(assembly.source.port_id.is_some());
 
-    let delegation = connector_by_external(project, "CONN-D").connector.as_ref().unwrap();
+    let delegation = connector_by_external(project, "CONN-D")
+        .connector
+        .as_ref()
+        .unwrap();
     assert_eq!(delegation.kind, ConnectorKind::Delegation);
     assert!(delegation.source.property_path.is_empty());
     assert_eq!(delegation.target.property_path.len(), 1);
 
-    let nested = connector_by_external(project, "CONN-N").connector.as_ref().unwrap();
+    let nested = connector_by_external(project, "CONN-N")
+        .connector
+        .as_ref()
+        .unwrap();
     assert_eq!(nested.source.property_path.len(), 2);
     assert!(nested.source.port_id.is_some());
 
-    let role = connector_by_external(project, "CONN-R").connector.as_ref().unwrap();
+    let role = connector_by_external(project, "CONN-R")
+        .connector
+        .as_ref()
+        .unwrap();
     assert!(role.source.port_id.is_none());
     assert!(role.target.port_id.is_none());
     assert!(state.ibd_diagrams.lock().unwrap().is_empty());
@@ -355,7 +384,16 @@ CONN-1,BLK-VEH,Assembly,\"PART-SUB\nPART-NEST\nPORT-CTRL\",\"PART-PWR\nPORT-PWR\
     assert_eq!(relationship.name, "nested");
     assert_eq!(relationship.documentation, "Updated docs");
     assert_eq!(relationship.visibility, VisibilityKind::Private);
-    assert_eq!(relationship.connector.as_ref().unwrap().source.property_path.len(), 2);
+    assert_eq!(
+        relationship
+            .connector
+            .as_ref()
+            .unwrap()
+            .source
+            .property_path
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -375,14 +413,20 @@ CONN-BAD,BLK-VEH,Assembly,PORT-BOUNDARY,\"PART-PWR\nPORT-PWR\",bad,bad,Public\n"
 
     let preview = preview_spreadsheet_import_group(&group, &state);
     assert!(!preview.is_valid());
-    assert!(preview.diagnostics.iter().any(|item| {
-        item.code == "SEMANTIC_VALIDATION" && item.reason.contains("Assembly")
-    }));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|item| { item.code == "SEMANTIC_VALIDATION" && item.reason.contains("Assembly") })
+    );
     assert!(apply_spreadsheet_import_group(&group, &state).is_err());
     {
         let guard = state.project.lock().unwrap();
         let project = guard.as_ref().unwrap();
-        assert_eq!((project.elements.len(), project.relationships.len()), before);
+        assert_eq!(
+            (project.elements.len(), project.relationships.len()),
+            before
+        );
     }
 }
 
@@ -419,7 +463,10 @@ CONN-MISSING,BLK-VEH,Assembly,\"PART-CTRL\nmissingPort\",\"PART-PWR\nPORT-PWR\",
         .find(|item| item.code == "CONNECTOR_PATH_UNRESOLVED")
         .unwrap();
     assert_eq!(diagnostic.row, Some(2));
-    assert_eq!(diagnostic.source_endpoint.as_deref(), Some("PART-CTRL\nmissingPort"));
+    assert_eq!(
+        diagnostic.source_endpoint.as_deref(),
+        Some("PART-CTRL\nmissingPort")
+    );
 
     {
         let mut guard = state.project.lock().unwrap();
@@ -449,7 +496,10 @@ COLLISION,BLK-VEH,Assembly,\"PART-CTRL\nPORT-CTRL\",\"PART-PWR\nPORT-PWR\",colli
         },
         &state,
     );
-    assert!(preview.diagnostics.iter().any(|item| {
-        item.code == "RELATIONSHIP_IDENTITY_KIND_MISMATCH"
-    }));
+    assert!(
+        preview
+            .diagnostics
+            .iter()
+            .any(|item| { item.code == "RELATIONSHIP_IDENTITY_KIND_MISMATCH" })
+    );
 }

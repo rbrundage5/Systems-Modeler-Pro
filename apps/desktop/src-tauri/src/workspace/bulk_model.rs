@@ -372,9 +372,7 @@ fn resolve_connector_segment(
             return Err(error(
                 "CONNECTOR_PATH_AMBIGUOUS",
                 Some(operation),
-                format!(
-                    "connector path segment \"{requested}\" is ambiguous by external identity"
-                ),
+                format!("connector path segment \"{requested}\" is ambiguous by external identity"),
             ));
         }
     }
@@ -423,7 +421,12 @@ pub(super) fn resolve_connector_end(
     spec: &ConnectorEndBuildSpec,
     operation: usize,
 ) -> Result<ConnectorEnd, BuildDiagnostic> {
-    if spec.segments.is_empty() || spec.segments.iter().any(|segment| segment.trim().is_empty()) {
+    if spec.segments.is_empty()
+        || spec
+            .segments
+            .iter()
+            .any(|segment| segment.trim().is_empty())
+    {
         return Err(error(
             "CONNECTOR_PATH_INVALID",
             Some(operation),
@@ -441,9 +444,13 @@ pub(super) fn resolve_connector_end(
             segment.trim(),
             operation,
         )?;
-        let element = project
-            .element(id)
-            .map_err(|cause| error("CONNECTOR_PATH_UNRESOLVED", Some(operation), cause.to_string()))?;
+        let element = project.element(id).map_err(|cause| {
+            error(
+                "CONNECTOR_PATH_UNRESOLVED",
+                Some(operation),
+                cause.to_string(),
+            )
+        })?;
         let terminal = index + 1 == spec.segments.len();
 
         if element.is_port() {
@@ -451,7 +458,10 @@ pub(super) fn resolve_connector_end(
                 return Err(error(
                     "CONNECTOR_PATH_INVALID",
                     Some(operation),
-                    format!("port '{}' must be the terminal connector path segment", element.name),
+                    format!(
+                        "port '{}' must be the terminal connector path segment",
+                        element.name
+                    ),
                 ));
             }
             return Ok(if property_path.is_empty() {
@@ -490,7 +500,11 @@ pub(super) fn resolve_connector_end(
             )
         })?;
         let type_element = project.element(type_id).map_err(|cause| {
-            error("CONNECTOR_PATH_UNRESOLVED", Some(operation), cause.to_string())
+            error(
+                "CONNECTOR_PATH_UNRESOLVED",
+                Some(operation),
+                cause.to_string(),
+            )
         })?;
         if !matches!(
             type_element.kind,
