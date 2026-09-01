@@ -861,3 +861,5 @@ mod pr42_allocation_tests {
 
 #[cfg(test)]
 mod pr43_port_tests;
+#[cfg(test)]
+mod pr44_connector_tests;
