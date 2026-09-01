@@ -1,0 +1,172 @@
+name: pr47-bootstrap
+on:
+  push:
+    branches:
+      - agent/pr47-core-namespace-relationship-import
+permissions:
+  contents: write
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr47-core-namespace-relationship-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply PR47 implementation
+        run: python scripts/pr47_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: PR47 native model-core tests
+        run: cargo test -p systems-modeler-core --test pr47_core_namespace_relationships -- --nocapture
+      - name: PR47 persistence round-trip
+        run: cargo test -p systems-modeler-persistence --test pr47_core_namespace_relationship_persistence -- --nocapture
+      - name: Core and persistence full tests
+        run: cargo test --workspace --exclude systems-modeler-desktop
+      - name: Core and persistence Clippy
+        run: cargo clippy --workspace --exclude systems-modeler-desktop --all-targets -- -D warnings
+      - name: Frontend syntax
+        shell: bash
+        run: |
+          for file in \
+            apps/desktop/frontend/behavior-ui.js \
+            apps/desktop/frontend/behavior-ribbon.js \
+            apps/desktop/frontend/ui-shell.js \
+            apps/desktop/frontend/behavior-completion-ui.js \
+            apps/desktop/frontend/behavior-atomic-message.js \
+            apps/desktop/frontend/behavior-delete-ui.js \
+            apps/desktop/frontend/behavior-message-notation.js \
+            apps/desktop/frontend/behavior-submachine.js \
+            apps/desktop/frontend/behavior-region-placement.js \
+            apps/desktop/frontend/behavior-sequence-input.js \
+            apps/desktop/frontend/behavior-command-authority.js \
+            apps/desktop/frontend/behavior-authoritative-renderer.js \
+            apps/desktop/frontend/behavior-runtime-hardening.js \
+            apps/desktop/frontend/activity-ui.js \
+            apps/desktop/frontend/activity-rich-ui.js \
+            apps/desktop/frontend/activity-navigation-ui.js \
+            apps/desktop/frontend/activity-mutation-ui.js \
+            apps/desktop/frontend/project-open-compat.js \
+            apps/desktop/frontend/diagram-interaction.js \
+            apps/desktop/frontend/repository-tree-ui.js \
+            apps/desktop/frontend/interaction-runtime-fixes.js \
+            apps/desktop/frontend/state-bar-resize.js \
+            apps/desktop/frontend/bdd-compartment-visibility.js \
+            apps/desktop/frontend/use-case-ui.js \
+            apps/desktop/frontend/parametric-ui.js \
+            apps/desktop/frontend/standard-editing-ui.js \
+            apps/desktop/frontend/marquee-selection.js \
+            apps/desktop/frontend/undo-redo-ui.js; do
+            node --check "$file"
+          done
+          node --check apps/desktop/frontend/shared-dialogs.js
+          node --check apps/desktop/frontend/shared-workspace.js
+      - name: Full integration contracts
+        shell: bash
+        run: |
+          python scripts/validate_behavior_integration.py
+          python scripts/validate_activity_integration.py
+          python scripts/validate_state_machine_execution.py
+          python scripts/validate_structural_runtime_integration.py
+          python scripts/validate_operation_signal_sequence_integration.py
+          python scripts/validate_requirements_integration.py
+          python scripts/validate_use_case_integration.py
+          python scripts/validate_parametric_integration.py
+          python scripts/validate_parametric_runtime_integration.py
+          python scripts/validate_package_diagram_integration.py
+          python scripts/validate_package_drilldown_activation.py
+          python scripts/validate_presentation_interaction.py
+          python scripts/validate_history_integration.py
+          python scripts/validate_workspace_convergence.py
+          python scripts/validate_repository_editing.py
+          python scripts/validate_standard_editing_integration.py
+          python scripts/validate_rust_authority.py
+      - name: Diff and Cargo.lock hygiene
+        shell: bash
+        run: |
+          git diff --check
+          git diff --exit-code -- Cargo.lock
+
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr47-core-namespace-relationship-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply PR47 implementation
+        run: python scripts/pr47_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
+      - name: PR47 focused desktop tests
+        run: cargo test -p systems-modeler-desktop pr47_ -- --nocapture
+      - name: Spreadsheet importer regression chain PR36-PR47
+        run: cargo test -p systems-modeler-desktop spreadsheet_import -- --nocapture
+      - name: Portable interchange regression
+        run: cargo test -p systems-modeler-desktop portable_interchange -- --nocapture
+      - name: Full desktop tests
+        run: cargo test -p systems-modeler-desktop
+      - name: Desktop Clippy
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Full integration contracts
+        shell: pwsh
+        run: |
+          python scripts/validate_behavior_integration.py
+          python scripts/validate_activity_integration.py
+          python scripts/validate_state_machine_execution.py
+          python scripts/validate_structural_runtime_integration.py
+          python scripts/validate_operation_signal_sequence_integration.py
+          python scripts/validate_requirements_integration.py
+          python scripts/validate_use_case_integration.py
+          python scripts/validate_parametric_integration.py
+          python scripts/validate_parametric_runtime_integration.py
+          python scripts/validate_package_diagram_integration.py
+          python scripts/validate_package_drilldown_activation.py
+          python scripts/validate_presentation_interaction.py
+          python scripts/validate_history_integration.py
+          python scripts/validate_workspace_convergence.py
+          python scripts/validate_repository_editing.py
+          python scripts/validate_standard_editing_integration.py
+          python scripts/validate_rust_authority.py
+      - name: Diff and Cargo.lock hygiene
+        shell: pwsh
+        run: |
+          git diff --check
+          git diff --exit-code -- Cargo.lock
+
+  finalize:
+    needs: [core, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr47-core-namespace-relationship-import
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply qualified PR47 implementation
+        run: python scripts/pr47_patch.py
+      - name: Format final implementation
+        run: cargo fmt --all
+      - name: Clean qualification artifacts and commit
+        shell: bash
+        run: |
+          git rm -f .github/workflows/pr47-bootstrap.yml scripts/pr47_patch.py
+          git diff --check
+          git add -A
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "PR47: CATIA-style core namespace relationship import"
+          git push origin HEAD:agent/pr47-core-namespace-relationship-import
