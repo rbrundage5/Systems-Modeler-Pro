@@ -1,0 +1,1311 @@
+SYSTEMS-MODELER-PRO
+IMPORT RULES AND QUALIFICATION CONTRACT
+
+Applies to: main at c0bcd0af825476f613374bd51d05302f8a1d6487
+Baseline date: 2026-09-02
+Document status: AUTHORITATIVE DEVELOPER-FACING IMPORT CONTRACT FOR THIS BASELINE
+
+===============================================================================
+1. PURPOSE AND SCOPE
+===============================================================================
+
+This document defines the import and interchange contract implemented by the
+current Rust application. It is intended to answer, without requiring PR
+history:
+
+- which import/interchange mechanisms exist now;
+- which semantic records each mechanism can create or update;
+- the identity, ownership, reference, validation, preview, transaction,
+  persistence, and presentation rules an importer must obey;
+- which capabilities have repeatable qualification evidence;
+- which capabilities are implemented but only partially qualified;
+- which capabilities are partial, planned, not implemented, or out of scope;
+- how future adapters such as Groovy/model scripting, XMI, ReqIF, and SysML v2
+  interchange must join the existing Rust construction architecture.
+
+This is not a compatibility certification. Terms such as "CATIA-style" or
+"Cameo-style" describe configurable mapping approaches only. They do not mean
+release-specific CATIA, Cameo, or 3DEXPERIENCE compatibility unless a separate
+release-specific qualification exists.
+
+This document describes current main. Planned work is labeled explicitly and
+must not be read as an implementation claim.
+
+===============================================================================
+2. STATUS TERMINOLOGY
+===============================================================================
+
+QUALIFIED
+  Implemented, backed by repeatable automated evidence for the claimed
+  boundary, with persistence/reimport and relevant regression coverage where
+  those concerns apply.
+
+IMPLEMENTED / PARTIALLY QUALIFIED
+  A real code path exists, but automated evidence is not complete for every
+  row, field, variant, or matrix cell that could be implied by the broader
+  capability name.
+
+PARTIAL
+  Material parts of the concept exist, but important semantics or lifecycle
+  behavior remain unavailable or deliberately bounded.
+
+PLANNED
+  Intended future work. No current implementation is implied.
+
+NOT IMPLEMENTED
+  No current Rust implementation for the claimed adapter/capability boundary.
+
+OUT OF SCOPE
+  Deliberately excluded from the stated contract.
+
+NOT SUPPORTED
+  The product does not currently read or operate on that source format or
+  native file type.
+
+A capability is not QUALIFIED merely because an enum variant or parser branch
+exists.
+
+===============================================================================
+3. CURRENT FORMAT / MECHANISM SUMMARY
+===============================================================================
+
+Mechanism / format                         Current status
+-----------------------------------------  ------------------------------------
+Native .smproj                             QUALIFIED native project persistence
+Portable JSON v1                           QUALIFIED interchange
+CSV mapped semantic import                 QUALIFIED through current semantic scope
+XLSX mapped semantic import                QUALIFIED through current semantic scope
+Legacy XLS (.xls)                          NOT IMPLEMENTED / PLANNED
+Groovy / model-script import               PLANNED / NOT YET IMPLEMENTED
+ReqIF                                      PLANNED / NOT YET IMPLEMENTED
+XMI                                        PLANNED / NOT YET IMPLEMENTED
+SysML v2 interchange                       PLANNED / NOT IMPLEMENTED
+CATIA native/3DEXPERIENCE project files    NOT SUPPORTED
+CATIA release-specific compatibility       NOT QUALIFIED
+Cameo release-specific compatibility       NOT QUALIFIED
+
+"Portable JSON" and ".smproj" are different contracts:
+
+  .smproj       = native working-project persistence
+  portable JSON = versioned interchange for authored project state
+
+They must not be described as interchangeable synonyms.
+
+===============================================================================
+4. CORE CONSTRUCTION ARCHITECTURE
+===============================================================================
+
+All bulk/import adapters must converge on the shared Rust construction path.
+Conceptually:
+
+  external source
+       |
+       v
+  parser / adapter
+       |
+       v
+  normalized mapped records
+       |
+       v
+  ModelBuildPlan
+       |
+       v
+  resolve references against existing + plan-local authored state
+       |
+       v
+  construct and validate the complete candidate
+       |
+       v
+  preview / diagnostics
+       |
+       v
+  one atomic apply
+
+ModelBuildPlan is the shared construction authority. Its current operation set
+covers ordinary semantic elements and relationships, Connectors and ItemFlows,
+Activity and State Machine authored records, Sequence authored records,
+Parametric authored updates/Bindings, diagram/presentation operations used by
+native/portable paths, and portable-state restoration.
+
+ActivityRepository and BehaviorRepository are established native semantic
+stores, not importer-specific repositories. When specialized authored records
+participate, the complete candidate path validates Project plus the relevant
+native repositories together before committing them.
+
+The following importer architectures are forbidden:
+
+- direct spreadsheet -> Project mutation;
+- direct importer -> SQLite mutation;
+- row-by-row semantic commits;
+- map-by-map early commits solely so later rows can resolve references;
+- importer-specific semantic repositories that bypass the native stores;
+- importer-specific semantic validation that disagrees with model-core or the
+  established Activity/Behavior validation rules;
+- a second execution/evaluation path invented only for imported content.
+
+Ordered spreadsheet MapGroups may make records from earlier maps available to
+later maps through plan-local identity. That is not an early commit.
+
+===============================================================================
+5. GLOBAL IDENTITY CONTRACT
+===============================================================================
+
+The following identities are distinct:
+
+Internal stable ID
+  Authoritative repository identity. Common Project records use stable typed
+  IDs such as ElementId and RelationshipId. Activity/Behavior nested records
+  use their own stable native IDs.
+
+External ID
+  Import/interchange-facing authored identity. Spreadsheet semantics persist
+  it with a source namespace.
+
+Source namespace
+  Separates identity domains. The canonical mapped key is conceptually:
+
+    source namespace + External ID
+
+  and is the strongest spreadsheet reimport identity.
+
+Requirement ID
+  Controlled human-facing Requirement identifier. It is deliberately separate
+  from the internal stable ID and External ID.
+
+Qualified name
+  Deterministic semantic path used for exact resolution where supported. It is
+  not a substitute for stable External ID when durable reimport identity is
+  available.
+
+Display name
+  Human-facing name. It is not permanent identity. Some current spreadsheet
+  resolution paths permit exact-name fallback only when the match is unique;
+  durable integrations should use External ID or exact qualified names.
+
+Plan-local reference
+  A reference to a record created earlier in the same uncommitted build plan or
+  ordered MapGroup.
+
+The following are never semantic identity:
+
+- spreadsheet row number;
+- worksheet position;
+- diagram pixel position;
+- presentation ID standing in for the semantic object;
+- fuzzy name similarity.
+
+Duplicate and ambiguity rules:
+
+- duplicate namespaced External ID in the same identity domain -> BLOCKED;
+- same stable identity with incompatible semantic kind -> BLOCKED;
+- ambiguous fallback resolution -> BLOCKED;
+- unresolved required reference -> BLOCKED;
+- unique exact fallback -> may resolve where that adapter explicitly supports
+  the fallback;
+- no importer may guess among multiple matches.
+
+For relationships, current spreadsheet mappings support External ID identity
+and controlled semantic fallback policies such as kind/source/target and
+association-end-aware identity. External ID remains the preferred durable
+reimport identity.
+
+===============================================================================
+6. OWNERSHIP, CONTEXT, AND PRESENTATION
+===============================================================================
+
+These are separate concepts:
+
+semantic ownership
+  The native containment/ownership relation for a semantic object.
+
+diagram ownership
+  The semantic owner of a diagram definition.
+
+diagram semantic context
+  The Block/classifier/namespace or other semantic context represented by the
+  diagram, where the family has one.
+
+presentation placement
+  A graphical appearance of an existing semantic element/relationship on a
+  particular diagram.
+
+Global rule:
+
+  presenting an element on a diagram must never silently reparent it
+
+A semantic element may appear on zero, one, or many compatible diagrams. A
+semantic relationship may likewise have zero, one, or many graphical edges.
+Deleting a presentation does not implicitly delete the semantic object.
+
+Imports must not create loose root-level semantic objects as a fallback for
+unresolved legal ownership. If ownership is required and cannot be resolved,
+the row/import is BLOCKED unless a specific native semantic rule defines a
+single deterministic legal owner.
+
+Examples of current owner/context constraints include:
+
+- Parameters are owned by Operations;
+- typed properties and Ports require legal classifier/constraint ownership;
+- Connectors require a structured classifier context;
+- behavior records require the native Activity/State Machine/Interaction
+  context expected by their repository;
+- package/namespace relationships obey native namespace ownership rules.
+
+===============================================================================
+7. SEMANTIC OBJECTS ARE NOT PRESENTATIONS
+===============================================================================
+
+The following equivalences are invalid:
+
+  semantic element       != diagram node
+  semantic relationship  != diagram edge
+
+Spreadsheet semantic import through the current PR49 baseline does not create
+or populate diagrams. The generic ModelBuildPlan has diagram/presentation
+operations and portable JSON restores authored presentation state, but the
+spreadsheet mapping path deliberately stops at semantics.
+
+All-nine-family spreadsheet-driven diagram construction remains PLANNED / NOT
+YET IMPLEMENTED on this baseline. Do not report semantic import as diagram
+import.
+
+===============================================================================
+8. REFERENCE RESOLUTION CONTRACT
+===============================================================================
+
+Current adapters use the following reference forms where applicable:
+
+- source namespace + External ID;
+- plan-local External ID/reference;
+- exact qualified name;
+- configured spreadsheet identification property;
+- Requirement ID for Requirement-oriented resolution;
+- exact name fallback in specific current mappings only when unique.
+
+There is no fuzzy matching.
+
+Required resolution result:
+
+  unique legal match     -> resolve
+  no match               -> BLOCKED
+  multiple matches       -> BLOCKED
+  wrong semantic kind    -> BLOCKED
+
+Missing endpoints, types, owners, Signals, Connectors, Lifelines, Regions,
+Parameters, or other references must not be invented merely to make an import
+succeed. A missing object may resolve plan-locally only if the mapping actually
+creates that object earlier in the same complete plan.
+
+===============================================================================
+9. NATIVE VALIDATION CONTRACT
+===============================================================================
+
+Imported authored content must pass the same native Rust semantic validation as
+manually authored content. Importers must not weaken validation to accept a
+source file.
+
+Current validation coverage applies, at the represented boundary, to:
+
+- legal ownership and namespace rules;
+- element/classifier kind constraints;
+- type compatibility;
+- multiplicity where represented;
+- property and Port ownership/type/conjugation rules;
+- relationship endpoint kind, direction, ownership, and duplicate rules;
+- Association end semantics;
+- Connector context/topology and ConnectorEnd paths;
+- ItemFlow Connector-relative topology and conveyed classifier references;
+- Requirement traceability relationship semantics;
+- Use Case Include/Extend and namespace relationship semantics;
+- Operation/Parameter/Reception/Signal compatibility;
+- Activity authored semantics;
+- State Machine Region/Vertex/Transition/trigger semantics;
+- Sequence Interaction/Lifeline/Occurrence/Message/fragment semantics;
+- Parametric Binding endpoints and engineering metadata represented by the
+  native model;
+- QuantityKind/Unit references and finite conversion metadata where PR49 maps
+  those fields.
+
+Validation claims apply only where the underlying native model represents the
+semantic concept. An importer must not invent missing semantics.
+
+===============================================================================
+10. PREVIEW CONTRACT
+===============================================================================
+
+Spreadsheet preview uses the following classifications:
+
+  CREATE
+  UPDATE
+  NO_CHANGE
+  WARNING
+  BLOCKED
+
+Preview performs the work needed to determine whether the candidate can be
+accepted, including source parsing, column mapping/normalization, identity and
+reference resolution, build-plan construction, candidate validation, and
+structured diagnostics.
+
+Preview requirement:
+
+  ZERO persistent mutation
+
+A preview is not permitted to mutate Project, ActivityRepository,
+BehaviorRepository, native persistence, or authored diagram state merely to
+resolve later rows.
+
+===============================================================================
+11. TRANSACTION AND ROLLBACK CONTRACT
+===============================================================================
+
+Absolute rule:
+
+  valid complete import     -> one logical commit
+  blocking failure anywhere -> zero commit
+
+For spreadsheet imports:
+
+  entire ordered MapGroup = one logical transaction
+
+A late blocking error must leave no earlier planned semantic hierarchy,
+relationship, Connector, ItemFlow, behavior record, Sequence record, Parametric
+Binding, or other authored record committed from that MapGroup.
+
+Current spreadsheet diagram construction is not implemented. When presentation
+construction is added later, presentations must join the same candidate/rollback
+contract rather than commit separately before semantic validation succeeds.
+
+No partial placeholder hierarchy is an acceptable rollback strategy.
+
+===============================================================================
+12. REIMPORT AND RECONCILIATION RULES
+===============================================================================
+
+Required current behavior:
+
+  same stable identity + identical authored data
+      -> NO_CHANGE
+
+  same stable identity + valid changed authored data
+      -> UPDATE
+
+  same stable identity + incompatible semantic kind
+      -> BLOCKED
+
+  duplicate External ID in same source identity domain
+      -> BLOCKED
+
+  ambiguous fallback identity
+      -> BLOCKED
+
+A display-name change must not create a duplicate semantic object when the
+source namespace + External ID remains stable.
+
+Deletion/reconciliation policy:
+
+  STATUS: NOT IMPLEMENTED / PLANNED
+
+Current spreadsheet import is create/update/no-change oriented. Absence of a row
+from a later workbook does not authorize deletion unless a future explicit
+reconciliation contract says so.
+
+===============================================================================
+13. SPREADSHEET MAPPING CONTRACT
+===============================================================================
+
+The spreadsheet importer follows a configurable CATIA/Cameo-style mapping
+philosophy:
+
+  physical workbook structure != semantic model structure
+
+Current mapping structures support:
+
+- CSV and XLSX source files;
+- arbitrary business-facing column names mapped to controlled semantic
+  properties;
+- arbitrary worksheet names for XLSX;
+- configurable one-based header row;
+- stable target scope by ElementId;
+- TargetOnly versus TargetRecursive search scope;
+- ExternalId, Name, or RequirementId identification modes;
+- source namespace and mapping version;
+- ordered MapGroups;
+- explicit semantic ElementKind for ordinary maps;
+- controlled RelationshipKind mapping for relationship maps;
+- controlled BehaviorKind rows for Activity/State Machine/Sequence/Parametric
+  specialized authored records;
+- owner, type, relationship endpoint, Connector, ItemFlow, behavior, Sequence,
+  and Parametric semantic properties according to their qualified scopes.
+
+The mapping profile is allowed to translate business headers to semantic fields.
+Rust field names are not required to appear in the workbook.
+
+Current format parser dispatch is explicit:
+
+  .csv  -> supported
+  .xlsx -> supported
+  .xls  -> not implemented
+
+===============================================================================
+14. DIRECT ELEMENT SPREADSHEET QUALIFICATION MATRIX
+===============================================================================
+
+Legend:
+  Y  = implemented for that mechanism/cell
+  N  = not implemented for that mechanism/cell
+  PL = plan-local reference participates where meaningful
+  GEN = carried by the generic native/portable representation
+  Q  = dedicated or family-focused automated qualification exists
+  IPQ = implemented; per-kind qualification evidence is not equally deep for
+        every field/variant
+
+The CSV and XLSX paths share the same semantic mapping/planning code after table
+loading, so their semantic cells normally have the same status.
+
+Semantic kind        XLSX   CSV   NO_CHANGE  UPDATE  PL refs  Native validate  Persistence  Portable JSON  Status / notes
+-------------------  -----  ----  ---------  ------  -------  ---------------  -----------  -------------  ------------------------------
+Package              Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+ModelLibrary         Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+Block                Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+InterfaceBlock       Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+AssociationBlock     Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+ConstraintBlock      Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED; PR49 Parametric fields qualified
+ValueType            Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED; PR49 engineering metadata qualified
+DataType             Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+PrimitiveType        Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+Enumeration          Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+Signal               Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED with Operation/Signal/Sequence coverage
+Actor                Y      Y     Y          Y       Y        Y                GEN          GEN            IMPLEMENTED / PARTIALLY QUALIFIED
+UseCase              Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED including current Use Case relationship fields
+Requirement          Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED including Requirement ID/text and traceability use
+TestCase             Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED for represented Requirement/Verify usage
+PartProperty         Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+ReferenceProperty    Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+ValueProperty        Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED; Parametric metadata/bindings use native representation
+FlowProperty         Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+ConstraintProperty   Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+ConstraintParameter  Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+ProxyPort            Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+FullPort             Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+Operation            Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+Parameter            Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+Reception            Y      Y     Y          Y       Y        Y                GEN          GEN            QUALIFIED
+
+Model-core kinds that are NOT ordinary direct spreadsheet-create kinds on this
+baseline:
+
+Semantic kind          Direct XLSX/CSV create   Current note
+---------------------  -----------------------  -----------------------------------------------
+Model                  N                        Root/project context is established outside ordinary rows
+EnumerationLiteral     N                        NOT IMPLEMENTED in generic spreadsheet create
+Unit                   N                        PR49 can update/reference represented engineering metadata on existing records
+QuantityKind           N                        PR49 can update/reference represented engineering metadata on existing records
+InstanceSpecification  N                        NOT IMPLEMENTED in current spreadsheet create
+Slot                   N                        NOT IMPLEMENTED in current spreadsheet create
+Comment                N                        NOT IMPLEMENTED in current spreadsheet create
+
+Unit/QuantityKind direct spreadsheet creation must not be inferred from the
+presence of QuantityKind/Unit mapping fields. Those PR49 fields update/reference
+engineering metadata for existing native semantic records; they do not expand
+the generic supported-kind list.
+
+===============================================================================
+15. SPECIALIZED BEHAVIOR / SEQUENCE / PARAMETRIC RECORD MATRIX
+===============================================================================
+
+These records use established native repositories or specialized ModelBuildPlan
+operations rather than pretending every nested behavior record is a common
+ElementKind.
+
+Record family / kind                         XLSX  CSV  Reimport  Plan-local  Native validation  Status
+-------------------------------------------  ----  ---  --------  ----------  -----------------  ---------
+Activity                                     Y     Y    Y         Y           Y                  QUALIFIED
+ActivityPartition                            Y     Y    Y         Y           Y                  QUALIFIED
+StructuredActivityNode                       Y     Y    Y         Y           Y                  QUALIFIED
+Activity Initial/Final/FlowFinal              Y     Y    Y         Y           Y                  QUALIFIED
+Decision/Merge/Fork/Join                      Y     Y    Y         Y           Y                  QUALIFIED
+OpaqueAction                                  Y     Y    Y         Y           Y                  QUALIFIED authored semantics
+CallBehaviorAction                            Y     Y    Y         Y           Y                  QUALIFIED
+CallOperationAction                           Y     Y    Y         Y           Y                  QUALIFIED
+SendSignalAction                              Y     Y    Y         Y           Y                  QUALIFIED
+AcceptEventAction                             Y     Y    Y         Y           Y                  QUALIFIED
+AcceptTimeEventAction                         Y     Y    Y         Y           Y                  QUALIFIED
+Object/CentralBuffer/DataStore nodes          Y     Y    Y         Y           Y                  QUALIFIED
+ActivityParameterNode                         Y     Y    Y         Y           Y                  QUALIFIED
+Pins                                          Y     Y    Y         Y           Y                  QUALIFIED
+ControlFlow / ObjectFlow                      Y     Y    Y         Y           Y                  QUALIFIED
+StateMachine                                  Y     Y    Y         Y           Y                  QUALIFIED
+Region                                        Y     Y    Y         Y           Y                  QUALIFIED
+State / FinalState                            Y     Y    Y         Y           Y                  QUALIFIED
+State pseudostates                            Y     Y    Y         Y           Y                  QUALIFIED authored import; runtime varies
+Transition + trigger/guard/effect             Y     Y    Y         Y           Y                  QUALIFIED
+Interaction                                   Y     Y    Y         Y           Y                  QUALIFIED
+Lifeline                                      Y     Y    Y         Y           Y                  QUALIFIED
+Occurrence                                    Y     Y    Y         Y           Y                  QUALIFIED
+Message                                       Y     Y    Y         Y           Y                  QUALIFIED
+ExecutionSpecification                        Y     Y    Y         Y           Y                  QUALIFIED
+CombinedFragment                              Y     Y    Y         Y           Y                  QUALIFIED authored import; runtime partial
+InteractionOperand                            Y     Y    Y         Y           Y                  QUALIFIED authored import; runtime partial
+StateInvariant                                Y     Y    Y         Y           Y                  QUALIFIED authored import
+Parametric engineering metadata               Y     Y    Y         Y           Y                  QUALIFIED
+BindingConnector + structured endpoints       Y     Y    Y         Y           Y                  QUALIFIED
+
+State pseudostates currently import Initial, Choice, Junction, Fork, Join,
+ShallowHistory, DeepHistory, EntryPoint, ExitPoint, and Terminate where native
+semantics allow them. Import qualification does not imply every pseudostate has
+runtime execution support; see the runtime section.
+
+===============================================================================
+16. RELATIONSHIP IMPORT QUALIFICATION MATRIX
+===============================================================================
+
+Relationship / record        XLSX  CSV  Stable ID  Plan-local endpoints  Update/NO_CHANGE  Native validate  Persistence  Portable JSON  Runtime relevance  Spreadsheet presentation  Status
+---------------------------  ----  ---  ---------  --------------------  ----------------  ---------------  -----------  -------------  -----------------  ------------------------  ------
+Association                  Y     Y    Y          Y                     Y                 Y                Y            Y              structural         N                         QUALIFIED
+Association end data         Y     Y    with rel   Y                     Y                 Y                Y            Y              structural         N                         QUALIFIED
+Generalization               Y     Y    Y          Y                     Y                 Y                Y            Y              type conformance    N                         QUALIFIED
+Dependency                   Y     Y    Y          Y                     Y                 Y                Y            Y              none direct         N                         QUALIFIED
+Realization                  Y     Y    Y          Y                     Y                 Y                Y            Y              none direct         N                         QUALIFIED
+Allocate                     Y     Y    Y          Y                     Y                 Y                Y            Y              none direct         N                         QUALIFIED
+DeriveRequirement            Y     Y    Y          Y                     Y                 Y                Y            Y              traceability        N                         QUALIFIED
+Satisfy                      Y     Y    Y          Y                     Y                 Y                Y            Y              traceability        N                         QUALIFIED
+Verify                       Y     Y    Y          Y                     Y                 Y                Y            Y              traceability        N                         QUALIFIED
+Refine                       Y     Y    Y          Y                     Y                 Y                Y            Y              traceability        N                         QUALIFIED
+Trace                        Y     Y    Y          Y                     Y                 Y                Y            Y              traceability        N                         QUALIFIED
+Copy                         Y     Y    Y          Y                     Y                 Y                Y            Y              traceability        N                         QUALIFIED
+Include                      Y     Y    Y          Y                     Y                 Y                Y            Y              use-case semantics  N                         QUALIFIED
+Extend                       Y     Y    Y          Y                     Y                 Y                Y            Y              use-case semantics  N                         QUALIFIED
+PackageImport                Y     Y    Y          Y                     Y                 Y                Y            Y              namespace          N                         QUALIFIED
+ElementImport                Y     Y    Y          Y                     Y                 Y                Y            Y              namespace          N                         QUALIFIED
+PackageMerge                 Y     Y    Y          Y                     Y                 Y                Y            Y              namespace          N                         QUALIFIED
+Connector                    Y     Y    Y          Y                     Y                 Y                Y            Y              structural runtime N                         QUALIFIED
+ConnectorEnd/path            Y     Y    with rel   Y                     Y                 Y                Y            Y              structural runtime N                         QUALIFIED
+ItemFlow                     Y     Y    Y          Y                     Y                 Y                Y            Y              signal/flow path    N                         QUALIFIED
+BindingConnector             Y     Y    Y          Y                     Y                 Y                Y            Y              Parametric runtime N                         QUALIFIED via PR49 specialized path
+Activity ControlFlow         Y     Y    Y          Y                     Y                 Y                native repo  Y              Activity runtime    N                         QUALIFIED
+Activity ObjectFlow          Y     Y    Y          Y                     Y                 Y                native repo  Y              Activity runtime    N                         QUALIFIED
+State Transition             Y     Y    Y          Y                     Y                 Y                native repo  Y              State runtime       N                         QUALIFIED
+Sequence Message             Y     Y    Y          Y                     Y                 Y                native repo  Y              Sequence runtime    N                         QUALIFIED authored; runtime partial
+
+Notes:
+
+- Composition is retained in model-core for compatibility, but the current
+  generic spreadsheet relationship vocabulary does not import Composition as a
+  separate relationship kind. SysML composition should normally be represented
+  by Association end aggregation semantics.
+- BindingConnector is not routed through the generic spreadsheet relationship
+  vocabulary. It is a qualified PR49 Parametric semantic row using native
+  BindingConnector endpoints.
+- Activity flows, State Transitions, and Sequence Messages live in their native
+  authored repositories; they are not forced into the common RelationshipKind
+  merely for import convenience.
+
+===============================================================================
+17. PORT, CONNECTOR, AND ITEMFLOW RULES
+===============================================================================
+
+ProxyPort / FullPort
+--------------------
+
+Current spreadsheet import is QUALIFIED for native ProxyPort and FullPort
+semantics, including:
+
+- legal semantic owner;
+- compatible modeled type;
+- multiplicity;
+- conjugation where the native kind supports it;
+- documentation and visibility;
+- source namespace + External ID identity;
+- plan-local owner/type resolution;
+- create/update/no-change reimport;
+- native persistence and portable JSON round trip.
+
+An importer must not synthesize a compatible type merely because the workbook
+omits one. Required type resolution failure is BLOCKED.
+
+Connector / ConnectorEnd
+------------------------
+
+Current spreadsheet import is QUALIFIED for native Connectors and ConnectorEnds
+with:
+
+- structured classifier Connector context;
+- Assembly/Delegation Connector kind;
+- role-only endpoints;
+- boundary-Port endpoints;
+- nested Port endpoints;
+- nested property paths;
+- multi-level structural paths;
+- plan-local structural records;
+- create/update/no-change and atomic rollback;
+- native topology validation.
+
+Endpoint paths are resolved scope-by-scope. An ambiguous or illegal segment is
+BLOCKED rather than guessed.
+
+ItemFlow
+--------
+
+Current spreadsheet import is QUALIFIED for native ItemFlow semantics with:
+
+- referenced native Connector;
+- source and target ConnectorEnds;
+- Connector-relative direction/topology;
+- one or more conveyed classifier references where represented;
+- plan-local Connector/classifier resolution;
+- stable identity and update/no-change reimport;
+- native persistence and portable interchange.
+
+Connector, ConnectorEnd, and ItemFlow import is semantic only. Spreadsheet
+import does not create corresponding IBD edges, paths, labels, waypoints, or
+layout on this baseline.
+
+===============================================================================
+18. REQUIREMENTS AND TRACEABILITY RULES
+===============================================================================
+
+The current spreadsheet importer distinguishes:
+
+- internal stable ID;
+- source namespace + External ID;
+- Requirement ID;
+- Requirement name/text.
+
+Requirement ID is a controlled human-facing identifier and may participate in
+Requirement-oriented exact resolution. It is not the same thing as External ID
+or the internal stable ID.
+
+Qualified traceability relationships and current direction are the native
+source -> target semantics encoded by the corresponding RelationshipKind:
+
+- DeriveRequirement / deriveReqt;
+- Satisfy;
+- Verify;
+- Refine;
+- Trace;
+- Copy;
+- Allocate (a general allocation relationship; not a verification result).
+
+Critical rule:
+
+  Verify relationship != Requirement verified status
+
+Importing a Verify relationship creates traceability only. It does not create
+test evidence, execute a TestCase, infer a verification conclusion, or silently
+change Requirement lifecycle/status fields.
+
+===============================================================================
+19. ACTIVITY IMPORT AND RUNTIME COMPATIBILITY
+===============================================================================
+
+Semantic spreadsheet import status: QUALIFIED
+Runtime participation: QUALIFIED at the represented PR31 execution boundary,
+with explicit partial/unsupported structured semantics described below.
+
+Imported Activity content can include Activities, partitions, structured
+activity nodes, control nodes, actions, object nodes, ActivityParameterNodes,
+pins, ControlFlows, ObjectFlows, guards, weights, selection/transformation
+metadata, and interrupting-region references represented by the native model.
+
+Qualified action import includes:
+
+- OpaqueAction;
+- CallBehaviorAction;
+- CallOperationAction;
+- SendSignalAction;
+- AcceptEventAction;
+- AcceptTimeEventAction.
+
+Runtime distinctions:
+
+- imported Activities execute through the existing native Activity runtime;
+- OpaqueAction execution remains bounded to supported pure-expression semantics;
+  arbitrary script/statements are not enabled by import;
+- structured containers execute only the native semantics represented by the
+  current model/runtime;
+- missing ExpansionRegion/ConditionalNode semantics are not invented by the
+  importer.
+
+Importable/authored is not equivalent to executable for every future UML/SysML
+Activity construct.
+
+===============================================================================
+20. STATE MACHINE IMPORT AND RUNTIME COMPATIBILITY
+===============================================================================
+
+Semantic spreadsheet import status: QUALIFIED
+Runtime participation: QUALIFIED for the supported PR32 execution subset;
+PARTIAL across all imported pseudostate variants.
+
+Imported State Machine content can include:
+
+- StateMachine;
+- nested and orthogonal Regions;
+- States and FinalStates;
+- Initial, Choice, Junction, Fork, Join, ShallowHistory, DeepHistory,
+  EntryPoint, ExitPoint, and Terminate pseudostates;
+- submachine references where represented;
+- external/internal/local Transitions;
+- Signal, Call, Time, Change, and any-receive trigger forms represented by the
+  native model;
+- guards and effects.
+
+Runtime distinctions:
+
+- imported State Machines use the existing native State Machine runtime;
+- EntryPoint and ExitPoint execution remain unsupported at the current runtime
+  boundary because the required qualified connection-point mapping is not fully
+  represented;
+- ShallowHistory and DeepHistory authored/import semantics exist, but history
+  restoration/default execution remains unsupported;
+- unsupported execution semantics fail diagnostically; import does not invent
+  runtime behavior.
+
+===============================================================================
+21. SEQUENCE IMPORT AND RUNTIME COMPATIBILITY
+===============================================================================
+
+Semantic spreadsheet import status: QUALIFIED
+Runtime participation: PARTIAL
+
+Qualified imported authored records:
+
+- Interaction;
+- Lifeline;
+- Occurrence;
+- Message;
+- MessageSort represented by the native model;
+- ExecutionSpecification;
+- CombinedFragment;
+- InteractionOperand;
+- StateInvariant.
+
+Sequence identity is stable through native IDs plus namespaced External IDs for
+nested authored records. Plan-local references, create/update/no-change, native
+validation, atomic rollback, persistence, and portable interchange participate
+in the same unified candidate architecture.
+
+Runtime distinctions:
+
+- modeled Operation and Signal Sequence messages use the existing PR34 runtime
+  where their MessageSort/signature is supported;
+- Reply behavior participates where supported;
+- import of CombinedFragment/InteractionOperand does not imply complete
+  combined-fragment execution semantics;
+- unsupported message execution forms such as Create/Delete/Found/Lost remain
+  outside the qualified PR34 runtime subset even when authored Sequence
+  semantics can represent additional message data;
+- occurrence ordering is semantic authored order, not inferred from imported
+  pixel geometry.
+
+===============================================================================
+22. PARAMETRIC IMPORT AND RUNTIME COMPATIBILITY
+===============================================================================
+
+Semantic spreadsheet import status: QUALIFIED at the current represented PR49
+boundary.
+Runtime participation: QUALIFIED at the existing PR35 native evaluator boundary.
+
+Current Parametric spreadsheet semantics include:
+
+- ConstraintBlock and ValueType/ValueProperty/ConstraintProperty/
+  ConstraintParameter records through the ordinary semantic importer where
+  those kinds are supported;
+- constraint-expression update through PR49 Parametric semantic operations;
+- BindingConnector create/update;
+- structured Binding endpoints consisting of role + optional parameter;
+- QuantityKind and Unit external references where represented;
+- quantity dimension;
+- unit symbol;
+- finite unit scale-to-base metadata.
+
+Direct generic spreadsheet creation of Unit and QuantityKind is NOT IMPLEMENTED
+on this baseline. Existing native Unit/QuantityKind records may participate in
+PR49 metadata/reference resolution.
+
+Imported Parametric models must execute through the existing native Parametric
+runtime/evaluator. An importer must not add a private evaluator, script engine,
+or alternate value store. Import does not imply arbitrary symbolic algebra,
+nonlinear solving, MATLAB/Python execution, or general script execution.
+
+===============================================================================
+23. OTHER RUNTIME COMPATIBILITY
+===============================================================================
+
+Imported authored model family              Import status     Native runtime relevance
+------------------------------------------  ----------------  ----------------------------------------------
+Structure: Blocks/properties/Ports           QUALIFIED scopes  PR33 structural runtime at represented boundary
+Connectors / ItemFlows                       QUALIFIED         PR33/PR34 structural and Signal routing semantics
+Activity                                     QUALIFIED         PR31 native Activity execution; bounded constructs
+State Machine                                QUALIFIED         PR32 native State execution; some pseudostates unsupported
+Operation / Parameter / Reception / Signal   QUALIFIED         PR34 modeled Operation/Signal execution path
+Sequence                                     QUALIFIED         PR34 runtime PARTIAL relative to imported authored scope
+Parametric                                   QUALIFIED         PR35 native evaluator at represented boundary
+
+Runtime state is transient. Portable JSON and native semantic import describe
+and reconstruct authored content; they do not serialize an active execution
+session, token queue, current simulation state, transient runtime values, or UI
+selection state as interchange semantics.
+
+===============================================================================
+24. DIAGRAM / PRESENTATION STATUS — ALL NINE FAMILIES
+===============================================================================
+
+Two different claims must be kept separate:
+
+A. Portable JSON v1 preserves the current authored diagram/presentation state
+   for the nine qualified families and validates it during import.
+
+B. CSV/XLSX semantic import through this baseline does NOT construct/populate
+   diagrams from workbook data.
+
+The following matrix describes the CSV/XLSX source-adapter boundary. "Portable"
+notes describe what versioned portable JSON currently preserves.
+
+Family         Semantic CSV/XLSX  Spreadsheet diagram definition  Nodes/edges from sheet  Geometry/labels/waypoints from sheet  Portable authored presentation  Current qualification
+-------------  -----------------  ------------------------------  ----------------------  -------------------------------------  -----------------------------  ------------------------------
+BDD            Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+IBD            Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+Requirement    Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+Use Case       Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+Package        Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+Activity       Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+State Machine  Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+Sequence       Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+Parametric     Y                  PLANNED / NOT IMPLEMENTED       N                       N                                      Y                              semantic import + portable presentation qualified
+
+Portable JSON carries current diagram definitions and current presentation
+records, including current family/context/owner references and geometry/routes
+where those native presentation structures represent them. It does not promise
+that every conceivable SysML graphical annotation is a separately portable
+field. Family frames are native presentation behavior derived from the diagram
+family/context where applicable rather than a claim that a workbook imported a
+frame object.
+
+Generated/all-nine-family spreadsheet diagram construction is a separate
+planned phase after the current semantic-import baseline. It must use the same
+semantic/presentation separation and atomic construction rules.
+
+===============================================================================
+25. PORTABLE JSON V1 CONTRACT
+===============================================================================
+
+Status: QUALIFIED
+Schema: systems-modeler-interchange
+Version: 1
+Native source namespace: systems-modeler-native
+
+Conceptual path:
+
+  authored project
+       |
+       v
+  portable JSON v1
+       |
+       v
+  validate schema/version/authored references
+       |
+       v
+  ModelBuildPlan (RestorePortableState)
+       |
+       v
+  validate complete candidate
+       |
+       v
+  atomic authored-state replacement
+
+Portable JSON v1 currently carries:
+
+- Project identity/name/root;
+- semantic Elements;
+- semantic Relationships;
+- current BDD-style/common diagram records;
+- current IBD diagram records;
+- ActivityRepository authored records and external identity index;
+- Activity diagram records;
+- BehaviorRepository State Machines and Interactions plus external identity
+  index;
+- State Machine/Sequence behavior diagram records;
+- the declaration of exactly the nine current diagram families.
+
+Portable import validates semantic endpoints, Project validation, diagram
+presentation validation, IBD validation, Activity repository/presentation
+validation, and Behavior repository/presentation validation before apply.
+Invalid late references are covered by atomicity tests.
+
+Portable JSON excludes transient execution state, UI selection, and undo/history
+state from the interchange contract.
+
+Portable JSON is not a claim of XMI, ReqIF, CATIA, Cameo, or SysML v2
+compatibility.
+
+===============================================================================
+26. NATIVE .smproj CONTRACT
+===============================================================================
+
+Status: QUALIFIED native project persistence
+
+.smproj is the application's native working-project format backed by the native
+ProjectDatabase/SQLite persistence layer and the application's metadata stores.
+The desktop normalizes project paths to .smproj when no extension is supplied.
+
+Use .smproj for native working-project persistence. Use portable JSON for the
+current versioned interchange contract.
+
+Do not document .smproj as a standards interchange format.
+
+===============================================================================
+27. GROOVY / MODEL-SCRIPT FUTURE ADAPTER CONTRACT
+===============================================================================
+
+STATUS: PLANNED / NOT YET IMPLEMENTED
+
+Current main contains no Groovy/model-script import adapter. Future work must
+follow:
+
+  Groovy/model script
+       |
+       v
+  controlled script adapter
+       |
+       v
+  ModelBuildPlan
+       |
+       v
+  normal reference resolution
+       |
+       v
+  native candidate validation
+       |
+       v
+  preview where applicable
+       |
+       v
+  atomic apply
+
+Required future rules:
+
+- no direct repository mutation bypass;
+- no direct SQLite mutation;
+- stable/external IDs for durable authored identity;
+- legal semantic ownership;
+- native type/relationship validation;
+- plan-local references for same-plan authored objects;
+- deterministic diagnostics;
+- atomic rollback;
+- same semantic/presentation separation;
+- same identity/reimport rules when repeatable script imports are supported;
+- no script-only semantic repository or execution engine.
+
+This contract does not design or authorize a Groovy execution engine.
+
+===============================================================================
+28. XMI FUTURE ADAPTER CONTRACT
+===============================================================================
+
+STATUS: PLANNED / NOT YET IMPLEMENTED
+
+Current main contains references to normative XMI in standards documentation,
+but no Rust XMI import adapter.
+
+Required future architecture:
+
+  XMI
+   |
+   v
+  namespace/profile-aware XMI parser adapter
+   |
+   v
+  normalized portable semantic records
+   |
+   v
+  ModelBuildPlan
+   |
+   v
+  native validation
+   |
+   v
+  preview
+   |
+   v
+  atomic apply
+
+Required future XMI rules:
+
+- namespace-aware stable external identity;
+- exact metaclass/profile mapping;
+- legal package ownership;
+- deterministic cross-reference resolution;
+- correct relationship direction;
+- stereotype/profile preservation only where the native model represents it;
+- no unresolved-reference guessing;
+- no duplicate semantic identity;
+- semantic/presentation separation;
+- deterministic diagnostics and complete rollback.
+
+XMI semantic interchange and SysML/UML Diagram Interchange are different
+problems. Implementing one does not prove the other.
+
+No CATIA or Cameo XMI release/dialect is qualified until a release-specific
+fixture and expected-model comparison exists.
+
+===============================================================================
+29. REQIF FUTURE ADAPTER CONTRACT
+===============================================================================
+
+STATUS: PLANNED / NOT YET IMPLEMENTED
+
+Current main contains no Rust ReqIF import/export implementation.
+
+A future ReqIF adapter must preserve, at minimum where supported by the native
+model:
+
+- stable Requirement identity;
+- Requirement ID;
+- name and requirement text;
+- mapped attributes;
+- hierarchy/ownership;
+- relationship identity;
+- provenance/source namespace;
+- deterministic transactional reimport;
+- no silent duplication.
+
+ReqIF must enter through ModelBuildPlan/native validation rather than mutating
+Requirement records or persistence directly.
+
+===============================================================================
+30. SYSML V2 INTERCHANGE FUTURE CONTRACT
+===============================================================================
+
+STATUS: PLANNED / NOT IMPLEMENTED
+
+Current main is a SysML 1.x-oriented authored model. It does not contain a
+qualified SysML v2 interchange adapter.
+
+A future SysML v2 adapter requires an explicit mapping/architecture decision.
+It must not pretend that existing SysML 1.x ElementKind values are automatically
+equivalent to SysML v2 definitions/usages or that a field-name translation is a
+semantic mapping.
+
+Any future SysML v2 adapter must still converge on a controlled native
+construction/validation transaction or an explicitly approved successor
+architecture that preserves the same identity, validation, preview, and
+atomicity guarantees.
+
+===============================================================================
+31. CATIA / CAMEO COMPATIBILITY LANGUAGE
+===============================================================================
+
+Accurate language for the current importer includes:
+
+- CATIA-style spreadsheet mapping;
+- Cameo-style configurable spreadsheet mapping;
+- business-facing CSV/XLSX mapping to native SysML semantics.
+
+Do not use these unqualified claims:
+
+- fully CATIA compatible;
+- CATIA certified;
+- fully Cameo compatible;
+- Cameo certified;
+- complete 3DEXPERIENCE interoperability.
+
+Release-specific compatibility requires evidence such as:
+
+- exact CATIA/Cameo release/version;
+- mapping/workbook/profile version;
+- source/exported fixture;
+- expected semantic model;
+- first import result;
+- stable reimport result;
+- round-trip behavior where supported;
+- documented differences/unsupported fields;
+- automated or reproducible qualification evidence.
+
+Native CATIA / 3DEXPERIENCE project files:
+
+  STATUS: NOT SUPPORTED
+
+CATIA-style workbook mapping must never be described as native CATIA project
+file reading.
+
+===============================================================================
+32. IMPORT DIAGNOSTICS CONTRACT
+===============================================================================
+
+Current SpreadsheetImportDiagnostic carries structured context for:
+
+- source file/path;
+- worksheet;
+- row;
+- column;
+- import-map name;
+- element kind;
+- relationship kind;
+- source endpoint text;
+- target endpoint text;
+- source namespace;
+- identification value;
+- semantic property;
+- reason/code/severity.
+
+User-facing diagnostics should prefer meaningful names, External IDs,
+Requirement IDs, qualified paths, or endpoint descriptions over UUID-only
+messages whenever those authored identities are known.
+
+Known current diagnostic boundary:
+
+- source format is inferred from the file extension; it is not a dedicated
+  SpreadsheetImportDiagnostic field;
+- qualified name is not a dedicated diagnostic field; when a qualified name is
+  the identification/reference value it may appear through identification or
+  reason context.
+
+Future adapters SHOULD surface source format and qualified-name/reference
+context explicitly rather than reducing diagnostics to opaque internal IDs.
+
+===============================================================================
+33. CONSOLIDATED QUALIFICATION EVIDENCE MATRIX
+===============================================================================
+
+Capability                           Impl status  Create  Update  NO_CHANGE  Stable ID  Plan-local  Native validation  Atomic rollback  Native persistence  Portable JSON  Runtime  Spreadsheet presentation  Automated evidence
+-----------------------------------  -----------  ------  ------  ---------  ---------  ----------  -----------------  ---------------  ------------------  -------------  -------  ------------------------  ------------------
+ModelBuildPlan bulk construction     QUALIFIED    Y       Y       n/a        Y          Y           Y                  Y                n/a                 n/a            n/a      supports native ops        focused + regression
+Portable JSON v1                     QUALIFIED    restore restore converge   Y          n/a         Y                  Y                n/a                 Y              no       Y                         round-trip + atomicity
+CSV table/mapping                    QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              varies   N                         spreadsheet regression chain
+XLSX table/mapping                   QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              varies   N                         fixtures + regression chain
+Basic/package/classifier elements    IPQ          Y       Y       Y          Y          Y           Y                  Y                generic             generic         varies   N                         shared mapper tests
+Owned properties/features            QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              structural N                         focused PR39 chain
+Core relationships                   QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              varies   N                         focused PR40 chain
+Requirement traceability             QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              trace    N                         focused PR41 chain
+Allocate                             QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              none     N                         model/persistence/import tests
+ProxyPort / FullPort                 QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              struct   N                         model/persistence/import tests
+Connector / ConnectorEnd/path        QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              struct   N                         persistence/import tests
+ItemFlow                             QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              signal   N                         persistence/import tests
+Operation/Parameter/Reception        QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              PR34     N                         focused + full regression
+UseCase/namespace relationships      QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              varies   N                         focused + full regression
+Activity semantic import             QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                native repo         Y              PR31     N                         focused + full regression
+State Machine semantic import        QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                native repo         Y              PR32*    N                         focused + full regression
+Sequence semantic import             QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                native repo         Y              PARTIAL  N                         PR49 + full regression
+Parametric semantic import           QUALIFIED    Y       Y       Y          Y          Y           Y                  Y                Y                   Y              PR35     N                         PR49 + full regression
+Spreadsheet diagram construction     PLANNED      N       N       N          n/a        n/a         n/a                n/a              n/a                 n/a            n/a      N                         none
+Deletion/reconciliation sync         PLANNED      n/a     n/a     n/a        n/a        n/a         n/a                n/a              n/a                 n/a            n/a      n/a                       none
+Groovy/model-script adapter          PLANNED      N       N       N          n/a        n/a         n/a                n/a              n/a                 n/a            n/a      N                         none
+XMI adapter                          PLANNED      N       N       N          n/a        n/a         n/a                n/a              n/a                 n/a            n/a      N                         none
+ReqIF adapter                        PLANNED      N       N       N          n/a        n/a         n/a                n/a              n/a                 n/a            n/a      N                         none
+SysML v2 interchange                PLANNED      N       N       N          n/a        n/a         n/a                n/a              n/a                 n/a            n/a      N                         none
+
+* State Machine runtime is qualified only for the represented executable subset;
+  imported Shallow/DeepHistory and Entry/ExitPoint semantics do not imply those
+  runtime behaviors are executable.
+
+Evidence on this baseline includes the maintained model-core, persistence,
+portable-interchange, spreadsheet-import, specialized behavior/sequence/
+parametric tests, full desktop regression suites, and warnings-denied Clippy
+qualification that accompanied the merged import increments through PR49.
+
+===============================================================================
+34. KNOWN LIMITATIONS / NON-CLAIMS
+===============================================================================
+
+The following are explicit limitations on current main:
+
+- CSV/XLSX semantic import does not construct diagram definitions or graphical
+  presentations.
+- .xls parsing is not implemented.
+- direct generic spreadsheet creation excludes Model, EnumerationLiteral, Unit,
+  QuantityKind, InstanceSpecification, Slot, and Comment.
+- deletion/reconciliation synchronization is not implemented.
+- XMI is not implemented.
+- ReqIF is not implemented.
+- Groovy/model-script import is not implemented.
+- SysML v2 interchange is not implemented.
+- native CATIA/3DEXPERIENCE project files are not supported.
+- no CATIA or Cameo release is certified by the current mapping tests.
+- Sequence runtime supports only the current native execution subset, not every
+  imported authored Sequence construct.
+- State Machine runtime does not execute every imported pseudostate variant.
+- imported Parametric semantics use the bounded native evaluator; import does
+  not add a general-purpose solver or arbitrary scripting.
+- portable JSON represents the current authored product schema; it is not a
+  standards-neutral universal interchange format.
+
+===============================================================================
+35. FUTURE ADAPTER REQUIREMENTS
+===============================================================================
+
+Any new importer/interchange adapter must answer all of the following before it
+can be considered for QUALIFIED status:
+
+1. What is the source namespace/provenance model?
+2. What is the stable external identity?
+3. How are internal stable IDs preserved on reimport?
+4. Which exact semantic kinds are created/updated?
+5. Which native repository owns each record?
+6. Which reference forms are accepted, and in what deterministic order?
+7. How are ambiguity, missing references, and wrong-kind references blocked?
+8. How is ModelBuildPlan (or an explicitly approved shared successor) used?
+9. How is the complete candidate validated with native rules?
+10. How is preview guaranteed to be non-mutating?
+11. What constitutes the one atomic transaction?
+12. How does a late failure produce zero commit?
+13. What is the NO_CHANGE/UPDATE reimport contract?
+14. Is deletion synchronization supported? If not, say so.
+15. What diagnostics identify source file/table/row/field and semantic identity?
+16. Does the adapter create semantics, presentations, or both? Keep them separate.
+17. Which native persistence and portable-interchange tests prove convergence?
+18. Which imported records participate in runtime, and which are authored-only?
+19. What automated tests define the qualification boundary?
+
+An adapter that cannot answer these questions must remain IMPLEMENTED /
+PARTIALLY QUALIFIED, PARTIAL, PLANNED, or NOT IMPLEMENTED as appropriate.
+
+===============================================================================
+36. NON-BINDING PLANNED IMPORT DEVELOPMENT SEQUENCE
+===============================================================================
+
+Everything in this section is PLANNED unless explicitly noted otherwise.
+
+Current completed/qualified foundation:
+
+- shared ModelBuildPlan construction architecture;
+- portable JSON v1 authored interchange;
+- CSV/XLSX semantic spreadsheet construction through the current PR49 scope.
+
+Planned follow-on categories:
+
+- all-nine-family spreadsheet diagram construction;
+- presentation population;
+- imported diagram geometry/labels/waypoints where a source contract defines
+  them;
+- layout/routing integration after semantic/presentation construction;
+- workbook export;
+- synchronization/deletion/reconciliation policy;
+- Groovy/model scripting adapter;
+- ReqIF implementation and qualification;
+- XMI implementation and release/profile qualification;
+- CATIA/Cameo release-specific workbook/XMI qualification;
+- SysML v2 interchange after an explicit semantic mapping decision.
+
+This roadmap is non-binding and does not change the status of any capability
+listed elsewhere in this document.
+
+===============================================================================
+37. CONTRACT MAINTENANCE RULE
+===============================================================================
+
+When import code changes, this document must be updated only to the capability
+actually proven on the target main branch. Planned intent must remain labeled.
+
+Before changing any capability to QUALIFIED, verify:
+
+- the implementation is present on main;
+- the claimed source format reaches the native construction path;
+- native validation is exercised;
+- preview/rollback behavior is tested where applicable;
+- stable identity and reimport behavior are tested where applicable;
+- native persistence/portable interchange are covered where applicable;
+- runtime claims are bounded to existing execution semantics;
+- semantic import is not being conflated with diagram presentation import.
+
+END OF CONTRACT
