@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Temporary qualification patch: remove after the repaired Rust commit is published.
 path = Path("apps/desktop/src-tauri/src/workspace/xmi_runtime.rs")
 text = path.read_text(encoding="utf-8")
 
