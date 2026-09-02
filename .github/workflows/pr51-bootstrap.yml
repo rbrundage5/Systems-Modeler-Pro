@@ -47,6 +47,14 @@ jobs:
               '.children(scope)\n        .into_iter()\n        .filter(',
               '.children(scope)\n        .filter(',
           )
+          text = text.replace(
+              '"use-case" | "usecase" => Ok("use-case"),',
+              '"use-case" | "usecase" | "use case" => Ok("use-case"),',
+          )
+          text = text.replace(
+              '"state-machine" | "statemachine" => Ok("state-machine"),',
+              '"state-machine" | "statemachine" | "state machine" => Ok("state-machine"),',
+          )
 
           marker = '// PR51_REPRESENTATIVE_QUALIFICATION'
           if marker not in text:
