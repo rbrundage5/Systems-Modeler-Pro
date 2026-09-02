@@ -24,6 +24,29 @@ Frontend authority debt is measured and prevented from growing by `scripts/valid
 
 `modeler-proto` remains the legacy/reference implementation and is intentionally not copied into this repository.
 
+## Import / Interchange
+
+Bulk and interchange adapters converge on the Rust-owned `ModelBuildPlan` construction path. The current spreadsheet importer maps business-facing CSV/XLSX data into semantic operations, resolves stable and plan-local references, validates a complete native candidate, provides non-mutating preview classifications, and applies a valid MapGroup atomically. Stable source namespace + External ID identity is the preferred reimport identity; display names and spreadsheet positions are not permanent identity.
+
+Semantic import and diagram presentation are separate contracts. Current CSV/XLSX import constructs qualified semantic content through Activity, State Machine, Sequence, and Parametric scopes, but does **not** construct/populate all-nine-family diagram presentations from workbooks. Portable JSON v1 separately preserves the current authored semantic and presentation state through the same complete-build authority.
+
+| Format / mechanism | Current status |
+| --- | --- |
+| Native `.smproj` | QUALIFIED native working-project persistence; not an interchange format |
+| Portable JSON v1 | QUALIFIED authored-project interchange |
+| CSV mapped semantic import | QUALIFIED through current semantic scope |
+| XLSX mapped semantic import | QUALIFIED through current semantic scope |
+| Legacy `.xls` | NOT IMPLEMENTED / PLANNED |
+| Groovy / model script | PLANNED / NOT YET IMPLEMENTED |
+| ReqIF | PLANNED / NOT YET IMPLEMENTED |
+| XMI | PLANNED / NOT YET IMPLEMENTED |
+| SysML v2 interchange | PLANNED / NOT IMPLEMENTED |
+| Native CATIA / 3DEXPERIENCE project files | NOT SUPPORTED |
+
+"CATIA-style" and "Cameo-style" describe configurable spreadsheet mapping approaches; they are not release-specific compatibility or certification claims.
+
+For the authoritative import architecture, supported semantic coverage, reimport rules, qualification matrices, runtime boundaries, diagram/presentation status, and planned adapter contracts, see [`docs/IMPORT_RULES_AND_QUALIFICATION.txt`](docs/IMPORT_RULES_AND_QUALIFICATION.txt).
+
 ## Repository status
 
-Foundation only. Feature migration will occur incrementally behind explicit model-engine APIs and conformance tests.
+The native migration is active and includes qualified semantic construction/import, portable interchange, native project persistence, and execution foundations. Additional diagram-construction, synchronization/export, and external-adapter work remains explicitly staged and is not implied by the current qualified scope.
