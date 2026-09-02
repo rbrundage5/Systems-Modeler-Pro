@@ -5,6 +5,8 @@ frontend adapters may be split into additional files when that improves
 maintainability; file count is not an architectural authority metric. Rust must
 remain the dominant implementation and sole owner of model semantics, runtime,
 validation, routing/layout authority, persistence, and transactional mutation.
+This preserves the native execution path required for large models with
+thousands of elements without forcing presentation-only JavaScript into Rust.
 """
 
 from __future__ import annotations
