@@ -40,6 +40,8 @@ pub struct PortableSemanticProjectV1 {
     pub root_id: systems_modeler_core::ElementId,
     pub elements: Vec<Element>,
     pub relationships: Vec<Relationship>,
+    #[serde(default)]
+    pub profiles: systems_modeler_core::ProfileRepository,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +104,7 @@ fn sorted_project(project: &Project) -> PortableSemanticProjectV1 {
         root_id: project.root_id,
         elements,
         relationships,
+        profiles: project.profiles.clone(),
     }
 }
 
@@ -253,6 +256,7 @@ impl PortableProjectV1 {
             root_id: self.project.root_id,
             elements,
             relationships,
+            profiles: self.project.profiles,
         };
         let mut activity_repository = ActivityRepository {
             external_ids: self.activity.external_ids,

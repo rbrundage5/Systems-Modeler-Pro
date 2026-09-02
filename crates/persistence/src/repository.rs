@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
-use systems_modeler_core::{Element, ElementId, Project, ProjectId, Relationship};
+use systems_modeler_core::{Element, ElementId, ProfileRepository, Project, ProjectId, Relationship};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -21,6 +21,8 @@ pub enum PersistenceError {
 pub struct ProjectDatabase {
     connection: Connection,
 }
+
+const PROFILE_METADATA_KEY: &str = "profile-repository-v1";
 
 impl ProjectDatabase {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, PersistenceError> {
@@ -144,6 +146,15 @@ impl ProjectDatabase {
                 ])?;
             }
         }
+        tx.execute(
+            "INSERT INTO project_metadata(project_id,key,payload) VALUES(?1,?2,?3)
+             ON CONFLICT(project_id,key) DO UPDATE SET payload=excluded.payload",
+            params![
+                project.id.to_string(),
+                PROFILE_METADATA_KEY,
+                serde_json::to_string(&project.profiles)?,
+            ],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -222,12 +233,19 @@ impl ProjectDatabase {
             relationships.insert(relationship.id, relationship);
         }
 
+        let profiles = self
+            .load_metadata(id, PROFILE_METADATA_KEY)?
+            .map(|payload| serde_json::from_str::<ProfileRepository>(&payload))
+            .transpose()?
+            .unwrap_or_default();
+
         Ok(Project {
             id,
             name,
             root_id,
             elements,
             relationships,
+            profiles,
         })
     }
 }

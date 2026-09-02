@@ -282,6 +282,7 @@ fn write_semantic_sheets(
             .cloned()
             .map(|relationship| (relationship.id, relationship))
             .collect(),
+        profiles: portable.project.profiles.clone(),
     };
     element_sheet(workbook, "Packages", &project, |element| {
         matches!(

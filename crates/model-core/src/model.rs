@@ -6,12 +6,14 @@ use uuid::Uuid;
 pub mod behavior;
 pub mod ibd;
 pub mod parametrics;
+pub mod profile;
 pub use behavior::*;
 pub use ibd::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
 pub use parametrics::{
     BindingConnector, BindingEndpoint, ParametricEvaluationReport, ParametricEvaluationScope,
     ParametricValueUpdate, evaluate_parametrics,
 };
+pub use profile::*;
 
 macro_rules! id_type {
     ($name:ident) => {
@@ -390,6 +392,8 @@ pub struct Project {
     pub root_id: ElementId,
     pub elements: HashMap<ElementId, Element>,
     pub relationships: HashMap<RelationshipId, Relationship>,
+    #[serde(default)]
+    pub profiles: ProfileRepository,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -601,6 +605,8 @@ pub enum ModelError {
     },
     #[error("ElementImport alias '{0}' is not a valid identifier")]
     InvalidElementImportAlias(String),
+    #[error("profile validation failed: {0}")]
+    Profile(String),
 }
 
 impl Project {
@@ -618,6 +624,7 @@ impl Project {
             root_id,
             elements,
             relationships: HashMap::new(),
+            profiles: ProfileRepository::default(),
         }
     }
 
@@ -1218,10 +1225,21 @@ impl Project {
             .values()
             .any(|element| {
                 element.type_id == Some(id) || element.represented_classifier_id == Some(id)
+            })
+            || self.profiles.stereotype_applications.values().any(|application| {
+                application.tagged_values.values().flatten().any(|value| {
+                    matches!(value, TagValue::SemanticReference(SemanticTarget::Element(target)) if *target == id)
+                })
             });
         if referenced {
             return Err(ModelError::ElementStillReferenced(id));
         }
+        self.profiles
+            .profile_applications
+            .retain(|_, application| application.scope_id != id);
+        self.profiles.stereotype_applications.retain(|_, application| {
+            application.target != SemanticTarget::Element(id)
+        });
         self.elements.remove(&id);
         Ok(())
     }
@@ -1507,6 +1525,7 @@ impl Project {
                 _ => {}
             }
         }
+        self.profiles.validate(self).map_err(ModelError::Profile)?;
         Ok(())
     }
 

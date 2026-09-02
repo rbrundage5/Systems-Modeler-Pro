@@ -38,6 +38,7 @@ pub struct ElementSnapshot {
     pub is_read_only: bool,
     pub quantity_kind_external_id: Option<String>,
     pub unit_external_id: Option<String>,
+    pub applied_stereotypes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +67,7 @@ pub struct RelationshipSnapshot {
     pub extension_condition: Option<String>,
     pub extension_location: Option<String>,
     pub binding: Option<BindingConnectorSnapshot>,
+    pub applied_stereotypes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,6 +89,7 @@ pub struct ProjectSnapshot {
     pub root_id: String,
     pub elements: Vec<ElementSnapshot>,
     pub relationships: Vec<RelationshipSnapshot>,
+    pub profiles: systems_modeler_core::ProfileRepository,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -351,6 +354,7 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             is_read_only: element.is_read_only,
             quantity_kind_external_id: element.quantity_kind_external_id.clone(),
             unit_external_id: element.unit_external_id.clone(),
+            applied_stereotypes: element.applied_stereotypes.clone(),
         })
         .collect();
     elements.sort_by(|a, b| a.name.cmp(&b.name));
@@ -393,6 +397,7 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
                     parameter_id: binding.target.parameter_id.map(|id| id.to_string()),
                 },
             }),
+            applied_stereotypes: relationship.applied_stereotypes.clone(),
         })
         .collect();
     relationships.sort_by(|a, b| a.id.cmp(&b.id));
@@ -403,6 +408,7 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
         root_id: project.root_id.to_string(),
         elements,
         relationships,
+        profiles: project.profiles.clone(),
     }
 }
 
