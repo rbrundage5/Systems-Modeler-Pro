@@ -1,6 +1,7 @@
 // Systems-Modeler-Pro PR51 bounded Groovy-compatible model script.
 // The Groovy wrapper is only a transport boundary; the triple-quoted payload
 // is compiled into Rust ModelBuildPlan operations and native presentation services.
+// Reapplying this namespace/external-ID set is expected to be idempotent.
 modelScript('''
 {
   "source_namespace": "groovy:vehicle-example",
