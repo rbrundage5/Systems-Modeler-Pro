@@ -169,4 +169,83 @@ new_endpoint = """                    let endpoint = |end: &systems_modeler_core
                     ) {
 """
 script = replace_once(script, old_endpoint, new_endpoint, "IBD connector endpoint population")
+
+old_bdd_push = """            workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?
+                .push(native);
+            Ok(id)
+"""
+new_bdd_push = """            let mut diagrams = workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?;
+            diagrams.retain(|existing| existing.id != id);
+            diagrams.push(native);
+            Ok(id)
+"""
+script = replace_once(script, old_bdd_push, new_bdd_push, "BDD-like stable diagram replacement")
+
+old_ibd_push = """            workspace
+                .ibd_diagrams
+                .lock()
+                .map_err(|_| "IBD lock poisoned")?
+                .push(native);
+            Ok(id)
+"""
+new_ibd_push = """            let mut diagrams = workspace
+                .ibd_diagrams
+                .lock()
+                .map_err(|_| "IBD lock poisoned")?;
+            diagrams.retain(|existing| existing.id != id);
+            diagrams.push(native);
+            Ok(id)
+"""
+script = replace_once(script, old_ibd_push, new_ibd_push, "IBD stable diagram replacement")
+
+old_activity_push = """            activity
+                .diagrams
+                .lock()
+                .map_err(|_| "Activity diagram lock poisoned")?
+                .push(native);
+            Ok(id)
+"""
+new_activity_push = """            let mut diagrams = activity
+                .diagrams
+                .lock()
+                .map_err(|_| "Activity diagram lock poisoned")?;
+            diagrams.retain(|existing| existing.id != id);
+            diagrams.push(native);
+            Ok(id)
+"""
+script = replace_once(
+    script,
+    old_activity_push,
+    new_activity_push,
+    "Activity stable diagram replacement",
+)
+
+old_behavior_push = """            workspace
+                .behavior_diagrams
+                .lock()
+                .map_err(|_| "behavior diagram lock poisoned")?
+                .push(native);
+            Ok(id)
+"""
+new_behavior_push = """            let mut diagrams = workspace
+                .behavior_diagrams
+                .lock()
+                .map_err(|_| "behavior diagram lock poisoned")?;
+            diagrams.retain(|existing| existing.id != id);
+            diagrams.push(native);
+            Ok(id)
+"""
+script = replace_once(
+    script,
+    old_behavior_push,
+    new_behavior_push,
+    "Behavior stable diagram replacement",
+)
+
 script_path.write_text(script, encoding="utf-8")
