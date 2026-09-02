@@ -15,6 +15,7 @@ mod workspace {
     mod ibd;
     mod item_flow_notation;
     mod layout;
+    mod model_script;
     mod package_diagrams;
     mod parametric_execution;
     mod parametrics;
@@ -84,6 +85,7 @@ mod workspace {
         populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
+    pub use model_script::{apply_model_script, preview_model_script};
     pub use package_diagrams::{
         create_package_diagram, create_package_element, create_package_relationship,
         delete_package_relationship, place_on_package_diagram, reconnect_package_relationship,
@@ -183,15 +185,15 @@ use workspace::{
     add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
     add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
     add_state_transition_complete, add_state_vertex, add_structured_activity_node,
-    add_submachine_state, apply_spreadsheet_import, apply_spreadsheet_workbook_import,
-    assign_activity_node_partition, assign_activity_node_structured_parent,
-    behavior_lifeline_candidates, behavior_snapshot, clear_activity_executions,
-    clear_sequence_executions, clear_state_machine_executions, clear_workspace_interaction,
-    configure_activity_execution_runtime, configure_sequence_execution_runtime,
-    configure_state_machine_execution_runtime, copy_selection, create_activity_diagram, create_bdd,
-    create_bdd_element, create_bdd_feature, create_bdd_relationship,
-    create_bdd_relationship_complete, create_binding_connector, create_block,
-    create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
+    add_submachine_state, apply_model_script, apply_spreadsheet_import,
+    apply_spreadsheet_workbook_import, assign_activity_node_partition,
+    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
+    clear_activity_executions, clear_sequence_executions, clear_state_machine_executions,
+    clear_workspace_interaction, configure_activity_execution_runtime,
+    configure_sequence_execution_runtime, configure_state_machine_execution_runtime,
+    copy_selection, create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
+    create_bdd_relationship, create_bdd_relationship_complete, create_binding_connector,
+    create_block, create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
     create_package_diagram, create_package_element, create_package_relationship,
     create_parametric_constraint_property, create_parametric_diagram,
     create_parametric_value_property, create_requirement, create_requirement_diagram,
@@ -213,7 +215,7 @@ use workspace::{
     pause_sequence_execution, pause_state_machine_execution, place_bdd_element,
     place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
-    preview_activity_execution_runtime, preview_sequence_execution_runtime,
+    preview_activity_execution_runtime, preview_model_script, preview_sequence_execution_runtime,
     preview_spreadsheet_import, preview_spreadsheet_workbook_import,
     preview_state_machine_execution_runtime, queue_state_machine_signal, reconnect_activity_edge,
     reconnect_bdd_relationship, reconnect_binding_connector, reconnect_package_relationship,
@@ -687,6 +689,8 @@ fn main() {
             workspace_snapshot_complete,
             export_portable_project_json,
             import_portable_project_json,
+            preview_model_script,
+            apply_model_script,
             preview_spreadsheet_import,
             apply_spreadsheet_import,
             preview_spreadsheet_workbook_import,
