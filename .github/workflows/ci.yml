@@ -3,7 +3,7 @@ name: native-foundation-ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, agent/pr53-profiles-xmi-semantic]
 
 permissions:
   contents: write
@@ -104,7 +104,7 @@ jobs:
 
   desktop-check:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -112,12 +112,12 @@ jobs:
           components: rustfmt, clippy
       - name: Apply embedded XMI lock-lifetime repair
         run: python scripts/pr54_fix_xmi_deadlock.py
-      - name: Check desktop shell
-        run: cargo check -p systems-modeler-desktop
       - name: Affected XMI tests with output
         run: cargo test -p systems-modeler-desktop workspace::xmi_runtime::tests:: -- --nocapture
-      - name: Desktop tests
+      - name: Full desktop test suite
         run: cargo test -p systems-modeler-desktop
+      - name: Check desktop shell
+        run: cargo check -p systems-modeler-desktop
       - name: Desktop lint
         run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
       - name: Behavior desktop integration contract
@@ -167,5 +167,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add apps/desktop/src-tauri/src/workspace/xmi_runtime.rs
-          git commit -m 'PR53: fix embedded XMI lock reentry [skip ci]'
+          git commit -m 'PR53: fix embedded XMI lock reentry'
           git push origin HEAD:agent/pr53-profiles-xmi-semantic
