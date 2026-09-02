@@ -113,7 +113,8 @@ jobs:
       - name: Apply embedded XMI lock-lifetime repair
         run: python scripts/pr54_fix_xmi_deadlock.py
       - name: Affected XMI tests with output
-        run: cargo test -p systems-modeler-desktop workspace::xmi_runtime::tests:: -- --nocapture
+        run: |
+          cargo test -p systems-modeler-desktop workspace::xmi_runtime::tests:: -- --nocapture
       - name: Full desktop test suite
         run: cargo test -p systems-modeler-desktop
       - name: Check desktop shell
