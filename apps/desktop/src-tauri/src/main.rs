@@ -28,6 +28,7 @@ mod workspace {
     mod sequence_execution;
     mod shared_workspace;
     mod spreadsheet_import;
+    mod spreadsheet_interchange;
     mod state_machine_execution;
     #[rustfmt::skip]
     mod standard_editing;
@@ -143,6 +144,10 @@ mod workspace {
         set_workspace_interaction, workspace_interaction_snapshot, zoom_diagram_viewport,
     };
     pub use spreadsheet_import::{apply_spreadsheet_import, preview_spreadsheet_import};
+    pub use spreadsheet_interchange::{
+        apply_spreadsheet_workbook_import, export_spreadsheet_workbook,
+        preview_spreadsheet_workbook_import,
+    };
     pub use standard_editing::StandardEditingState;
     pub use standard_editing_bridge::{
         copy_selection, delete_active_selection, duplicate_selection, move_active_selection,
@@ -178,7 +183,8 @@ use workspace::{
     add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
     add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
     add_state_transition_complete, add_state_vertex, add_structured_activity_node,
-    add_submachine_state, apply_spreadsheet_import, assign_activity_node_partition,
+    add_submachine_state, apply_spreadsheet_import, apply_spreadsheet_workbook_import,
+    assign_activity_node_partition,
     assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
     clear_activity_executions, clear_sequence_executions, clear_state_machine_executions,
     clear_workspace_interaction, configure_activity_execution_runtime,
@@ -196,7 +202,8 @@ use workspace::{
     delete_binding_connector, delete_model_element, delete_package_relationship,
     delete_repository_diagram, delete_use_case_relationship, diagram_command_manifest,
     diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,
-    export_portable_project_json, fit_diagram_viewport, get_diagram_frame_preference,
+    export_portable_project_json, export_spreadsheet_workbook, fit_diagram_viewport,
+    get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
     initialize_activity_execution, initialize_sequence_execution,
@@ -207,7 +214,8 @@ use workspace::{
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
     preview_activity_execution_runtime, preview_sequence_execution_runtime,
-    preview_spreadsheet_import, preview_state_machine_execution_runtime,
+    preview_spreadsheet_import, preview_spreadsheet_workbook_import,
+    preview_state_machine_execution_runtime,
     queue_state_machine_signal, reconnect_activity_edge, reconnect_bdd_relationship,
     reconnect_binding_connector, reconnect_package_relationship, reconnect_sequence_message,
     reconnect_traceability_relationship, reconnect_use_case_relationship,
@@ -682,6 +690,9 @@ fn main() {
             import_portable_project_json,
             preview_spreadsheet_import,
             apply_spreadsheet_import,
+            preview_spreadsheet_workbook_import,
+            apply_spreadsheet_workbook_import,
+            export_spreadsheet_workbook,
             activity_snapshot,
             activity_execution_snapshot,
             activity_execution_runtime_selection,

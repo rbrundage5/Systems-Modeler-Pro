@@ -1,0 +1,37 @@
+name: pr50-bootstrap
+
+on:
+  push:
+    branches: [agent/pr50-complete-spreadsheet-interchange]
+
+permissions:
+  contents: write
+
+jobs:
+  qualify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr50-complete-spreadsheet-interchange
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all
+      - name: Check desktop
+        run: cargo check -p systems-modeler-desktop
+      - name: Spreadsheet interchange tests
+        run: cargo test -p systems-modeler-desktop spreadsheet_interchange -- --nocapture
+      - name: Desktop lint
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+      - name: Persist formatter and lockfile updates
+        shell: pwsh
+        run: |
+          if (-not (git diff --quiet)) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "PR50: format spreadsheet interchange and update lockfile"
+            git push origin HEAD:agent/pr50-complete-spreadsheet-interchange
+          }

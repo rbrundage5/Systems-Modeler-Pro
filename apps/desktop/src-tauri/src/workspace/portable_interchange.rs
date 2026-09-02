@@ -105,7 +105,7 @@ fn sorted_project(project: &Project) -> PortableSemanticProjectV1 {
     }
 }
 
-fn portable_from_states(
+pub(super) fn portable_from_states(
     workspace: &WorkspaceState,
     activity: &ActivityWorkspaceState,
 ) -> Result<PortableProjectV1, String> {
@@ -211,7 +211,7 @@ fn portable_from_states(
 }
 
 impl PortableProjectV1 {
-    fn into_build_plan(self) -> Result<ModelBuildPlan, String> {
+    pub(super) fn into_build_plan(self) -> Result<ModelBuildPlan, String> {
         if self.schema != PORTABLE_SCHEMA {
             return Err(format!("unsupported portable schema: {}", self.schema));
         }
@@ -408,7 +408,7 @@ impl PortableAuthoredStateV1 {
     }
 }
 
-fn export_from_states(
+pub(super) fn export_from_states(
     workspace: &WorkspaceState,
     activity: &ActivityWorkspaceState,
 ) -> Result<String, String> {
@@ -416,7 +416,7 @@ fn export_from_states(
     serde_json::to_string_pretty(&portable).map_err(|error| error.to_string())
 }
 
-fn import_into_states(
+pub(super) fn import_into_states(
     json: &str,
     workspace: &WorkspaceState,
     activity: &ActivityWorkspaceState,
