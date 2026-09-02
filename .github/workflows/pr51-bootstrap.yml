@@ -29,9 +29,6 @@ jobs:
           rust = Path('apps/desktop/src-tauri/src/workspace/model_script.rs')
           text = rust.read_text(encoding='utf-8')
 
-          # The diagnostic is an intentionally rich, serialized error payload on a
-          # cold error path. Keep its stable frontend shape instead of boxing fields
-          # solely to satisfy Clippy's Result-size heuristic.
           lint = '#![allow(clippy::result_large_err)] // Serialized PR51 diagnostics intentionally retain rich context.\n\n'
           anchor = '//! mutation directly.\n\n'
           if lint not in text:
@@ -39,7 +36,6 @@ jobs:
                   raise SystemExit('model-script module-doc anchor not found')
               text = text.replace(anchor, anchor + lint, 1)
 
-          # Remove an unused helper superseded by the unified script reference path.
           start = text.find('\nfn behavior_semantic_id(')
           if start >= 0:
               end = text.find('\nfn presentation_family(', start)
@@ -47,14 +43,11 @@ jobs:
                   raise SystemExit('behavior_semantic_id end anchor not found')
               text = text[:start] + text[end:]
 
-          # Project::children already returns an iterator.
           text = text.replace(
               '.children(scope)\n        .into_iter()\n        .filter(',
               '.children(scope)\n        .filter(',
           )
 
-          # Qualification tests are nested under model_script::tests, so workspace
-          # siblings are two parent modules away.
           marker = '// PR51_REPRESENTATIVE_QUALIFICATION'
           if marker not in text:
               raise SystemExit('representative qualification marker not found')
@@ -71,8 +64,6 @@ jobs:
               tail = tail.replace(old, new)
           rust.write_text(head + marker + tail, encoding='utf-8')
 
-          # Preserve the frontend authority ratchet: PR51 is a thin adapter inside
-          # the existing UI shell, not a new JavaScript controller subsystem.
           model_script_ui = Path('apps/desktop/frontend/model-script-ui.js')
           ui_shell = Path('apps/desktop/frontend/ui-shell.js')
           adapter = model_script_ui.read_text(encoding='utf-8').strip()
@@ -81,6 +72,7 @@ jobs:
           if sentinel not in shell:
               shell = shell.rstrip() + '\n\n' + sentinel + '\n' + adapter + '\n'
               ui_shell.write_text(shell, encoding='utf-8')
+          model_script_ui.unlink()
 
           index = Path('apps/desktop/frontend/index.html')
           html = index.read_text(encoding='utf-8')
@@ -100,9 +92,9 @@ jobs:
       - name: Publish coherent PR51 branch and remove temporary machinery
         shell: pwsh
         run: |
-          git rm .github/workflows/pr51-bootstrap.yml scripts/pr51_finalize.py apps/desktop/frontend/model-script-ui.js
+          git rm .github/workflows/pr51-bootstrap.yml scripts/pr51_finalize.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add apps/desktop/frontend/index.html apps/desktop/frontend/ui-shell.js apps/desktop/src-tauri/src/workspace/model_script.rs examples/model-script/vehicle-model.groovy
+          git add -A
           git commit -m 'PR51: complete and qualify Groovy model-script automation'
           git push origin HEAD:agent/pr51-complete-groovy-automation
