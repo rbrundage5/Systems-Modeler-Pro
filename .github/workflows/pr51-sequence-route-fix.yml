@@ -21,8 +21,10 @@ jobs:
         with:
           components: rustfmt,clippy
 
-      - name: Apply deterministic repair
-        run: python scripts/pr51_repair.py
+      - name: Apply deterministic presentation repairs
+        run: |
+          python scripts/pr51_repair.py
+          python scripts/pr51_routing_repair.py
 
       - name: Verify formatting
         run: |
@@ -49,9 +51,9 @@ jobs:
       - name: Publish qualified repair
         shell: pwsh
         run: |
-          git rm .github/workflows/pr51-sequence-route-fix.yml scripts/pr51_repair.py
+          git rm .github/workflows/pr51-sequence-route-fix.yml scripts/pr51_repair.py scripts/pr51_routing_repair.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'PR51: preserve native connector and sequence presentation semantics'
+          git commit -m 'PR51: preserve native generated presentation semantics'
           git push origin HEAD:agent/pr51-complete-groovy-automation
