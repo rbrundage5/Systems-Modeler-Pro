@@ -42,6 +42,11 @@ jobs:
               if end < 0:
                   raise SystemExit('behavior_semantic_id end anchor not found')
               text = text[:start] + text[end:]
+          text = text.replace(
+              '    BehaviorSemanticId, InteractionOperator, MessageSort, PseudostateKind, TransitionKind,\n',
+              '    InteractionOperator, MessageSort, PseudostateKind, TransitionKind,\n',
+              1,
+          )
 
           text = text.replace(
               '.children(scope)\n        .into_iter()\n        .filter(',
