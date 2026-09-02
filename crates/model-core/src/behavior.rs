@@ -44,6 +44,13 @@ pub enum BehaviorSemanticId {
     Region(RegionId),
     Vertex(VertexId),
     Transition(TransitionId),
+    Lifeline(LifelineId),
+    Occurrence(OccurrenceId),
+    Message(MessageId),
+    Execution(ExecutionId),
+    Fragment(FragmentId),
+    Operand(OperandId),
+    Invariant(InvariantId),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -419,6 +426,35 @@ impl BehaviorRepository {
         self.state_machines
             .values()
             .any(|machine| region_contains(&machine.regions, identity))
+            || self.interactions.values().any(|interaction| {
+                interaction
+                    .lifelines
+                    .iter()
+                    .any(|record| identity == BehaviorSemanticId::Lifeline(record.id))
+                    || interaction.messages.iter().any(|record| {
+                        identity == BehaviorSemanticId::Message(record.id)
+                            || record.send_event.as_ref().is_some_and(|occurrence| {
+                                identity == BehaviorSemanticId::Occurrence(occurrence.id)
+                            })
+                            || record.receive_event.as_ref().is_some_and(|occurrence| {
+                                identity == BehaviorSemanticId::Occurrence(occurrence.id)
+                            })
+                    })
+                    || interaction.executions.iter().any(|record| {
+                        identity == BehaviorSemanticId::Execution(record.id)
+                            || identity == BehaviorSemanticId::Occurrence(record.start.id)
+                            || identity == BehaviorSemanticId::Occurrence(record.finish.id)
+                    })
+                    || interaction.fragments.iter().any(|record| {
+                        identity == BehaviorSemanticId::Fragment(record.id)
+                            || record.operands.iter().any(|operand| {
+                                identity == BehaviorSemanticId::Operand(operand.id)
+                            })
+                    })
+                    || interaction.state_invariants.iter().any(|record| {
+                        identity == BehaviorSemanticId::Invariant(record.id)
+                    })
+            })
     }
 
     fn validate_external_identities(&self) -> Result<(), BehaviorError> {

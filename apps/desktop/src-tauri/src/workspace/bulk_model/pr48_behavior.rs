@@ -1598,6 +1598,7 @@ fn machine_for_behavior_identity(
                 }
                 has(&machine.regions, id)
             }
+            _ => false,
         };
         found.then_some(machine.id)
     })
@@ -2024,7 +2025,10 @@ fn apply_state_machine_operation(
 fn is_behavior_operation(operation: &ModelBuildOperation) -> bool {
     matches!(
         operation,
-        ModelBuildOperation::Activity { .. } | ModelBuildOperation::StateMachine { .. }
+        ModelBuildOperation::Activity { .. }
+            | ModelBuildOperation::StateMachine { .. }
+            | ModelBuildOperation::Sequence { .. }
+            | ModelBuildOperation::Parametric { .. }
     )
 }
 
@@ -2098,7 +2102,7 @@ fn build_unified_candidate(
         return Err(error(
             "BUILD_ORDER_INVALID",
             None,
-            "PR48 unified plans require ordinary Project operations before Activity/State Machine repository operations",
+            "unified plans require ordinary Project operations before specialized repository operations",
         ));
     }
     let project_plan = ModelBuildPlan {
@@ -2106,12 +2110,13 @@ fn build_unified_candidate(
         operations: plan.operations[..first_behavior].to_vec(),
     };
     let CandidateBuild {
-        project,
+        mut project,
         diagrams,
-        result,
+        mut result,
     } = build_candidate(&project_plan, project, diagrams)?;
     let mut activities = activities;
     let mut behavior = behavior;
+    let mut sequence_state = SequenceBuildState::from_repository(&behavior)?;
     let namespace = plan.source_namespace.trim();
     for (index, operation) in plan.operations[first_behavior..].iter().enumerate() {
         let absolute = first_behavior + index;
@@ -2134,6 +2139,23 @@ fn build_unified_candidate(
                 namespace,
                 absolute,
             )?,
+            ModelBuildOperation::Sequence { operation } => apply_sequence_operation(
+                operation,
+                &project,
+                &result.element_ids,
+                &mut behavior,
+                &mut sequence_state,
+                namespace,
+                absolute,
+            )?,
+            ModelBuildOperation::Parametric { operation } => apply_parametric_operation(
+                operation,
+                &mut project,
+                &result.element_ids,
+                &mut result.relationship_ids,
+                namespace,
+                absolute,
+            )?,
             _ => unreachable!(),
         }
     }
@@ -2143,9 +2165,77 @@ fn build_unified_candidate(
     activities
         .validate(&project)
         .map_err(|cause| error("ACTIVITY_SEMANTIC_VALIDATION", None, cause.to_string()))?;
-    behavior
+    // Preserve PR48's state-machine diagnostic contract while validating the
+    // expanded PR49 behavior repository. Sequence-only identities are removed
+    // from this state-machine projection, then the complete repository is
+    // validated immediately afterward for native Sequence semantics.
+    let mut state_machine_behavior = behavior.clone();
+    state_machine_behavior.interactions.clear();
+    state_machine_behavior.external_ids.retain(|_, identity| {
+        matches!(
+            identity,
+            BehaviorSemanticId::Region(_)
+                | BehaviorSemanticId::Vertex(_)
+                | BehaviorSemanticId::Transition(_)
+        )
+    });
+    state_machine_behavior
         .validate(&project)
         .map_err(|cause| error("STATE_MACHINE_SEMANTIC_VALIDATION", None, cause.to_string()))?;
+    // Preserve PR48's state-machine diagnostic contract while validating the
+    // expanded PR49 behavior repository. Sequence-only identities are removed
+    // from this state-machine projection, then the complete repository is
+    // validated immediately afterward for native Sequence semantics.
+    let mut state_machine_behavior = behavior.clone();
+    state_machine_behavior.interactions.clear();
+    state_machine_behavior.external_ids.retain(|_, identity| {
+        matches!(
+            identity,
+            BehaviorSemanticId::Region(_)
+                | BehaviorSemanticId::Vertex(_)
+                | BehaviorSemanticId::Transition(_)
+        )
+    });
+    state_machine_behavior
+        .validate(&project)
+        .map_err(|cause| error("STATE_MACHINE_SEMANTIC_VALIDATION", None, cause.to_string()))?;
+    // Preserve PR48's state-machine diagnostic contract while validating the
+    // expanded PR49 behavior repository. Sequence-only identities are removed
+    // from this state-machine projection, then the complete repository is
+    // validated immediately afterward for native Sequence semantics.
+    let mut state_machine_behavior = behavior.clone();
+    state_machine_behavior.interactions.clear();
+    state_machine_behavior.external_ids.retain(|_, identity| {
+        matches!(
+            identity,
+            BehaviorSemanticId::Region(_)
+                | BehaviorSemanticId::Vertex(_)
+                | BehaviorSemanticId::Transition(_)
+        )
+    });
+    state_machine_behavior
+        .validate(&project)
+        .map_err(|cause| error("STATE_MACHINE_SEMANTIC_VALIDATION", None, cause.to_string()))?;
+    // Preserve PR48's state-machine diagnostic contract while validating the
+    // expanded PR49 behavior repository. Sequence-only identities are removed
+    // from this state-machine projection, then the complete repository is
+    // validated immediately afterward for native Sequence semantics.
+    let mut state_machine_behavior = behavior.clone();
+    state_machine_behavior.interactions.clear();
+    state_machine_behavior.external_ids.retain(|_, identity| {
+        matches!(
+            identity,
+            BehaviorSemanticId::Region(_)
+                | BehaviorSemanticId::Vertex(_)
+                | BehaviorSemanticId::Transition(_)
+        )
+    });
+    state_machine_behavior
+        .validate(&project)
+        .map_err(|cause| error("STATE_MACHINE_SEMANTIC_VALIDATION", None, cause.to_string()))?;
+    behavior
+        .validate(&project)
+        .map_err(|cause| error("BEHAVIOR_SEMANTIC_VALIDATION", None, cause.to_string()))?;
     activity_workspace::validate_activity_diagrams(&activities, activity_diagrams)
         .map_err(|cause| error("PRESENTATION_VALIDATION", None, cause))?;
     behavior_workspace::validate_behavior_workspace(&project, &behavior, behavior_diagrams)
