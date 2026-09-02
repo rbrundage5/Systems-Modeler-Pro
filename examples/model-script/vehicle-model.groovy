@@ -54,8 +54,9 @@ modelScript('''
     {"op":"lifeline","external_id":"LL_CTRL","interaction":"handle:INT_STARTUP","name":"controller","represented_path":["handle:CONTROLLER"]},
     {"op":"occurrence","external_id":"OCC_SEND","interaction":"handle:INT_STARTUP","lifeline":"handle:LL_BAT","order":1},
     {"op":"occurrence","external_id":"OCC_RECV","interaction":"handle:INT_STARTUP","lifeline":"handle:LL_CTRL","order":2},
+    {"op":"occurrence","external_id":"OCC_FINISH","interaction":"handle:INT_STARTUP","lifeline":"handle:LL_CTRL","order":3},
     {"op":"message","external_id":"MSG_START","interaction":"handle:INT_STARTUP","name":"start","sort":"SynchCall","send":"handle:OCC_SEND","receive":"handle:OCC_RECV","signature":{"kind":"operation","operation":"handle:OP_START"},"arguments":["mode=1"]},
-    {"op":"execution","external_id":"EXEC_START","interaction":"handle:INT_STARTUP","lifeline":"handle:LL_CTRL","start":"handle:OCC_RECV","finish":"handle:OCC_RECV","behavior":"handle:OP_START"},
+    {"op":"execution","external_id":"EXEC_START","interaction":"handle:INT_STARTUP","lifeline":"handle:LL_CTRL","start":"handle:OCC_RECV","finish":"handle:OCC_FINISH","behavior":"handle:OP_START"},
 
     {"op":"parametric_metadata","element":"handle:CB_FORCE","constraint_expression":"m = 1","quantity_dimension":"M","unit_symbol":"kg","unit_scale_to_base":1.0},
     {"op":"binding","external_id":"BIND","name":"massBinding","owner":"handle:VEH","source":{"role":"handle:MASS"},"target":{"role":"handle:FORCE_EQ","parameter":"handle:CP_M"}}
