@@ -1,0 +1,63 @@
+name: PR52 ReqIF final completion
+
+'on':
+  push:
+    branches:
+      - agent/pr52-complete-reqif-interchange
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-reqif:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr52-complete-reqif-interchange
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate finalizer syntax
+        run: python -m py_compile scripts/pr53_finalize.py
+
+      - name: Apply final ReqIF completion
+        run: python scripts/pr53_finalize.py
+
+      - name: Format
+        run: cargo fmt --all
+
+      - name: ReqIF frontend syntax
+        run: node --check apps/desktop/frontend/reqif-ui.js
+
+      - name: ReqIF integration contract
+        run: python scripts/validate_reqif_interchange.py
+
+      - name: ReqIF parser tests
+        run: 'cargo test -p systems-modeler-desktop workspace::reqif_interchange::tests:: -- --nocapture'
+
+      - name: ReqIF runtime and completion tests
+        run: 'cargo test -p systems-modeler-desktop workspace::reqif_runtime:: -- --nocapture'
+
+      - name: Desktop compile check
+        run: cargo check -p systems-modeler-desktop
+
+      - name: Desktop clippy
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+
+      - name: Publish completed ReqIF implementation
+        shell: pwsh
+        run: |
+          git rm .github/workflows/pr53-finalize.yml scripts/pr53_finalize.py scripts/pr53_trigger.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'PR52: complete and qualify ReqIF interchange'
+          git push origin HEAD:agent/pr52-complete-reqif-interchange
