@@ -482,7 +482,7 @@ pub(super) mod tests {
         }
     }
 
-    pub(super) fn representative_states() -> (WorkspaceState, ActivityWorkspaceState) {
+    pub(crate) fn representative_states() -> (WorkspaceState, ActivityWorkspaceState) {
         let workspace = WorkspaceState::default();
         let activity_state = ActivityWorkspaceState::default();
         let mut project = Project::new("Round Trip Example");
