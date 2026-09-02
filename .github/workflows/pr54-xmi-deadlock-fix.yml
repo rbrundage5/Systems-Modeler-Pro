@@ -1,9 +1,8 @@
 name: PR53 embedded XMI deadlock repair
 
-'on':
+on:
   push:
-    branches:
-      - agent/pr53-profiles-xmi-semantic
+    branches: [agent/pr53-profiles-xmi-semantic]
     paths:
       - .github/workflows/pr54-xmi-deadlock-fix.yml
       - scripts/pr54_fix_xmi_deadlock.py
@@ -13,37 +12,30 @@ permissions:
 
 jobs:
   repair-xmi-deadlock:
-    runs-on: windows-2025
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/pr53-profiles-xmi-semantic
           fetch-depth: 0
-
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt,clippy
-
+          components: rustfmt, clippy
       - name: Apply lock-lifetime fix and regression watchdog
         run: python scripts/pr54_fix_xmi_deadlock.py
-
       - name: Format
         run: cargo fmt --all -- --check
-
       - name: Affected XMI desktop tests with output
         run: cargo test -p systems-modeler-desktop workspace::xmi_runtime::tests:: -- --nocapture
-
       - name: Full desktop test suite
         run: cargo test -p systems-modeler-desktop -- --nocapture
-
       - name: Desktop Clippy
         run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
-
       - name: Publish repaired runtime
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add apps/desktop/src-tauri/src/workspace/xmi_runtime.rs
-          git commit -m 'PR53: fix embedded XMI lock reentry'
+          git commit -m 'PR53: fix embedded XMI lock reentry [skip ci]'
           git push origin HEAD:agent/pr53-profiles-xmi-semantic
