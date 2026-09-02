@@ -61,6 +61,7 @@ jobs:
           done
           node --check apps/desktop/frontend/shared-dialogs.js
           node --check apps/desktop/frontend/shared-workspace.js
+          node --check apps/desktop/frontend/spreadsheet-interchange-ui.js
       - name: Behavior desktop integration contract
         run: python scripts/validate_behavior_integration.py
       - name: Activity desktop integration contract

@@ -12,7 +12,7 @@ use super::{
     },
 };
 use calamine::{Reader, open_workbook_auto};
-use rust_xlsxwriter::{Format, FormatAlign, FormatColor, Workbook};
+use rust_xlsxwriter::{Color, Format, FormatAlign, Workbook};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use systems_modeler_core::{Element, ElementKind, Project, Relationship, RelationshipKind};
@@ -73,8 +73,8 @@ impl SpreadsheetInterchangePreview {
 fn header_format() -> Format {
     Format::new()
         .set_bold()
-        .set_font_color(FormatColor::White)
-        .set_background_color(FormatColor::RGB(0x1F4E78))
+        .set_font_color(Color::White)
+        .set_background_color(Color::RGB(0x1F4E78))
         .set_align(FormatAlign::Center)
 }
 
@@ -107,7 +107,9 @@ fn write_rows(
     worksheet
         .autofilter(0, 0, rows.len() as u32, headers.len().saturating_sub(1) as u16)
         .map_err(|error| error.to_string())?;
-    worksheet.freeze_panes(1, 0).map_err(|error| error.to_string())?;
+    worksheet
+        .set_freeze_panes(1, 0)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -691,4 +693,189 @@ pub fn apply_spreadsheet_workbook_import(
     activity: tauri::State<'_, ActivityWorkspaceState>,
 ) -> SpreadsheetInterchangePreview {
     apply_workbook_import(&path, policy, &workspace, &activity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace::{
+        portable_interchange::tests::representative_states,
+        spreadsheet_import::{
+            SpreadsheetColumnMapping, SpreadsheetIdentificationProperty, SpreadsheetImportMap,
+            SpreadsheetImportMapGroup, SpreadsheetSearchScope, SpreadsheetSemanticProperty,
+            apply_spreadsheet_import_group, preview_spreadsheet_import_group,
+        },
+    };
+
+    fn workbook_path(label: &str) -> String {
+        std::env::temp_dir()
+            .join(format!("systems-modeler-{label}-{}.xlsx", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn workbook_cells(path: &str) -> BTreeMap<String, Vec<Vec<String>>> {
+        let mut workbook = open_workbook_auto(path).unwrap();
+        let mut sheets = BTreeMap::new();
+        let names = workbook.sheet_names().to_vec();
+        for name in names {
+            let rows = workbook
+                .worksheet_range(&name)
+                .unwrap()
+                .rows()
+                .map(|row| row.iter().map(ToString::to_string).collect())
+                .collect();
+            sheets.insert(name, rows);
+        }
+        sheets
+    }
+
+    #[test]
+    fn systems_modeler_xlsx_round_trip_preserves_all_nine_authored_families() {
+        let (source, source_activity) = representative_states();
+        let path = workbook_path("round-trip");
+        export_workbook_to_path(
+            &path,
+            SpreadsheetExportProfile::SystemsModeler,
+            &source,
+            &source_activity,
+        )
+        .unwrap();
+
+        let target = WorkspaceState::default();
+        let target_activity = ActivityWorkspaceState::default();
+        let preview = preview_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::Additive,
+            &target,
+            &target_activity,
+        );
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert!(preview.items.iter().any(|item| {
+            item.kind == "Diagram" && item.action == SpreadsheetInterchangeAction::Create
+        }));
+        let applied = apply_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::Additive,
+            &target,
+            &target_activity,
+        );
+        assert!(applied.applied, "{:?}", applied.diagnostics);
+        assert_eq!(
+            export_from_states(&source, &source_activity).unwrap(),
+            export_from_states(&target, &target_activity).unwrap()
+        );
+        let second = preview_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::Additive,
+            &target,
+            &target_activity,
+        );
+        assert_eq!(second.items.len(), 1);
+        assert_eq!(second.items[0].action, SpreadsheetInterchangeAction::NoChange);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn repeated_export_has_deterministic_workbook_content() {
+        let (workspace, activity) = representative_states();
+        let first = workbook_path("deterministic-a");
+        let second = workbook_path("deterministic-b");
+        export_workbook_to_path(
+            &first,
+            SpreadsheetExportProfile::SystemsModeler,
+            &workspace,
+            &activity,
+        )
+        .unwrap();
+        export_workbook_to_path(
+            &second,
+            SpreadsheetExportProfile::SystemsModeler,
+            &workspace,
+            &activity,
+        )
+        .unwrap();
+        assert_eq!(workbook_cells(&first), workbook_cells(&second));
+        std::fs::remove_file(first).unwrap();
+        std::fs::remove_file(second).unwrap();
+    }
+
+    #[test]
+    fn catia_semantic_profile_round_trips_through_mapping_importer() {
+        let (workspace, activity) = representative_states();
+        let path = workbook_path("catia-semantic");
+        export_workbook_to_path(
+            &path,
+            SpreadsheetExportProfile::CatiaSemantic,
+            &workspace,
+            &activity,
+        )
+        .unwrap();
+        let sheets = workbook_cells(&path);
+        assert!(sheets.contains_key("Requirements"));
+        assert!(!sheets.contains_key(STATE_SHEET));
+
+        let target = WorkspaceState::default();
+        let root = {
+            let mut guard = target.project.lock().unwrap();
+            let project = Project::new("CATIA semantic target");
+            let root = project.root_id;
+            *guard = Some(project);
+            root
+        };
+        let group = SpreadsheetImportMapGroup {
+            mappings: vec![SpreadsheetImportMap {
+                name: "Exported requirements".into(),
+                source: path.clone(),
+                worksheet: Some("Requirements".into()),
+                header_row: 1,
+                element_kind: ElementKind::Requirement,
+                relationship_kind: None,
+                relationship_identity: Default::default(),
+                target_scope: root,
+                identification_property: SpreadsheetIdentificationProperty::ExternalId,
+                search_scope: SpreadsheetSearchScope::TargetRecursive,
+                source_namespace: "catia-export-qualification".into(),
+                mapping_version: "1".into(),
+                column_mappings: vec![
+                    SpreadsheetColumnMapping {
+                        source_column: "External ID".into(),
+                        property: SpreadsheetSemanticProperty::ExternalId,
+                    },
+                    SpreadsheetColumnMapping {
+                        source_column: "Name".into(),
+                        property: SpreadsheetSemanticProperty::Name,
+                    },
+                ],
+            }],
+        };
+        let preview = preview_spreadsheet_import_group(&group, &target);
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert!(preview.totals.create > 0);
+        apply_spreadsheet_import_group(&group, &target).unwrap();
+        assert!(target
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .elements
+            .values()
+            .any(|element| element.kind == ElementKind::Requirement));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn invalid_workbook_preview_is_non_mutating() {
+        let (workspace, activity) = representative_states();
+        let before = export_from_states(&workspace, &activity).unwrap();
+        let preview = preview_workbook_import(
+            "missing-workbook.xlsx",
+            SpreadsheetSynchronizationPolicy::AuthoritativeMappedScope,
+            &workspace,
+            &activity,
+        );
+        assert!(!preview.is_valid());
+        assert_eq!(before, export_from_states(&workspace, &activity).unwrap());
+    }
 }

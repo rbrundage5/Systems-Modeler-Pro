@@ -452,7 +452,7 @@ pub fn import_portable_project_json(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::workspace::{DiagramEdge, DiagramNode, DiagramPoint};
     use systems_modeler_core::behavior::{
@@ -482,7 +482,7 @@ mod tests {
         }
     }
 
-    fn representative_states() -> (WorkspaceState, ActivityWorkspaceState) {
+    pub(super) fn representative_states() -> (WorkspaceState, ActivityWorkspaceState) {
         let workspace = WorkspaceState::default();
         let activity_state = ActivityWorkspaceState::default();
         let mut project = Project::new("Round Trip Example");

@@ -17,7 +17,11 @@
         <button class="ribbon-command" data-forward="open-project"><span class="command-icon">▱</span><span>Open</span></button>
         <button class="ribbon-command" data-forward="save-project"><span class="command-icon">▣</span><span>Save</span></button>
         <button class="ribbon-command" data-forward="save-project-as"><span class="command-icon">▣</span><span>Save As</span></button>
-      </div><div class="ribbon-label">Project</div></section>${historyGroup}`,
+      </div><div class="ribbon-label">Project</div></section>
+      <section class="ribbon-group"><div class="ribbon-actions ribbon-large-actions">
+        <button class="ribbon-command" data-action="import-spreadsheet"><span class="command-icon">⇩</span><span>Import<br>Spreadsheet</span></button>
+        <button class="ribbon-command" data-action="export-spreadsheet"><span class="command-icon">⇧</span><span>Export<br>XLSX</span></button>
+      </div><div class="ribbon-label">Spreadsheet Interchange</div></section>${historyGroup}`,
     Home: `
       <section class="ribbon-group"><div class="ribbon-actions">
         <button class="ribbon-command" data-forward="new-package"><span class="command-icon">□</span><span>Package</span></button>
@@ -87,6 +91,12 @@
     });
     ribbon.querySelectorAll('[data-action="new-activity"]').forEach((button) => {
       button.addEventListener('click', () => window.smpCreateActivityForSelection?.());
+    });
+    ribbon.querySelectorAll('[data-action="import-spreadsheet"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpSpreadsheetInterchange?.openImport());
+    });
+    ribbon.querySelectorAll('[data-action="export-spreadsheet"]').forEach((button) => {
+      button.addEventListener('click', () => window.smpSpreadsheetInterchange?.openExport());
     });
     ribbon.querySelectorAll('[data-command]').forEach((button) => {
       button.addEventListener('click', async () => { await window.smpRendererHost?.execute(button.dataset.command); syncPanelToggles(); });
