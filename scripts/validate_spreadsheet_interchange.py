@@ -4,9 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUST = (ROOT / "apps/desktop/src-tauri/src/workspace/spreadsheet_interchange.rs").read_text()
 MAIN = (ROOT / "apps/desktop/src-tauri/src/main.rs").read_text()
-UI = (ROOT / "apps/desktop/frontend/spreadsheet-interchange-ui.js").read_text()
 SHELL = (ROOT / "apps/desktop/frontend/ui-shell.js").read_text()
-INDEX = (ROOT / "apps/desktop/frontend/index.html").read_text()
+UI = SHELL
 
 
 COMMANDS = {
@@ -49,6 +48,6 @@ for workflow_text in (
 
 assert "data-action=\"import-spreadsheet\"" in SHELL
 assert "data-action=\"export-spreadsheet\"" in SHELL
-assert '<script src="spreadsheet-interchange-ui.js"></script>' in INDEX
+assert "smpSpreadsheetInterchange" in SHELL
 
 print("Spreadsheet interchange desktop integration contract is complete.")
