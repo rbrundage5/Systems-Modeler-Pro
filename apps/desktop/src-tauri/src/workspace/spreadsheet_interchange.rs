@@ -20,6 +20,8 @@ use systems_modeler_core::{Element, ElementKind, Project, Relationship, Relation
 const STATE_SHEET: &str = "SystemsModelerState";
 const MANIFEST_SHEET: &str = "Manifest";
 const STATE_CHUNK_SIZE: usize = 30_000;
+type SpreadsheetRows = Vec<Vec<String>>;
+type DiagramRows = (SpreadsheetRows, SpreadsheetRows, SpreadsheetRows);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -448,7 +450,7 @@ fn diagram_rows(
     ibd: &[IbdDiagram],
     activity: &[ActivityDiagram],
     behavior: &[BehaviorDiagram],
-) -> Result<(Vec<Vec<String>>, Vec<Vec<String>>, Vec<Vec<String>>), String> {
+) -> Result<DiagramRows, String> {
     let mut diagrams = Vec::new();
     let mut presentations = Vec::new();
     let mut relationships = Vec::new();
@@ -527,9 +529,17 @@ fn read_extended_workbook(path: &str) -> Result<(BTreeMap<String, String>, Porta
         return Err("workbook is not a Systems-Modeler extended workbook".into());
     }
     let state_range = workbook.worksheet_range(STATE_SHEET).map_err(|error| format!("{STATE_SHEET} sheet is required: {error}"))?;
-    let mut parts = state_range.rows().skip(1).filter_map(|row| {
-        (row.len() >= 2).then(|| (row[0].to_string().parse::<usize>().unwrap_or(usize::MAX), row[1].to_string()))
-    }).collect::<Vec<_>>();
+    let mut parts = state_range
+        .rows()
+        .skip(1)
+        .filter(|row| row.len() >= 2)
+        .map(|row| {
+            (
+                row[0].to_string().parse::<usize>().unwrap_or(usize::MAX),
+                row[1].to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
     parts.sort_by_key(|(index, _)| *index);
     if parts.is_empty() || parts.iter().any(|(index, _)| *index == usize::MAX) {
         return Err("SystemsModelerState chunks are missing or invalid".into());
