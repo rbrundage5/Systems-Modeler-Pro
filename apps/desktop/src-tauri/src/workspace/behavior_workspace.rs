@@ -1364,8 +1364,8 @@ fn sequence_obstacles(
         .collect::<Vec<_>>();
     obstacles.extend(interaction.executions.iter().filter_map(|execution| {
         let x = lifeline_x(diagram, execution.lifeline_id)?;
-        let top = 110.0 + f64::from(execution.start.order) * 4.0;
-        let bottom = 110.0 + f64::from(execution.finish.order) * 4.0;
+        let top = 130.0 + f64::from(execution.start.order) * 4.0;
+        let bottom = 130.0 + f64::from(execution.finish.order) * 4.0;
         Some((
             Some(execution.lifeline_id),
             super::routing::RouteRect {
@@ -1411,7 +1411,10 @@ fn sequence_routes(
             .as_ref()
             .or(message.receive_event.as_ref())
             .map_or((index as u32 + 1) * 10, |event| event.order);
-        let y = 110.0 + f64::from(order) * 4.0;
+        // Keep the earliest message below the lifeline header plus the shared
+        // routing clearance so Route/Clean Layout cannot generate geometry
+        // that the obstacle-safe router must immediately reject.
+        let y = 130.0 + f64::from(order) * 4.0;
         let mut obstacles: Vec<_> = presentation_obstacles
             .iter()
             .filter(|(owner, _)| {
