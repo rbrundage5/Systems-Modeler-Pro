@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   finalize-pr51:
-    runs-on: ubuntu-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +28,7 @@ jobs:
       - name: Focused PR51 Clippy
         run: cargo clippy -p systems-modeler-desktop -- -D warnings
       - name: Publish coherent PR51 branch and remove temporary machinery
-        shell: bash
+        shell: pwsh
         run: |
           git rm .github/workflows/pr51-bootstrap.yml scripts/pr51_finalize.py
           git config user.name 'github-actions[bot]'
