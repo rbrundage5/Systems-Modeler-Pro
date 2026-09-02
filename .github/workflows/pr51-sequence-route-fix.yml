@@ -41,7 +41,8 @@ jobs:
       - name: Format Rust
         run: cargo fmt --all
       - name: Run PR51 model-script tests
-        run: cargo test -p systems-modeler-desktop workspace::model_script::tests::
+        run: |
+          cargo test -p systems-modeler-desktop workspace::model_script::tests::
       - name: Publish repair and remove temporary workflow
         shell: pwsh
         run: |
