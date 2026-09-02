@@ -28,10 +28,10 @@ jobs:
         run: cargo fmt --all
 
       - name: Focused ReqIF parser tests
-        run: cargo test -p systems-modeler-desktop workspace::reqif_interchange::tests:: -- --nocapture
+        run: 'cargo test -p systems-modeler-desktop workspace::reqif_interchange::tests:: -- --nocapture'
 
       - name: Focused ReqIF runtime tests
-        run: cargo test -p systems-modeler-desktop workspace::reqif_runtime::tests:: -- --nocapture
+        run: 'cargo test -p systems-modeler-desktop workspace::reqif_runtime::tests:: -- --nocapture'
 
       - name: Desktop compile check
         run: cargo check -p systems-modeler-desktop
