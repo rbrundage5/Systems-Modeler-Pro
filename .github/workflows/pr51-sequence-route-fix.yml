@@ -30,7 +30,7 @@ jobs:
           cargo fmt --all -- --check
 
       - name: Run focused PR51 qualification
-        run: cargo test -p systems-modeler-desktop workspace::model_script::tests::
+        run: 'cargo test -p systems-modeler-desktop workspace::model_script::tests::'
 
       - name: Run complete desktop regression suite
         run: cargo test -p systems-modeler-desktop
