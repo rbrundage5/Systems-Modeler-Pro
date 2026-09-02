@@ -488,9 +488,9 @@ fn child_element<'a, 'input>(
 fn first_ref(node: roxmltree::Node<'_, '_>, wrapper: &str) -> Option<String> {
     child_element(node, wrapper)
         .and_then(|container| {
-            container.descendants().find(|child| {
-                child.is_element() && child.tag_name().name().ends_with("-REF")
-            })
+            container
+                .descendants()
+                .find(|child| child.is_element() && child.tag_name().name().ends_with("-REF"))
         })
         .and_then(|reference| reference.text())
         .map(str::trim)
@@ -499,11 +499,17 @@ fn first_ref(node: roxmltree::Node<'_, '_>, wrapper: &str) -> Option<String> {
 }
 
 fn node_identifier(node: roxmltree::Node<'_, '_>) -> String {
-    node.attribute("IDENTIFIER").unwrap_or_default().trim().to_owned()
+    node.attribute("IDENTIFIER")
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
 }
 
 fn node_long_name(node: roxmltree::Node<'_, '_>) -> String {
-    node.attribute("LONG-NAME").unwrap_or_default().trim().to_owned()
+    node.attribute("LONG-NAME")
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
 }
 
 fn parse_datatype(node: roxmltree::Node<'_, '_>) -> Option<ReqifDatatype> {
@@ -528,9 +534,7 @@ fn parse_datatype(node: roxmltree::Node<'_, '_>) -> Option<ReqifDatatype> {
     })
 }
 
-fn parse_attribute_definition(
-    node: roxmltree::Node<'_, '_>,
-) -> Option<ReqifAttributeDefinition> {
+fn parse_attribute_definition(node: roxmltree::Node<'_, '_>) -> Option<ReqifAttributeDefinition> {
     let kind = reqif_kind_from_tag(node.tag_name().name())?;
     let datatype_identifier = first_ref(node, "TYPE");
     let multi_valued = node
@@ -604,9 +608,7 @@ fn parse_attribute_value(
         ReqifDatatypeKind::Date => ReqifValue::Date(scalar.into()),
         ReqifDatatypeKind::Enumeration => ReqifValue::Enumeration(
             node.descendants()
-                .filter(|child| {
-                    child.is_element() && child.tag_name().name() == "ENUM-VALUE-REF"
-                })
+                .filter(|child| child.is_element() && child.tag_name().name() == "ENUM-VALUE-REF")
                 .filter_map(|child| child.text())
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -630,7 +632,10 @@ fn parse_attribute_value(
     }))
 }
 
-fn parse_values(node: roxmltree::Node<'_, '_>, xml: &str) -> Result<Vec<ReqifAttributeValue>, String> {
+fn parse_values(
+    node: roxmltree::Node<'_, '_>,
+    xml: &str,
+) -> Result<Vec<ReqifAttributeValue>, String> {
     child_element(node, "VALUES")
         .into_iter()
         .flat_map(|container| container.children().filter(|child| child.is_element()))
@@ -700,7 +705,14 @@ pub fn parse_reqif(xml: &str, file: Option<&str>) -> Result<ReqifDocument, Vec<R
 
     let header = direct_section(root, "REQ-IF-HEADER");
     let header_identifier = header.map(node_identifier).unwrap_or_default();
-    let title = header.map(node_long_name).unwrap_or_default();
+    let title = header
+        .and_then(|item| child_element(item, "TITLE"))
+        .and_then(|item| item.text())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| header.map(node_long_name).filter(|value| !value.is_empty()))
+        .unwrap_or_default();
     let creation_time = header
         .and_then(|item| child_element(item, "CREATION-TIME"))
         .and_then(|item| item.text())
@@ -796,7 +808,12 @@ pub fn parse_reqif(xml: &str, file: Option<&str>) -> Result<ReqifDocument, Vec<R
                 parse_values(node, xml),
             );
             match parsed {
-                (Some(type_identifier), Some(source_identifier), Some(target_identifier), Ok(values)) => {
+                (
+                    Some(type_identifier),
+                    Some(source_identifier),
+                    Some(target_identifier),
+                    Ok(values),
+                ) => {
                     spec_relations.push(ReqifSpecRelation {
                         identifier,
                         long_name: node_long_name(node),
@@ -845,7 +862,10 @@ pub fn parse_reqif(xml: &str, file: Option<&str>) -> Result<ReqifDocument, Vec<R
     }
 }
 
-pub fn detected_object_kind(document: &ReqifDocument, type_identifier: &str) -> Option<ElementKind> {
+pub fn detected_object_kind(
+    document: &ReqifDocument,
+    type_identifier: &str,
+) -> Option<ElementKind> {
     let spec_type = document
         .spec_types
         .iter()
@@ -854,9 +874,10 @@ pub fn detected_object_kind(document: &ReqifDocument, type_identifier: &str) -> 
         return None;
     }
     let name = spec_type.long_name.to_ascii_lowercase();
-    if name.contains("test case") || name.contains("testcase") || name.contains("verification case") {
+    if name.contains("test case") || name.contains("testcase") || name.contains("verification case")
+    {
         Some(ElementKind::TestCase)
-    } else if name.contains("requirement") || name.contains("requirement") || name.contains("spec object") {
+    } else if name.contains("requirement") || name.contains("spec object") {
         Some(ElementKind::Requirement)
     } else {
         None
@@ -931,17 +952,22 @@ fn datatype_tag(kind: ReqifDatatypeKind) -> &'static str {
 
 pub fn serialize_reqif(document: &ReqifDocument) -> String {
     let mut out = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<REQ-IF xmlns=\"http://www.omg.org/spec/ReqIF/20110401/reqif.xsd\">\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<REQ-IF xmlns=\"http://www.omg.org/spec/ReqIF/20110401/reqif.xsd\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">\n",
     );
-    out.push_str("  <THE-HEADER><REQ-IF-HEADER");
     out.push_str(&format!(
-        " IDENTIFIER=\"{}\" LONG-NAME=\"{}\">",
-        escape_xml(&document.header_identifier),
-        escape_xml(&document.title)
+        "  <THE-HEADER><REQ-IF-HEADER IDENTIFIER=\"{}\">",
+        escape_xml(&document.header_identifier)
     ));
     if let Some(time) = &document.creation_time {
-        out.push_str(&format!("<CREATION-TIME>{}</CREATION-TIME>", escape_xml(time)));
+        out.push_str(&format!(
+            "<CREATION-TIME>{}</CREATION-TIME>",
+            escape_xml(time)
+        ));
     }
+    out.push_str("<REQ-IF-TOOL-ID>Systems-Modeler-Pro</REQ-IF-TOOL-ID>");
+    out.push_str("<REQ-IF-VERSION>1.0</REQ-IF-VERSION>");
+    out.push_str("<SOURCE-TOOL-ID>Systems-Modeler-Pro</SOURCE-TOOL-ID>");
+    out.push_str(&format!("<TITLE>{}</TITLE>", escape_xml(&document.title)));
     out.push_str("</REQ-IF-HEADER></THE-HEADER>\n  <CORE-CONTENT><REQ-IF-CONTENT>\n");
     out.push_str("    <DATATYPES>\n");
     for datatype in &document.datatypes {
@@ -982,7 +1008,11 @@ pub fn serialize_reqif(document: &ReqifDocument) -> String {
                 "<ATTRIBUTE-DEFINITION-{suffix} IDENTIFIER=\"{}\" LONG-NAME=\"{}\"{}>",
                 escape_xml(&attribute.identifier),
                 escape_xml(&attribute.long_name),
-                if attribute.multi_valued { " MULTI-VALUED=\"true\"" } else { "" }
+                if attribute.multi_valued {
+                    " MULTI-VALUED=\"true\""
+                } else {
+                    ""
+                }
             ));
             if let Some(datatype) = &attribute.datatype_identifier {
                 out.push_str(&format!(
@@ -1069,7 +1099,10 @@ fn serialize_values(out: &mut String, values: &[ReqifAttributeValue]) {
                 if original_xml.trim().starts_with("<THE-VALUE") {
                     out.push_str(original_xml);
                 } else {
-                    out.push_str(&format!("<THE-VALUE>{}</THE-VALUE>", escape_xml(plain_text)));
+                    out.push_str(&format!(
+                        "<THE-VALUE>{}</THE-VALUE>",
+                        escape_xml(plain_text)
+                    ));
                 }
             }
             ReqifValue::Enumeration(values) => {
@@ -1114,6 +1147,8 @@ pub struct ReqifExchangeState {
 pub struct ReqifSourceState {
     pub document: ReqifDocument,
     #[serde(default)]
+    pub configuration: Option<ReqifImportConfiguration>,
+    #[serde(default)]
     pub element_bindings: BTreeMap<String, String>,
     #[serde(default)]
     pub relationship_bindings: BTreeMap<String, String>,
@@ -1152,8 +1187,14 @@ mod tests {
         assert_eq!(parsed.spec_relations.len(), 1);
         assert_eq!(parsed.specifications[0].children[0].children.len(), 1);
         assert_eq!(parsed.datatypes[1].enum_values[0].identifier, "EV-H");
-        assert_eq!(detected_object_kind(&parsed, "T-REQ"), Some(ElementKind::Requirement));
-        assert_eq!(detected_relation_kind(&parsed, "T-TRACE"), Some(RelationshipKind::Trace));
+        assert_eq!(
+            detected_object_kind(&parsed, "T-REQ"),
+            Some(ElementKind::Requirement)
+        );
+        assert_eq!(
+            detected_relation_kind(&parsed, "T-TRACE"),
+            Some(RelationshipKind::Trace)
+        );
     }
 
     #[test]

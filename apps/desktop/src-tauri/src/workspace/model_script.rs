@@ -2613,6 +2613,11 @@ fn clone_states(
         .lock()
         .map_err(|_| "project path lock poisoned")?
         .clone();
+    let reqif_exchange = workspace
+        .reqif_exchange
+        .lock()
+        .map_err(|_| "ReqIF exchange lock poisoned")?
+        .clone();
     let activity_repository = activity
         .repository
         .lock()
@@ -2631,6 +2636,7 @@ fn clone_states(
             behavior: std::sync::Mutex::new(behavior),
             behavior_diagrams: std::sync::Mutex::new(behavior_diagrams),
             current_file: std::sync::Mutex::new(current_file),
+            reqif_exchange: std::sync::Mutex::new(reqif_exchange),
         },
         ActivityWorkspaceState {
             repository: std::sync::Mutex::new(activity_repository),

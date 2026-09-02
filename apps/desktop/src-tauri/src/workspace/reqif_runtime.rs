@@ -101,10 +101,7 @@ fn find_element_by_external<'a>(project: &'a Project, key: &str) -> Vec<&'a Elem
         .collect()
 }
 
-fn find_relationship_by_external<'a>(
-    project: &'a Project,
-    key: &str,
-) -> Vec<&'a Relationship> {
+fn find_relationship_by_external<'a>(project: &'a Project, key: &str) -> Vec<&'a Relationship> {
     project
         .relationships
         .values()
@@ -126,7 +123,12 @@ fn config_object_kind(
         .get(type_identifier)
         .cloned()
         .or_else(|| {
-            spec_type.and_then(|item| configuration.object_type_mappings.get(&item.long_name).cloned())
+            spec_type.and_then(|item| {
+                configuration
+                    .object_type_mappings
+                    .get(&item.long_name)
+                    .cloned()
+            })
         })
         .or_else(|| detected_object_kind(document, type_identifier))
 }
@@ -145,7 +147,12 @@ fn config_relation_kind(
         .get(type_identifier)
         .cloned()
         .or_else(|| {
-            spec_type.and_then(|item| configuration.relation_type_mappings.get(&item.long_name).cloned())
+            spec_type.and_then(|item| {
+                configuration
+                    .relation_type_mappings
+                    .get(&item.long_name)
+                    .cloned()
+            })
         })
         .or_else(|| detected_relation_kind(document, type_identifier))
 }
@@ -158,7 +165,12 @@ fn configured_field(
         .attribute_mappings
         .get(&definition.identifier)
         .copied()
-        .or_else(|| configuration.attribute_mappings.get(&definition.long_name).copied())
+        .or_else(|| {
+            configuration
+                .attribute_mappings
+                .get(&definition.long_name)
+                .copied()
+        })
         .or_else(|| detected_attribute_mapping(definition))
 }
 
@@ -367,7 +379,8 @@ fn prepare_reqif_import(
     let mut operations = Vec::new();
     let mut mapped_object_kinds = BTreeMap::new();
     for object in &document.spec_objects {
-        let Some(kind) = config_object_kind(&document, &configuration, &object.type_identifier) else {
+        let Some(kind) = config_object_kind(&document, &configuration, &object.type_identifier)
+        else {
             preview.items.push(blocked_item(
                 &object.identifier,
                 "SPEC-OBJECT",
@@ -980,6 +993,7 @@ fn bind_source_state(
             configuration.source_namespace.clone(),
             ReqifSourceState {
                 document,
+                configuration: Some(configuration.clone()),
                 element_bindings,
                 relationship_bindings,
             },
@@ -1041,10 +1055,7 @@ fn commit_candidate(
 
     *live.project.lock().map_err(|_| "project lock poisoned")? = project;
     *live.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
-    *live
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")? = ibd_diagrams;
+    *live.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = ibd_diagrams;
     *live.behavior.lock().map_err(|_| "behavior lock poisoned")? = behavior;
     *live
         .behavior_diagrams
@@ -1092,9 +1103,11 @@ fn apply_prepared(
             return prepared.preview;
         }
     };
-    if let Err(build_preview) =
-        super::bulk_model::apply_unified_model_build(&prepared.plan, &candidate, &candidate_activity)
-    {
+    if let Err(build_preview) = super::bulk_model::apply_unified_model_build(
+        &prepared.plan,
+        &candidate,
+        &candidate_activity,
+    ) {
         for build in build_preview.diagnostics {
             prepared.preview.diagnostics.push(diagnostic(
                 match build.severity {
@@ -1205,7 +1218,8 @@ fn apply_prepared(
             }
         }
     }
-    if let Err(reason) = cleanup_removed_element_presentations(&candidate, &removed_element_strings) {
+    if let Err(reason) = cleanup_removed_element_presentations(&candidate, &removed_element_strings)
+    {
         prepared.preview.diagnostics.push(diagnostic(
             ReqifDiagnosticSeverity::Error,
             "SEMANTIC_VALIDATION",
@@ -1232,7 +1246,8 @@ fn apply_prepared(
         prepared.preview.recount();
         return prepared.preview;
     }
-    if let Err(reason) = super::portable_interchange::portable_from_states(&candidate, &candidate_activity)
+    if let Err(reason) =
+        super::portable_interchange::portable_from_states(&candidate, &candidate_activity)
     {
         prepared.preview.diagnostics.push(diagnostic(
             ReqifDiagnosticSeverity::Error,
@@ -1412,7 +1427,10 @@ pub fn apply_reqif_import(
     ))
 }
 
-fn generated_attribute(identifier: &str, long_name: &str) -> super::reqif_interchange::ReqifAttributeDefinition {
+fn generated_attribute(
+    identifier: &str,
+    long_name: &str,
+) -> super::reqif_interchange::ReqifAttributeDefinition {
     super::reqif_interchange::ReqifAttributeDefinition {
         identifier: identifier.into(),
         long_name: long_name.into(),
@@ -1521,7 +1539,7 @@ fn native_scope_contains(project: &Project, scope: ElementId, element: &Element)
         if id == scope {
             return true;
         }
-        if !visited.insert(id) {
+        if !visited.insert(id.to_string()) {
             break;
         }
         current = project.elements.get(&id).and_then(|item| item.owner_id);
@@ -1537,11 +1555,13 @@ fn filter_hierarchy(
         .iter()
         .filter_map(|node| {
             let children = filter_hierarchy(&node.children, included);
-            included.contains(&node.object_identifier).then(|| ReqifHierarchyNode {
-                identifier: node.identifier.clone(),
-                object_identifier: node.object_identifier.clone(),
-                children,
-            })
+            included
+                .contains(&node.object_identifier)
+                .then(|| ReqifHierarchyNode {
+                    identifier: node.identifier.clone(),
+                    object_identifier: node.object_identifier.clone(),
+                    children,
+                })
         })
         .collect()
 }
@@ -1550,10 +1570,7 @@ fn deterministic_relation_type(kind: &RelationshipKind) -> String {
     format!("SM-RT-{:?}", kind).to_ascii_uppercase()
 }
 
-fn export_document(
-    workspace: &WorkspaceState,
-    scope: ElementId,
-) -> Result<ReqifDocument, String> {
+fn export_document(workspace: &WorkspaceState, scope: ElementId) -> Result<ReqifDocument, String> {
     let project = workspace
         .project
         .lock()
@@ -1599,8 +1616,10 @@ fn export_document(
         .elements
         .values()
         .filter(|element| {
-            matches!(element.kind, ElementKind::Requirement | ElementKind::TestCase)
-                && native_scope_contains(project, scope, element)
+            matches!(
+                element.kind,
+                ElementKind::Requirement | ElementKind::TestCase
+            ) && native_scope_contains(project, scope, element)
         })
         .collect::<Vec<_>>();
     let selected_native_ids = selected
@@ -1609,7 +1628,7 @@ fn export_document(
         .collect::<BTreeSet<_>>();
 
     let mut binding_lookup: BTreeMap<String, (&str, &ReqifSourceState)> = BTreeMap::new();
-    for (namespace, source) in &exchange.sources {
+    for source in exchange.sources.values() {
         for (identifier, native_id) in &source.element_bindings {
             if selected_native_ids.contains(native_id) {
                 binding_lookup
@@ -1726,12 +1745,14 @@ fn export_document(
             spec_relations.push(relation);
         } else {
             let type_identifier = deterministic_relation_type(&relationship.kind);
-            spec_types.entry(type_identifier.clone()).or_insert(ReqifSpecType {
-                identifier: type_identifier.clone(),
-                long_name: format!("{:?}", relationship.kind),
-                kind: ReqifSpecTypeKind::SpecRelation,
-                attributes: Vec::new(),
-            });
+            spec_types
+                .entry(type_identifier.clone())
+                .or_insert(ReqifSpecType {
+                    identifier: type_identifier.clone(),
+                    long_name: format!("{:?}", relationship.kind),
+                    kind: ReqifSpecTypeKind::SpecRelation,
+                    attributes: Vec::new(),
+                });
             let identifier = format!("SM-R-{}", relationship.id);
             used_relation_identifiers.insert(identifier.clone());
             spec_relations.push(ReqifSpecRelation {
@@ -1754,7 +1775,9 @@ fn export_document(
         .collect::<BTreeSet<_>>();
     for source in exchange.sources.values() {
         for relation in &source.document.spec_relations {
-            if source.relationship_bindings.contains_key(&relation.identifier)
+            if source
+                .relationship_bindings
+                .contains_key(&relation.identifier)
                 || used_relation_identifiers.contains(&relation.identifier)
                 || !included_object_ids.contains(&relation.source_identifier)
                 || !included_object_ids.contains(&relation.target_identifier)
@@ -1869,7 +1892,9 @@ pub fn export_reqif_xml(scope: ElementId, workspace: &WorkspaceState) -> Result<
         .iter()
         .any(|item| item.severity == ReqifDiagnosticSeverity::Error)
     {
-        return Err(format!("generated ReqIF failed validation: {diagnostics:?}"));
+        return Err(format!(
+            "generated ReqIF failed validation: {diagnostics:?}"
+        ));
     }
     Ok(serialize_reqif(&document))
 }
@@ -1974,12 +1999,31 @@ mod tests {
         let (workspace, activity) = states();
         let project = workspace.project.lock().unwrap().clone().unwrap();
         let config = configuration(&project);
-        let preview = preview_reqif_xml(fixture(), Some("external.reqif"), config.clone(), &workspace, &activity);
+        let preview = preview_reqif_xml(
+            fixture(),
+            Some("external.reqif"),
+            config.clone(),
+            &workspace,
+            &activity,
+        );
         assert!(preview.is_valid(), "{:#?}", preview.diagnostics);
         assert!(preview.totals.create >= 4);
-        let applied = apply_reqif_xml(fixture(), Some("external.reqif"), config.clone(), &workspace, &activity, None);
+        let applied = apply_reqif_xml(
+            fixture(),
+            Some("external.reqif"),
+            config.clone(),
+            &workspace,
+            &activity,
+            None,
+        );
         assert!(applied.applied, "{:#?}", applied.diagnostics);
-        let reimport = preview_reqif_xml(fixture(), Some("external.reqif"), config, &workspace, &activity);
+        let reimport = preview_reqif_xml(
+            fixture(),
+            Some("external.reqif"),
+            config,
+            &workspace,
+            &activity,
+        );
         assert!(reimport.is_valid(), "{:#?}", reimport.diagnostics);
         assert_eq!(reimport.totals.create, 0);
         assert_eq!(reimport.totals.update, 0);
@@ -1991,16 +2035,43 @@ mod tests {
         let (workspace, activity) = states();
         let project = workspace.project.lock().unwrap().clone().unwrap();
         let config = configuration(&project);
-        let before = workspace.project.lock().unwrap().clone().unwrap().elements.len();
+        let before = workspace
+            .project
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap()
+            .elements
+            .len();
         let _ = preview_reqif_xml(fixture(), None, config.clone(), &workspace, &activity);
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().elements.len(), before);
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
         let invalid = fixture().replace(
             "<SPEC-OBJECT-REF>REQ-2</SPEC-OBJECT-REF></TARGET>",
             "<SPEC-OBJECT-REF>MISSING</SPEC-OBJECT-REF></TARGET>",
         );
         let result = apply_reqif_xml(&invalid, None, config, &workspace, &activity, None);
         assert!(!result.applied);
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().elements.len(), before);
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .elements
+                .len(),
+            before
+        );
     }
 
     #[test]
@@ -2034,7 +2105,21 @@ mod tests {
         );
         assert!(imported.applied, "{:#?}", imported.diagnostics);
         let native = blank.project.lock().unwrap();
-        assert!(native.as_ref().unwrap().elements.values().any(|element| element.kind == ElementKind::Requirement));
-        assert!(native.as_ref().unwrap().relationships.values().any(|relationship| relationship.kind == RelationshipKind::Trace));
+        assert!(
+            native
+                .as_ref()
+                .unwrap()
+                .elements
+                .values()
+                .any(|element| element.kind == ElementKind::Requirement)
+        );
+        assert!(
+            native
+                .as_ref()
+                .unwrap()
+                .relationships
+                .values()
+                .any(|relationship| relationship.kind == RelationshipKind::Trace)
+        );
     }
 }
