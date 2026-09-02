@@ -145,7 +145,8 @@ mod workspace {
     };
     pub use spreadsheet_import::{apply_spreadsheet_import, preview_spreadsheet_import};
     pub use spreadsheet_interchange::{
-        apply_spreadsheet_workbook_import, export_spreadsheet_workbook,
+        apply_spreadsheet_workbook_import, discard_staged_spreadsheet,
+        export_spreadsheet_workbook,
         preview_spreadsheet_workbook_import, stage_spreadsheet_upload,
     };
     pub use standard_editing::StandardEditingState;
@@ -202,7 +203,8 @@ use workspace::{
     delete_binding_connector, delete_model_element, delete_package_relationship,
     delete_repository_diagram, delete_use_case_relationship, diagram_command_manifest,
     diagram_family_registry, duplicate_selection, evaluate_parametric_diagram,
-    export_portable_project_json, export_spreadsheet_workbook, fit_diagram_viewport,
+    discard_staged_spreadsheet, export_portable_project_json, export_spreadsheet_workbook,
+    fit_diagram_viewport,
     get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
@@ -694,6 +696,7 @@ fn main() {
             apply_spreadsheet_workbook_import,
             export_spreadsheet_workbook,
             stage_spreadsheet_upload,
+            discard_staged_spreadsheet,
             activity_snapshot,
             activity_execution_snapshot,
             activity_execution_runtime_selection,

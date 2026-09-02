@@ -286,7 +286,37 @@ fn write_semantic_sheets(
     element_sheet(workbook, "Parameters", &project, |element| {
         matches!(element.kind, ElementKind::Parameter | ElementKind::ConstraintParameter)
     })?;
-    element_sheet(workbook, "Requirements", &project, |element| element.kind == ElementKind::Requirement)?;
+    let requirement_rows = sorted_elements(&project)
+        .into_iter()
+        .filter(|element| element.kind == ElementKind::Requirement)
+        .map(|element| {
+            Ok(vec![
+                element.external_id.clone(),
+                format!("{:?}", element.kind),
+                element.name.clone(),
+                element.requirement_id.clone().unwrap_or_default(),
+                element.requirement_text.clone().unwrap_or_default(),
+                element_owner_external(&project, element),
+                project.qualified_name(element.id).unwrap_or_default(),
+                serde_json::to_string(element).map_err(|error| error.to_string())?,
+            ])
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    write_rows(
+        workbook,
+        "Requirements",
+        &[
+            "External ID",
+            "Kind",
+            "Name",
+            "Requirement ID",
+            "Requirement Text",
+            "Owner External ID",
+            "Qualified Name",
+            "Record JSON",
+        ],
+        &requirement_rows,
+    )?;
     element_sheet(workbook, "UseCases", &project, |element| {
         matches!(element.kind, ElementKind::UseCase | ElementKind::Actor)
     })?;
@@ -731,6 +761,25 @@ pub fn stage_spreadsheet_upload(file_name: String, bytes: Vec<u8>) -> Result<Str
 }
 
 #[tauri::command]
+pub fn discard_staged_spreadsheet(path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(path);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid staged spreadsheet path")?;
+    if path.parent() != Some(std::env::temp_dir().as_path())
+        || !file_name.starts_with("systems-modeler-import-")
+    {
+        return Err("only staged spreadsheet uploads can be discarded".into());
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
 pub fn preview_spreadsheet_workbook_import(
     path: String,
     policy: SpreadsheetSynchronizationPolicy,
@@ -788,6 +837,14 @@ mod tests {
     #[test]
     fn systems_modeler_xlsx_round_trip_preserves_all_nine_authored_families() {
         let (source, source_activity) = representative_states();
+        let authored = portable_from_states(&source, &source_activity).unwrap();
+        assert_eq!(
+            authored.diagrams.len()
+                + authored.ibd_diagrams.len()
+                + authored.activity.diagrams.len()
+                + authored.behavior.diagrams.len(),
+            9
+        );
         let path = workbook_path("round-trip");
         export_workbook_to_path(
             &path,
@@ -900,6 +957,14 @@ mod tests {
                     SpreadsheetColumnMapping {
                         source_column: "Name".into(),
                         property: SpreadsheetSemanticProperty::Name,
+                    },
+                    SpreadsheetColumnMapping {
+                        source_column: "Requirement ID".into(),
+                        property: SpreadsheetSemanticProperty::RequirementId,
+                    },
+                    SpreadsheetColumnMapping {
+                        source_column: "Requirement Text".into(),
+                        property: SpreadsheetSemanticProperty::RequirementText,
                     },
                 ],
             }],

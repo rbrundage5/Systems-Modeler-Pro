@@ -107,18 +107,22 @@
       if (!file) return;
       const bytes = [...new Uint8Array(await file.arrayBuffer())];
       const path = await invoke('stage_spreadsheet_upload', { fileName: file.name, bytes });
-      const mode = await window.smpDialogs?.choose({
-        title: 'Import Spreadsheet',
-        description: 'Use full-fidelity mode for Systems-Modeler exports. Use mapped mode for CATIA-style XLSX or CSV.',
-        candidates: [
-          { id: 'extended', label: 'Systems-Modeler workbook' },
-          { id: 'mapped', label: 'Mapped XLSX / CSV' },
-        ],
-        confirmLabel: 'Continue',
-      });
-      if (!mode) return;
-      if (mode.selectedId === 'mapped') await mappedImport(path);
-      else await extendedImport(path);
+      try {
+        const mode = await window.smpDialogs?.choose({
+          title: 'Import Spreadsheet',
+          description: 'Use full-fidelity mode for Systems-Modeler exports. Use mapped mode for CATIA-style XLSX or CSV.',
+          candidates: [
+            { id: 'extended', label: 'Systems-Modeler workbook' },
+            { id: 'mapped', label: 'Mapped XLSX / CSV' },
+          ],
+          confirmLabel: 'Continue',
+        });
+        if (!mode) return;
+        if (mode.selectedId === 'mapped') await mappedImport(path);
+        else await extendedImport(path);
+      } finally {
+        await invoke('discard_staged_spreadsheet', { path });
+      }
     } catch (error) { notify(String(error), 'error'); }
   }
 
