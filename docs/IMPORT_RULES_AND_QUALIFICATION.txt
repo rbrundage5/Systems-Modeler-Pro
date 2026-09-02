@@ -1,7 +1,7 @@
 SYSTEMS-MODELER-PRO
 IMPORT RULES AND QUALIFICATION CONTRACT
 
-Applies to: main at c0bcd0af825476f613374bd51d05302f8a1d6487
+Applies to: logical PR52 ReqIF milestone based on main 7764fdb78329dd893319330a038275bdaa63de63
 Baseline date: 2026-09-02
 Document status: AUTHORITATIVE DEVELOPER-FACING IMPORT CONTRACT FOR THIS BASELINE
 
@@ -20,8 +20,8 @@ history:
 - which capabilities have repeatable qualification evidence;
 - which capabilities are implemented but only partially qualified;
 - which capabilities are partial, planned, not implemented, or out of scope;
-- how future adapters such as Groovy/model scripting, XMI, ReqIF, and SysML v2
-  interchange must join the existing Rust construction architecture.
+- how current Groovy/model scripting and ReqIF adapters join the shared Rust
+  construction architecture, and how future XMI/SysML v2 adapters must do the same.
 
 This is not a compatibility certification. Terms such as "CATIA-style" or
 "Cameo-style" describe configurable mapping approaches only. They do not mean
@@ -76,8 +76,8 @@ Portable JSON v1                           QUALIFIED interchange
 CSV mapped semantic import                 QUALIFIED through current semantic scope
 XLSX mapped semantic import                QUALIFIED through current semantic scope
 Legacy XLS (.xls)                          NOT IMPLEMENTED / PLANNED
-Groovy / model-script import               PLANNED / NOT YET IMPLEMENTED
-ReqIF                                      PLANNED / NOT YET IMPLEMENTED
+Groovy / model-script import               QUALIFIED bounded native construction / automation
+ReqIF                                      QUALIFIED Requirement/TestCase + traceability interchange
 XMI                                        PLANNED / NOT YET IMPLEMENTED
 SysML v2 interchange                       PLANNED / NOT IMPLEMENTED
 CATIA native/3DEXPERIENCE project files    NOT SUPPORTED
@@ -1309,3 +1309,41 @@ Before changing any capability to QUALIFIED, verify:
 - semantic import is not being conflated with diagram presentation import.
 
 END OF CONTRACT
+
+
+===============================================================================
+REQIF QUALIFIED CONTRACT (PR52)
+===============================================================================
+
+ReqIF is a requirements interchange adapter, not a second model authority.
+
+Supported exchange boundary:
+
+- `.reqif` XML and compressed `.reqifz` containers;
+- ReqIF header, datatypes, SpecTypes, SpecObjects, Specifications/hierarchy,
+  SpecRelations, and typed attribute values;
+- STRING, XHTML, BOOLEAN, INTEGER, REAL, DATE, and ENUMERATION values;
+- configurable SpecObject -> native Requirement/TestCase mapping;
+- configurable SpecRelation -> supported native traceability relationship mapping;
+- configurable attribute -> Requirement ID, Requirement Text, Name, and
+  Documentation mapping;
+- unmapped ReqIF attributes and original XHTML retained in ReqIF exchange
+  metadata so mapped native content does not silently destroy supplier data;
+- stable semantic identity is `(source namespace, ReqIF IDENTIFIER)`;
+- identical reimport resolves to NO_CHANGE rather than duplication;
+- additive synchronization never removes native content;
+- authoritative ReqIF synchronization may remove only records proven to belong
+  to that same ReqIF source namespace and absent from the new exchange;
+- preview reports CREATE / UPDATE / NO_CHANGE / REMOVE / BLOCKED before apply;
+- parse, reference, ownership, mapping, and semantic errors block the complete
+  candidate; valid application is atomic;
+- ReqIF source configuration and exchange fidelity metadata survive `.smproj`;
+- deterministic `.reqif` export and `.reqifz` packaging are supported for a
+  selected Model/Package scope;
+- imported Requirements/TestCases are ordinary native model elements and
+  imported traceability is ordinary native relationships, so existing
+  requirements diagrams, editing, persistence, spreadsheet/Groovy paths, and
+  execution architecture remain authoritative.
+
+ReqIF does not imply XMI, SysML v2, CATIA native-file compatibility, or a
+profile/stereotype framework. Those remain separate future scopes.

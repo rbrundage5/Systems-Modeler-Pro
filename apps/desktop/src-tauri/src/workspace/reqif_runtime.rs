@@ -983,7 +983,6 @@ fn bind_source_state(
             relationship_bindings.insert(relation.identifier.clone(), relationship.id.to_string());
         }
     }
-    drop(project);
     candidate
         .reqif_exchange
         .lock()
@@ -1259,18 +1258,18 @@ fn apply_prepared(
         prepared.preview.recount();
         return prepared.preview;
     }
-    if let Some(history_state) = history_state {
-        if let Err(reason) = history::checkpoint_states(workspace, activity, history_state) {
-            prepared.preview.diagnostics.push(diagnostic(
-                ReqifDiagnosticSeverity::Error,
-                "SEMANTIC_VALIDATION",
-                reason,
-                None,
-                None,
-            ));
-            prepared.preview.recount();
-            return prepared.preview;
-        }
+    if let Some(history_state) = history_state
+        && let Err(reason) = history::checkpoint_states(workspace, activity, history_state)
+    {
+        prepared.preview.diagnostics.push(diagnostic(
+            ReqifDiagnosticSeverity::Error,
+            "SEMANTIC_VALIDATION",
+            reason,
+            None,
+            None,
+        ));
+        prepared.preview.recount();
+        return prepared.preview;
     }
     if let Err(reason) = commit_candidate(workspace, activity, &candidate, &candidate_activity) {
         prepared.preview.diagnostics.push(diagnostic(
@@ -1425,6 +1424,47 @@ pub fn apply_reqif_import(
         &activity,
         Some(&history_state),
     ))
+}
+
+#[tauri::command]
+pub fn stage_reqif_upload(file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_REQIF_BYTES {
+        return Err("ReqIF upload must be between 1 byte and 64 MiB".into());
+    }
+    let extension = Path::new(&file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .ok_or("ReqIF file extension is required")?;
+    if !matches!(extension.as_str(), "reqif" | "reqifz") {
+        return Err("only .reqif and .reqifz uploads are supported".into());
+    }
+    let path = std::env::temp_dir().join(format!(
+        "systems-modeler-reqif-{}.{}",
+        uuid::Uuid::new_v4(),
+        extension
+    ));
+    fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn discard_staged_reqif(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid staged ReqIF path")?;
+    if path.parent() != Some(std::env::temp_dir().as_path())
+        || !file_name.starts_with("systems-modeler-reqif-")
+    {
+        return Err("only staged ReqIF uploads can be discarded".into());
+    }
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn generated_attribute(
@@ -1641,30 +1681,29 @@ fn export_document(workspace: &WorkspaceState, scope: ElementId) -> Result<Reqif
     let mut used_identifiers = BTreeSet::new();
     let mut spec_objects = Vec::new();
     for element in selected {
-        if let Some((identifier, source)) = binding_lookup.get(&element.id.to_string()) {
-            if !used_identifiers.contains(*identifier)
-                && let Some(original) = source
-                    .document
-                    .spec_objects
-                    .iter()
-                    .find(|object| object.identifier == **identifier)
-            {
-                for datatype in &source.document.datatypes {
-                    datatypes
-                        .entry(datatype.identifier.clone())
-                        .or_insert_with(|| datatype.clone());
-                }
-                for spec_type in &source.document.spec_types {
-                    spec_types
-                        .entry(spec_type.identifier.clone())
-                        .or_insert_with(|| spec_type.clone());
-                }
-                let object = update_imported_object(original.clone(), element, source);
-                used_identifiers.insert(object.identifier.clone());
-                object_ids_by_native.insert(element.id.to_string(), object.identifier.clone());
-                spec_objects.push(object);
-                continue;
+        if let Some((identifier, source)) = binding_lookup.get(&element.id.to_string())
+            && !used_identifiers.contains(*identifier)
+            && let Some(original) = source
+                .document
+                .spec_objects
+                .iter()
+                .find(|object| object.identifier == **identifier)
+        {
+            for datatype in &source.document.datatypes {
+                datatypes
+                    .entry(datatype.identifier.clone())
+                    .or_insert_with(|| datatype.clone());
             }
+            for spec_type in &source.document.spec_types {
+                spec_types
+                    .entry(spec_type.identifier.clone())
+                    .or_insert_with(|| spec_type.clone());
+            }
+            let object = update_imported_object(original.clone(), element, source);
+            used_identifiers.insert(object.identifier.clone());
+            object_ids_by_native.insert(element.id.to_string(), object.identifier.clone());
+            spec_objects.push(object);
+            continue;
         }
         let identifier = format!("SM-E-{}", element.id);
         used_identifiers.insert(identifier.clone());
@@ -2121,5 +2160,190 @@ mod tests {
                 .values()
                 .any(|relationship| relationship.kind == RelationshipKind::Trace)
         );
+    }
+}
+
+#[cfg(test)]
+mod pr52_qualification {
+    use super::*;
+
+    fn fixture() -> &'static str {
+        include_str!("../../../../../examples/reqif/external-representative.reqif")
+    }
+
+    fn states() -> (WorkspaceState, ActivityWorkspaceState) {
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().unwrap() = Some(Project::new("ReqIF Qualification"));
+        (workspace, ActivityWorkspaceState::default())
+    }
+
+    fn configuration(
+        project: &Project,
+        policy: ReqifSynchronizationPolicy,
+    ) -> ReqifImportConfiguration {
+        ReqifImportConfiguration {
+            source_namespace: "reqif:qualification-source".into(),
+            target_scope: project.root_id.to_string(),
+            synchronization: policy,
+            object_type_mappings: BTreeMap::new(),
+            relation_type_mappings: BTreeMap::new(),
+            attribute_mappings: BTreeMap::new(),
+        }
+    }
+
+    fn prune_hierarchy(nodes: &mut Vec<ReqifHierarchyNode>, identifier: &str) {
+        for node in nodes.iter_mut() {
+            prune_hierarchy(&mut node.children, identifier);
+        }
+        nodes.retain(|node| node.object_identifier != identifier);
+    }
+
+    #[test]
+    fn authoritative_sync_removes_only_missing_bound_reqif_records() {
+        let (workspace, activity) = states();
+        let project = workspace.project.lock().unwrap().clone().unwrap();
+        let additive = configuration(&project, ReqifSynchronizationPolicy::Additive);
+        let applied = apply_reqif_xml(fixture(), None, additive, &workspace, &activity, None);
+        assert!(applied.applied, "{:#?}", applied.diagnostics);
+
+        let manual_id = {
+            let mut guard = workspace.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let root = project.root_id;
+            let id = project
+                .create_element(ElementKind::Requirement, "Manual Requirement", root)
+                .unwrap();
+            project.set_external_id(id, "MANUAL-REQIF-UNBOUND").unwrap();
+            let element = project.element_mut(id).unwrap();
+            element.requirement_id = Some("MAN-001".into());
+            element.requirement_text =
+                Some("Manual content must survive supplier synchronization.".into());
+            id
+        };
+
+        let mut document = parse_reqif(fixture(), Some("external.reqif")).unwrap();
+        document
+            .spec_objects
+            .retain(|object| object.identifier != "REQ-3");
+        for specification in &mut document.specifications {
+            prune_hierarchy(&mut specification.children, "REQ-3");
+        }
+        let reduced = serialize_reqif(&document);
+        let current = workspace.project.lock().unwrap().clone().unwrap();
+        let authoritative = configuration(
+            &current,
+            ReqifSynchronizationPolicy::AuthoritativeReqifScope,
+        );
+        let preview = preview_reqif_xml(
+            &reduced,
+            Some("external.reqif"),
+            authoritative.clone(),
+            &workspace,
+            &activity,
+        );
+        assert!(preview.is_valid(), "{:#?}", preview.diagnostics);
+        assert!(
+            preview
+                .items
+                .iter()
+                .any(|item| { item.action == ReqifAction::Remove && item.identifier == "REQ-3" })
+        );
+        assert!(!preview.items.iter().any(|item| {
+            item.action == ReqifAction::Remove && item.identifier == "MANUAL-REQIF-UNBOUND"
+        }));
+
+        let applied = apply_reqif_xml(
+            &reduced,
+            Some("external.reqif"),
+            authoritative,
+            &workspace,
+            &activity,
+            None,
+        );
+        assert!(applied.applied, "{:#?}", applied.diagnostics);
+        let project = workspace.project.lock().unwrap();
+        let project = project.as_ref().unwrap();
+        assert!(project.elements.contains_key(&manual_id));
+        assert!(!project.elements.values().any(|element| {
+            element.external_id == external_key("reqif:qualification-source", "REQ-3")
+        }));
+    }
+
+    #[test]
+    fn reqif_exchange_metadata_round_trips_through_smproj() {
+        let (workspace, activity) = states();
+        let project = workspace.project.lock().unwrap().clone().unwrap();
+        let config = configuration(&project, ReqifSynchronizationPolicy::Additive);
+        let applied = apply_reqif_xml(fixture(), None, config, &workspace, &activity, None);
+        assert!(applied.applied, "{:#?}", applied.diagnostics);
+
+        let project = workspace.project.lock().unwrap().clone().unwrap();
+        let exchange = workspace.reqif_exchange.lock().unwrap().clone();
+        let path = std::env::temp_dir().join(format!("pr52-{}.smproj", uuid::Uuid::new_v4()));
+        {
+            let mut database = ProjectDatabase::open(&path).unwrap();
+            database.save_project(&project).unwrap();
+            save_reqif_metadata(&mut database, &project, &exchange).unwrap();
+        }
+        {
+            let database = ProjectDatabase::open(&path).unwrap();
+            let reopened = database.load_first_project().unwrap();
+            let loaded = load_reqif_metadata(&database, &reopened).unwrap();
+            let source = loaded.sources.get("reqif:qualification-source").unwrap();
+            assert_eq!(
+                source.configuration.as_ref().unwrap().source_namespace,
+                "reqif:qualification-source"
+            );
+            let requirement = source
+                .document
+                .spec_objects
+                .iter()
+                .find(|object| object.identifier == "REQ-1")
+                .unwrap();
+            assert!(requirement.values.iter().any(|value| {
+                value.definition_identifier == "A-CUSTOM"
+                    && matches!(&value.value, ReqifValue::String(text) if text == "CUSTOM-PRESERVE-1")
+            }));
+            assert!(requirement.values.iter().any(|value| {
+                value.definition_identifier == "A-REQ-TEXT"
+                    && matches!(&value.value, ReqifValue::Xhtml { original_xml, .. } if original_xml.contains("xhtml:b"))
+            }));
+        }
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn staged_reqif_and_reqifz_uploads_use_the_same_parser_and_are_discardable() {
+        let staged =
+            stage_reqif_upload("supplier.reqif".into(), fixture().as_bytes().to_vec()).unwrap();
+        let payload = read_reqif_file(Path::new(&staged)).unwrap();
+        assert_eq!(payload.xml, fixture());
+        discard_staged_reqif(staged.clone()).unwrap();
+        assert!(!Path::new(&staged).exists());
+
+        let archive =
+            std::env::temp_dir().join(format!("pr52-source-{}.reqifz", uuid::Uuid::new_v4()));
+        write_reqif_file(&archive, fixture()).unwrap();
+        let bytes = fs::read(&archive).unwrap();
+        let staged_zip = stage_reqif_upload("supplier.reqifz".into(), bytes).unwrap();
+        let payload = read_reqif_file(Path::new(&staged_zip)).unwrap();
+        assert!(payload.xml.contains("Independent Vehicle Requirements"));
+        discard_staged_reqif(staged_zip.clone()).unwrap();
+        assert!(!Path::new(&staged_zip).exists());
+        let _ = fs::remove_file(archive);
+    }
+
+    #[test]
+    fn export_preserves_unmapped_supplier_values_and_xhtml_when_native_text_is_unchanged() {
+        let (workspace, activity) = states();
+        let project = workspace.project.lock().unwrap().clone().unwrap();
+        let config = configuration(&project, ReqifSynchronizationPolicy::Additive);
+        let applied = apply_reqif_xml(fixture(), None, config, &workspace, &activity, None);
+        assert!(applied.applied, "{:#?}", applied.diagnostics);
+        let scope = workspace.project.lock().unwrap().as_ref().unwrap().root_id;
+        let exported = export_reqif_xml(scope, &workspace).unwrap();
+        assert!(exported.contains("CUSTOM-PRESERVE-1"));
+        assert!(exported.contains("xhtml:b"));
+        assert!(exported.contains("Supplier Priority"));
     }
 }

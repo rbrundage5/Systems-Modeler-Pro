@@ -21,17 +21,12 @@ pub enum ReqifAction {
     Blocked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReqifSynchronizationPolicy {
+    #[default]
     Additive,
     AuthoritativeReqifScope,
-}
-
-impl Default for ReqifSynchronizationPolicy {
-    fn default() -> Self {
-        Self::Additive
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -394,13 +389,6 @@ impl ReqifDocument {
             .iter()
             .flat_map(|spec_type| spec_type.attributes.iter())
             .map(|attribute| (attribute.identifier.clone(), attribute))
-            .collect()
-    }
-
-    pub fn spec_types_by_id(&self) -> BTreeMap<String, &ReqifSpecType> {
-        self.spec_types
-            .iter()
-            .map(|spec_type| (spec_type.identifier.clone(), spec_type))
             .collect()
     }
 }
