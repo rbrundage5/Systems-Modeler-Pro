@@ -1,0 +1,90 @@
+from pathlib import Path
+
+path = Path("apps/desktop/src-tauri/src/workspace/xmi_runtime.rs")
+text = path.read_text(encoding="utf-8")
+
+old = """    if let Some(portable) = &embedded {
+        let current = portable_from_states(workspace, activity).ok();
+        let incoming = semantic_only(portable.clone());
+"""
+new = """    if let Some(portable) = &embedded {
+        // `portable_from_states` snapshots `workspace.project` itself. Release the
+        // validation guard first: std::sync::Mutex is non-reentrant, so retaining
+        // this guard here would self-deadlock on native authored-state XMI.
+        drop(project_guard);
+        let current = portable_from_states(workspace, activity).ok();
+        let incoming = semantic_only(portable.clone());
+"""
+if old not in text:
+    raise SystemExit("embedded XMI lock pattern not found")
+text = text.replace(old, new, 1)
+
+old_tail = """        preview.recount();
+        drop(project_guard);
+        return PreparedXmiImport {
+"""
+new_tail = """        preview.recount();
+        return PreparedXmiImport {
+"""
+if old_tail not in text:
+    raise SystemExit("embedded XMI trailing drop pattern not found")
+text = text.replace(old_tail, new_tail, 1)
+
+marker = """    #[test]
+    fn authoritative_remove_is_source_bound_and_late_parse_error_is_atomic() {
+"""
+regression = """    #[test]
+    fn embedded_xmi_preview_and_apply_complete_without_recursive_project_lock() {
+        use std::{sync::mpsc, thread, time::Duration};
+
+        let (source, source_activity) = representative_states();
+        let portable = semantic_only(portable_from_states(&source, &source_activity).unwrap());
+        let xml = serialize_xmi(&portable).unwrap();
+        assert!(xml.contains("sm:authoredState"));
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let target = WorkspaceState::default();
+            let target_activity = ActivityWorkspaceState::default();
+            let target_project = Project::new("Embedded XMI Target");
+            let root = target_project.root_id;
+            *target.project.lock().unwrap() = Some(target_project);
+            let configuration = XmiImportConfiguration {
+                source_namespace: "xmi:embedded-watchdog".into(),
+                target_scope: root.to_string(),
+                synchronization: XmiSynchronizationPolicy::AdditiveUpdate,
+            };
+
+            let preview = preview_xmi_xml(
+                &xml,
+                Some("embedded-watchdog.xmi"),
+                configuration.clone(),
+                &target,
+                &target_activity,
+            );
+            let applied = apply_xmi_xml(
+                &xml,
+                Some("embedded-watchdog.xmi"),
+                configuration,
+                &target,
+                &target_activity,
+                None,
+            );
+            let _ = tx.send((preview, applied));
+        });
+
+        let (preview, applied) = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("embedded XMI preview/apply exceeded 10 seconds; probable lock deadlock");
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert!(applied.applied, "{:?}", applied.diagnostics);
+    }
+
+    #[test]
+    fn authoritative_remove_is_source_bound_and_late_parse_error_is_atomic() {
+"""
+if marker not in text:
+    raise SystemExit("test insertion marker not found")
+text = text.replace(marker, regression, 1)
+
+path.write_text(text, encoding="utf-8")
