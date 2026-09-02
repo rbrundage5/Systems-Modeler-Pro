@@ -198,6 +198,7 @@ pub struct WorkspaceState {
     behavior: Mutex<BehaviorRepository>,
     behavior_diagrams: Mutex<Vec<behavior_workspace::BehaviorDiagram>>,
     current_file: Mutex<Option<String>>,
+    reqif_exchange: Mutex<reqif_interchange::ReqifExchangeState>,
 }
 
 impl Default for WorkspaceState {
@@ -209,6 +210,7 @@ impl Default for WorkspaceState {
             behavior: Mutex::new(BehaviorRepository::default()),
             behavior_diagrams: Mutex::new(Vec::new()),
             current_file: Mutex::new(None),
+            reqif_exchange: Mutex::new(reqif_interchange::ReqifExchangeState::default()),
         }
     }
 }
@@ -662,6 +664,7 @@ pub fn new_project(name: String, state: tauri::State<'_, WorkspaceState>) -> Res
     state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?.clear();
     *state.behavior.lock().map_err(|_| "behavior lock poisoned")? = BehaviorRepository::default();
     state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?.clear();
+    *state.reqif_exchange.lock().map_err(|_| "ReqIF exchange lock poisoned")? = reqif_interchange::ReqifExchangeState::default();
     *state.current_file.lock().map_err(|_| "project path lock poisoned")? = None;
     Ok(())
 }
@@ -684,6 +687,8 @@ pub fn save_project_file(path: String, state: tauri::State<'_, WorkspaceState>) 
     let behavior = state.behavior.lock().map_err(|_| "behavior lock poisoned")?;
     let behavior_diagrams = state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?;
     behavior_workspace::save_behavior_metadata(&mut database, project, &behavior, &behavior_diagrams)?;
+    let reqif_exchange = state.reqif_exchange.lock().map_err(|_| "ReqIF exchange lock poisoned")?;
+    reqif_runtime::save_reqif_metadata(&mut database, project, &reqif_exchange)?;
     let saved_path = path.to_string_lossy().into_owned();
     *state.current_file.lock().map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
     Ok(saved_path)
@@ -711,12 +716,14 @@ pub fn open_project_file(path: String, state: tauri::State<'_, WorkspaceState>) 
     validate_loaded_diagrams(&project, &diagrams)?;
     let ibd_diagrams = ibd::load_ibd_metadata(&database, &project)?;
     let (behavior, behavior_diagrams) = behavior_workspace::load_behavior_metadata(&database, &project)?;
+    let reqif_exchange = reqif_runtime::load_reqif_metadata(&database, &project)?;
     let opened_path = path.to_string_lossy().into_owned();
     *state.project.lock().map_err(|_| "project lock poisoned")? = Some(project);
     *state.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
     *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = ibd_diagrams;
     *state.behavior.lock().map_err(|_| "behavior lock poisoned")? = behavior;
     *state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")? = behavior_diagrams;
+    *state.reqif_exchange.lock().map_err(|_| "ReqIF exchange lock poisoned")? = reqif_exchange;
     *state.current_file.lock().map_err(|_| "project path lock poisoned")? = Some(opened_path.clone());
     Ok(opened_path)
 }

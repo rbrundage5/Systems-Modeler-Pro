@@ -26,7 +26,7 @@ Frontend authority debt is measured and prevented from growing by `scripts/valid
 
 ## Import / Interchange
 
-Bulk and interchange adapters converge on the Rust-owned `ModelBuildPlan` construction path. The current spreadsheet importer maps business-facing CSV/XLSX data into semantic operations, resolves stable and plan-local references, validates a complete native candidate, provides non-mutating preview classifications, and applies a valid MapGroup atomically. Stable source namespace + External ID identity is the preferred reimport identity; display names and spreadsheet positions are not permanent identity.
+Bulk, scripting, and interchange adapters converge on the Rust-owned `ModelBuildPlan` construction path. CSV/XLSX mapping, bounded Groovy-compatible model scripting, and ReqIF all construct ordinary native model content through the existing semantic authority. ReqIF uses stable source namespace + ReqIF `IDENTIFIER` identity, non-mutating CREATE/UPDATE/NO_CHANGE/REMOVE/BLOCKED preview, atomic apply, preserved exchange metadata/XHTML, and deterministic `.reqif`/`.reqifz` export.
 
 Semantic import and diagram presentation are separate contracts. Current CSV/XLSX import constructs qualified semantic content through Activity, State Machine, Sequence, and Parametric scopes, but does **not** construct/populate all-nine-family diagram presentations from workbooks. Portable JSON v1 separately preserves the current authored semantic and presentation state through the same complete-build authority.
 
@@ -37,8 +37,8 @@ Semantic import and diagram presentation are separate contracts. Current CSV/XLS
 | CSV mapped semantic import | QUALIFIED through current semantic scope |
 | XLSX mapped semantic import | QUALIFIED through current semantic scope |
 | Legacy `.xls` | NOT IMPLEMENTED / PLANNED |
-| Groovy / model script | PLANNED / NOT YET IMPLEMENTED |
-| ReqIF | PLANNED / NOT YET IMPLEMENTED |
+| Groovy / model script | QUALIFIED bounded native model construction / automation |
+| ReqIF | QUALIFIED Requirement/TestCase + supported traceability import, stable reimport, `.reqif`/`.reqifz` export |
 | XMI | PLANNED / NOT YET IMPLEMENTED |
 | SysML v2 interchange | PLANNED / NOT IMPLEMENTED |
 | Native CATIA / 3DEXPERIENCE project files | NOT SUPPORTED |
