@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   finalize-reqif:
+    if: github.event.head_commit.message != 'PR52: complete and qualify ReqIF interchange'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -26,13 +27,18 @@ jobs:
           node-version: 22
 
       - name: Validate finalizer syntax
-        run: python -m py_compile scripts/pr53_finalize.py scripts/pr53_lintfix.py
+        shell: pwsh
+        run: |
+          python -c "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['scripts/pr53_finalize.py','scripts/pr53_lintfix.py']]"
 
       - name: Apply final ReqIF completion
         run: python scripts/pr53_finalize.py
 
       - name: Apply warnings-denied cleanup
         run: python scripts/pr53_lintfix.py
+
+      - name: Keep permanent CI workflow unchanged
+        run: git restore --source=HEAD -- .github/workflows/ci.yml
 
       - name: Format
         run: cargo fmt --all
@@ -58,7 +64,9 @@ jobs:
       - name: Publish completed ReqIF implementation
         shell: pwsh
         run: |
-          git rm .github/workflows/pr53-finalize.yml scripts/pr53_finalize.py scripts/pr53_lintfix.py scripts/pr53_trigger.txt
+          git rm scripts/pr53_finalize.py scripts/pr53_lintfix.py scripts/pr53_trigger.txt
+          if (Test-Path scripts/__pycache__) { Remove-Item -Recurse -Force scripts/__pycache__ }
+          git restore --source=HEAD -- .github/workflows/ci.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
