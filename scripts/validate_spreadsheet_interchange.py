@@ -2,9 +2,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUST = (ROOT / "apps/desktop/src-tauri/src/workspace/spreadsheet_interchange.rs").read_text()
-MAIN = (ROOT / "apps/desktop/src-tauri/src/main.rs").read_text()
-SHELL = (ROOT / "apps/desktop/frontend/ui-shell.js").read_text()
+RUST = (ROOT / "apps/desktop/src-tauri/src/workspace/spreadsheet_interchange.rs").read_text(encoding="utf-8")
+MAIN = (ROOT / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-8")
+SHELL = (ROOT / "apps/desktop/frontend/ui-shell.js").read_text(encoding="utf-8")
 UI = SHELL
 
 
