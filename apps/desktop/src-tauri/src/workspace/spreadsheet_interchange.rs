@@ -512,14 +512,20 @@ fn read_extended_workbook(path: &str) -> Result<(BTreeMap<String, String>, Porta
 fn current_is_blank(workspace: &WorkspaceState, activity: &ActivityWorkspaceState) -> Result<bool, String> {
     let project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
     let semantic_blank = project.as_ref().is_none_or(|project| project.elements.len() == 1 && project.relationships.is_empty());
+    let diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let ibd_diagrams = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let behavior = workspace.behavior.lock().map_err(|_| "behavior lock poisoned")?;
+    let behavior_diagrams = workspace.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?;
+    let activities = activity.repository.lock().map_err(|_| "Activity repository lock poisoned")?;
+    let activity_diagrams = activity.diagrams.lock().map_err(|_| "Activity diagrams lock poisoned")?;
     Ok(semantic_blank
-        && workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?.is_empty()
-        && workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?.is_empty()
-        && workspace.behavior.lock().map_err(|_| "behavior lock poisoned")?.state_machines.is_empty()
-        && workspace.behavior.lock().map_err(|_| "behavior lock poisoned")?.interactions.is_empty()
-        && workspace.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?.is_empty()
-        && activity.repository.lock().map_err(|_| "Activity repository lock poisoned")?.activities.is_empty()
-        && activity.diagrams.lock().map_err(|_| "Activity diagrams lock poisoned")?.is_empty())
+        && diagrams.is_empty()
+        && ibd_diagrams.is_empty()
+        && behavior.state_machines.is_empty()
+        && behavior.interactions.is_empty()
+        && behavior_diagrams.is_empty()
+        && activities.activities.is_empty()
+        && activity_diagrams.is_empty())
 }
 
 fn authored_ids(portable: &PortableProjectV1) -> BTreeSet<String> {
@@ -528,6 +534,17 @@ fn authored_ids(portable: &PortableProjectV1) -> BTreeSet<String> {
         .chain(portable.activity.activities.iter().map(|record| record.external_id.clone()))
         .chain(portable.behavior.state_machines.iter().map(|record| record.external_id.clone()))
         .chain(portable.behavior.interactions.iter().map(|record| record.external_id.clone()))
+        .collect()
+}
+
+fn imported_namespaces(portable: &PortableProjectV1) -> BTreeSet<String> {
+    authored_ids(portable)
+        .into_iter()
+        .filter_map(|external_id| {
+            external_id
+                .split_once("::")
+                .map(|(namespace, _)| namespace.to_owned())
+        })
         .collect()
 }
 
@@ -543,6 +560,16 @@ pub(super) fn preview_workbook_import(
     };
     let namespace = manifest.get("Source Namespace").cloned().unwrap_or_default();
     let mut preview = SpreadsheetInterchangePreview { source_namespace: namespace.clone(), ..Default::default() };
+    if let Err(error) = incoming.clone().into_build_plan() {
+        preview.items.push(SpreadsheetInterchangePreviewItem {
+            action: SpreadsheetInterchangeAction::Blocked,
+            kind: "Workbook".into(),
+            external_id: incoming.project.id.to_string(),
+            detail: "authored semantic, behavior, activity, or diagram references are invalid".into(),
+        });
+        preview.diagnostics.push(error);
+        return preview;
+    }
     if current_is_blank(workspace, activity).unwrap_or(false) {
         for record in incoming.project.elements.iter().filter(|record| record.id != incoming.project.root_id) {
             preview.items.push(SpreadsheetInterchangePreviewItem { action: SpreadsheetInterchangeAction::Create,
@@ -588,8 +615,13 @@ pub(super) fn preview_workbook_import(
         return preview;
     }
     let incoming_ids = authored_ids(&incoming);
+    let incoming_namespaces = imported_namespaces(&incoming);
     for external_id in authored_ids(&current).difference(&incoming_ids) {
-        if external_id.starts_with(&format!("{namespace}::")) {
+        let proven_namespace = external_id
+            .split_once("::")
+            .map(|(candidate, _)| incoming_namespaces.contains(candidate))
+            .unwrap_or(false);
+        if proven_namespace {
             preview.items.push(SpreadsheetInterchangePreviewItem { action: SpreadsheetInterchangeAction::Remove,
                 kind: "Imported semantic".into(), external_id: external_id.clone(),
                 detail: "absent from authoritative workbook scope".into() });
@@ -673,6 +705,29 @@ pub fn export_spreadsheet_workbook(
     activity: tauri::State<'_, ActivityWorkspaceState>,
 ) -> Result<(), String> {
     export_workbook_to_path(&path, profile, &workspace, &activity)
+}
+
+#[tauri::command]
+pub fn stage_spreadsheet_upload(file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+    const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+    if bytes.is_empty() || bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("spreadsheet upload must be between 1 byte and 64 MiB".into());
+    }
+    let extension = std::path::Path::new(&file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .ok_or("spreadsheet file extension is required")?;
+    if !matches!(extension.as_str(), "xlsx" | "csv") {
+        return Err("only XLSX and CSV spreadsheet uploads are supported".into());
+    }
+    let path = std::env::temp_dir().join(format!(
+        "systems-modeler-import-{}.{}",
+        uuid::Uuid::new_v4(),
+        extension
+    ));
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -877,5 +932,104 @@ mod tests {
         );
         assert!(!preview.is_valid());
         assert_eq!(before, export_from_states(&workspace, &activity).unwrap());
+    }
+
+    #[test]
+    fn authoritative_sync_previews_proven_removal_and_protects_manual_content() {
+        let (seed, seed_activity) = representative_states();
+        let mut current_portable = portable_from_states(&seed, &seed_activity).unwrap();
+        let requirement_id = current_portable
+            .project
+            .elements
+            .iter_mut()
+            .find(|element| element.kind == ElementKind::Requirement)
+            .map(|element| {
+                element.external_id = "supplier-a::REQ-1".into();
+                element.id
+            })
+            .unwrap();
+        current_portable
+            .project
+            .elements
+            .iter_mut()
+            .find(|element| element.kind == ElementKind::TestCase)
+            .unwrap()
+            .external_id = "supplier-a::TEST-1".into();
+        let mut incoming_portable = current_portable.clone();
+        incoming_portable
+            .project
+            .elements
+            .retain(|element| element.id != requirement_id);
+
+        let current = WorkspaceState::default();
+        let current_activity = ActivityWorkspaceState::default();
+        replace_states_atomically(current_portable, &current, &current_activity).unwrap();
+        let incoming = WorkspaceState::default();
+        let incoming_activity = ActivityWorkspaceState::default();
+        replace_states_atomically(incoming_portable, &incoming, &incoming_activity).unwrap();
+        let path = workbook_path("authoritative");
+        export_workbook_to_path(
+            &path,
+            SpreadsheetExportProfile::SystemsModeler,
+            &incoming,
+            &incoming_activity,
+        )
+        .unwrap();
+
+        let additive = preview_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::Additive,
+            &current,
+            &current_activity,
+        );
+        assert!(!additive.is_valid());
+        let authoritative = preview_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::AuthoritativeMappedScope,
+            &current,
+            &current_activity,
+        );
+        assert!(authoritative.is_valid(), "{:?}", authoritative.diagnostics);
+        assert!(authoritative.items.iter().any(|item| {
+            item.action == SpreadsheetInterchangeAction::Remove
+                && item.external_id == "supplier-a::REQ-1"
+        }));
+        assert!(apply_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::AuthoritativeMappedScope,
+            &current,
+            &current_activity,
+        )
+        .applied);
+
+        let manual = {
+            let mut guard = current.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let root_id = project.root_id;
+            project
+                .create_element(ElementKind::Package, "Manual package", root_id)
+                .unwrap()
+        };
+        let protected = preview_workbook_import(
+            &path,
+            SpreadsheetSynchronizationPolicy::AuthoritativeMappedScope,
+            &current,
+            &current_activity,
+        );
+        assert!(!protected.is_valid());
+        assert!(protected.items.iter().any(|item| {
+            item.action == SpreadsheetInterchangeAction::Blocked
+                && item.external_id
+                    == current
+                        .project
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .element(manual)
+                        .unwrap()
+                        .external_id
+        }));
+        std::fs::remove_file(path).unwrap();
     }
 }

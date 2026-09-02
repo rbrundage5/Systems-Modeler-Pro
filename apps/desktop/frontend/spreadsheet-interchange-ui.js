@@ -23,7 +23,7 @@
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = accept;
-      input.onchange = () => resolve(input.files?.[0]?.path || input.files?.[0]?.name || null);
+      input.onchange = () => resolve(input.files?.[0] || null);
       input.click();
     });
   }
@@ -103,8 +103,10 @@
   async function openImport() {
     try {
       if (!invoke) throw new Error('Spreadsheet import is available in the desktop application.');
-      const path = await chooseFile('.xlsx,.csv');
-      if (!path) return;
+      const file = await chooseFile('.xlsx,.csv');
+      if (!file) return;
+      const bytes = [...new Uint8Array(await file.arrayBuffer())];
+      const path = await invoke('stage_spreadsheet_upload', { fileName: file.name, bytes });
       const mode = await window.smpDialogs?.choose({
         title: 'Import Spreadsheet',
         description: 'Use full-fidelity mode for Systems-Modeler exports. Use mapped mode for CATIA-style XLSX or CSV.',

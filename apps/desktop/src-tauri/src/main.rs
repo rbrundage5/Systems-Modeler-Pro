@@ -146,7 +146,7 @@ mod workspace {
     pub use spreadsheet_import::{apply_spreadsheet_import, preview_spreadsheet_import};
     pub use spreadsheet_interchange::{
         apply_spreadsheet_workbook_import, export_spreadsheet_workbook,
-        preview_spreadsheet_workbook_import,
+        preview_spreadsheet_workbook_import, stage_spreadsheet_upload,
     };
     pub use standard_editing::StandardEditingState;
     pub use standard_editing_bridge::{
@@ -215,7 +215,7 @@ use workspace::{
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
     preview_activity_execution_runtime, preview_sequence_execution_runtime,
     preview_spreadsheet_import, preview_spreadsheet_workbook_import,
-    preview_state_machine_execution_runtime,
+    preview_state_machine_execution_runtime, stage_spreadsheet_upload,
     queue_state_machine_signal, reconnect_activity_edge, reconnect_bdd_relationship,
     reconnect_binding_connector, reconnect_package_relationship, reconnect_sequence_message,
     reconnect_traceability_relationship, reconnect_use_case_relationship,
@@ -693,6 +693,7 @@ fn main() {
             preview_spreadsheet_workbook_import,
             apply_spreadsheet_workbook_import,
             export_spreadsheet_workbook,
+            stage_spreadsheet_upload,
             activity_snapshot,
             activity_execution_snapshot,
             activity_execution_runtime_selection,
