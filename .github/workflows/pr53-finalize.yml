@@ -26,10 +26,13 @@ jobs:
           node-version: 22
 
       - name: Validate finalizer syntax
-        run: python -m py_compile scripts/pr53_finalize.py
+        run: python -m py_compile scripts/pr53_finalize.py scripts/pr53_lintfix.py
 
       - name: Apply final ReqIF completion
         run: python scripts/pr53_finalize.py
+
+      - name: Apply warnings-denied cleanup
+        run: python scripts/pr53_lintfix.py
 
       - name: Format
         run: cargo fmt --all
@@ -55,7 +58,7 @@ jobs:
       - name: Publish completed ReqIF implementation
         shell: pwsh
         run: |
-          git rm .github/workflows/pr53-finalize.yml scripts/pr53_finalize.py scripts/pr53_trigger.txt
+          git rm .github/workflows/pr53-finalize.yml scripts/pr53_finalize.py scripts/pr53_lintfix.py scripts/pr53_trigger.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
