@@ -40,8 +40,8 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
       - name: Format Rust
         run: cargo fmt --all
-      - name: Run PR51 representative model-script tests
-        run: cargo test -p systems-modeler-desktop workspace::model_script::tests::representative_script_builds_native_semantics_and_all_nine_diagram_families workspace::model_script::tests::script_created_model_round_trips_smproj_metadata_and_exports_portable_json_and_xlsx
+      - name: Run PR51 model-script tests
+        run: cargo test -p systems-modeler-desktop workspace::model_script::tests::
       - name: Publish repair and remove temporary workflow
         shell: pwsh
         run: |
