@@ -1,0 +1,51 @@
+name: PR51 current-head qualification
+
+on:
+  push:
+    branches:
+      - agent/pr51-complete-groovy-automation
+
+permissions:
+  contents: write
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr51-complete-groovy-automation
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - name: Verify formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run focused PR51 qualification
+        run: 'cargo test -p systems-modeler-desktop workspace::model_script::tests:: -- --nocapture'
+
+      - name: Run complete desktop regression suite
+        run: cargo test -p systems-modeler-desktop
+
+      - name: Run desktop Clippy with warnings denied
+        run: cargo clippy -p systems-modeler-desktop --all-targets -- -D warnings
+
+      - name: Verify frontend syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem apps/desktop/frontend -Filter *.js | ForEach-Object { node --check $_.FullName }
+
+      - name: Verify Rust architectural authority
+        run: python scripts/validate_rust_authority.py
+
+      - name: Remove temporary qualification workflow
+        shell: pwsh
+        run: |
+          git rm .github/workflows/pr51-current-qualification.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'PR51: remove temporary qualification workflow'
+          git push origin HEAD:agent/pr51-complete-groovy-automation
