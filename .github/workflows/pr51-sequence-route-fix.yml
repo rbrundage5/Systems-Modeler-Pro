@@ -65,7 +65,7 @@ jobs:
                                 y += 180.0;
                             }
                         }
-'''
+          '''
           new_property = '''                        ElementKind::PartProperty | ElementKind::ReferenceProperty => {
                             // A semantic connector end may terminate at a port owned by the
                             // property's type. Populate those native nested-port presentations
@@ -115,7 +115,7 @@ jobs:
                                 y += height + 80.0;
                             }
                         }
-'''
+          '''
           if old_property in script:
               script = script.replace(old_property, new_property, 1)
           elif new_property not in script:
@@ -140,7 +140,7 @@ jobs:
                         endpoint(connector.source.role_id, connector.source.port_id),
                         endpoint(connector.target.role_id, connector.target.port_id),
                     ) {
-'''
+          '''
           new_endpoint = '''                    let endpoint = |end: &systems_modeler_core::ConnectorEnd| -> Option<String> {
                         let path = end
                             .property_path
@@ -179,7 +179,7 @@ jobs:
                         endpoint(&connector.source),
                         endpoint(&connector.target),
                     ) {
-'''
+          '''
           if old_endpoint in script:
               script = script.replace(old_endpoint, new_endpoint, 1)
           elif new_endpoint not in script:
