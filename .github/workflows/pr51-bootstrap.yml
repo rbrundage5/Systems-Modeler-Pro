@@ -21,6 +21,25 @@ jobs:
           components: rustfmt, clippy
       - name: Apply focused PR51 completion patch
         run: python scripts/pr51_finalize.py
+      - name: Correct nested qualification-test paths
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('apps/desktop/src-tauri/src/workspace/model_script.rs')
+          text = path.read_text(encoding='utf-8')
+          marker = '// PR51_REPRESENTATIVE_QUALIFICATION'
+          head, tail = text.split(marker, 1)
+          for old, new in [
+              ('super::parse_element_id', 'super::super::parse_element_id'),
+              ('super::portable_interchange', 'super::super::portable_interchange'),
+              ('super::spreadsheet_interchange', 'super::super::spreadsheet_interchange'),
+              ('super::BDD_METADATA_KEY', 'super::super::BDD_METADATA_KEY'),
+              ('super::ibd::', 'super::super::ibd::'),
+              ('super::behavior_workspace::', 'super::super::behavior_workspace::'),
+              ('super::activity_workspace::', 'super::super::activity_workspace::'),
+          ]:
+              tail = tail.replace(old, new)
+          path.write_text(head + marker + tail, encoding='utf-8')
       - name: Format Rust
         run: cargo fmt --all
       - name: Focused PR51 tests
