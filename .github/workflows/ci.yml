@@ -93,6 +93,8 @@ jobs:
         run: python scripts/validate_repository_editing.py
       - name: Standard editing integration contract
         run: python scripts/validate_standard_editing_integration.py
+      - name: Spreadsheet interchange integration contract
+        run: python scripts/validate_spreadsheet_interchange.py
       - name: Rust authority and frontend debt gate
         run: python scripts/validate_rust_authority.py
 
@@ -141,6 +143,8 @@ jobs:
         run: python scripts/validate_repository_editing.py
       - name: Standard editing integration contract
         run: python scripts/validate_standard_editing_integration.py
+      - name: Spreadsheet interchange integration contract
+        run: python scripts/validate_spreadsheet_interchange.py
       - name: Rust authority and frontend debt gate
         run: python scripts/validate_rust_authority.py
       - name: Verify Cargo.lock remains clean
