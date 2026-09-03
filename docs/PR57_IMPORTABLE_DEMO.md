@@ -1,0 +1,1 @@
+Use `examples/model-script/professional-ev-demo.groovy` as the import artifact. It is loaded through the desktop File -> Import Model Script command; no developer console or backend injection is part of the demo workflow.
