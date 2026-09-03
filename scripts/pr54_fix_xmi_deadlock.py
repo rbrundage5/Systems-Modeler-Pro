@@ -139,6 +139,21 @@ if "fn embedded_xmi_preview_and_apply_complete_without_recursive_project_lock()"
         raise SystemExit("test insertion marker not found")
     runtime = runtime.replace(marker, regression, 1)
 
+old_reduced = """        let reduced = UML_FIXTURE
+            .replace(
+"""
+new_reduced = """        // Git may materialize the included fixture with CRLF on Windows. Normalize
+        // only the test input used to remove rows so the authoritative-sync assertion
+        // exercises the same two semantic removals on every runner.
+        let normalized_fixture = UML_FIXTURE.replace("\\r\\n", "\\n");
+        let reduced = normalized_fixture
+            .replace(
+"""
+if old_reduced in runtime:
+    runtime = runtime.replace(old_reduced, new_reduced, 1)
+elif "let normalized_fixture = UML_FIXTURE.replace" not in runtime:
+    raise SystemExit("authoritative fixture reduction marker not found")
+
 runtime_path.write_text(runtime, encoding="utf-8")
 
 interchange_path = Path("apps/desktop/src-tauri/src/workspace/xmi_interchange.rs")
