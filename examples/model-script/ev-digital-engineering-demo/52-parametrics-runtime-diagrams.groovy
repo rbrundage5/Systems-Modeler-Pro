@@ -75,7 +75,29 @@ modelScript('''
     {"external_id":"D_IBD_THERM","family":"IBD","name":"Thermal Internal Architecture","owner":"ext:PKG_ARCH_THERM","context":"ext:TMS"},
     {"external_id":"D_IBD_BRAKE","family":"IBD","name":"Brake Internal Architecture","owner":"ext:PKG_ARCH_BRAKE","context":"ext:BRAKES"},
     {"external_id":"D_IBD_SENSOR","family":"IBD","name":"Sensor Suite Internal Architecture","owner":"ext:PKG_ARCH_SENSOR","context":"ext:SENS"},
-    {"op":"noop"}
+    {"external_id":"D_IBD_FLEET","family":"IBD","name":"Fleet Runtime Occurrence Structure","owner":"ext:PKG_CONFIG","context":"handle:FLEET"},
+    {"external_id":"D_REQ_STK","family":"Requirement","name":"Stakeholder Requirements","owner":"ext:PKG_REQ_STK"},
+    {"external_id":"D_REQ_SYS","family":"Requirement","name":"System Requirements","owner":"ext:PKG_REQ_SYS"},
+    {"external_id":"D_REQ_IF","family":"Requirement","name":"Interface Requirements","owner":"ext:PKG_REQ_IF"},
+    {"external_id":"D_REQ_PERF","family":"Requirement","name":"Performance and Analysis Requirements","owner":"ext:PKG_REQ_PERF"},
+    {"external_id":"D_REQ_SAFE","family":"Requirement","name":"Safety and Reliability Requirements","owner":"ext:PKG_REQ_SAFE"},
+    {"external_id":"D_REQ_VER","family":"Requirement","name":"Verification Coverage","owner":"ext:PKG_REQ_VER"},
+    {"external_id":"D_UC","family":"Use Case","name":"Vehicle Operations and Verification Use Cases","owner":"ext:PKG_UC","context":"ext:VEH"},
+    {"external_id":"D_ACT_OPERATE","family":"Activity","name":"Operate Vehicle — End-to-End","owner":"ext:PKG_ACT","semantic":"ext:ACT_OPERATE"},
+    {"external_id":"D_ACT_PREFLIGHT","family":"Activity","name":"Perform Preflight Checks","owner":"ext:PKG_ACT","semantic":"ext:ACT_PREFLIGHT"},
+    {"external_id":"D_ACT_START","family":"Activity","name":"Start Vehicle","owner":"ext:PKG_ACT","semantic":"ext:ACT_START"},
+    {"external_id":"D_ACT_DRIVE","family":"Activity","name":"Drive Vehicle","owner":"ext:PKG_ACT","semantic":"ext:ACT_DRIVE"},
+    {"external_id":"D_ACT_THERMAL","family":"Activity","name":"Manage Thermal Load","owner":"ext:PKG_ACT","semantic":"ext:ACT_THERMAL"},
+    {"external_id":"D_ACT_BRAKE","family":"Activity","name":"Emergency Braking","owner":"ext:PKG_ACT","semantic":"ext:ACT_BRAKE"},
+    {"external_id":"D_ACT_CHARGE","family":"Activity","name":"Charge Vehicle","owner":"ext:PKG_ACT","semantic":"ext:ACT_CHARGE"},
+    {"external_id":"D_ACT_STOP","family":"Activity","name":"Stop Vehicle","owner":"ext:PKG_ACT","semantic":"ext:ACT_STOP"},
+    {"external_id":"D_SM_VEH","family":"State Machine","name":"Vehicle Operating States","owner":"ext:PKG_SM","semantic":"ext:SM_VEH"},
+    {"external_id":"D_SM_BAT","family":"State Machine","name":"Battery Operating States","owner":"ext:PKG_SM","semantic":"ext:SM_BAT"},
+    {"external_id":"D_SEQ_START","family":"Sequence","name":"Commanded Startup Interaction","owner":"ext:PKG_SEQ","semantic":"ext:SEQ_START"},
+    {"external_id":"D_SEQ_DRIVE","family":"Sequence","name":"Driving Torque Interaction","owner":"ext:PKG_SEQ","semantic":"ext:SEQ_DRIVE"},
+    {"external_id":"D_PAR_POWER","family":"Parametric","name":"Electrical Power Analysis — Expected 150 kW","owner":"ext:PKG_PARAM","context":"ext:PT"},
+    {"external_id":"D_PAR_THERM","family":"Parametric","name":"Thermal Margin Analysis — Expected 6 kW","owner":"ext:PKG_PARAM","context":"ext:TMS"},
+    {"external_id":"D_PAR_VEH","family":"Parametric","name":"Vehicle Performance Analyses — Force 4500 N and Range 400 km","owner":"ext:PKG_PARAM","context":"ext:VEH"}
   ]
 }
 ''')
