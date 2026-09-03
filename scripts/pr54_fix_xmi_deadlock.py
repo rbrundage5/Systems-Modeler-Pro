@@ -194,4 +194,42 @@ if old_type_ref in interchange:
 elif new_type_ref not in interchange:
     raise SystemExit("semantic type-reference assignment not found")
 
+old_attribute_map = """fn attribute_map(node: roxmltree::Node<'_, '_>) -> BTreeMap<String, String> {
+    node.attributes()
+        .filter(|attribute| attribute.name() != "id" && attribute.name() != "type")
+        .map(|attribute| (attribute.name().to_owned(), attribute.value().to_owned()))
+        .collect()
+}
+"""
+new_attribute_map = """fn attribute_map(node: roxmltree::Node<'_, '_>) -> BTreeMap<String, String> {
+    node.attributes()
+        .filter(|attribute| {
+            !(matches!(attribute.name(), "id" | "type")
+                && attribute.namespace().is_some_and(is_xmi_namespace))
+        })
+        .map(|attribute| (attribute.name().to_owned(), attribute.value().to_owned()))
+        .collect()
+}
+"""
+if old_attribute_map in interchange:
+    interchange = interchange.replace(old_attribute_map, new_attribute_map, 1)
+elif new_attribute_map not in interchange:
+    raise SystemExit("attribute_map namespace filter marker not found")
+
+old_tag_filter = """                if attribute.name() == "id" || attribute.name().starts_with("base_") {
+                    continue;
+                }
+"""
+new_tag_filter = """                if (attribute.name() == "id"
+                    && attribute.namespace().is_some_and(is_xmi_namespace))
+                    || attribute.name().starts_with("base_")
+                {
+                    continue;
+                }
+"""
+if old_tag_filter in interchange:
+    interchange = interchange.replace(old_tag_filter, new_tag_filter, 1)
+elif new_tag_filter not in interchange:
+    raise SystemExit("stereotype tag namespace filter marker not found")
+
 interchange_path.write_text(interchange, encoding="utf-8")
