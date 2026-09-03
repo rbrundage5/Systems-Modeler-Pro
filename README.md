@@ -28,6 +28,8 @@ Frontend authority debt is measured and prevented from growing by `scripts/valid
 
 Bulk, scripting, and interchange adapters converge on the Rust-owned `ModelBuildPlan` construction path. CSV/XLSX mapping, bounded Groovy-compatible model scripting, and ReqIF all construct ordinary native model content through the existing semantic authority. ReqIF uses stable source namespace + ReqIF `IDENTIFIER` identity, non-mutating CREATE/UPDATE/NO_CHANGE/REMOVE/BLOCKED preview, atomic apply, preserved exchange metadata/XHTML, and deterministic `.reqif`/`.reqifz` export.
 
+Groovy/model scripts are normal **file imports** in the desktop product. Open **File → Import Model Script**, select a `.groovy`, `.gvy`, `.smscript`, or supported JSON model-script file, review the non-mutating preview, and import atomically. The professional demonstration fixture is [`examples/model-script/professional-ev-demo.groovy`](examples/model-script/professional-ev-demo.groovy); it imports one connected EV SysML model with 12 curated diagrams covering all nine supported diagram families, requirements/verification, multi-level parts breakdown and interfaces, Activity/State/Sequence behavior, drill-down, and executable Parametric analysis. The presentation walkthrough is in [`docs/PROFESSIONAL_EV_DEMO.md`](docs/PROFESSIONAL_EV_DEMO.md).
+
 Semantic import and diagram presentation are separate contracts. Current CSV/XLSX import constructs qualified semantic content through Activity, State Machine, Sequence, and Parametric scopes, but does **not** construct/populate all-nine-family diagram presentations from workbooks. Portable JSON v1 separately preserves the current authored semantic and presentation state through the same complete-build authority.
 
 | Format / mechanism | Current status |
@@ -37,7 +39,7 @@ Semantic import and diagram presentation are separate contracts. Current CSV/XLS
 | CSV mapped semantic import | QUALIFIED through current semantic scope |
 | XLSX mapped semantic import | QUALIFIED through current semantic scope |
 | Legacy `.xls` | NOT IMPLEMENTED / PLANNED |
-| Groovy / model script | QUALIFIED bounded native model construction / automation |
+| Groovy / model-script file import | QUALIFIED bounded native model construction / automation with preview + atomic apply |
 | ReqIF | QUALIFIED Requirement/TestCase + supported traceability import, stable reimport, `.reqif`/`.reqifz` export |
 | XMI 2.x semantic interchange | QUALIFIED for the documented native subset, preview/reimport, profiles, and deterministic export |
 | XMI diagram interchange | QUALIFIED for lossless native all-nine-family round trip; producer-neutral shared diagram import is bounded as documented |
