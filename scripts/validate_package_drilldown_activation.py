@@ -1,5 +1,7 @@
 """Validate Package/BDD/Activity drill-down activation and visible child-diagram notation."""
 from pathlib import Path
+import json
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,4 +68,81 @@ for forbidden in (
 ):
     assert forbidden not in indicators
 
-print("PR56 drill-down activation + indicator contract passed")
+# The shipped complete demo must remain parseable as the bounded Groovy wrapper,
+# logically packaged, cover every supported diagram family, and give every
+# authored Activity/StateMachine/Interaction a diagram presentation.
+demo_source = read("examples/model-script/complete-vehicle-demo.groovy")
+match = re.search(r"modelScript\('''\s*(\{.*\})\s*'''\)\s*$", demo_source, re.S)
+assert match, "complete demo must remain a modelScript triple-quoted JSON payload"
+demo = json.loads(match.group(1))
+operations = demo["operations"]
+diagrams = demo["diagrams"]
+external_ids = [op["external_id"] for op in operations if op.get("external_id")]
+assert len(external_ids) == len(set(external_ids)), "demo operation External IDs must be unique"
+known = set(external_ids)
+
+
+def handles(value):
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from handles(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from handles(child)
+    elif isinstance(value, str) and value.startswith("handle:"):
+        yield value.removeprefix("handle:")
+
+
+for operation in operations:
+    for target in handles(operation):
+        assert target in known, f"unresolved demo handle: {target}"
+for diagram in diagrams:
+    for target in handles(diagram):
+        assert target in known, f"unresolved demo diagram handle: {target}"
+
+families = {diagram["family"] for diagram in diagrams}
+assert families == {
+    "BDD", "IBD", "Requirement", "Use Case", "Package",
+    "Activity", "State Machine", "Sequence", "Parametric",
+}
+package_owners = {
+    op["external_id"]: op["owner"]
+    for op in operations
+    if op.get("op") == "element" and op.get("kind") == "Package"
+}
+for package_id in (
+    "PKG_COMMON", "PKG_REQ", "PKG_UC", "PKG_STRUCTURE",
+    "PKG_BEHAVIOR", "PKG_PARAM", "PKG_CONFIG",
+):
+    assert package_owners[package_id] == "handle:PKG"
+for child in ("PKG_ACTIVITIES", "PKG_STATES", "PKG_INTERACTIONS", "PKG_SIGNALS"):
+    assert package_owners[child] == "handle:PKG_BEHAVIOR"
+
+semantic_diagrams = {
+    diagram.get("semantic", "").removeprefix("handle:")
+    for diagram in diagrams if diagram.get("semantic")
+}
+for semantic_op in ("activity", "state_machine", "interaction"):
+    authored = {op["external_id"] for op in operations if op.get("op") == semantic_op}
+    assert authored <= semantic_diagrams, f"unpresented {semantic_op}: {sorted(authored - semantic_diagrams)}"
+
+# Explicit drill-down showcase coverage: BDD -> IBD for both Vehicle and Fleet,
+# and CallBehaviorAction -> the separately diagrammed Preflight Activity.
+assert any(d["family"] == "IBD" and d.get("context") == "handle:VEH" for d in diagrams)
+assert any(d["family"] == "IBD" and d.get("context") == "handle:FLEET" for d in diagrams)
+assert any(
+    op.get("op") == "activity_node"
+    and op.get("node", {}).get("kind") == "call_behavior"
+    and op.get("node", {}).get("activity") == "handle:ACT_PREFLIGHT"
+    for op in operations
+)
+assert any(d.get("semantic") == "handle:ACT_PREFLIGHT" for d in diagrams)
+
+# Root Package Diagram should show architecture-level organization relationships.
+relationship_kinds = {
+    op.get("kind") for op in operations if op.get("op") == "relationship"
+}
+assert "PackageImport" in relationship_kinds
+assert "DeriveRequirement" in relationship_kinds
+
+print("PR56 drill-down indicator + complete demo contract passed")
