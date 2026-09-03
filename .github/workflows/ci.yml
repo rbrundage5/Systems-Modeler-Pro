@@ -59,6 +59,8 @@ jobs:
             apps/desktop/frontend/undo-redo-ui.js; do
             node --check "$file"
           done
+          node --check apps/desktop/frontend/xmi-ui.js
+          node --check apps/desktop/frontend/profile-ui.js
           node --check apps/desktop/frontend/shared-dialogs.js
           node --check apps/desktop/frontend/shared-workspace.js
       - name: Behavior desktop integration contract
@@ -95,6 +97,8 @@ jobs:
         run: python scripts/validate_standard_editing_integration.py
       - name: Spreadsheet interchange integration contract
         run: python scripts/validate_spreadsheet_interchange.py
+      - name: XMI interchange integration contract
+        run: python scripts/validate_xmi_interchange.py
       - name: Rust authority and frontend debt gate
         run: python scripts/validate_rust_authority.py
 
@@ -145,6 +149,8 @@ jobs:
         run: python scripts/validate_standard_editing_integration.py
       - name: Spreadsheet interchange integration contract
         run: python scripts/validate_spreadsheet_interchange.py
+      - name: XMI interchange integration contract
+        run: python scripts/validate_xmi_interchange.py
       - name: Rust authority and frontend debt gate
         run: python scripts/validate_rust_authority.py
       - name: Verify Cargo.lock remains clean

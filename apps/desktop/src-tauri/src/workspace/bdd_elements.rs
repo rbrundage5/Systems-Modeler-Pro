@@ -215,6 +215,7 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
                         parameter_id: binding.target.parameter_id.map(|id| id.to_string()),
                     },
                 }),
+            applied_stereotypes: relationship.applied_stereotypes.clone(),
         })
         .collect();
     relationships.sort_by(|a, b| a.id.cmp(&b.id));

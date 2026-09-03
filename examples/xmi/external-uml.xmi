@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<x:XMI xmlns:x="http://www.omg.org/spec/XMI/20131001"
+       xmlns:u="http://www.omg.org/spec/UML/20131001">
+  <u:Model x:id="m1" name="Vehicle">
+    <packagedElement x:type="u:Class" x:id="controller" name="Controller" />
+    <packagedElement x:type="u:Class" x:id="sensor" name="Sensor" />
+    <packagedElement x:type="u:Dependency" x:id="uses" client="controller" supplier="sensor" />
+  </u:Model>
+</x:XMI>

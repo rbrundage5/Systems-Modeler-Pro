@@ -22,6 +22,7 @@ mod workspace {
     mod portable_interchange;
     mod presentation_interaction;
     mod presentation_theme;
+    mod profile_editing;
     mod relationship_editing;
     mod repository_editing;
     mod reqif_interchange;
@@ -37,6 +38,8 @@ mod workspace {
     mod standard_editing;
     mod standard_editing_bridge;
     mod use_cases;
+    mod xmi_interchange;
+    mod xmi_runtime;
     pub use activity_editing::{
         add_activity_action, add_activity_parameter_node, add_activity_partition,
         add_structured_activity_node, assign_activity_node_partition,
@@ -119,6 +122,11 @@ mod workspace {
     pub use presentation_theme::{
         diagram_command_manifest, semantic_presentation_manifest, semantic_presentation_stylesheet,
     };
+    pub use profile_editing::{
+        apply_profile_definition, apply_stereotype_definition, create_profile_definition,
+        create_stereotype_definition, create_tag_definition, remove_stereotype_application,
+        set_stereotype_tag_values,
+    };
     pub use relationship_editing::{
         delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
     };
@@ -177,6 +185,9 @@ mod workspace {
         update_use_case_diagram_subject, update_use_case_specification,
         update_use_case_subject_boundary_geometry,
     };
+    pub use xmi_runtime::{
+        apply_xmi_import, discard_staged_xmi, export_xmi, preview_xmi_import, stage_xmi_upload,
+    };
 }
 
 use serde::Serialize;
@@ -191,27 +202,30 @@ use workspace::{
     add_item_flow_to_connector, add_nested_port_to_ibd, add_sequence_lifeline,
     add_sequence_message, add_state_invariant, add_state_region, add_state_transition,
     add_state_transition_complete, add_state_vertex, add_structured_activity_node,
-    add_submachine_state, apply_model_script, apply_reqif_import, apply_spreadsheet_import,
-    apply_spreadsheet_workbook_import, assign_activity_node_partition,
-    assign_activity_node_structured_parent, behavior_lifeline_candidates, behavior_snapshot,
-    clear_activity_executions, clear_sequence_executions, clear_state_machine_executions,
-    clear_workspace_interaction, configure_activity_execution_runtime,
-    configure_sequence_execution_runtime, configure_state_machine_execution_runtime,
-    copy_selection, create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
-    create_bdd_relationship, create_bdd_relationship_complete, create_binding_connector,
-    create_block, create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
+    add_submachine_state, apply_model_script, apply_profile_definition, apply_reqif_import,
+    apply_spreadsheet_import, apply_spreadsheet_workbook_import, apply_stereotype_definition,
+    apply_xmi_import, assign_activity_node_partition, assign_activity_node_structured_parent,
+    behavior_lifeline_candidates, behavior_snapshot, clear_activity_executions,
+    clear_sequence_executions, clear_state_machine_executions, clear_workspace_interaction,
+    configure_activity_execution_runtime, configure_sequence_execution_runtime,
+    configure_state_machine_execution_runtime, copy_selection, create_activity_diagram, create_bdd,
+    create_bdd_element, create_bdd_feature, create_bdd_relationship,
+    create_bdd_relationship_complete, create_binding_connector, create_block,
+    create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
     create_package_diagram, create_package_element, create_package_relationship,
     create_parametric_constraint_property, create_parametric_diagram,
-    create_parametric_value_property, create_requirement, create_requirement_diagram,
-    create_sequence_diagram, create_sequence_diagram_staged, create_state_machine_diagram,
-    create_state_machine_diagram_staged, create_test_case, create_traceability_relationship,
-    create_use_case_diagram, create_use_case_element, create_use_case_relationship,
-    delete_active_selection, delete_activity_item, delete_bdd_relationship, delete_behavior_item,
-    delete_binding_connector, delete_model_element, delete_package_relationship,
-    delete_repository_diagram, delete_use_case_relationship, diagram_command_manifest,
-    diagram_family_registry, discard_staged_reqif, discard_staged_spreadsheet, duplicate_selection,
+    create_parametric_value_property, create_profile_definition, create_requirement,
+    create_requirement_diagram, create_sequence_diagram, create_sequence_diagram_staged,
+    create_state_machine_diagram, create_state_machine_diagram_staged,
+    create_stereotype_definition, create_tag_definition, create_test_case,
+    create_traceability_relationship, create_use_case_diagram, create_use_case_element,
+    create_use_case_relationship, delete_active_selection, delete_activity_item,
+    delete_bdd_relationship, delete_behavior_item, delete_binding_connector, delete_model_element,
+    delete_package_relationship, delete_repository_diagram, delete_use_case_relationship,
+    diagram_command_manifest, diagram_family_registry, discard_staged_reqif,
+    discard_staged_spreadsheet, discard_staged_xmi, duplicate_selection,
     evaluate_parametric_diagram, export_portable_project_json, export_reqif,
-    export_spreadsheet_workbook, fit_diagram_viewport, get_diagram_frame_preference,
+    export_spreadsheet_workbook, export_xmi, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
     initialize_activity_execution, initialize_sequence_execution,
@@ -224,27 +238,27 @@ use workspace::{
     preview_activity_execution_runtime, preview_model_script, preview_reqif_import,
     preview_sequence_execution_runtime, preview_spreadsheet_import,
     preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
-    queue_state_machine_signal, reconnect_activity_edge, reconnect_bdd_relationship,
-    reconnect_binding_connector, reconnect_package_relationship, reconnect_sequence_message,
-    reconnect_traceability_relationship, reconnect_use_case_relationship,
-    rename_active_diagram_header, rename_element, reset_activity_execution,
-    reset_activity_workspace, reset_sequence_execution, reset_state_machine_execution,
-    resize_sequence_lifeline_timeline, resume_activity_execution, resume_sequence_execution,
-    resume_state_machine_execution, route_activity_diagram, route_behavior_diagram,
-    route_diagram_geometry, route_ibd, run_activity_execution, run_sequence_execution,
-    run_state_machine_execution, save_activity_workspace, save_current_project,
-    save_current_project_complete, save_project_file, save_project_file_complete,
-    semantic_presentation_manifest, semantic_presentation_stylesheet,
+    preview_xmi_import, queue_state_machine_signal, reconnect_activity_edge,
+    reconnect_bdd_relationship, reconnect_binding_connector, reconnect_package_relationship,
+    reconnect_sequence_message, reconnect_traceability_relationship,
+    reconnect_use_case_relationship, remove_stereotype_application, rename_active_diagram_header,
+    rename_element, reset_activity_execution, reset_activity_workspace, reset_sequence_execution,
+    reset_state_machine_execution, resize_sequence_lifeline_timeline, resume_activity_execution,
+    resume_sequence_execution, resume_state_machine_execution, route_activity_diagram,
+    route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,
+    run_sequence_execution, run_state_machine_execution, save_activity_workspace,
+    save_current_project, save_current_project_complete, save_project_file,
+    save_project_file_complete, semantic_presentation_manifest, semantic_presentation_stylesheet,
     sequence_execution_runtime_selection, sequence_execution_snapshot,
-    set_diagram_frame_preference, set_panel_preferences, set_viewport_preference,
-    set_workspace_interaction, stage_reqif_upload, stage_spreadsheet_upload,
-    state_machine_execution_runtime_selection, state_machine_execution_snapshot,
-    step_activity_execution, step_sequence_execution, step_state_machine_execution,
-    terminate_activity_execution, terminate_sequence_execution, terminate_state_machine_execution,
-    update_activity_node_semantics, update_activity_presentation_geometry, update_actor_details,
-    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
-    update_bdd_presentation_geometry, update_combined_fragment_operand,
-    update_constraint_block_details, update_constraint_parameter,
+    set_diagram_frame_preference, set_panel_preferences, set_stereotype_tag_values,
+    set_viewport_preference, set_workspace_interaction, stage_reqif_upload,
+    stage_spreadsheet_upload, stage_xmi_upload, state_machine_execution_runtime_selection,
+    state_machine_execution_snapshot, step_activity_execution, step_sequence_execution,
+    step_state_machine_execution, terminate_activity_execution, terminate_sequence_execution,
+    terminate_state_machine_execution, update_activity_node_semantics,
+    update_activity_presentation_geometry, update_actor_details, update_association_end,
+    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
+    update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
     update_constraint_parameter_presentation, update_execution_specification,
     update_extend_specification, update_ibd_port_geometry, update_ibd_property_geometry,
     update_package_element, update_package_relationship, update_parametric_constraint_property,
@@ -695,6 +709,13 @@ fn main() {
             delete_repository_diagram,
             workspace_snapshot,
             workspace_snapshot_complete,
+            create_profile_definition,
+            create_stereotype_definition,
+            create_tag_definition,
+            apply_profile_definition,
+            apply_stereotype_definition,
+            set_stereotype_tag_values,
+            remove_stereotype_application,
             export_portable_project_json,
             import_portable_project_json,
             preview_reqif_import,
@@ -702,6 +723,11 @@ fn main() {
             export_reqif,
             stage_reqif_upload,
             discard_staged_reqif,
+            preview_xmi_import,
+            apply_xmi_import,
+            export_xmi,
+            stage_xmi_upload,
+            discard_staged_xmi,
             preview_model_script,
             apply_model_script,
             preview_spreadsheet_import,
