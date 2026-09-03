@@ -1,6 +1,6 @@
 # PR53 — Profiles and semantic XMI
 
-PR53 adds native profile semantics and a bounded, namespace-aware XMI 2.x interchange adapter. XMI import is a staged parse → neutral IR → preview → validated candidate → atomic commit pipeline. XMI never mutates presentation geometry.
+PR53 adds native profile semantics and a bounded, namespace-aware XMI 2.x interchange adapter. XMI import is a staged parse → neutral IR → preview → validated candidate → atomic commit pipeline. PR55 extends that pipeline with the bounded diagram/presentation contract in [`PR55_XMI_DI_INTEROPERABILITY.md`](PR55_XMI_DI_INTEROPERABILITY.md).
 
 ## Native profile model
 
@@ -25,4 +25,4 @@ XMI metaclass attributes are recognized only through the XMI namespace, so ordin
 
 ## Explicit boundaries
 
-This is semantic XMI, not UML Diagram Interchange: diagram positions, routing, viewport state, and presentation preferences are excluded. Import does not promise universal compatibility with every UML/SysML producer. Unknown semantic constructs are diagnosed and preserved when safe; they are not guessed into native concepts. The native semantic extension enables exact Systems Modeler round trips but is not presented as a vendor-neutral UML feature.
+The PR53 qualification remains the semantic layer. PR55 adds a separate presentation layer without changing semantic authority. Import does not promise universal compatibility with every UML/SysML producer. Unknown semantic constructs are diagnosed and preserved when safe; they are not guessed into native concepts. The native authored-state extension enables exact Systems Modeler semantic and presentation round trips but is not presented as a vendor-neutral UML feature.

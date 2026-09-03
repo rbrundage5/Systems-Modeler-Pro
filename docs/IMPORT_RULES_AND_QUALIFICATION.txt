@@ -1,8 +1,8 @@
 SYSTEMS-MODELER-PRO
 IMPORT RULES AND QUALIFICATION CONTRACT
 
-Applies to: logical PR52 ReqIF milestone based on main 7764fdb78329dd893319330a038275bdaa63de63
-Baseline date: 2026-09-02
+Applies to: PR55 XMI diagram-interchange closure based on merged PR54 main
+Baseline date: 2026-09-03
 Document status: AUTHORITATIVE DEVELOPER-FACING IMPORT CONTRACT FOR THIS BASELINE
 
 ===============================================================================
@@ -21,7 +21,8 @@ history:
 - which capabilities are implemented but only partially qualified;
 - which capabilities are partial, planned, not implemented, or out of scope;
 - how current Groovy/model scripting and ReqIF adapters join the shared Rust
-  construction architecture, and how future XMI/SysML v2 adapters must do the same.
+  construction architecture, and how the XMI adapter follows it while a future
+  SysML v2 adapter must do the same.
 
 This is not a compatibility certification. Terms such as "CATIA-style" or
 "Cameo-style" describe configurable mapping approaches only. They do not mean
@@ -78,11 +79,37 @@ XLSX mapped semantic import                QUALIFIED through current semantic sc
 Legacy XLS (.xls)                          NOT IMPLEMENTED / PLANNED
 Groovy / model-script import               QUALIFIED bounded native construction / automation
 ReqIF                                      QUALIFIED Requirement/TestCase + traceability interchange
-XMI                                        PLANNED / NOT YET IMPLEMENTED
+XMI semantic subset                       QUALIFIED
+XMI native all-nine presentation roundtrip QUALIFIED
+XMI producer-neutral shared presentation  IMPLEMENTED / PARTIALLY QUALIFIED
 SysML v2 interchange                       PLANNED / NOT IMPLEMENTED
 CATIA native/3DEXPERIENCE project files    NOT SUPPORTED
 CATIA release-specific compatibility       NOT QUALIFIED
 Cameo release-specific compatibility       NOT QUALIFIED
+
+PR55 CURRENT-STATE OVERRIDE
+---------------------------
+Sections written for earlier PR38-PR52 baselines remain as historical detail
+where explicitly labelled as a prior state. If a later section says that XMI,
+ReqIF, Groovy/model-script, or authoritative reconciliation is not implemented,
+this current-state override controls: all are now implemented within their
+documented bounded contracts. SysML v2 and legacy .xls remain unimplemented.
+
+XMI semantic import/export is qualified for the PR54 subset. Native-authored
+XMI preserves and restores the complete authored workspace, including BDD,
+IBD, Requirement, Use Case, Package, Activity, State Machine, Sequence, and
+Parametric presentations, through preview, validation, and one atomic commit.
+The producer-neutral fixture qualifies the shared BDD-shaped presentation IR
+(BDD, Requirement, Use Case, Package, Parametric), stable source-bound identity,
+geometry, waypoint validation/routing fallback, reimport, and authoritative
+removal protection. External IBD/Activity/State Machine/Sequence presentation
+requires the native authored payload until a genuine producer fixture proves a
+safe mapping into those specialized native repositories.
+
+No authentic CATIA/No Magic or Cameo/MagicDraw XMI fixture is available in this
+repository. Their namespace and local-name forms can be normalized by the
+neutral parser where they match the documented IR, but vendor-version behavior
+is NOT QUALIFIED and must not be inferred from synthetic fixtures.
 
 "Portable JSON" and ".smproj" are different contracts:
 

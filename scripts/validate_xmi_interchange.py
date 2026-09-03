@@ -22,14 +22,21 @@ for contract in (
     "AuthoritativeXmiScope",
     "XmiAction",
     "REFERENCE_PROTECTED_REMOVE",
+    "XmiDiagramRecord",
+    "XmiDiagramNodeRecord",
+    "XmiDiagramEdgeRecord",
+    "stable_presentation_uuid",
+    "apply_external_presentations",
+    "write_presentations",
 ):
     assert contract in RUNTIME or contract in ADAPTER, f"missing XMI contract: {contract}"
 
 assert "roxmltree" in ADAPTER, "XMI must use the namespace-aware Rust parser"
 assert "xmi:Extension" in ADAPTER, "loss-minimized extension preservation is required"
-assert "diagram" not in " ".join(line.lower() for line in RUNTIME.splitlines() if "serialize_xmi" in line), "XMI export must remain semantic-only"
+assert "semantic_only(portable_from_states(&workspace" not in RUNTIME, "XMI export must include authored presentations"
+assert "<sm:diagrams" in ADAPTER, "XMI export must include the shared diagram interchange layer"
 
-for fixture in ("external-uml.xmi", "external-sysml-profile.xmi"):
+for fixture in ("external-uml.xmi", "external-sysml-profile.xmi", "generic-uml-di.xmi"):
     assert (ROOT / "examples/xmi" / fixture).is_file(), f"missing external fixture: {fixture}"
 
 print("XMI interchange integration contract validated")

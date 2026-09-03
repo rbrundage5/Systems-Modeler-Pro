@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic, producer-neutral UML/XMI + Systems-Modeler DI qualification fixture. -->
+<x:XMI xmlns:x="http://www.omg.org/spec/XMI/20131001"
+       xmlns:u="http://www.omg.org/spec/UML/20131001"
+       xmlns:sm="https://systems-modeler.dev/xmi/semantic/1">
+  <u:Model x:id="model" name="Vehicle">
+    <packagedElement x:type="u:Class" x:id="controller" name="Controller" />
+    <packagedElement x:type="u:Class" x:id="sensor" name="Sensor" />
+    <packagedElement x:type="u:Dependency" x:id="uses" client="controller" supplier="sensor" />
+  </u:Model>
+  <x:Extension extender="producer-neutral DI fixture">
+    <sm:diagrams version="1">
+      <sm:Diagram x:id="vehicle-bdd" name="Vehicle Structure" family="bdd">
+        <sm:Node x:id="controller-shape" semanticElement="controller"
+                 x="80" y="100" width="190" height="110" />
+        <sm:Node x:id="sensor-shape" semanticElement="sensor"
+                 x="410" y="100" width="190" height="110" />
+        <sm:Edge x:id="uses-edge" semanticElement="uses"
+                 source="controller-shape" target="sensor-shape">
+          <sm:waypoint x="270" y="155" />
+          <sm:waypoint x="410" y="155" />
+          <sm:labelAnchor x="340" y="155" />
+        </sm:Edge>
+      </sm:Diagram>
+    </sm:diagrams>
+  </x:Extension>
+</x:XMI>
