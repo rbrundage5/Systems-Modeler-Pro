@@ -39,29 +39,29 @@
   async function inspect(preview) {
     const blocked = (preview?.diagnostics || []).length > 0 || (preview?.items || []).some((item) => item.action === 'BLOCKED');
     const result = await window.smpDialogs?.edit?.({
-      title: 'Model Script dry run',
-      description: `${actionSummary(preview)}${blocked ? ' · Apply is blocked until diagnostics are resolved.' : ''}`,
+      title: 'Model Script import preview',
+      description: `${actionSummary(preview)}${blocked ? ' · Import is blocked until diagnostics are resolved.' : ''}`,
       fields: [{ id: 'preview', label: 'Operations and diagnostics', value: previewText(preview), multiline: true, readonly: true }],
-      confirmLabel: blocked ? 'Close' : 'Apply',
+      confirmLabel: blocked ? 'Close' : 'Import',
     });
     return !blocked && !!result;
   }
 
-  async function runModelScript() {
+  async function importModelScript() {
     try {
       const file = await chooseScript();
       if (!file) return;
       const source = await file.text();
-      notify(`Dry-running ${file.name}…`);
+      notify(`Validating ${file.name}…`);
       const preview = await invoke('preview_model_script', { scriptName: file.name, source });
       if (!await inspect(preview)) return;
-      notify(`Applying ${file.name} atomically…`);
+      notify(`Importing ${file.name} atomically…`);
       const applied = await invoke('apply_model_script', { scriptName: file.name, source });
       if (!applied?.applied) throw new Error(previewText(applied));
       if (typeof refresh === 'function') await refresh();
-      notify(`Model script applied: ${actionSummary(applied)}`);
+      notify(`Model script imported: ${actionSummary(applied)}`);
     } catch (error) {
-      notify(`Model script failed: ${error?.message || error}`, 'error');
+      notify(`Model script import failed: ${error?.message || error}`, 'error');
     }
   }
 
@@ -72,10 +72,10 @@
     const group = document.createElement('section');
     group.className = 'ribbon-group';
     group.dataset.pr51ModelScript = 'true';
-    group.innerHTML = '<div class="ribbon-actions ribbon-large-actions"><button class="ribbon-command" data-pr51-run-model-script><span class="command-icon">{ }</span><span>Run Model<br>Script</span></button></div><div class="ribbon-label">Automation</div>';
+    group.innerHTML = '<div class="ribbon-actions ribbon-large-actions"><button class="ribbon-command" data-pr51-run-model-script><span class="command-icon">{ }</span><span>Import Model<br>Script</span></button></div><div class="ribbon-label">Interchange</div>';
     const history = [...ribbon.querySelectorAll('.ribbon-group')].find((candidate) => candidate.textContent.includes('History'));
     if (history) ribbon.insertBefore(group, history); else ribbon.appendChild(group);
-    group.querySelector('[data-pr51-run-model-script]')?.addEventListener('click', runModelScript);
+    group.querySelector('[data-pr51-run-model-script]')?.addEventListener('click', importModelScript);
   }
 
   const ribbon = document.querySelector('.ribbon');
@@ -83,5 +83,6 @@
   document.addEventListener('click', (event) => {
     if (event.target?.closest?.('.workspace-tab')?.textContent.trim() === 'File') setTimeout(ensureFileRibbonCommand, 0);
   });
-  window.smpRunModelScript = runModelScript;
+  window.smpImportModelScript = importModelScript;
+  window.smpRunModelScript = importModelScript;
 })();
