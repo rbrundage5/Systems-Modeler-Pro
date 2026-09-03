@@ -27,6 +27,7 @@ modelScript('''
     {"op":"item_flow","external_id":"FLOW_CHARGE","connector":"handle:CONN_CHARGE_DELEG","source_path":["EV_CHARGE"],"target_path":["P_ESS","ESS_CHARGE"],"conveyed_items":["ext:DT_CHARGE_POWER"],"name":"Charging Request","documentation":""},
     {"op":"item_flow","external_id":"FLOW_SERVICE","connector":"handle:CONN_SERVICE_DELEG","source_path":["EV_SERVICE"],"target_path":["P_CTRL","CTRL_SERVICE"],"conveyed_items":["ext:DT_SERVICE_MSG"],"name":"Service Diagnostics","documentation":""},
     {"op":"item_flow","external_id":"FLOW_INV_MOTOR","connector":"handle:CONN_INV_MOTOR","source_path":["P_INV","INV_MOTOR"],"target_path":["P_MOTOR","MOTOR_POWER"],"conveyed_items":["ext:DT_HV_POWER"],"name":"Motor Electrical Power","documentation":""},
+    {"op":"item_flow","external_id":"FLOW_CHARGER_BAT","connector":"handle:CONN_CHARGER_BAT","source_path":["P_CHARGER","CHARGER_BAT"],"target_path":["P_BAT","BAT_CHARGE"],"conveyed_items":["ext:DT_CHARGE_POWER"],"name":"Battery Charging Power","documentation":""},
     {"op":"item_flow","external_id":"FLOW_THERM_PUMP","connector":"handle:CONN_THERM_PUMP","source_path":["P_THERM_CTRL","THERM_CAN"],"target_path":["P_PUMP","PUMP_CAN"],"conveyed_items":["ext:DT_THERMAL_CMD"],"name":"Pump Cooling Command","documentation":""},
     {"op":"item_flow","external_id":"FLOW_BRAKE_ACT","connector":"handle:CONN_BRAKE_ACT","source_path":["P_BRAKE_CTRL","BRAKE_CTRL_CMD"],"target_path":["P_BRAKE_ACT","BRAKE_ACT_CMD"],"conveyed_items":["ext:DT_BRAKE_CMD"],"name":"Brake Actuator Command","documentation":""}
   ]
