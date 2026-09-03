@@ -214,13 +214,9 @@ fn append_presentation_preview(
         let external_same =
             existing.is_some_and(|item| external_presentation_unchanged(item, diagram, namespace));
         preview.items.push(XmiPreviewItem {
-            action: if native_embedded && native_same {
+            action: if (native_embedded && native_same) || external_same {
                 XmiAction::NoChange
-            } else if external_same {
-                XmiAction::NoChange
-            } else if native_embedded {
-                XmiAction::Update
-            } else if existing.is_some() {
+            } else if native_embedded || existing.is_some() {
                 XmiAction::Update
             } else {
                 XmiAction::Create
@@ -1021,14 +1017,6 @@ fn owner_depth(project: &Project, mut id: ElementId) -> usize {
         id = owner;
     }
     depth
-}
-
-fn semantic_only(mut portable: PortableProjectV1) -> PortableProjectV1 {
-    portable.diagrams.clear();
-    portable.ibd_diagrams.clear();
-    portable.activity.diagrams.clear();
-    portable.behavior.diagrams.clear();
-    portable
 }
 
 fn clone_states(
