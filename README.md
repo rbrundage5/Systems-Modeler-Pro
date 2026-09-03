@@ -39,11 +39,12 @@ Semantic import and diagram presentation are separate contracts. Current CSV/XLS
 | Legacy `.xls` | NOT IMPLEMENTED / PLANNED |
 | Groovy / model script | QUALIFIED bounded native model construction / automation |
 | ReqIF | QUALIFIED Requirement/TestCase + supported traceability import, stable reimport, `.reqif`/`.reqifz` export |
-| XMI | PLANNED / NOT YET IMPLEMENTED |
+| XMI 2.x semantic interchange | QUALIFIED for the documented native subset, preview/reimport, profiles, and deterministic export |
+| XMI diagram interchange | QUALIFIED for lossless native all-nine-family round trip; producer-neutral shared diagram import is bounded as documented |
 | SysML v2 interchange | PLANNED / NOT IMPLEMENTED |
 | Native CATIA / 3DEXPERIENCE project files | NOT SUPPORTED |
 
-"CATIA-style" and "Cameo-style" describe configurable spreadsheet mapping approaches; they are not release-specific compatibility or certification claims.
+"CATIA-style" and "Cameo-style" describe configurable mapping approaches. No authentic CATIA/No Magic or Cameo/MagicDraw fixture is currently available in this repository, so no vendor release-specific compatibility or certification claim is made.
 
 For the authoritative import architecture, supported semantic coverage, reimport rules, qualification matrices, runtime boundaries, diagram/presentation status, and planned adapter contracts, see [`docs/IMPORT_RULES_AND_QUALIFICATION.txt`](docs/IMPORT_RULES_AND_QUALIFICATION.txt).
 
