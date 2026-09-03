@@ -50,6 +50,7 @@ jobs:
             apps/desktop/frontend/diagram-interaction.js \
             apps/desktop/frontend/repository-tree-ui.js \
             apps/desktop/frontend/interaction-runtime-fixes.js \
+            apps/desktop/frontend/drilldown-indicators.js \
             apps/desktop/frontend/state-bar-resize.js \
             apps/desktop/frontend/bdd-compartment-visibility.js \
             apps/desktop/frontend/use-case-ui.js \
