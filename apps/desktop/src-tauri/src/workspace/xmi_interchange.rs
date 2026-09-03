@@ -119,13 +119,10 @@ fn local_attribute<'a, 'input>(
         .map(|attribute| attribute.value())
 }
 
-fn semantic_type_reference<'a, 'input>(
-    node: roxmltree::Node<'a, 'input>,
-) -> Option<&'a str> {
+fn semantic_type_reference<'a, 'input>(node: roxmltree::Node<'a, 'input>) -> Option<&'a str> {
     node.attributes()
         .find(|attribute| {
-            attribute.name() == "type"
-                && !attribute.namespace().is_some_and(is_xmi_namespace)
+            attribute.name() == "type" && !attribute.namespace().is_some_and(is_xmi_namespace)
         })
         .map(|attribute| attribute.value())
 }
@@ -996,7 +993,10 @@ pub(super) mod tests {
             .expect("typed property record");
         assert_eq!(property.xmi_type, "uml:Property");
         assert_eq!(property.type_reference.as_deref(), Some("c1"));
-        assert_eq!(property.attributes.get("type").map(String::as_str), Some("c1"));
+        assert_eq!(
+            property.attributes.get("type").map(String::as_str),
+            Some("c1")
+        );
     }
 
     #[test]
