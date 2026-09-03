@@ -1,0 +1,1 @@
+Completion scope: one directly importable professional EV model script; 12 curated diagrams spanning all nine supported diagram families; requirements-first traceability; multi-level parts breakdown; typed ports/connectors/item flows; drill-down; executable behavior; parametric evaluation; verification; professional automatic layout/routing.
