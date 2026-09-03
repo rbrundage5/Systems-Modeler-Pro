@@ -1,0 +1,1 @@
+The professional EV demo is provided as one normal `.groovy` file that is imported from the desktop UI. Its diagrams are intentionally limited to the curated presentation set rather than the earlier large exploratory set.
