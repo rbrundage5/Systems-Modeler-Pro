@@ -19,6 +19,10 @@ Profile state is part of repository transactions, portable JSON, spreadsheet ful
 
 Unsupported required references, duplicate identities, wrong-kind collisions, invalid tag values, and protected authoritative removals block commit with structured diagnostics. Producer extensions are retained as uninterpreted interchange data where possible.
 
+## Qualification safeguards
+
+XMI metaclass attributes are recognized only through the XMI namespace, so ordinary UML/SysML attributes such as semantic `type` references and stereotype tag values cannot be confused with `xmi:type` or `xmi:id`. Native authored-state preview releases the project validation guard before taking the portable semantic snapshot, preventing recursive locking on the desktop runtime. The Windows desktop qualification includes regression coverage for both behaviors, authoritative CRLF/LF reimport handling, full desktop tests, Clippy with warnings denied, and the existing cross-family integration contracts.
+
 ## Explicit boundaries
 
 This is semantic XMI, not UML Diagram Interchange: diagram positions, routing, viewport state, and presentation preferences are excluded. Import does not promise universal compatibility with every UML/SysML producer. Unknown semantic constructs are diagnosed and preserved when safe; they are not guessed into native concepts. The native semantic extension enables exact Systems Modeler round trips but is not presented as a vendor-neutral UML feature.
