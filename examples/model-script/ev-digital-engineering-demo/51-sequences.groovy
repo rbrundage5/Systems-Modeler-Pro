@@ -1,0 +1,52 @@
+// Systems-Modeler-Pro PR57 EV demo module: 51-sequences.groovy.
+// Import modules in numeric order. Shared source namespace + stable External IDs make reapply idempotent.
+modelScript('''
+{
+  "source_namespace":"demo:ev-digital-engineering:v3",
+  "operations": [
+    {"op":"interaction","external_id":"SEQ_START","name":"CommandedStartupSequence","context":"ext:VEH"},
+    {"op":"lifeline","external_id":"LL_HMI","interaction":"handle:SEQ_START","name":"hmi","represented_path":["ext:P_HMI"]},
+    {"op":"lifeline","external_id":"LL_VCU","interaction":"handle:SEQ_START","name":"vcu","represented_path":["ext:P_CTRL","ext:P_VCU"]},
+    {"op":"lifeline","external_id":"LL_BMS","interaction":"handle:SEQ_START","name":"bms","represented_path":["ext:P_ESS","ext:P_BMS"]},
+    {"op":"lifeline","external_id":"LL_INV","interaction":"handle:SEQ_START","name":"inverter","represented_path":["ext:P_PT","ext:P_INV"]},
+    {"op":"occurrence","external_id":"OS1","interaction":"handle:SEQ_START","lifeline":"handle:LL_HMI","order":1},
+    {"op":"occurrence","external_id":"OS2","interaction":"handle:SEQ_START","lifeline":"handle:LL_VCU","order":2},
+    {"op":"occurrence","external_id":"OS3","interaction":"handle:SEQ_START","lifeline":"handle:LL_VCU","order":3},
+    {"op":"occurrence","external_id":"OS4","interaction":"handle:SEQ_START","lifeline":"handle:LL_BMS","order":4},
+    {"op":"occurrence","external_id":"OS5","interaction":"handle:SEQ_START","lifeline":"handle:LL_BMS","order":5},
+    {"op":"occurrence","external_id":"OS6","interaction":"handle:SEQ_START","lifeline":"handle:LL_INV","order":6},
+    {"op":"occurrence","external_id":"OS7","interaction":"handle:SEQ_START","lifeline":"handle:LL_INV","order":7},
+    {"op":"occurrence","external_id":"OS8","interaction":"handle:SEQ_START","lifeline":"handle:LL_VCU","order":8},
+    {"op":"occurrence","external_id":"OS9","interaction":"handle:SEQ_START","lifeline":"handle:LL_VCU","order":9},
+    {"op":"occurrence","external_id":"OS10","interaction":"handle:SEQ_START","lifeline":"handle:LL_HMI","order":10},
+    {"op":"message","external_id":"MSG_START","interaction":"handle:SEQ_START","name":"startVehicle","sort":"SynchCall","send":"handle:OS1","receive":"handle:OS2","signature":{"kind":"operation","operation":"ext:OP_START"},"arguments":["1"]},
+    {"op":"execution","external_id":"EXEC_START","interaction":"handle:SEQ_START","lifeline":"handle:LL_VCU","start":"handle:OS2","finish":"handle:OS3","behavior":"ext:OP_START"},
+    {"op":"message","external_id":"MSG_HV_ENABLE","interaction":"handle:SEQ_START","name":"HighVoltageEnable","sort":"AsynchSignal","send":"handle:OS3","receive":"handle:OS4","signature":{"kind":"signal","signal":"ext:SIG_HV_ENABLE"}},
+    {"op":"message","external_id":"MSG_HV_READY","interaction":"handle:SEQ_START","name":"HighVoltageReady","sort":"AsynchSignal","send":"handle:OS5","receive":"handle:OS6","signature":{"kind":"signal","signal":"ext:SIG_HV_READY"}},
+    {"op":"message","external_id":"MSG_HV_READY_CTRL","interaction":"handle:SEQ_START","name":"HighVoltageReady","sort":"AsynchSignal","send":"handle:OS7","receive":"handle:OS8","signature":{"kind":"signal","signal":"ext:SIG_HV_READY"}},
+    {"op":"message","external_id":"MSG_READY","interaction":"handle:SEQ_START","name":"VehicleReady","sort":"AsynchSignal","send":"handle:OS9","receive":"handle:OS10","signature":{"kind":"signal","signal":"ext:SIG_VEH_READY"}},
+    {"op":"state_invariant","external_id":"INV_VCU_READY","interaction":"handle:SEQ_START","lifeline":"handle:LL_VCU","order":9,"constraint":"startupComplete == true"},
+    {"op":"interaction","external_id":"SEQ_DRIVE","name":"DrivingTorqueSequence","context":"ext:VEH"},
+    {"op":"lifeline","external_id":"LD_PEDAL","interaction":"handle:SEQ_DRIVE","name":"acceleratorPedal","represented_path":["ext:P_SENS","ext:P_PEDAL"]},
+    {"op":"lifeline","external_id":"LD_VCU","interaction":"handle:SEQ_DRIVE","name":"vcu","represented_path":["ext:P_CTRL","ext:P_VCU"]},
+    {"op":"lifeline","external_id":"LD_INV","interaction":"handle:SEQ_DRIVE","name":"inverter","represented_path":["ext:P_PT","ext:P_INV"]},
+    {"op":"lifeline","external_id":"LD_MOTOR","interaction":"handle:SEQ_DRIVE","name":"motor","represented_path":["ext:P_PT","ext:P_MOTOR"]},
+    {"op":"occurrence","external_id":"OD1","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_PEDAL","order":1},
+    {"op":"occurrence","external_id":"OD2","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_VCU","order":2},
+    {"op":"occurrence","external_id":"OD3","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_VCU","order":3},
+    {"op":"occurrence","external_id":"OD4","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_INV","order":4},
+    {"op":"occurrence","external_id":"OD5","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_INV","order":5},
+    {"op":"occurrence","external_id":"OD6","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_MOTOR","order":6},
+    {"op":"occurrence","external_id":"OD7","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_MOTOR","order":7},
+    {"op":"occurrence","external_id":"OD8","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_VCU","order":8},
+    {"op":"message","external_id":"MD_ACCEL","interaction":"handle:SEQ_DRIVE","name":"AcceleratorRequest","sort":"AsynchSignal","send":"handle:OD1","receive":"handle:OD2","signature":{"kind":"signal","signal":"ext:SIG_ACCEL"}},
+    {"op":"message","external_id":"MD_ENABLE","interaction":"handle:SEQ_DRIVE","name":"enableTorque","sort":"SynchCall","send":"handle:OD3","receive":"handle:OD4","signature":{"kind":"operation","operation":"ext:OP_INV_ENABLE"},"arguments":["requestedTorque"]},
+    {"op":"execution","external_id":"ED_INV","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_INV","start":"handle:OD4","finish":"handle:OD5","behavior":"ext:OP_INV_ENABLE"},
+    {"op":"message","external_id":"MD_APPLY","interaction":"handle:SEQ_DRIVE","name":"applyTorque","sort":"SynchCall","send":"handle:OD5","receive":"handle:OD6","signature":{"kind":"operation","operation":"ext:OP_MOTOR_APPLY"},"arguments":["requestedTorque"]},
+    {"op":"execution","external_id":"ED_MOTOR","interaction":"handle:SEQ_DRIVE","lifeline":"handle:LD_MOTOR","start":"handle:OD6","finish":"handle:OD7","behavior":"ext:OP_MOTOR_APPLY"},
+    {"op":"message","external_id":"MD_SPEED","interaction":"handle:SEQ_DRIVE","name":"VehicleSpeed","sort":"AsynchSignal","send":"handle:OD7","receive":"handle:OD8","signature":{"kind":"signal","signal":"ext:SIG_SPEED"}},
+    {"op":"combined_fragment","external_id":"FRAG_DRIVE","interaction":"handle:SEQ_DRIVE","operator":"Opt","covered_lifelines":["handle:LD_VCU","handle:LD_INV","handle:LD_MOTOR"]},
+    {"op":"operand","external_id":"FRAG_DRIVE_OK","fragment":"handle:FRAG_DRIVE","guard":"torqueRequest >= 0","start_order":3,"end_order":8}
+  ]
+}
+''')
