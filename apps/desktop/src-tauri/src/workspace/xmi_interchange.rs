@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use systems_modeler_core::{
     Element, ElementKind, Relationship, RelationshipKind, SemanticTarget, TagValue, TagValueType,
 };
+use systems_modeler_core::behavior::{Region, VertexKind};
 
 pub const UML_NS: &str = "http://www.omg.org/spec/UML/20131001";
 pub const XMI_NS: &str = "http://www.omg.org/spec/XMI/20131001";
@@ -68,15 +69,180 @@ pub struct XmiStereotypeRecord {
     pub tagged_values: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct XmiBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XmiDiagramNodeRecord {
+    pub xmi_id: String,
+    pub semantic_reference: String,
+    pub bounds: Option<XmiBounds>,
+    pub notation: Option<String>,
+    pub compartments: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XmiDiagramEdgeRecord {
+    pub xmi_id: String,
+    pub semantic_reference: String,
+    pub source_presentation_reference: String,
+    pub target_presentation_reference: String,
+    pub waypoints: Vec<(f64, f64)>,
+    pub label_anchor: Option<(f64, f64)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XmiDiagramRecord {
+    pub xmi_id: String,
+    pub name: String,
+    pub family: String,
+    pub owner_reference: String,
+    pub context_reference: Option<String>,
+    pub parent_diagram_reference: Option<String>,
+    pub producer_namespace: Option<String>,
+    pub nodes: Vec<XmiDiagramNodeRecord>,
+    pub edges: Vec<XmiDiagramEdgeRecord>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct XmiSemanticDocument {
     pub namespaces: BTreeMap<String, String>,
     pub producer: Option<String>,
     pub records: Vec<XmiSemanticRecord>,
     pub relationships: Vec<XmiRelationshipRecord>,
     pub stereotype_applications: Vec<XmiStereotypeRecord>,
+    pub diagrams: Vec<XmiDiagramRecord>,
     pub embedded_portable_json: Option<String>,
     pub preserved_extensions: Vec<String>,
+}
+
+fn parse_finite(value: Option<&str>) -> Option<f64> {
+    value?.parse::<f64>().ok().filter(|number| number.is_finite())
+}
+
+fn normalized_family(value: &str) -> Option<&'static str> {
+    let compact = value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(|character| character.to_lowercase())
+        .collect::<String>();
+    match compact.as_str() {
+        "bdd" | "blockdefinition" | "blockdefinitiondiagram" => Some("bdd"),
+        "ibd" | "internalblock" | "internalblockdiagram" => Some("ibd"),
+        "req" | "requirement" | "requirementdiagram" => Some("requirement"),
+        "uc" | "usecase" | "usecasediagram" => Some("use-case"),
+        "pkg" | "package" | "packagediagram" => Some("package"),
+        "act" | "activity" | "activitydiagram" => Some("activity"),
+        "stm" | "statemachine" | "statemachinediagram" => Some("state-machine"),
+        "sd" | "sequence" | "sequencediagram" | "interaction" => Some("sequence"),
+        "par" | "parametric" | "parametricdiagram" => Some("parametric"),
+        _ => None,
+    }
+}
+
+fn presentation_reference(node: roxmltree::Node<'_, '_>) -> Option<String> {
+    ["element", "semanticElement", "modelElement", "subject", "semantic"]
+        .into_iter()
+        .find_map(|name| local_attribute(node, name).map(ToOwned::to_owned))
+}
+
+fn parse_bounds(node: roxmltree::Node<'_, '_>) -> Option<XmiBounds> {
+    let bounds = node
+        .children()
+        .find(|child| child.is_element() && child.tag_name().name() == "Bounds")
+        .unwrap_or(node);
+    let result = XmiBounds {
+        x: parse_finite(local_attribute(bounds, "x"))?,
+        y: parse_finite(local_attribute(bounds, "y"))?,
+        width: parse_finite(local_attribute(bounds, "width"))?,
+        height: parse_finite(local_attribute(bounds, "height"))?,
+    };
+    (result.width > 0.0 && result.height > 0.0).then_some(result)
+}
+
+fn parse_diagrams(parsed: &roxmltree::Document<'_>) -> Vec<XmiDiagramRecord> {
+    let mut diagrams = Vec::new();
+    for node in parsed.descendants().filter(roxmltree::Node::is_element) {
+        let local = node.tag_name().name();
+        let declared = local_attribute(node, "family")
+            .or_else(|| local_attribute(node, "diagramType"))
+            .or_else(|| xmi_attribute(node, "type"));
+        if local != "Diagram" && !declared.is_some_and(|value| value.contains("Diagram")) {
+            continue;
+        }
+        let Some(xmi_id) = xmi_attribute(node, "id").or_else(|| local_attribute(node, "id"))
+        else {
+            continue;
+        };
+        let Some(family) = declared.and_then(normalized_family) else {
+            continue;
+        };
+        let owner_reference = local_attribute(node, "owner")
+            .or_else(|| local_attribute(node, "ownerElement"))
+            .unwrap_or_default()
+            .to_owned();
+        let mut record = XmiDiagramRecord {
+            xmi_id: xmi_id.to_owned(),
+            name: local_attribute(node, "name").unwrap_or(family).to_owned(),
+            family: family.to_owned(),
+            owner_reference,
+            context_reference: local_attribute(node, "context")
+                .or_else(|| local_attribute(node, "semanticContext"))
+                .map(ToOwned::to_owned),
+            parent_diagram_reference: local_attribute(node, "parentDiagram").map(ToOwned::to_owned),
+            producer_namespace: node.tag_name().namespace().map(ToOwned::to_owned),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+        for child in node.descendants().filter(roxmltree::Node::is_element) {
+            let child_local = child.tag_name().name();
+            let child_type = xmi_attribute(child, "type").unwrap_or_default();
+            if matches!(child_local, "Node" | "Shape") || child_type.ends_with("Shape") {
+                if let (Some(id), Some(semantic_reference)) = (
+                    xmi_attribute(child, "id").or_else(|| local_attribute(child, "id")),
+                    presentation_reference(child),
+                ) {
+                    record.nodes.push(XmiDiagramNodeRecord {
+                        xmi_id: id.to_owned(),
+                        semantic_reference,
+                        bounds: parse_bounds(child),
+                        notation: local_attribute(child, "notation").map(ToOwned::to_owned),
+                        compartments: BTreeMap::new(),
+                    });
+                }
+            } else if child_local == "Edge" || child_type.ends_with("Edge") {
+                let Some(id) = xmi_attribute(child, "id").or_else(|| local_attribute(child, "id")) else { continue };
+                let Some(semantic_reference) = presentation_reference(child) else { continue };
+                let Some(source) = local_attribute(child, "source") else { continue };
+                let Some(target) = local_attribute(child, "target") else { continue };
+                let waypoints = child
+                    .children()
+                    .filter(|point| point.is_element() && point.tag_name().name() == "waypoint")
+                    .filter_map(|point| Some((parse_finite(local_attribute(point, "x"))?, parse_finite(local_attribute(point, "y"))?)))
+                    .collect();
+                let label_anchor = child
+                    .children()
+                    .find(|point| point.is_element() && point.tag_name().name() == "labelAnchor")
+                    .and_then(|point| Some((parse_finite(local_attribute(point, "x"))?, parse_finite(local_attribute(point, "y"))?)));
+                record.edges.push(XmiDiagramEdgeRecord {
+                    xmi_id: id.to_owned(), semantic_reference,
+                    source_presentation_reference: source.to_owned(),
+                    target_presentation_reference: target.to_owned(),
+                    waypoints, label_anchor,
+                });
+            }
+        }
+        record.nodes.sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
+        record.edges.sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
+        diagrams.push(record);
+    }
+    diagrams.sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
+    diagrams
 }
 
 fn diagnostic(code: &str, reason: impl Into<String>, file: Option<&str>) -> XmiDiagnostic {
@@ -266,6 +432,7 @@ pub fn parse_xmi(xml: &str, file: Option<&str>) -> Result<XmiSemanticDocument, V
             .then(|| local_attribute(node, "exporter").map(ToOwned::to_owned))
             .flatten()
     });
+    document.diagrams = parse_diagrams(&parsed);
 
     let mut ids = BTreeSet::new();
     let mut diagnostics = Vec::new();
@@ -838,6 +1005,159 @@ fn write_profiles(
     }
 }
 
+fn write_waypoints(xml: &mut String, points: &[super::DiagramPoint], indent: &str) {
+    for point in points {
+        xml.push_str(&format!(
+            "{indent}<sm:waypoint x=\"{}\" y=\"{}\" />\n",
+            point.x, point.y
+        ));
+    }
+}
+
+fn transition_endpoints(regions: &[Region], semantic_id: &str) -> Option<(String, String)> {
+    for region in regions {
+        if let Some(transition) = region
+            .transitions
+            .iter()
+            .find(|transition| transition.id.to_string() == semantic_id)
+        {
+            return Some((
+                transition.source_id.to_string(),
+                transition.target_id.to_string(),
+            ));
+        }
+        for vertex in &region.vertices {
+            if let VertexKind::State(state) = &vertex.kind
+                && let Some(endpoints) = transition_endpoints(&state.regions, semantic_id)
+            {
+                return Some(endpoints);
+            }
+        }
+    }
+    None
+}
+
+fn behavior_edge_endpoints(
+    portable: &PortableProjectV1,
+    diagram: &super::behavior_workspace::BehaviorDiagram,
+    semantic_id: &str,
+) -> Option<(String, String)> {
+    match &diagram.kind {
+        super::behavior_workspace::BehaviorDiagramKind::StateMachine => portable
+            .behavior
+            .state_machines
+            .values()
+            .find(|machine| machine.id.to_string() == diagram.semantic_id)
+            .and_then(|machine| transition_endpoints(&machine.regions, semantic_id)),
+        super::behavior_workspace::BehaviorDiagramKind::Sequence => portable
+            .behavior
+            .interactions
+            .values()
+            .find(|interaction| interaction.id.to_string() == diagram.semantic_id)
+            .and_then(|interaction| {
+                interaction
+                    .messages
+                    .iter()
+                    .find(|message| message.id.to_string() == semantic_id)
+                    .and_then(|message| {
+                        Some((
+                            message.send_event.as_ref()?.lifeline_id.to_string(),
+                            message.receive_event.as_ref()?.lifeline_id.to_string(),
+                        ))
+                    })
+            }),
+    }
+}
+
+fn write_presentations(xml: &mut String, portable: &PortableProjectV1) {
+    xml.push_str("  <xmi:Extension extender=\"Systems-Modeler-Pro diagram interchange\">\n    <sm:diagrams version=\"1\">\n");
+    for diagram in &portable.diagrams {
+        xml.push_str(&format!(
+            "      <sm:Diagram xmi:id=\"{}\" name=\"{}\" family=\"{}\" owner=\"{}\"{}>\n",
+            xml_id(&diagram.id), xml_escape(&diagram.name), xml_escape(&diagram.family),
+            xml_escape(&diagram.owner_id),
+            diagram.semantic_context_id.as_ref().map(|value| format!(" context=\"{}\"", xml_escape(value))).unwrap_or_default()
+        ));
+        for node in &diagram.nodes {
+            xml.push_str(&format!(
+                "        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"{} />\n",
+                xml_id(&node.id), xml_escape(&node.element_id), node.x, node.y, node.width, node.height,
+                node.actor_notation.as_ref().map(|value| format!(" notation=\"{}\"", xml_escape(value))).unwrap_or_default()
+            ));
+        }
+        for edge in &diagram.edges {
+            xml.push_str(&format!(
+                "        <sm:Edge xmi:id=\"{}\" semanticElement=\"{}\" source=\"{}\" target=\"{}\">\n",
+                xml_id(&edge.id), xml_escape(&edge.relationship_id), xml_id(&edge.source_node_id), xml_id(&edge.target_node_id)
+            ));
+            write_waypoints(xml, &edge.points, "          ");
+            if let Some(anchor) = edge.label_anchor {
+                xml.push_str(&format!("          <sm:labelAnchor x=\"{}\" y=\"{}\" />\n", anchor.x, anchor.y));
+            }
+            xml.push_str("        </sm:Edge>\n");
+        }
+        xml.push_str("      </sm:Diagram>\n");
+    }
+    for diagram in &portable.ibd_diagrams {
+        xml.push_str(&format!(
+            "      <sm:Diagram xmi:id=\"{}\" name=\"{}\" family=\"ibd\" owner=\"{}\" context=\"{}\">\n",
+            xml_id(&diagram.id), xml_escape(&diagram.name), xml_escape(&diagram.owner_id), xml_escape(&diagram.context_block_id)
+        ));
+        for property in &diagram.properties {
+            xml.push_str(&format!("        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" />\n", xml_id(&property.id), xml_escape(&property.element_id), property.x, property.y, property.width, property.height));
+            for port in &property.ports {
+                xml.push_str(&format!("        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" notation=\"nested-port\" />\n", xml_id(&port.id), xml_escape(&port.element_id), port.x - port.size / 2.0, port.y - port.size / 2.0, port.size, port.size));
+            }
+        }
+        for port in &diagram.boundary_ports {
+            xml.push_str(&format!("        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" notation=\"boundary-port\" />\n", xml_id(&port.id), xml_escape(&port.element_id), port.x - port.size / 2.0, port.y - port.size / 2.0, port.size, port.size));
+        }
+        for edge in &diagram.connectors {
+            xml.push_str(&format!("        <sm:Edge xmi:id=\"{}\" semanticElement=\"{}\" source=\"{}\" target=\"{}\">\n", xml_id(&edge.id), xml_escape(&edge.relationship_id), xml_id(&edge.source_presentation_id), xml_id(&edge.target_presentation_id)));
+            write_waypoints(xml, &edge.points, "          ");
+            xml.push_str("        </sm:Edge>\n");
+        }
+        xml.push_str("      </sm:Diagram>\n");
+    }
+    for diagram in &portable.activity.diagrams {
+        xml.push_str(&format!("      <sm:Diagram xmi:id=\"{}\" name=\"{}\" family=\"activity\" owner=\"{}\" context=\"{}\">\n", xml_id(&diagram.id), xml_escape(&diagram.name), xml_escape(&diagram.owner_id), xml_escape(&diagram.activity_id)));
+        for node in &diagram.nodes {
+            xml.push_str(&format!("        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" />\n", xml_id(&node.id), xml_escape(&node.activity_node_id), node.x, node.y, node.width, node.height));
+        }
+        for edge in &diagram.edges {
+            xml.push_str(&format!("        <sm:Edge xmi:id=\"{}\" semanticElement=\"{}\" source=\"{}\" target=\"{}\">\n", xml_id(&edge.id), xml_escape(&edge.activity_edge_id), xml_id(&edge.source_node_id), xml_id(&edge.target_node_id)));
+            write_waypoints(xml, &edge.points, "          ");
+            xml.push_str("        </sm:Edge>\n");
+        }
+        xml.push_str("      </sm:Diagram>\n");
+    }
+    for diagram in &portable.behavior.diagrams {
+        let family = match &diagram.kind {
+            super::behavior_workspace::BehaviorDiagramKind::StateMachine => "state-machine",
+            super::behavior_workspace::BehaviorDiagramKind::Sequence => "sequence",
+        };
+        xml.push_str(&format!("      <sm:Diagram xmi:id=\"{}\" name=\"{}\" family=\"{}\" owner=\"{}\" context=\"{}\">\n", xml_id(&diagram.id), xml_escape(&diagram.name), family, xml_escape(&diagram.owner_id), xml_escape(&diagram.context_id)));
+        for node in &diagram.state_nodes {
+            xml.push_str(&format!("        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" />\n", xml_id(&format!("{}-{}", diagram.id, node.vertex_id)), xml_escape(&node.vertex_id), node.x, node.y, node.width, node.height));
+        }
+        for lifeline in &diagram.lifelines {
+            xml.push_str(&format!("        <sm:Node xmi:id=\"{}\" semanticElement=\"{}\" x=\"{}\" y=\"{}\" width=\"140\" height=\"{}\" notation=\"lifeline\" />\n", xml_id(&format!("{}-{}", diagram.id, lifeline.lifeline_id)), xml_escape(&lifeline.lifeline_id), lifeline.x, lifeline.timeline_start_y, lifeline.timeline_end_y - lifeline.timeline_start_y));
+        }
+        for edge in &diagram.edge_routes {
+            let Some((source, target)) =
+                behavior_edge_endpoints(portable, diagram, &edge.semantic_id)
+            else {
+                continue;
+            };
+            xml.push_str(&format!("        <sm:Edge xmi:id=\"{}\" semanticElement=\"{}\" source=\"{}\" target=\"{}\">\n", xml_id(&format!("{}-{}", diagram.id, edge.semantic_id)), xml_escape(&edge.semantic_id), xml_id(&format!("{}-{source}", diagram.id)), xml_id(&format!("{}-{target}", diagram.id))));
+            write_waypoints(xml, &edge.points, "          ");
+            xml.push_str("        </sm:Edge>\n");
+        }
+        xml.push_str("      </sm:Diagram>\n");
+    }
+    xml.push_str("    </sm:diagrams>\n  </xmi:Extension>\n");
+}
+
 pub fn serialize_xmi(portable: &PortableProjectV1) -> Result<String, String> {
     let project = &portable.project;
     let mut ids = BTreeMap::new();
@@ -931,6 +1251,7 @@ pub fn serialize_xmi(portable: &PortableProjectV1) -> Result<String, String> {
             xml_escape(extension)
         ));
     }
+    write_presentations(&mut xml, portable);
     let portable_json = serde_json::to_string(portable).map_err(|error| error.to_string())?;
     xml.push_str(&format!(
         "  <xmi:Extension extender=\"Systems-Modeler-Pro\"><sm:authoredState>{}</sm:authoredState></xmi:Extension>\n</xmi:XMI>\n",
@@ -958,6 +1279,8 @@ pub(super) mod tests {
 
     pub(crate) const UML_FIXTURE: &str =
         include_str!("../../../../../examples/xmi/external-uml.xmi");
+    pub(crate) const GENERIC_DI_FIXTURE: &str =
+        include_str!("../../../../../examples/xmi/generic-uml-di.xmi");
 
     const SYSML_FIXTURE: &str = r#"<?xml version="1.0"?>
 <xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001" xmlns:uml="http://www.omg.org/spec/UML/20131001" xmlns:s="http://www.omg.org/spec/SysML/20150709/SysML">
@@ -973,6 +1296,22 @@ pub(super) mod tests {
         assert_eq!(document.records.len(), 3);
         assert_eq!(document.relationships.len(), 1);
         assert_eq!(document.relationships[0].source_reference, "controller");
+    }
+
+    #[test]
+    fn producer_neutral_di_is_normalized_to_shared_presentation_ir() {
+        let document = parse_xmi(GENERIC_DI_FIXTURE, Some("generic-uml-di.xmi")).unwrap();
+        assert_eq!(document.diagrams.len(), 1);
+        let diagram = &document.diagrams[0];
+        assert_eq!(diagram.family, "bdd");
+        assert_eq!(diagram.nodes.len(), 2);
+        assert_eq!(diagram.edges.len(), 1);
+        assert_eq!(diagram.nodes[0].bounds.unwrap().width, 190.0);
+        assert_eq!(diagram.edges[0].waypoints.len(), 2);
+        assert_eq!(
+            diagram.edges[0].source_presentation_reference,
+            "controller-shape"
+        );
     }
 
     #[test]
