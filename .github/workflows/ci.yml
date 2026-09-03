@@ -55,6 +55,7 @@ jobs:
             apps/desktop/frontend/bdd-compartment-visibility.js \
             apps/desktop/frontend/use-case-ui.js \
             apps/desktop/frontend/parametric-ui.js \
+            apps/desktop/frontend/model-script-ui.js \
             apps/desktop/frontend/standard-editing-ui.js \
             apps/desktop/frontend/marquee-selection.js \
             apps/desktop/frontend/undo-redo-ui.js; do
@@ -86,8 +87,8 @@ jobs:
         run: python scripts/validate_package_diagram_integration.py
       - name: Package drill-down activation contract
         run: python scripts/validate_package_drilldown_activation.py
-      - name: Curated EV sales demo contract
-        run: python scripts/validate_pr57_curated_demo.py
+      - name: Professional EV single-file demo contract
+        run: python scripts/validate_professional_ev_demo.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
@@ -140,8 +141,8 @@ jobs:
         run: python scripts/validate_package_diagram_integration.py
       - name: Package drill-down activation contract
         run: python scripts/validate_package_drilldown_activation.py
-      - name: Curated EV sales demo contract
-        run: python scripts/validate_pr57_curated_demo.py
+      - name: Professional EV single-file demo contract
+        run: python scripts/validate_professional_ev_demo.py
       - name: Presentation interaction contract
         run: python scripts/validate_presentation_interaction.py
       - name: History integration contract
