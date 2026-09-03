@@ -1,0 +1,1 @@
+This demonstration is imported through the normal desktop file importer. Use File -> Import Model Script and select professional-ev-demo.groovy. The .groovy file is the actual import artifact; this note is documentation only.
