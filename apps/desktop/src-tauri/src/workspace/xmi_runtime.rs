@@ -1048,7 +1048,6 @@ fn apply_prepared(
         }
     };
     let used_embedded = prepared.embedded.is_some();
-    let used_embedded = prepared.embedded.is_some();
     let apply_result = if let Some(portable) = prepared.embedded.take() {
         replace_embedded_semantics(portable, &candidate, &candidate_activity)
     } else {
