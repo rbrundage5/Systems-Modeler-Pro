@@ -1,0 +1,1 @@
+PR57 is ready for pull-request qualification when `professional-ev-demo.groovy` remains the single user-importable fixture, its 12 curated diagrams cover all nine supported families, and CI validates the fixture plus existing regression suites.
