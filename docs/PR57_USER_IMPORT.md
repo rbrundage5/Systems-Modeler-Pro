@@ -1,0 +1,1 @@
+The PR57 sales demo is user-imported, not backend-loaded. In the desktop UI select File -> Import Model Script and choose examples/model-script/professional-ev-demo.groovy. The importer previews the semantic build plan, blocks invalid content, then applies the model atomically and refreshes the repository/diagram views.
