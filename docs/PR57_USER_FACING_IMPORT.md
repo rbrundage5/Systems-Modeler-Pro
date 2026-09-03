@@ -1,0 +1,1 @@
+User-facing contract: import `examples/model-script/professional-ev-demo.groovy` from File -> Import Model Script. The model-script importer performs preview/validation and atomic apply; the fixture is not consumed by a backend-only harness.
