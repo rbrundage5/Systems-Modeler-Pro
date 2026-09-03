@@ -1079,13 +1079,13 @@ fn behavior_edge_endpoints(
         super::behavior_workspace::BehaviorDiagramKind::StateMachine => portable
             .behavior
             .state_machines
-            .values()
+            .iter()
             .find(|machine| machine.id.to_string() == diagram.semantic_id)
             .and_then(|machine| transition_endpoints(&machine.regions, semantic_id)),
         super::behavior_workspace::BehaviorDiagramKind::Sequence => portable
             .behavior
             .interactions
-            .values()
+            .iter()
             .find(|interaction| interaction.id.to_string() == diagram.semantic_id)
             .and_then(|interaction| {
                 interaction
