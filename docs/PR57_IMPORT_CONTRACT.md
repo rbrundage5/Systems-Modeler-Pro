@@ -1,0 +1,1 @@
+Import contract: `examples/model-script/professional-ev-demo.groovy` is selected by the user from File -> Import Model Script. It is previewed and applied atomically by the native model-script import path. It is not a backend-only fixture.
