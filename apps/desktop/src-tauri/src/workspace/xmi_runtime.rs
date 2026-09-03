@@ -1,5 +1,5 @@
 use super::{
-    WorkspaceState,
+    BddDiagram, DiagramEdge, DiagramNode, DiagramPoint, WorkspaceState,
     activity_workspace::ActivityWorkspaceState,
     bulk_model::{
         BuildDiagnosticSeverity, BuildReference, ModelBuildOperation, ModelBuildPlan, external_key,
@@ -8,7 +8,7 @@ use super::{
     parse_element_id,
     portable_interchange::{PortableProjectV1, portable_from_states},
     xmi_interchange::{
-        XmiDiagnostic, XmiDiagnosticSeverity, XmiSemanticDocument, embedded_portable,
+        XmiDiagnostic, XmiDiagnosticSeverity, XmiDiagramRecord, XmiSemanticDocument, embedded_portable,
         native_element_kind, native_relationship_kind, parse_xmi, serialize_xmi,
     },
 };
@@ -150,6 +150,146 @@ fn blocked(preview: &mut XmiImportPreview, id: &str, kind: &str, reason: impl In
     diagnostic.xmi_id = Some(id.into());
     diagnostic.xmi_type = Some(kind.into());
     preview.diagnostics.push(diagnostic);
+}
+
+fn external_presentation_unchanged(
+    existing: &BddDiagram,
+    record: &XmiDiagramRecord,
+    namespace: &str,
+) -> bool {
+    if existing.name != record.name
+        || existing.family != record.family
+        || existing.nodes.len() != record.nodes.len()
+        || existing.edges.len() != record.edges.len()
+    {
+        return false;
+    }
+    let nodes_match = record.nodes.iter().enumerate().all(|(index, record)| {
+        let id = stable_presentation_uuid(namespace, "node", &record.xmi_id);
+        let bounds = record.bounds.unwrap_or(super::xmi_interchange::XmiBounds {
+            x: 80.0 + f64::from((index % 4) as u32) * 260.0,
+            y: 90.0 + f64::from((index / 4) as u32) * 180.0,
+            width: 190.0,
+            height: 110.0,
+        });
+        existing.nodes.iter().any(|node| {
+            node.id == id
+                && node.x == bounds.x
+                && node.y == bounds.y
+                && node.width == bounds.width
+                && node.height == bounds.height
+                && node.actor_notation == record.notation
+        })
+    });
+    let edges_match = record.edges.iter().all(|record| {
+        let id = stable_presentation_uuid(namespace, "edge", &record.xmi_id);
+        existing.edges.iter().any(|edge| {
+            edge.id == id
+                && edge.points.len() == record.waypoints.len()
+                && edge
+                    .points
+                    .iter()
+                    .zip(&record.waypoints)
+                    .all(|(point, (x, y))| point.x == *x && point.y == *y)
+                && edge.label_anchor.as_ref().map(|point| (point.x, point.y))
+                    == record.label_anchor
+        })
+    });
+    nodes_match && edges_match
+}
+
+fn append_presentation_preview(
+    preview: &mut XmiImportPreview,
+    document: &XmiSemanticDocument,
+    namespace: &str,
+    workspace: &WorkspaceState,
+    native_embedded: bool,
+    native_same: bool,
+) {
+    let diagrams = workspace.diagrams.lock().ok();
+    for diagram in &document.diagrams {
+        let id = stable_presentation_uuid(namespace, "diagram", &diagram.xmi_id);
+        let existing = diagrams
+            .as_ref()
+            .and_then(|items| items.iter().find(|item| item.id == id));
+        let external_same = existing
+            .is_some_and(|item| external_presentation_unchanged(item, diagram, namespace));
+        preview.items.push(XmiPreviewItem {
+            action: if native_embedded && native_same {
+                XmiAction::NoChange
+            } else if external_same {
+                XmiAction::NoChange
+            } else if native_embedded {
+                XmiAction::Update
+            } else if existing.is_some() {
+                XmiAction::Update
+            } else {
+                XmiAction::Create
+            },
+            xmi_id: diagram.xmi_id.clone(),
+            xmi_type: "DiagramPresentation".into(),
+            detail: format!("{} diagram '{}'", diagram.family, diagram.name),
+        });
+        let node_ids = diagram.nodes.iter().map(|node| node.xmi_id.as_str()).collect::<BTreeSet<_>>();
+        for node in &diagram.nodes {
+            preview.items.push(XmiPreviewItem {
+                action: if (native_embedded && native_same) || external_same {
+                    XmiAction::NoChange
+                } else if existing.is_some() {
+                    XmiAction::Update
+                } else {
+                    XmiAction::Create
+                },
+                xmi_id: node.xmi_id.clone(),
+                xmi_type: "NodePresentation".into(),
+                detail: format!("semantic target {}", node.semantic_reference),
+            });
+        }
+        for edge in &diagram.edges {
+            if !node_ids.contains(edge.source_presentation_reference.as_str())
+                || !node_ids.contains(edge.target_presentation_reference.as_str())
+            {
+                blocked(
+                    preview,
+                    &edge.xmi_id,
+                    "EdgePresentation",
+                    format!(
+                        "edge references missing presentation endpoint {} -> {}",
+                        edge.source_presentation_reference, edge.target_presentation_reference
+                    ),
+                );
+                continue;
+            }
+            preview.items.push(XmiPreviewItem {
+                action: if (native_embedded && native_same) || external_same {
+                    XmiAction::NoChange
+                } else if existing.is_some() {
+                    XmiAction::Update
+                } else {
+                    XmiAction::Create
+                },
+                xmi_id: edge.xmi_id.clone(),
+                xmi_type: "EdgePresentation".into(),
+                detail: format!("semantic relationship {}", edge.semantic_reference),
+            });
+        }
+        if !native_embedded
+            && !matches!(
+                diagram.family.as_str(),
+                "bdd" | "requirement" | "use-case" | "package" | "parametric"
+            )
+        {
+            blocked(
+                preview,
+                &diagram.xmi_id,
+                "DiagramPresentation",
+                format!(
+                    "external {} diagram requires native authored behavior/IBD semantic payload",
+                    diagram.family
+                ),
+            );
+        }
+    }
 }
 
 fn effective_kind(
@@ -391,9 +531,8 @@ fn prepare_xmi_import(
         // this guard here would self-deadlock on native authored-state XMI.
         drop(project_guard);
         let current = portable_from_states(workspace, activity).ok();
-        let incoming = semantic_only(portable.clone());
+        let incoming = portable.clone();
         let same = current
-            .map(semantic_only)
             .and_then(|value| serde_json::to_value(value).ok())
             == serde_json::to_value(&incoming).ok();
         preview.items.push(XmiPreviewItem {
@@ -404,8 +543,16 @@ fn prepare_xmi_import(
             },
             xmi_id: "systems-modeler-authored-state".into(),
             xmi_type: "SemanticModel".into(),
-            detail: "lossless native semantic payload; diagram geometry is excluded".into(),
+            detail: "lossless native semantic and nine-family presentation payload".into(),
         });
+        append_presentation_preview(
+            &mut preview,
+            &document,
+            &configuration.source_namespace,
+            workspace,
+            true,
+            same,
+        );
         preview.recount();
         return PreparedXmiImport {
             document,
@@ -820,6 +967,14 @@ fn prepare_xmi_import(
             semantic_target: None,
         });
     }
+    append_presentation_preview(
+        &mut preview,
+        &document,
+        &configuration.source_namespace,
+        workspace,
+        false,
+        false,
+    );
     preview.recount();
     PreparedXmiImport {
         document,
@@ -1002,7 +1157,7 @@ fn commit_candidate(
     Ok(())
 }
 
-fn replace_embedded_semantics(
+fn replace_embedded_authored_state(
     portable: PortableProjectV1,
     candidate: &WorkspaceState,
     candidate_activity: &ActivityWorkspaceState,
@@ -1023,7 +1178,248 @@ fn replace_embedded_semantics(
         .repository
         .lock()
         .map_err(|_| "Activity repository lock poisoned")? = state.activity_repository.clone();
+    *candidate
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")? = state.diagrams.clone();
+    *candidate
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")? = state.ibd_diagrams.clone();
+    *candidate
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = state.behavior_diagrams.clone();
+    *candidate_activity
+        .diagrams
+        .lock()
+        .map_err(|_| "Activity diagram lock poisoned")? = state.activity_diagrams.clone();
     portable_from_states(candidate, candidate_activity)?;
+    Ok(())
+}
+
+fn stable_presentation_uuid(namespace: &str, category: &str, external_id: &str) -> String {
+    fn hash(seed: u64, value: &[u8]) -> u64 {
+        value.iter().fold(seed, |state, byte| {
+            (state ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        })
+    }
+    let value = format!("{namespace}\0{category}\0{external_id}");
+    let high = hash(0xcbf29ce484222325, value.as_bytes());
+    let low = hash(0x84222325cbf29ce4, value.as_bytes());
+    let mut bytes = ((u128::from(high) << 64) | u128::from(low)).to_be_bytes();
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes).to_string()
+}
+
+fn source_di_key(namespace: &str, category: &str, external_id: &str) -> String {
+    format!("xmi-di::{namespace}::{category}::{external_id}")
+}
+
+fn resolve_element_reference(project: &Project, namespace: &str, value: &str) -> Option<ElementId> {
+    uuid::Uuid::parse_str(value)
+        .ok()
+        .map(ElementId)
+        .filter(|id| project.elements.contains_key(id))
+        .or_else(|| {
+            let key = external_key(namespace, value);
+            project
+                .elements
+                .values()
+                .find(|element| element.external_id == key)
+                .map(|element| element.id)
+        })
+}
+
+fn resolve_relationship_reference(
+    project: &Project,
+    namespace: &str,
+    value: &str,
+) -> Option<RelationshipId> {
+    uuid::Uuid::parse_str(value)
+        .ok()
+        .map(RelationshipId)
+        .filter(|id| project.relationships.contains_key(id))
+        .or_else(|| {
+            let key = external_key(namespace, value);
+            project
+                .relationships
+                .values()
+                .find(|relationship| relationship.external_id == key)
+                .map(|relationship| relationship.id)
+        })
+}
+
+fn imported_node(
+    namespace: &str,
+    record: &super::xmi_interchange::XmiDiagramNodeRecord,
+    element_id: ElementId,
+    index: usize,
+) -> DiagramNode {
+    let bounds = record.bounds.unwrap_or(super::xmi_interchange::XmiBounds {
+        x: 80.0 + f64::from((index % 4) as u32) * 260.0,
+        y: 90.0 + f64::from((index / 4) as u32) * 180.0,
+        width: 190.0,
+        height: 110.0,
+    });
+    DiagramNode {
+        id: stable_presentation_uuid(namespace, "node", &record.xmi_id),
+        element_id: element_id.to_string(),
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        actor_notation: record.notation.clone(),
+        parameter_presentations: Vec::new(),
+    }
+}
+
+fn import_shared_diagram(
+    record: &XmiDiagramRecord,
+    namespace: &str,
+    fallback_owner: ElementId,
+    project: &Project,
+    diagrams: &mut Vec<BddDiagram>,
+) -> Result<(), String> {
+    let id = stable_presentation_uuid(namespace, "diagram", &record.xmi_id);
+    let owner = if record.owner_reference.is_empty() {
+        fallback_owner
+    } else {
+        resolve_element_reference(project, namespace, &record.owner_reference).ok_or_else(|| {
+            format!("diagram {} references missing owner {}", record.xmi_id, record.owner_reference)
+        })?
+    };
+    let context = record
+        .context_reference
+        .as_deref()
+        .map(|value| {
+            resolve_element_reference(project, namespace, value)
+                .map(|id| id.to_string())
+                .ok_or_else(|| format!("diagram {} references missing context {value}", record.xmi_id))
+        })
+        .transpose()?;
+    let existing = diagrams.iter().position(|diagram| diagram.id == id);
+    let mut diagram = existing
+        .map(|index| diagrams[index].clone())
+        .unwrap_or(BddDiagram {
+            id,
+            name: record.name.clone(),
+            owner_id: owner.to_string(),
+            family: record.family.clone(),
+            semantic_context_id: context.clone(),
+            subject_boundary: None,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        });
+    diagram.name.clone_from(&record.name);
+    diagram.owner_id = owner.to_string();
+    diagram.family.clone_from(&record.family);
+    diagram.semantic_context_id = context;
+    let mut nodes = Vec::new();
+    for (index, node) in record.nodes.iter().enumerate() {
+        let element_id = resolve_element_reference(project, namespace, &node.semantic_reference)
+            .ok_or_else(|| format!("presentation {} references missing semantic element {}", node.xmi_id, node.semantic_reference))?;
+        nodes.push(imported_node(namespace, node, element_id, index));
+    }
+    let node_by_external = record
+        .nodes
+        .iter()
+        .map(|node| (node.xmi_id.as_str(), stable_presentation_uuid(namespace, "node", &node.xmi_id)))
+        .collect::<HashMap<_, _>>();
+    let mut edges = Vec::new();
+    for edge in &record.edges {
+        let relationship = resolve_relationship_reference(project, namespace, &edge.semantic_reference)
+            .ok_or_else(|| format!("presentation edge {} references missing semantic relationship {}", edge.xmi_id, edge.semantic_reference))?;
+        let source = node_by_external
+            .get(edge.source_presentation_reference.as_str())
+            .cloned()
+            .ok_or_else(|| format!("presentation edge {} references missing source presentation {}", edge.xmi_id, edge.source_presentation_reference))?;
+        let target = node_by_external
+            .get(edge.target_presentation_reference.as_str())
+            .cloned()
+            .ok_or_else(|| format!("presentation edge {} references missing target presentation {}", edge.xmi_id, edge.target_presentation_reference))?;
+        let imported = edge
+            .waypoints
+            .iter()
+            .map(|(x, y)| DiagramPoint { x: *x, y: *y })
+            .collect::<Vec<_>>();
+        let obstacles = nodes
+            .iter()
+            .filter(|node| node.id != source && node.id != target)
+            .map(|node| super::routing::RouteRect {
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+            })
+            .collect::<Vec<_>>();
+        let points = if imported.len() >= 2
+            && super::routing::route_is_clear(&imported, &obstacles)
+        {
+            imported
+        } else {
+            let source_node = nodes.iter().find(|node| node.id == source).ok_or("source presentation missing")?;
+            let target_node = nodes.iter().find(|node| node.id == target).ok_or("target presentation missing")?;
+            super::route_relationship(source_node, target_node, &nodes)?
+        };
+        edges.push(DiagramEdge {
+            id: stable_presentation_uuid(namespace, "edge", &edge.xmi_id),
+            relationship_id: relationship.to_string(),
+            source_node_id: source,
+            target_node_id: target,
+            points,
+            label_anchor: edge.label_anchor.map(|(x, y)| DiagramPoint { x, y }),
+        });
+    }
+    diagram.nodes = nodes;
+    diagram.edges = edges;
+    if let Some(index) = existing {
+        diagrams[index] = diagram;
+    } else {
+        diagrams.push(diagram);
+    }
+    Ok(())
+}
+
+fn apply_external_presentations(
+    document: &XmiSemanticDocument,
+    configuration: &XmiImportConfiguration,
+    candidate: &WorkspaceState,
+) -> Result<(), String> {
+    if document.diagrams.is_empty() {
+        return Ok(());
+    }
+    let mut project_guard = candidate.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_mut().ok_or("candidate project unavailable")?;
+    let fallback_owner = parse_element_id(&configuration.target_scope).unwrap_or(project.root_id);
+    let mut diagrams = candidate.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clone();
+    let incoming = document.diagrams.iter().map(|diagram| diagram.xmi_id.clone()).collect::<BTreeSet<_>>();
+    if configuration.synchronization == XmiSynchronizationPolicy::AuthoritativeXmiScope {
+        let prefix = format!("xmi-di::{}::diagram::", configuration.source_namespace);
+        let removed = project.profiles.interchange_extensions.keys()
+            .filter_map(|key| key.strip_prefix(&prefix).filter(|id| !incoming.contains(*id)).map(ToOwned::to_owned))
+            .collect::<Vec<_>>();
+        for external_id in removed {
+            let id = stable_presentation_uuid(&configuration.source_namespace, "diagram", &external_id);
+            diagrams.retain(|diagram| diagram.id != id);
+            project.profiles.interchange_extensions.remove(&source_di_key(&configuration.source_namespace, "diagram", &external_id));
+        }
+    }
+    for diagram in &document.diagrams {
+        match diagram.family.as_str() {
+            "bdd" | "requirement" | "use-case" | "package" | "parametric" => {
+                import_shared_diagram(diagram, &configuration.source_namespace, fallback_owner, project, &mut diagrams)?;
+            }
+            other => return Err(format!("external {other} presentation requires native authored semantic payload")),
+        }
+        project.profiles.interchange_extensions.insert(
+            source_di_key(&configuration.source_namespace, "diagram", &diagram.xmi_id),
+            format!("{}:{}", diagram.family, diagram.name),
+        );
+    }
+    drop(project_guard);
+    *candidate.diagrams.lock().map_err(|_| "diagram lock poisoned")? = diagrams;
     Ok(())
 }
 
@@ -1049,7 +1445,7 @@ fn apply_prepared(
     };
     let used_embedded = prepared.embedded.is_some();
     let apply_result = if let Some(portable) = prepared.embedded.take() {
-        replace_embedded_semantics(portable, &candidate, &candidate_activity)
+        replace_embedded_authored_state(portable, &candidate, &candidate_activity)
     } else {
         super::bulk_model::apply_unified_model_build(
             &prepared.plan,
@@ -1123,6 +1519,20 @@ fn apply_prepared(
             prepared.preview.recount();
             return prepared.preview;
         }
+    }
+    if !used_embedded
+        && let Err(reason) = apply_external_presentations(
+            &prepared.document,
+            &prepared.configuration,
+            &candidate,
+        )
+    {
+        prepared
+            .preview
+            .diagnostics
+            .push(runtime_diagnostic("XMI_PRESENTATION_INVALID", reason));
+        prepared.preview.recount();
+        return prepared.preview;
     }
     if let Err(reason) = portable_from_states(&candidate, &candidate_activity) {
         prepared
@@ -1545,7 +1955,7 @@ pub fn export_xmi(
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    let portable = semantic_only(portable_from_states(&workspace, &activity)?);
+    let portable = portable_from_states(&workspace, &activity)?;
     let xml = serialize_xmi(&portable)?;
     let mut path = PathBuf::from(path);
     if path.extension().and_then(|value| value.to_str()) != Some("xmi") {
@@ -1557,7 +1967,7 @@ pub fn export_xmi(
 
 #[cfg(test)]
 mod tests {
-    use super::super::xmi_interchange::tests::UML_FIXTURE;
+    use super::super::xmi_interchange::tests::{GENERIC_DI_FIXTURE, UML_FIXTURE};
     use super::*;
     use crate::workspace::portable_interchange::tests::representative_states;
 
@@ -1609,6 +2019,91 @@ mod tests {
     }
 
     #[test]
+    fn external_di_import_preserves_identity_geometry_and_reimports_without_duplicates() {
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let project = Project::new("Target");
+        let root = project.root_id;
+        *workspace.project.lock().unwrap() = Some(project);
+        let configuration = XmiImportConfiguration {
+            source_namespace: "xmi:generic-di".into(),
+            target_scope: root.to_string(),
+            synchronization: XmiSynchronizationPolicy::AdditiveUpdate,
+        };
+        let preview = preview_xmi_xml(
+            GENERIC_DI_FIXTURE,
+            Some("generic-uml-di.xmi"),
+            configuration.clone(),
+            &workspace,
+            &activity,
+        );
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert!(preview.items.iter().any(|item| item.xmi_type == "DiagramPresentation"));
+        assert!(workspace.diagrams.lock().unwrap().is_empty());
+
+        let applied = apply_xmi_xml(
+            GENERIC_DI_FIXTURE,
+            None,
+            configuration.clone(),
+            &workspace,
+            &activity,
+            None,
+        );
+        assert!(applied.applied, "{:?}", applied.diagnostics);
+        let diagrams = workspace.diagrams.lock().unwrap().clone();
+        assert_eq!(diagrams.len(), 1);
+        assert_eq!(diagrams[0].nodes.len(), 2);
+        assert_eq!(diagrams[0].edges.len(), 1);
+        assert_eq!(diagrams[0].nodes[0].width, 190.0);
+        assert_eq!(diagrams[0].edges[0].points.len(), 2);
+        drop(diagrams);
+
+        let exact_preview = preview_xmi_xml(
+            GENERIC_DI_FIXTURE,
+            None,
+            configuration.clone(),
+            &workspace,
+            &activity,
+        );
+        assert_eq!(exact_preview.create_count, 0);
+        assert_eq!(exact_preview.update_count, 0);
+        assert!(exact_preview.no_change_count >= 6);
+        assert!(
+            apply_xmi_xml(
+                GENERIC_DI_FIXTURE,
+                None,
+                configuration.clone(),
+                &workspace,
+                &activity,
+                None,
+            )
+            .applied
+        );
+        assert_eq!(workspace.diagrams.lock().unwrap().len(), 1);
+
+        let before_invalid = portable_from_states(&workspace, &activity).unwrap();
+        let invalid = GENERIC_DI_FIXTURE.replace(
+            "target=\"sensor-shape\"",
+            "target=\"missing-presentation\"",
+        );
+        let rejected = apply_xmi_xml(
+            &invalid,
+            Some("invalid-di.xmi"),
+            configuration,
+            &workspace,
+            &activity,
+            None,
+        );
+        assert!(!rejected.applied);
+        assert!(rejected.blocked_count > 0);
+        let after_invalid = portable_from_states(&workspace, &activity).unwrap();
+        assert_eq!(
+            serde_json::to_value(before_invalid).unwrap(),
+            serde_json::to_value(after_invalid).unwrap()
+        );
+    }
+
+    #[test]
     fn external_profile_becomes_native_profile_and_typed_application() {
         let fixture = include_str!("../../../../../examples/xmi/external-sysml-profile.xmi");
         let workspace = WorkspaceState::default();
@@ -1653,7 +2148,7 @@ mod tests {
     }
 
     #[test]
-    fn native_semantics_round_trip_losslessly_without_diagram_geometry() {
+    fn native_authored_workspace_round_trips_all_semantics_and_presentations() {
         let (source, source_activity) = representative_states();
         {
             let mut guard = source.project.lock().unwrap();
@@ -1699,11 +2194,17 @@ mod tests {
                 .set_tagged_values(application, tag, vec![TagValue::Real(0.95)])
                 .unwrap();
         }
-        let portable = semantic_only(portable_from_states(&source, &source_activity).unwrap());
+        let portable = portable_from_states(&source, &source_activity).unwrap();
         let first = serialize_xmi(&portable).unwrap();
         let second = serialize_xmi(&portable).unwrap();
         assert_eq!(first, second);
-        assert!(!first.contains("edge_routes"));
+        assert!(first.contains("<sm:diagrams"));
+        for family in [
+            "bdd", "ibd", "requirement", "use-case", "package", "activity",
+            "state-machine", "sequence", "parametric",
+        ] {
+            assert!(first.contains(&format!("family=\"{family}\"")));
+        }
 
         let target = WorkspaceState::default();
         let target_activity = ActivityWorkspaceState::default();
@@ -1723,7 +2224,7 @@ mod tests {
             None,
         );
         assert!(applied.applied, "{:?}", applied.diagnostics);
-        let reconstructed = semantic_only(portable_from_states(&target, &target_activity).unwrap());
+        let reconstructed = portable_from_states(&target, &target_activity).unwrap();
         assert_eq!(
             serde_json::to_value(portable).unwrap(),
             serde_json::to_value(reconstructed).unwrap()
@@ -1735,7 +2236,7 @@ mod tests {
         use std::{sync::mpsc, thread, time::Duration};
 
         let (source, source_activity) = representative_states();
-        let portable = semantic_only(portable_from_states(&source, &source_activity).unwrap());
+        let portable = portable_from_states(&source, &source_activity).unwrap();
         let xml = serialize_xmi(&portable).unwrap();
         assert!(xml.contains("sm:authoredState"));
 
