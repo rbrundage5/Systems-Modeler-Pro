@@ -158,6 +158,35 @@ runtime_path.write_text(runtime, encoding="utf-8")
 
 interchange_path = Path("apps/desktop/src-tauri/src/workspace/xmi_interchange.rs")
 interchange = interchange_path.read_text(encoding="utf-8")
+
+old_xmi_attribute = """fn xmi_attribute<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    local_name: &str,
+) -> Option<&'a str> {
+    node.attributes()
+        .find(|attribute| {
+            attribute.name() == local_name && attribute.namespace().is_some_and(is_xmi_namespace)
+        })
+        .map(|attribute| attribute.value())
+        .or_else(|| node.attribute(local_name))
+}
+"""
+new_xmi_attribute = """fn xmi_attribute<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    local_name: &str,
+) -> Option<&'a str> {
+    node.attributes()
+        .find(|attribute| {
+            attribute.name() == local_name && attribute.namespace().is_some_and(is_xmi_namespace)
+        })
+        .map(|attribute| attribute.value())
+}
+"""
+if old_xmi_attribute in interchange:
+    interchange = interchange.replace(old_xmi_attribute, new_xmi_attribute, 1)
+elif new_xmi_attribute not in interchange:
+    raise SystemExit("xmi_attribute namespace marker not found")
+
 helper_marker = """fn local_attribute<'a, 'input>(
     node: roxmltree::Node<'a, 'input>,
     local_name: &str,
@@ -220,8 +249,7 @@ old_tag_filter = """                if attribute.name() == "id" || attribute.nam
                     continue;
                 }
 """
-new_tag_filter = """                if (attribute.name() == "id"
-                    && attribute.namespace().is_some_and(is_xmi_namespace))
+new_tag_filter = """                if attribute.namespace().is_some_and(is_xmi_namespace)
                     || attribute.name().starts_with("base_")
                 {
                     continue;
@@ -231,5 +259,37 @@ if old_tag_filter in interchange:
     interchange = interchange.replace(old_tag_filter, new_tag_filter, 1)
 elif new_tag_filter not in interchange:
     raise SystemExit("stereotype tag namespace filter marker not found")
+
+parser_test_marker = """    #[test]
+    fn sysml_stereotype_identity_and_tags_are_preserved() {
+"""
+parser_regression = """    #[test]
+    fn semantic_type_reference_is_not_confused_with_xmi_metaclass() {
+        let fixture = r#"<?xml version=\"1.0\"?>
+<x:XMI xmlns:x=\"http://www.omg.org/spec/XMI/20131001\" xmlns:u=\"http://www.omg.org/spec/UML/20131001\">
+  <u:Model x:id=\"m1\" name=\"TypedModel\">
+    <u:Class x:id=\"c1\" name=\"Classifier\">
+      <u:Property x:id=\"p1\" name=\"typedProperty\" type=\"c1\" />
+    </u:Class>
+  </u:Model>
+</x:XMI>"#;
+        let document = parse_xmi(fixture, Some("typed-property.xmi")).unwrap();
+        let property = document
+            .records
+            .iter()
+            .find(|record| record.xmi_id == "p1")
+            .expect("typed property record");
+        assert_eq!(property.xmi_type, "uml:Property");
+        assert_eq!(property.type_reference.as_deref(), Some("c1"));
+        assert_eq!(property.attributes.get("type").map(String::as_str), Some("c1"));
+    }
+
+    #[test]
+    fn sysml_stereotype_identity_and_tags_are_preserved() {
+"""
+if "fn semantic_type_reference_is_not_confused_with_xmi_metaclass()" not in interchange:
+    if parser_test_marker not in interchange:
+        raise SystemExit("parser regression insertion marker not found")
+    interchange = interchange.replace(parser_test_marker, parser_regression, 1)
 
 interchange_path.write_text(interchange, encoding="utf-8")
