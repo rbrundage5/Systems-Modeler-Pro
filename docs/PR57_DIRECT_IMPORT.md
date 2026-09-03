@@ -1,0 +1,1 @@
+Direct-import demonstration contract: the actual model artifact is `examples/model-script/professional-ev-demo.groovy`. A user imports it from File -> Import Model Script and the native importer previews, validates, and atomically applies the complete connected EV model.
