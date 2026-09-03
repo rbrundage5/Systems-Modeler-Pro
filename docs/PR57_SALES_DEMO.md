@@ -1,0 +1,1 @@
+The PR57 demo is intentionally concise and professional. It uses 12 curated diagrams to cover every supported diagram family while emphasizing requirements and structural decomposition. The primary import artifact is `examples/model-script/professional-ev-demo.groovy`, imported from the desktop File tab using Import Model Script.
