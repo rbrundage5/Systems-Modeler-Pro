@@ -1,0 +1,42 @@
+name: PR53 one-shot finalizer
+
+on:
+  push:
+    branches: [agent/pr53-profiles-xmi-semantic]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr53-profiles-xmi-semantic
+          fetch-depth: 1
+      - name: Remove duplicate qualified binding and self-delete
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/desktop/src-tauri/src/workspace/xmi_runtime.rs')
+          text = path.read_text(encoding='utf-8')
+          duplicate = (
+              '    let used_embedded = prepared.embedded.is_some();\n'
+              '    let used_embedded = prepared.embedded.is_some();\n'
+          )
+          single = '    let used_embedded = prepared.embedded.is_some();\n'
+          if duplicate not in text:
+              raise SystemExit('expected duplicate used_embedded binding not found')
+          text = text.replace(duplicate, single, 1)
+          if duplicate in text:
+              raise SystemExit('duplicate used_embedded binding remains')
+          path.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/pr53-finalize.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/desktop/src-tauri/src/workspace/xmi_runtime.rs
+          git commit -m 'PR53: finalize qualified XMI repair'
+          git push origin HEAD:agent/pr53-profiles-xmi-semantic
