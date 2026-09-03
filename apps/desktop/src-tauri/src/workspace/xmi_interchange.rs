@@ -6,10 +6,10 @@
 use super::portable_interchange::{PortableProjectV1, PortableSemanticProjectV1};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use systems_modeler_core::behavior::{Region, VertexKind};
 use systems_modeler_core::{
     Element, ElementKind, Relationship, RelationshipKind, SemanticTarget, TagValue, TagValueType,
 };
-use systems_modeler_core::behavior::{Region, VertexKind};
 
 pub const UML_NS: &str = "http://www.omg.org/spec/UML/20131001";
 pub const XMI_NS: &str = "http://www.omg.org/spec/XMI/20131001";
@@ -122,7 +122,10 @@ pub struct XmiSemanticDocument {
 }
 
 fn parse_finite(value: Option<&str>) -> Option<f64> {
-    value?.parse::<f64>().ok().filter(|number| number.is_finite())
+    value?
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
 }
 
 fn normalized_family(value: &str) -> Option<&'static str> {
@@ -146,9 +149,15 @@ fn normalized_family(value: &str) -> Option<&'static str> {
 }
 
 fn presentation_reference(node: roxmltree::Node<'_, '_>) -> Option<String> {
-    ["element", "semanticElement", "modelElement", "subject", "semantic"]
-        .into_iter()
-        .find_map(|name| local_attribute(node, name).map(ToOwned::to_owned))
+    [
+        "element",
+        "semanticElement",
+        "modelElement",
+        "subject",
+        "semantic",
+    ]
+    .into_iter()
+    .find_map(|name| local_attribute(node, name).map(ToOwned::to_owned))
 }
 
 fn parse_bounds(node: roxmltree::Node<'_, '_>) -> Option<XmiBounds> {
@@ -175,8 +184,7 @@ fn parse_diagrams(parsed: &roxmltree::Document<'_>) -> Vec<XmiDiagramRecord> {
         if local != "Diagram" && !declared.is_some_and(|value| value.contains("Diagram")) {
             continue;
         }
-        let Some(xmi_id) = xmi_attribute(node, "id").or_else(|| local_attribute(node, "id"))
-        else {
+        let Some(xmi_id) = xmi_attribute(node, "id").or_else(|| local_attribute(node, "id")) else {
             continue;
         };
         let Some(family) = declared.and_then(normalized_family) else {
@@ -216,29 +224,54 @@ fn parse_diagrams(parsed: &roxmltree::Document<'_>) -> Vec<XmiDiagramRecord> {
                     });
                 }
             } else if child_local == "Edge" || child_type.ends_with("Edge") {
-                let Some(id) = xmi_attribute(child, "id").or_else(|| local_attribute(child, "id")) else { continue };
-                let Some(semantic_reference) = presentation_reference(child) else { continue };
-                let Some(source) = local_attribute(child, "source") else { continue };
-                let Some(target) = local_attribute(child, "target") else { continue };
+                let Some(id) = xmi_attribute(child, "id").or_else(|| local_attribute(child, "id"))
+                else {
+                    continue;
+                };
+                let Some(semantic_reference) = presentation_reference(child) else {
+                    continue;
+                };
+                let Some(source) = local_attribute(child, "source") else {
+                    continue;
+                };
+                let Some(target) = local_attribute(child, "target") else {
+                    continue;
+                };
                 let waypoints = child
                     .children()
                     .filter(|point| point.is_element() && point.tag_name().name() == "waypoint")
-                    .filter_map(|point| Some((parse_finite(local_attribute(point, "x"))?, parse_finite(local_attribute(point, "y"))?)))
+                    .filter_map(|point| {
+                        Some((
+                            parse_finite(local_attribute(point, "x"))?,
+                            parse_finite(local_attribute(point, "y"))?,
+                        ))
+                    })
                     .collect();
                 let label_anchor = child
                     .children()
                     .find(|point| point.is_element() && point.tag_name().name() == "labelAnchor")
-                    .and_then(|point| Some((parse_finite(local_attribute(point, "x"))?, parse_finite(local_attribute(point, "y"))?)));
+                    .and_then(|point| {
+                        Some((
+                            parse_finite(local_attribute(point, "x"))?,
+                            parse_finite(local_attribute(point, "y"))?,
+                        ))
+                    });
                 record.edges.push(XmiDiagramEdgeRecord {
-                    xmi_id: id.to_owned(), semantic_reference,
+                    xmi_id: id.to_owned(),
+                    semantic_reference,
                     source_presentation_reference: source.to_owned(),
                     target_presentation_reference: target.to_owned(),
-                    waypoints, label_anchor,
+                    waypoints,
+                    label_anchor,
                 });
             }
         }
-        record.nodes.sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
-        record.edges.sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
+        record
+            .nodes
+            .sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
+        record
+            .edges
+            .sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
         diagrams.push(record);
     }
     diagrams.sort_by(|left, right| left.xmi_id.cmp(&right.xmi_id));
@@ -1074,9 +1107,15 @@ fn write_presentations(xml: &mut String, portable: &PortableProjectV1) {
     for diagram in &portable.diagrams {
         xml.push_str(&format!(
             "      <sm:Diagram xmi:id=\"{}\" name=\"{}\" family=\"{}\" owner=\"{}\"{}>\n",
-            xml_id(&diagram.id), xml_escape(&diagram.name), xml_escape(&diagram.family),
+            xml_id(&diagram.id),
+            xml_escape(&diagram.name),
+            xml_escape(&diagram.family),
             xml_escape(&diagram.owner_id),
-            diagram.semantic_context_id.as_ref().map(|value| format!(" context=\"{}\"", xml_escape(value))).unwrap_or_default()
+            diagram
+                .semantic_context_id
+                .as_ref()
+                .map(|value| format!(" context=\"{}\"", xml_escape(value)))
+                .unwrap_or_default()
         ));
         for node in &diagram.nodes {
             xml.push_str(&format!(
@@ -1092,7 +1131,10 @@ fn write_presentations(xml: &mut String, portable: &PortableProjectV1) {
             ));
             write_waypoints(xml, &edge.points, "          ");
             if let Some(anchor) = edge.label_anchor {
-                xml.push_str(&format!("          <sm:labelAnchor x=\"{}\" y=\"{}\" />\n", anchor.x, anchor.y));
+                xml.push_str(&format!(
+                    "          <sm:labelAnchor x=\"{}\" y=\"{}\" />\n",
+                    anchor.x, anchor.y
+                ));
             }
             xml.push_str("        </sm:Edge>\n");
         }
