@@ -108,7 +108,6 @@ fn xmi_attribute<'a, 'input>(
             attribute.name() == local_name && attribute.namespace().is_some_and(is_xmi_namespace)
         })
         .map(|attribute| attribute.value())
-        .or_else(|| node.attribute(local_name))
 }
 
 fn local_attribute<'a, 'input>(
@@ -117,6 +116,17 @@ fn local_attribute<'a, 'input>(
 ) -> Option<&'a str> {
     node.attributes()
         .find(|attribute| attribute.name() == local_name)
+        .map(|attribute| attribute.value())
+}
+
+fn semantic_type_reference<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+) -> Option<&'a str> {
+    node.attributes()
+        .find(|attribute| {
+            attribute.name() == "type"
+                && !attribute.namespace().is_some_and(is_xmi_namespace)
+        })
         .map(|attribute| attribute.value())
 }
 
@@ -210,7 +220,10 @@ fn nearest_semantic_owner(node: roxmltree::Node<'_, '_>) -> Option<String> {
 
 fn attribute_map(node: roxmltree::Node<'_, '_>) -> BTreeMap<String, String> {
     node.attributes()
-        .filter(|attribute| attribute.name() != "id" && attribute.name() != "type")
+        .filter(|attribute| {
+            !(matches!(attribute.name(), "id" | "type")
+                && attribute.namespace().is_some_and(is_xmi_namespace))
+        })
         .map(|attribute| (attribute.name().to_owned(), attribute.value().to_owned()))
         .collect()
 }
@@ -292,7 +305,9 @@ pub fn parse_xmi(xml: &str, file: Option<&str>) -> Result<XmiSemanticDocument, V
         {
             let mut tags = BTreeMap::new();
             for attribute in node.attributes() {
-                if attribute.name() == "id" || attribute.name().starts_with("base_") {
+                if attribute.namespace().is_some_and(is_xmi_namespace)
+                    || attribute.name().starts_with("base_")
+                {
                     continue;
                 }
                 tags.insert(
@@ -342,7 +357,7 @@ pub fn parse_xmi(xml: &str, file: Option<&str>) -> Result<XmiSemanticDocument, V
                 xmi_type,
                 name: local_attribute(node, "name").unwrap_or_default().into(),
                 owner_id: nearest_semantic_owner(node),
-                type_reference: local_attribute(node, "type").map(ToOwned::to_owned),
+                type_reference: semantic_type_reference(node).map(ToOwned::to_owned),
                 attributes: attribute_map(node),
             });
         }
@@ -961,6 +976,27 @@ pub(super) mod tests {
         assert_eq!(document.records.len(), 3);
         assert_eq!(document.relationships.len(), 1);
         assert_eq!(document.relationships[0].source_reference, "controller");
+    }
+
+    #[test]
+    fn semantic_type_reference_is_not_confused_with_xmi_metaclass() {
+        let fixture = r#"<?xml version="1.0"?>
+<x:XMI xmlns:x="http://www.omg.org/spec/XMI/20131001" xmlns:u="http://www.omg.org/spec/UML/20131001">
+  <u:Model x:id="m1" name="TypedModel">
+    <u:Class x:id="c1" name="Classifier">
+      <u:Property x:id="p1" name="typedProperty" type="c1" />
+    </u:Class>
+  </u:Model>
+</x:XMI>"#;
+        let document = parse_xmi(fixture, Some("typed-property.xmi")).unwrap();
+        let property = document
+            .records
+            .iter()
+            .find(|record| record.xmi_id == "p1")
+            .expect("typed property record");
+        assert_eq!(property.xmi_type, "uml:Property");
+        assert_eq!(property.type_reference.as_deref(), Some("c1"));
+        assert_eq!(property.attributes.get("type").map(String::as_str), Some("c1"));
     }
 
     #[test]

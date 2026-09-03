@@ -386,6 +386,10 @@ fn prepare_xmi_import(
     }
 
     if let Some(portable) = &embedded {
+        // `portable_from_states` snapshots `workspace.project` itself. Release the
+        // validation guard first: std::sync::Mutex is non-reentrant, so retaining
+        // this guard here would self-deadlock on native authored-state XMI.
+        drop(project_guard);
         let current = portable_from_states(workspace, activity).ok();
         let incoming = semantic_only(portable.clone());
         let same = current
@@ -403,7 +407,6 @@ fn prepare_xmi_import(
             detail: "lossless native semantic payload; diagram geometry is excluded".into(),
         });
         preview.recount();
-        drop(project_guard);
         return PreparedXmiImport {
             document,
             configuration: configuration.clone(),
@@ -1044,6 +1047,8 @@ fn apply_prepared(
             return prepared.preview;
         }
     };
+    let used_embedded = prepared.embedded.is_some();
+    let used_embedded = prepared.embedded.is_some();
     let apply_result = if let Some(portable) = prepared.embedded.take() {
         replace_embedded_semantics(portable, &candidate, &candidate_activity)
     } else {
@@ -1097,11 +1102,13 @@ fn apply_prepared(
                 return prepared.preview;
             }
         }
-        if let Err(reason) = apply_external_profiles(
-            project,
-            &prepared.document,
-            &prepared.configuration.source_namespace,
-        ) {
+        if !used_embedded
+            && let Err(reason) = apply_external_profiles(
+                project,
+                &prepared.document,
+                &prepared.configuration.source_namespace,
+            )
+        {
             prepared
                 .preview
                 .diagnostics
@@ -1725,6 +1732,53 @@ mod tests {
     }
 
     #[test]
+    fn embedded_xmi_preview_and_apply_complete_without_recursive_project_lock() {
+        use std::{sync::mpsc, thread, time::Duration};
+
+        let (source, source_activity) = representative_states();
+        let portable = semantic_only(portable_from_states(&source, &source_activity).unwrap());
+        let xml = serialize_xmi(&portable).unwrap();
+        assert!(xml.contains("sm:authoredState"));
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let target = WorkspaceState::default();
+            let target_activity = ActivityWorkspaceState::default();
+            let target_project = Project::new("Embedded XMI Target");
+            let root = target_project.root_id;
+            *target.project.lock().unwrap() = Some(target_project);
+            let configuration = XmiImportConfiguration {
+                source_namespace: "xmi:embedded-watchdog".into(),
+                target_scope: root.to_string(),
+                synchronization: XmiSynchronizationPolicy::AdditiveUpdate,
+            };
+
+            let preview = preview_xmi_xml(
+                &xml,
+                Some("embedded-watchdog.xmi"),
+                configuration.clone(),
+                &target,
+                &target_activity,
+            );
+            let applied = apply_xmi_xml(
+                &xml,
+                Some("embedded-watchdog.xmi"),
+                configuration,
+                &target,
+                &target_activity,
+                None,
+            );
+            let _ = tx.send((preview, applied));
+        });
+
+        let (preview, applied) = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("embedded XMI preview/apply exceeded 10 seconds; probable lock deadlock");
+        assert!(preview.is_valid(), "{:?}", preview.diagnostics);
+        assert!(applied.applied, "{:?}", applied.diagnostics);
+    }
+
+    #[test]
     fn authoritative_remove_is_source_bound_and_late_parse_error_is_atomic() {
         let workspace = WorkspaceState::default();
         let activity = ActivityWorkspaceState::default();
@@ -1747,7 +1801,11 @@ mod tests {
             )
             .applied
         );
-        let reduced = UML_FIXTURE
+        // Git may materialize the included fixture with CRLF on Windows. Normalize
+        // only the test input used to remove rows so the authoritative-sync assertion
+        // exercises the same two semantic removals on every runner.
+        let normalized_fixture = UML_FIXTURE.replace("\r\n", "\n");
+        let reduced = normalized_fixture
             .replace(
                 "    <packagedElement x:type=\"u:Class\" x:id=\"sensor\" name=\"Sensor\" />\n",
                 "",
