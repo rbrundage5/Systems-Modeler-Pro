@@ -428,10 +428,63 @@ pub fn orthogonal_route(request: RouteRequest<'_>) -> Result<Vec<DiagramPoint>, 
     {
         return Ok(candidate.clone());
     }
-    candidates
+    if let Some(candidate) = candidates
         .into_iter()
         .find(|candidate| route_is_recovery_valid(candidate, &request))
-        .ok_or_else(|| route_failure(&request))
+    {
+        return Ok(candidate);
+    }
+
+    // A small port can sit on a classifier boundary close enough to sibling
+    // ports that clearance around those siblings blocks the preferred attachment
+    // side itself. Candidate tracks cannot recover from a start/end point that is
+    // already inside another port's clearance envelope. Retry from the opposite
+    // pair of source/target sides before declaring the model unroutable. Hard
+    // model obstacles and frame bounds remain unchanged.
+    alternate_attachment_recovery(&request, horizontal).ok_or_else(|| route_failure(&request))
+}
+
+fn alternate_attachment_recovery(
+    request: &RouteRequest<'_>,
+    primary_horizontal: bool,
+) -> Option<Vec<DiagramPoint>> {
+    let horizontal = !primary_horizontal;
+    let (start, end) = attached_endpoints(request.source, request.target, horizontal);
+    let mut candidates = Vec::new();
+
+    if horizontal {
+        let mid_x = (start.x + end.x) / 2.0;
+        candidates.push(compact(vec![
+            start,
+            DiagramPoint {
+                x: mid_x,
+                y: start.y,
+            },
+            DiagramPoint { x: mid_x, y: end.y },
+            end,
+        ]));
+    } else {
+        let mid_y = (start.y + end.y) / 2.0;
+        candidates.push(compact(vec![
+            start,
+            DiagramPoint {
+                x: start.x,
+                y: mid_y,
+            },
+            DiagramPoint { x: end.x, y: mid_y },
+            end,
+        ]));
+    }
+
+    // Recovery deliberately removes lane displacement but keeps every hard
+    // obstacle and the committed frame. Reserved relationship corridors are a
+    // preference only at this stage, consistent with the existing recovery
+    // contract used by the shared router.
+    add_escape_candidates(&mut candidates, start, end, request, 0.0);
+    candidates.sort_by(|left, right| route_cost(left).total_cmp(&route_cost(right)));
+    candidates
+        .into_iter()
+        .find(|candidate| route_is_recovery_valid(candidate, request))
 }
 
 fn self_transition_route(request: &RouteRequest<'_>) -> Result<Vec<DiagramPoint>, String> {
@@ -1114,6 +1167,48 @@ mod tests {
         };
         assert!(!route_is_valid(&candidate, &request));
         assert!(route_is_recovery_valid(&candidate, &request));
+    }
+
+    #[test]
+    fn alternate_attachment_recovers_when_primary_port_side_is_clearance_trapped() {
+        let source = RouteRect {
+            x: 92.0,
+            y: 92.0,
+            width: 16.0,
+            height: 16.0,
+        };
+        let target = RouteRect {
+            x: 102.0,
+            y: 292.0,
+            width: 16.0,
+            height: 16.0,
+        };
+        // This models a sibling port 28 px below the source port. With the
+        // standard 18 px route clearance, a downward attachment point on the
+        // source is already inside the sibling's clearance envelope, while a
+        // horizontal attachment remains clear.
+        let sibling_port = RouteRect {
+            x: 92.0,
+            y: 120.0,
+            width: 16.0,
+            height: 16.0,
+        };
+        let route = orthogonal_route(RouteRequest {
+            source,
+            target,
+            obstacles: &[sibling_port],
+            lane_index: 0,
+            reserved_routes: &[],
+            allow_shared_departure: false,
+            bounds: None,
+        })
+        .expect("alternate port attachment must recover an obstacle-clear route");
+        assert!(route_is_clear(&route, &[sibling_port]));
+        assert!(
+            route
+                .windows(2)
+                .all(|segment| is_orthogonal(segment[0], segment[1]))
+        );
     }
 
     #[test]
