@@ -19,17 +19,17 @@ modelScript('''
     {"op":"element","external_id":"P7","kind":"PartProperty","name":"part7","owner":"handle:VEH","type_ref":"handle:SUBSYS"},
     {"op":"element","external_id":"P8","kind":"PartProperty","name":"part8","owner":"handle:VEH","type_ref":"handle:SUBSYS"},
     {"op":"element","external_id":"P9","kind":"PartProperty","name":"part9","owner":"handle:VEH","type_ref":"handle:SUBSYS"},
-    {"op":"connector","external_id":"E1","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P1","handle:PA"],"name":"E1"},
-    {"op":"connector","external_id":"E2","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P2","handle:PA"],"name":"E2"},
-    {"op":"connector","external_id":"E3","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P3","handle:PA"],"name":"E3"},
-    {"op":"connector","external_id":"E4","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P4","handle:PA"],"name":"E4"},
-    {"op":"connector","external_id":"E5","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P6","handle:PA"],"name":"E5"},
-    {"op":"connector","external_id":"E6","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P7","handle:PA"],"name":"E6"},
-    {"op":"connector","external_id":"E7","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P8","handle:PA"],"name":"E7"},
-    {"op":"connector","external_id":"E8","context":"handle:VEH","kind":"Assembly","source_path":["handle:P5","handle:PA"],"target_path":["handle:P9","handle:PA"],"name":"E8"},
-    {"op":"connector","external_id":"E9","context":"handle:VEH","kind":"Assembly","source_path":["handle:P1","handle:PB"],"target_path":["handle:P9","handle:PB"],"name":"E9"},
-    {"op":"connector","external_id":"E10","context":"handle:VEH","kind":"Assembly","source_path":["handle:P3","handle:PC"],"target_path":["handle:P7","handle:PC"],"name":"E10"},
-    {"op":"connector","external_id":"E11","context":"handle:VEH","kind":"Assembly","source_path":["handle:P2","handle:PD"],"target_path":["handle:P8","handle:PD"],"name":"E11"}
+    {"op":"connector","external_id":"E1","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P1","PA"],"name":"E1"},
+    {"op":"connector","external_id":"E2","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P2","PA"],"name":"E2"},
+    {"op":"connector","external_id":"E3","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P3","PA"],"name":"E3"},
+    {"op":"connector","external_id":"E4","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P4","PA"],"name":"E4"},
+    {"op":"connector","external_id":"E5","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P6","PA"],"name":"E5"},
+    {"op":"connector","external_id":"E6","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P7","PA"],"name":"E6"},
+    {"op":"connector","external_id":"E7","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P8","PA"],"name":"E7"},
+    {"op":"connector","external_id":"E8","context":"handle:VEH","kind":"Assembly","source_path":["P5","PA"],"target_path":["P9","PA"],"name":"E8"},
+    {"op":"connector","external_id":"E9","context":"handle:VEH","kind":"Assembly","source_path":["P1","PB"],"target_path":["P9","PB"],"name":"E9"},
+    {"op":"connector","external_id":"E10","context":"handle:VEH","kind":"Assembly","source_path":["P3","PC"],"target_path":["P7","PC"],"name":"E10"},
+    {"op":"connector","external_id":"E11","context":"handle:VEH","kind":"Assembly","source_path":["P2","PD"],"target_path":["P8","PD"],"name":"E11"}
   ],
   "diagrams": [
     {"external_id":"D_IBD","family":"IBD","name":"Dense Nested Port IBD","owner":"handle:PKG","context":"handle:VEH","populate":true,"clean_layout":true,"route":true}
