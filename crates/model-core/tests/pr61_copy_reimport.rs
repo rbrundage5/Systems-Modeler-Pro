@@ -1,49 +1,4 @@
-from pathlib import Path
-
-
-def replace_once(path: Path, old: str, new: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"expected one match in {path}, found {count}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-model = Path("crates/model-core/src/model.rs")
-replace_once(
-    model,
-    '''        if self.relationships.values().any(|relationship| {
-            relationship.kind == RelationshipKind::Copy && relationship.source_id == id
-        }) {
-            return Err(ModelError::CopiedRequirementIsReadOnly(id));
-        }
-        let text = text.into();
-        {
-''',
-    '''        let text = text.into();
-        // Copy makes the slave Requirement semantically read-only, but an importer
-        // must be able to reassert the exact state it already authored. Treat an
-        // identical ID/text assignment as an idempotent no-op before enforcing
-        // the read-only boundary. This also permits an ordered transaction to
-        // update the master first (which propagates text to the copy) and then
-        // consume the copy row without manufacturing a false import blocker.
-        if self.element(id).is_ok_and(|current| {
-            current.kind == ElementKind::Requirement
-                && current.requirement_id.as_deref() == Some(requirement_id.as_str())
-                && current.requirement_text.as_deref() == Some(text.as_str())
-        }) {
-            return Ok(());
-        }
-        if self.relationships.values().any(|relationship| {
-            relationship.kind == RelationshipKind::Copy && relationship.source_id == id
-        }) {
-            return Err(ModelError::CopiedRequirementIsReadOnly(id));
-        }
-        {
-''',
-)
-
-test = Path("crates/model-core/tests/pr61_copy_reimport.rs")
-test.write_text(r'''use systems_modeler_core::*;
+use systems_modeler_core::*;
 
 fn fixture() -> (Project, ElementId, ElementId) {
     let mut project = Project::new("PR61 copied Requirement reimport");
@@ -127,4 +82,3 @@ fn copied_requirement_still_rejects_real_semantic_change() {
         ModelError::CopiedRequirementIsReadOnly(id) if id == copy
     ));
 }
-''', encoding="utf-8")
