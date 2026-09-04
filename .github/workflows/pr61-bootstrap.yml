@@ -1,0 +1,46 @@
+name: pr61-bootstrap
+
+on:
+  push:
+    branches: [agent/pr61-copy-reimport-idempotency]
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr61-copy-reimport-idempotency
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply copied Requirement reimport patch
+        run: python scripts/pr61_bootstrap.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Focused copied Requirement reimport tests
+        run: cargo test -p systems-modeler-core --test pr61_copy_reimport -- --nocapture
+      - name: Full model-core regression
+        run: cargo test -p systems-modeler-core
+      - name: Model-core lint
+        run: cargo clippy -p systems-modeler-core --all-targets -- -D warnings
+      - name: Desktop model-script regression
+        run: cargo test -p systems-modeler-desktop model_script -- --nocapture
+      - name: Desktop check
+        run: cargo check -p systems-modeler-desktop
+      - name: Finalize qualified PR61 implementation
+        shell: pwsh
+        run: |
+          Remove-Item scripts/pr61_bootstrap.py
+          Remove-Item .github/workflows/pr61-bootstrap.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "PR61: make copied Requirement reimport idempotent"
+          git push origin HEAD:agent/pr61-copy-reimport-idempotency
