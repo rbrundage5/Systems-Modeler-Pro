@@ -667,12 +667,8 @@ fn routed_ibd_connectors(
             .copied()
             .chain(label_obstacles.iter().copied())
             .collect();
-        let label_anchor = super::routing::route_label_anchor_avoiding(
-            &points,
-            &obstacles,
-            &all_routes,
-            bounds,
-        )?;
+        let label_anchor =
+            super::routing::route_label_anchor_avoiding(&points, &obstacles, &all_routes, bounds)?;
         let connector = connectors
             .iter_mut()
             .find(|candidate| candidate.id == edge_id)
@@ -895,10 +891,15 @@ mod tests {
         assert_eq!(routed.len(), diagram.connectors.len());
         assert!(routed.iter().all(|edge| edge.points.len() >= 2));
         assert!(routed.iter().all(|edge| edge.label_anchor.is_some()));
-        assert!(routed.iter().flat_map(|edge| edge.points.windows(2)).all(|segment| {
-            (segment[0].x - segment[1].x).abs() < 0.001
-                || (segment[0].y - segment[1].y).abs() < 0.001
-        }));
+        assert!(
+            routed
+                .iter()
+                .flat_map(|edge| edge.points.windows(2))
+                .all(|segment| {
+                    (segment[0].x - segment[1].x).abs() < 0.001
+                        || (segment[0].y - segment[1].y).abs() < 0.001
+                })
+        );
 
         diagram.connectors = routed;
         let rerouted = routed_ibd_connectors(&diagram, None)
