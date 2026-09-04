@@ -38,37 +38,53 @@ pub fn hierarchical_positions_sized(
     edges: &[(String, String)],
     flow: PreferredFlowDirection,
 ) -> BTreeMap<String, (f64, f64)> {
-    let nodes: BTreeMap<_, _> = nodes
-        .into_iter()
-        .map(|mut node| {
-            node.width = node.width.max(1.0);
-            node.height = node.height.max(1.0);
-            (node.id.clone(), node)
-        })
+    // Presentation identifiers can legitimately be generated UUIDs. They are
+    // identity, not ordering semantics. Preserve the caller-provided node order
+    // and use it as the deterministic tie-breaker for equal graph levels.
+    let mut nodes_by_id = BTreeMap::new();
+    let mut ordered_ids = Vec::new();
+    for mut node in nodes {
+        node.width = node.width.max(1.0);
+        node.height = node.height.max(1.0);
+        if !nodes_by_id.contains_key(&node.id) {
+            ordered_ids.push(node.id.clone());
+        }
+        nodes_by_id.insert(node.id.clone(), node);
+    }
+    let rank: BTreeMap<_, _> = ordered_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.clone(), index))
         .collect();
-    let ids: BTreeSet<_> = nodes.keys().cloned().collect();
-    let mut indegree: BTreeMap<_, usize> = ids.iter().map(|id| (id.clone(), 0)).collect();
-    let mut outgoing: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut indegree: BTreeMap<_, usize> = ordered_ids.iter().map(|id| (id.clone(), 0)).collect();
+    let mut outgoing: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (source, target) in edges {
-        if source == target || !ids.contains(source) || !ids.contains(target) {
+        if source == target
+            || !nodes_by_id.contains_key(source)
+            || !nodes_by_id.contains_key(target)
+        {
             continue;
         }
-        if outgoing
-            .entry(source.clone())
-            .or_default()
-            .insert(target.clone())
-        {
+        let targets = outgoing.entry(source.clone()).or_default();
+        if !targets.contains(target) {
+            targets.push(target.clone());
             *indegree.entry(target.clone()).or_default() += 1;
         }
     }
+    for targets in outgoing.values_mut() {
+        targets.sort_by_key(|target| rank.get(target).copied().unwrap_or(usize::MAX));
+    }
 
-    let mut ready: BTreeSet<_> = indegree
+    let mut ready: BTreeSet<(usize, String)> = indegree
         .iter()
-        .filter_map(|(id, degree)| (*degree == 0).then_some(id.clone()))
+        .filter_map(|(id, degree)| {
+            (*degree == 0).then_some((rank.get(id).copied().unwrap_or(usize::MAX), id.clone()))
+        })
         .collect();
-    let mut levels: BTreeMap<String, usize> = ids.iter().map(|id| (id.clone(), 0)).collect();
+    let mut levels: BTreeMap<String, usize> =
+        ordered_ids.iter().map(|id| (id.clone(), 0)).collect();
     let mut placed = BTreeSet::new();
-    while let Some(id) = ready.pop_first() {
+    while let Some((_, id)) = ready.pop_first() {
         placed.insert(id.clone());
         let next_level = levels[&id].saturating_add(1);
         for target in outgoing.get(&id).into_iter().flatten() {
@@ -78,7 +94,10 @@ pub fn hierarchical_positions_sized(
             let degree = indegree.get_mut(target).expect("known layout node");
             *degree -= 1;
             if *degree == 0 {
-                ready.insert(target.clone());
+                ready.insert((
+                    rank.get(target).copied().unwrap_or(usize::MAX),
+                    target.clone(),
+                ));
             }
         }
     }
@@ -88,7 +107,7 @@ pub fn hierarchical_positions_sized(
     // spanning hierarchy for those remaining vertices while ignoring back edges.
     // This keeps the layout bounded and produces useful top-to-bottom/left-to-right
     // flow without introducing a separate graph-layout subsystem.
-    for start in &ids {
+    for start in &ordered_ids {
         if placed.contains(start) {
             continue;
         }
@@ -106,8 +125,9 @@ pub fn hierarchical_positions_sized(
     }
 
     let mut by_level: BTreeMap<usize, Vec<&LayoutNode>> = BTreeMap::new();
-    for (id, level) in &levels {
-        by_level.entry(*level).or_default().push(&nodes[id]);
+    for id in &ordered_ids {
+        let level = levels[id];
+        by_level.entry(level).or_default().push(&nodes_by_id[id]);
     }
 
     let mut positions = BTreeMap::new();
@@ -203,5 +223,31 @@ mod tests {
         );
         assert!(positions.values().all(|(x, y)| *x < 1000.0 && *y < 1000.0));
         assert_ne!(positions["a"].1, positions["b"].1);
+    }
+    #[test]
+    fn equal_level_nodes_preserve_caller_order_instead_of_uuid_lexical_order() {
+        let positions = hierarchical_positions_sized(
+            [
+                LayoutNode {
+                    id: "z-first".into(),
+                    width: 100.0,
+                    height: 60.0,
+                },
+                LayoutNode {
+                    id: "a-second".into(),
+                    width: 100.0,
+                    height: 60.0,
+                },
+                LayoutNode {
+                    id: "m-third".into(),
+                    width: 100.0,
+                    height: 60.0,
+                },
+            ],
+            &[],
+            PreferredFlowDirection::TopToBottom,
+        );
+        assert!(positions["z-first"].0 < positions["a-second"].0);
+        assert!(positions["a-second"].0 < positions["m-third"].0);
     }
 }
