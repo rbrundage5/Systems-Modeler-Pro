@@ -636,7 +636,7 @@ fn routed_ibd_connectors(
             .iter()
             .filter(|candidate| candidate.source_presentation_id == edge.source_presentation_id)
             .count();
-        let points = route_ibd_edge_avoiding(
+        let preferred = route_ibd_edge_avoiding(
             &snapshot,
             &edge.source_presentation_id,
             &edge.target_presentation_id,
@@ -647,7 +647,27 @@ fn routed_ibd_connectors(
                 additional_obstacles: &[],
                 bounds,
             },
-        )?;
+        );
+        let points = match preferred {
+            Ok(points) => points,
+            Err(_) => route_ibd_edge_avoiding(
+                &snapshot,
+                &edge.source_presentation_id,
+                &edge.target_presentation_id,
+                IbdRouteContext {
+                    // Dense shared-source topology can exhaust the preferred lane
+                    // candidates even when valid obstacle-clear geometry exists.
+                    // Retry without lane displacement. The underlying router still
+                    // requires obstacle clearance and may reuse/cross only previously
+                    // routed relationships as its documented recovery policy allows.
+                    lane_index: 0,
+                    reserved_routes: &reserved_routes,
+                    allow_shared_departure: true,
+                    additional_obstacles: &[],
+                    bounds,
+                },
+            )?,
+        };
         reserved_routes.push(points.clone());
         routed_geometry.push((edge.id.clone(), points));
     }
