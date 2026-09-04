@@ -1086,12 +1086,25 @@ impl Project {
         }) {
             return Err(ModelError::DuplicateRequirementId(requirement_id));
         }
+        let text = text.into();
+        // Copy makes the slave Requirement semantically read-only, but an importer
+        // must be able to reassert the exact state it already authored. Treat an
+        // identical ID/text assignment as an idempotent no-op before enforcing
+        // the read-only boundary. This also permits an ordered transaction to
+        // update the master first (which propagates text to the copy) and then
+        // consume the copy row without manufacturing a false import blocker.
+        if self.element(id).is_ok_and(|current| {
+            current.kind == ElementKind::Requirement
+                && current.requirement_id.as_deref() == Some(requirement_id.as_str())
+                && current.requirement_text.as_deref() == Some(text.as_str())
+        }) {
+            return Ok(());
+        }
         if self.relationships.values().any(|relationship| {
             relationship.kind == RelationshipKind::Copy && relationship.source_id == id
         }) {
             return Err(ModelError::CopiedRequirementIsReadOnly(id));
         }
-        let text = text.into();
         {
             let requirement = self.element_mut(id)?;
             if requirement.kind != ElementKind::Requirement {
