@@ -625,42 +625,79 @@ fn routed_ibd_connectors(
 ) -> Result<Vec<IbdConnectorPresentation>, String> {
     let snapshot = diagram.clone();
     let all_obstacles = all_routing_obstacles(&snapshot);
-    let mut routes = Vec::new();
-    let mut label_obstacles = Vec::new();
-    let mut connectors = snapshot.connectors.clone();
+    let mut reserved_routes = Vec::new();
+    let mut routed_geometry = Vec::new();
+
+    // Route every relationship before placing any label. Labels are presentation
+    // metadata and must never become hard obstacles that can trap a later semantic
+    // connector at its endpoint. This mirrors the application-wide shared router.
     for (index, edge) in snapshot.connectors.iter().enumerate() {
         let same_source_count = snapshot.connectors[..index]
             .iter()
             .filter(|candidate| candidate.source_presentation_id == edge.source_presentation_id)
             .count();
-        let points = route_ibd_edge_avoiding(
+        let preferred = route_ibd_edge_avoiding(
             &snapshot,
             &edge.source_presentation_id,
             &edge.target_presentation_id,
             IbdRouteContext {
                 lane_index: same_source_count,
-                reserved_routes: &routes,
+                reserved_routes: &reserved_routes,
                 allow_shared_departure: same_source_count > 0,
-                additional_obstacles: &label_obstacles,
+                additional_obstacles: &[],
                 bounds,
             },
-        )?;
+        );
+        let points = match preferred {
+            Ok(points) => points,
+            Err(_) => route_ibd_edge_avoiding(
+                &snapshot,
+                &edge.source_presentation_id,
+                &edge.target_presentation_id,
+                IbdRouteContext {
+                    // Dense shared-source topology can exhaust the preferred lane
+                    // candidates even when valid obstacle-clear geometry exists.
+                    // Retry without lane displacement. The underlying router still
+                    // requires obstacle clearance and may reuse/cross only previously
+                    // routed relationships as its documented recovery policy allows.
+                    lane_index: 0,
+                    reserved_routes: &reserved_routes,
+                    allow_shared_departure: true,
+                    additional_obstacles: &[],
+                    bounds,
+                },
+            )?,
+        };
+        reserved_routes.push(points.clone());
+        routed_geometry.push((edge.id.clone(), points));
+    }
+
+    let all_routes: Vec<_> = routed_geometry
+        .iter()
+        .map(|(_, points)| points.clone())
+        .collect();
+    let mut label_obstacles = Vec::new();
+    let mut connectors = snapshot.connectors.clone();
+
+    // With every connector route committed, labels can avoid the full relationship
+    // geometry and previously placed labels without affecting route feasibility.
+    for (edge_id, points) in routed_geometry {
         let obstacles: Vec<_> = all_obstacles
             .iter()
             .copied()
             .chain(label_obstacles.iter().copied())
             .collect();
         let label_anchor =
-            super::routing::route_label_anchor_avoiding(&points, &obstacles, &routes, bounds)?;
+            super::routing::route_label_anchor_avoiding(&points, &obstacles, &all_routes, bounds)?;
         let connector = connectors
             .iter_mut()
-            .find(|candidate| candidate.id == edge.id)
+            .find(|candidate| candidate.id == edge_id)
             .ok_or("IBD connector presentation not found")?;
-        connector.points = points.clone();
+        connector.points = points;
         connector.label_anchor = Some(label_anchor);
-        routes.push(points);
         label_obstacles.push(super::routing::label_rect(label_anchor));
     }
+
     Ok(connectors)
 }
 
@@ -803,4 +840,91 @@ pub fn load_ibd_metadata(
     };
     validate_ibd_diagrams(project, &diagrams)?;
     Ok(diagrams)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn property(id: &str, x: f64, y: f64) -> IbdPropertyPresentation {
+        IbdPropertyPresentation {
+            id: id.into(),
+            element_id: ElementId::new().to_string(),
+            property_path: Vec::new(),
+            x,
+            y,
+            width: 190.0,
+            height: 100.0,
+            ports: Vec::new(),
+        }
+    }
+
+    fn connector(id: &str, source: &str, target: &str) -> IbdConnectorPresentation {
+        IbdConnectorPresentation {
+            id: id.into(),
+            relationship_id: uuid::Uuid::new_v4().to_string(),
+            source_presentation_id: source.into(),
+            target_presentation_id: target.into(),
+            points: vec![
+                DiagramPoint { x: 0.0, y: 0.0 },
+                DiagramPoint { x: 1.0, y: 1.0 },
+            ],
+            label_anchor: None,
+        }
+    }
+
+    #[test]
+    fn dense_batch_routing_routes_all_geometry_before_placing_labels() {
+        let mut diagram = IbdDiagram {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Dense import regression".into(),
+            context_block_id: ElementId::new().to_string(),
+            owner_id: ElementId::new().to_string(),
+            properties: vec![
+                property("P1", 100.0, 100.0),
+                property("P2", 340.0, 100.0),
+                property("P3", 580.0, 100.0),
+                property("P4", 100.0, 280.0),
+                property("P5", 340.0, 280.0),
+                property("P6", 580.0, 280.0),
+                property("P7", 100.0, 460.0),
+                property("P8", 340.0, 460.0),
+                property("P9", 580.0, 460.0),
+            ],
+            boundary_ports: Vec::new(),
+            connectors: vec![
+                connector("E1", "P5", "P1"),
+                connector("E2", "P5", "P2"),
+                connector("E3", "P5", "P3"),
+                connector("E4", "P5", "P4"),
+                connector("E5", "P5", "P6"),
+                connector("E6", "P5", "P7"),
+                connector("E7", "P5", "P8"),
+                connector("E8", "P5", "P9"),
+                connector("E9", "P1", "P9"),
+                connector("E10", "P3", "P7"),
+                connector("E11", "P2", "P8"),
+            ],
+        };
+
+        let routed = routed_ibd_connectors(&diagram, None).expect("dense IBD routing must succeed");
+        assert_eq!(routed.len(), diagram.connectors.len());
+        assert!(routed.iter().all(|edge| edge.points.len() >= 2));
+        assert!(routed.iter().all(|edge| edge.label_anchor.is_some()));
+        assert!(
+            routed
+                .iter()
+                .flat_map(|edge| edge.points.windows(2))
+                .all(|segment| {
+                    (segment[0].x - segment[1].x).abs() < 0.001
+                        || (segment[0].y - segment[1].y).abs() < 0.001
+                })
+        );
+
+        diagram.connectors = routed;
+        let rerouted = routed_ibd_connectors(&diagram, None)
+            .expect("rerouting a dense imported IBD must remain recoverable");
+        assert!(rerouted.iter().all(|edge| edge.points.len() >= 2));
+        assert!(rerouted.iter().all(|edge| edge.label_anchor.is_some()));
+    }
 }

@@ -20,6 +20,7 @@
   function actionSummary(preview) {
     const counts = { CREATE: 0, UPDATE: 0, NO_CHANGE: 0, BLOCKED: 0 };
     for (const item of preview?.items || []) counts[item.action] = (counts[item.action] || 0) + 1;
+    counts.BLOCKED += (preview?.diagnostics || []).length;
     return `CREATE ${counts.CREATE} · UPDATE ${counts.UPDATE} · NO_CHANGE ${counts.NO_CHANGE} · BLOCKED ${counts.BLOCKED}`;
   }
 
