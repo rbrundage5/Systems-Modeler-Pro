@@ -19,6 +19,8 @@ jobs:
           components: rustfmt, clippy
       - name: Apply deterministic model-script patch
         run: python scripts/pr60_bootstrap.py
+      - name: Apply model-script action contract lint fix
+        run: python scripts/pr60_lint_fix.py
       - name: Format
         run: cargo fmt --all
       - name: Diff hygiene
@@ -43,6 +45,7 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item scripts/pr60_bootstrap.py
+          Remove-Item scripts/pr60_lint_fix.py
           Remove-Item .github/workflows/pr60-bootstrap.yml
           if (Test-Path pr60_dense_failure.log) { Remove-Item pr60_dense_failure.log }
           git add -A
