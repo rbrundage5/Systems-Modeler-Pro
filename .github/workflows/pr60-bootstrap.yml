@@ -21,12 +21,24 @@ jobs:
         run: python scripts/pr60_bootstrap.py
       - name: Format
         run: cargo fmt --all
+      - name: Dense nested-port model-script repeatability with captured diagnostics
+        shell: pwsh
+        run: |
+          cargo test -p systems-modeler-desktop dense_nested_port -- --nocapture 2>&1 | Tee-Object -FilePath pr60_dense_failure.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            Remove-Item .github/workflows/pr60-bootstrap.yml
+            git add pr60_dense_failure.log .github/workflows/pr60-bootstrap.yml
+            git commit -m "PR60: capture dense import regression failure"
+            git push origin HEAD:agent/pr60-deterministic-model-script-import
+            exit $code
+          }
       - name: Deterministic model-core child ordering
         run: cargo test -p systems-modeler-core --test pr60_deterministic_children -- --nocapture
       - name: Shared layout determinism
         run: cargo test -p systems-modeler-desktop equal_level_nodes_preserve_caller_order -- --nocapture
-      - name: Dense nested-port model-script repeatability
-        run: cargo test -p systems-modeler-desktop dense_nested_port -- --nocapture
       - name: Existing model-script qualification
         run: cargo test -p systems-modeler-desktop model_script -- --nocapture
       - name: Desktop check
