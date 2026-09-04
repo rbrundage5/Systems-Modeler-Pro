@@ -49,7 +49,6 @@ pub enum ModelScriptAction {
     Create,
     Update,
     NoChange,
-    Blocked,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -85,11 +84,10 @@ pub struct ModelScriptPreview {
 
 impl ModelScriptPreview {
     fn valid(&self) -> bool {
+        // Model-script blocking is represented by structured diagnostics. The
+        // old BLOCKED item action was never emitted and therefore made the
+        // serialized action contract claim a state the host could not produce.
         self.diagnostics.is_empty()
-            && !self
-                .items
-                .iter()
-                .any(|item| item.action == ModelScriptAction::Blocked)
     }
 }
 
@@ -2844,11 +2842,13 @@ fn populate_bdd_like(
         }
     };
 
-    for relationship in project
+    let mut relationships = project
         .relationships
         .values()
         .filter(|relationship| relationship_presentable_on_family(family, &relationship.kind))
-    {
+        .collect::<Vec<_>>();
+    relationships.sort_by(|left, right| left.external_id.cmp(&right.external_id));
+    for relationship in relationships {
         let endpoints = if family == "parametric" {
             let binding = relationship
                 .binding
@@ -3023,18 +3023,23 @@ fn create_script_diagram(
                         _ => {}
                     }
                 }
-                for relationship in project
+                let mut relationships = project
                     .relationships
                     .values()
                     .filter(|relationship| relationship.kind == RelationshipKind::Connector)
-                {
-                    let Some(connector) = relationship
+                    .filter(|relationship| {
+                        relationship
+                            .connector
+                            .as_ref()
+                            .is_some_and(|connector| connector.context_id == context)
+                    })
+                    .collect::<Vec<_>>();
+                relationships.sort_by(|left, right| left.external_id.cmp(&right.external_id));
+                for relationship in relationships {
+                    let connector = relationship
                         .connector
                         .as_ref()
-                        .filter(|connector| connector.context_id == context)
-                    else {
-                        continue;
-                    };
+                        .expect("filtered Connector semantics");
                     let endpoint = |end: &systems_modeler_core::ConnectorEnd| -> Option<String> {
                         let path = end
                             .property_path
@@ -3336,55 +3341,56 @@ fn create_script_diagram(
     }
 }
 
-fn layout_and_route(
+fn clean_layout_script_diagram(
     family: &str,
     diagram_id: &str,
-    clean_layout: bool,
-    route: bool,
     workspace: &WorkspaceState,
     activity: &ActivityWorkspaceState,
 ) -> Result<(), String> {
-    if clean_layout {
-        match family {
-            "bdd" | "requirement" | "use-case" | "package" => {
-                super::layout_bdd_with_bounds(diagram_id, workspace, None)?;
-            }
-            "parametric" => {
-                super::parametrics::layout_parametric_with_bounds(diagram_id, workspace, None)?;
-            }
-            "ibd" => {
-                super::ibd::layout_ibd_with_bounds(diagram_id, workspace, None)?;
-            }
-            "activity" => {
-                super::activity_mutation::layout_activity_with_bounds(diagram_id, activity, None)?;
-            }
-            "state-machine" | "sequence" => {
-                super::behavior_workspace::layout_behavior_with_bounds(
-                    diagram_id, workspace, None,
-                )?;
-            }
-            _ => {}
+    match family {
+        "bdd" | "requirement" | "use-case" | "package" => {
+            super::layout_bdd_with_bounds(diagram_id, workspace, None)?;
         }
+        "parametric" => {
+            super::parametrics::layout_parametric_with_bounds(diagram_id, workspace, None)?;
+        }
+        "ibd" => {
+            super::ibd::layout_ibd_with_bounds(diagram_id, workspace, None)?;
+        }
+        "activity" => {
+            super::activity_mutation::layout_activity_with_bounds(diagram_id, activity, None)?;
+        }
+        "state-machine" | "sequence" => {
+            super::behavior_workspace::layout_behavior_with_bounds(diagram_id, workspace, None)?;
+        }
+        _ => {}
     }
-    if route {
-        match family {
-            "bdd" | "requirement" | "use-case" | "package" => {
-                super::route_bdd_with_bounds(diagram_id, workspace, None)?;
-            }
-            "parametric" => {
-                super::parametrics::route_parametric_with_bounds(diagram_id, workspace, None)?;
-            }
-            "ibd" => {
-                super::ibd::route_ibd_with_bounds(diagram_id, workspace, None)?;
-            }
-            "activity" => {
-                super::activity_mutation::route_activity_with_bounds(diagram_id, activity, None)?;
-            }
-            "state-machine" | "sequence" => {
-                super::behavior_workspace::route_behavior_with_bounds(diagram_id, workspace, None)?;
-            }
-            _ => {}
+    Ok(())
+}
+
+fn route_script_diagram(
+    family: &str,
+    diagram_id: &str,
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+) -> Result<(), String> {
+    match family {
+        "bdd" | "requirement" | "use-case" | "package" => {
+            super::route_bdd_with_bounds(diagram_id, workspace, None)?;
         }
+        "parametric" => {
+            super::parametrics::route_parametric_with_bounds(diagram_id, workspace, None)?;
+        }
+        "ibd" => {
+            super::ibd::route_ibd_with_bounds(diagram_id, workspace, None)?;
+        }
+        "activity" => {
+            super::activity_mutation::route_activity_with_bounds(diagram_id, activity, None)?;
+        }
+        "state-machine" | "sequence" => {
+            super::behavior_workspace::route_behavior_with_bounds(diagram_id, workspace, None)?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -3564,28 +3570,45 @@ fn build_candidate(
                 reason,
             )],
         })?;
-        layout_and_route(
-            family,
-            &id,
-            diagram.clean_layout,
-            diagram.route,
-            &candidate_workspace,
-            &candidate_activity,
-        )
-        .map_err(|reason| ModelScriptPreview {
-            host: SCRIPT_HOST,
-            applied: false,
-            source_namespace: compiled.document.source_namespace.clone(),
-            items: compiled.items.clone(),
-            diagnostics: vec![diag(
-                script_name,
-                Some(statement),
-                Some("layout/route".into()),
-                Some(diagram.external_id.clone()),
-                "DIAGRAM_LAYOUT_FAILED",
-                reason,
-            )],
-        })?;
+        // Every Clean Layout adapter already reroutes its relationships after moving
+        // presentations. If Clean Layout is requested, it is the single presentation
+        // pass. A separate Route pass is only needed when Clean Layout is disabled.
+        // This prevents default clean_layout=true + route=true scripts from routing
+        // the same dense diagram twice inside one atomic candidate build.
+        if diagram.clean_layout {
+            clean_layout_script_diagram(family, &id, &candidate_workspace, &candidate_activity)
+                .map_err(|reason| ModelScriptPreview {
+                    host: SCRIPT_HOST,
+                    applied: false,
+                    source_namespace: compiled.document.source_namespace.clone(),
+                    items: compiled.items.clone(),
+                    diagnostics: vec![diag(
+                        script_name,
+                        Some(statement),
+                        Some("cleanLayout".into()),
+                        Some(diagram.external_id.clone()),
+                        "DIAGRAM_CLEAN_LAYOUT_FAILED",
+                        reason,
+                    )],
+                })?;
+        } else if diagram.route {
+            route_script_diagram(family, &id, &candidate_workspace, &candidate_activity).map_err(
+                |reason| ModelScriptPreview {
+                    host: SCRIPT_HOST,
+                    applied: false,
+                    source_namespace: compiled.document.source_namespace.clone(),
+                    items: compiled.items.clone(),
+                    diagnostics: vec![diag(
+                        script_name,
+                        Some(statement),
+                        Some("route".into()),
+                        Some(diagram.external_id.clone()),
+                        "DIAGRAM_ROUTE_FAILED",
+                        reason,
+                    )],
+                },
+            )?;
+        }
     }
     super::portable_interchange::portable_from_states(&candidate_workspace, &candidate_activity)
         .map_err(|reason| ModelScriptPreview {
@@ -3684,6 +3707,33 @@ fn commit_candidate(
     Ok(())
 }
 
+fn successful_preview(compiled: &CompiledScript, applied: bool) -> ModelScriptPreview {
+    let mut items = compiled.items.clone();
+    for (offset, diagram) in compiled.document.diagrams.iter().enumerate() {
+        items.push(item(
+            compiled.document.operations.len() + offset + 1,
+            ModelScriptAction::Create,
+            format!("Diagram::{}", diagram.family),
+            Some(&diagram.external_id),
+            Some(&diagram.name),
+            "native deterministic presentation + populate/layout/routing",
+        ));
+    }
+    let mut preview = ModelScriptPreview {
+        host: SCRIPT_HOST,
+        applied: false,
+        source_namespace: compiled.document.source_namespace.clone(),
+        items,
+        diagnostics: Vec::new(),
+    };
+    // Keep one production validity gate for both preview and apply responses.
+    // successful_preview has no diagnostics by construction, but using the
+    // same predicate prevents applied=true from ever escaping with blockers if
+    // this response gains additional validation in the future.
+    preview.applied = applied && preview.valid();
+    preview
+}
+
 fn preview_impl(
     script_name: &str,
     source: &str,
@@ -3691,26 +3741,7 @@ fn preview_impl(
     activity: &ActivityWorkspaceState,
 ) -> ModelScriptPreview {
     match build_candidate(script_name, source, workspace, activity) {
-        Ok((compiled, _, _)) => {
-            let mut items = compiled.items.clone();
-            for (offset, diagram) in compiled.document.diagrams.iter().enumerate() {
-                items.push(item(
-                    compiled.document.operations.len() + offset + 1,
-                    ModelScriptAction::Create,
-                    format!("Diagram::{}", diagram.family),
-                    Some(&diagram.external_id),
-                    Some(&diagram.name),
-                    "native presentation + populate/Clean Layout/route",
-                ));
-            }
-            ModelScriptPreview {
-                host: SCRIPT_HOST,
-                applied: false,
-                source_namespace: compiled.document.source_namespace,
-                items,
-                diagnostics: Vec::new(),
-            }
-        }
+        Ok((compiled, _, _)) => successful_preview(&compiled, false),
         Err(preview) => preview,
     }
 }
@@ -3725,27 +3756,26 @@ pub fn preview_model_script(
     preview_impl(&script_name, &source, &workspace, &activity)
 }
 
-#[tauri::command]
-pub fn apply_model_script(
-    script_name: String,
-    source: String,
-    workspace: tauri::State<'_, WorkspaceState>,
-    activity: tauri::State<'_, ActivityWorkspaceState>,
-    history: tauri::State<'_, super::history::HistoryState>,
+fn apply_impl(
+    script_name: &str,
+    source: &str,
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    history: &super::history::HistoryState,
 ) -> ModelScriptPreview {
     let (compiled, candidate_workspace, candidate_activity) =
-        match build_candidate(&script_name, &source, &workspace, &activity) {
+        match build_candidate(script_name, source, workspace, activity) {
             Ok(value) => value,
             Err(preview) => return preview,
         };
-    if let Err(reason) = super::history::checkpoint_states(&workspace, &activity, &history) {
+    if let Err(reason) = super::history::checkpoint_states(workspace, activity, history) {
         return ModelScriptPreview {
             host: SCRIPT_HOST,
             applied: false,
             source_namespace: compiled.document.source_namespace.clone(),
             items: compiled.items.clone(),
             diagnostics: vec![diag(
-                &script_name,
+                script_name,
                 None,
                 Some("history".into()),
                 None,
@@ -3755,8 +3785,8 @@ pub fn apply_model_script(
         };
     }
     if let Err(reason) = commit_candidate(
-        &workspace,
-        &activity,
+        workspace,
+        activity,
         &candidate_workspace,
         &candidate_activity,
     ) {
@@ -3766,7 +3796,7 @@ pub fn apply_model_script(
             source_namespace: compiled.document.source_namespace.clone(),
             items: compiled.items.clone(),
             diagnostics: vec![diag(
-                &script_name,
+                script_name,
                 None,
                 Some("commit".into()),
                 None,
@@ -3775,9 +3805,22 @@ pub fn apply_model_script(
             )],
         };
     }
-    let mut preview = preview_impl(&script_name, &source, &workspace, &activity);
-    preview.applied = preview.valid();
-    preview
+
+    // Return the exact candidate build that was successfully committed. Do not
+    // call preview_impl again: that would construct an unrelated third candidate
+    // after commit and could incorrectly report failure for already-applied state.
+    successful_preview(&compiled, true)
+}
+
+#[tauri::command]
+pub fn apply_model_script(
+    script_name: String,
+    source: String,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
+) -> ModelScriptPreview {
+    apply_impl(&script_name, &source, &workspace, &activity, &history)
 }
 
 #[cfg(test)]
@@ -4203,5 +4246,152 @@ mod tests {
         }
         let _ = std::fs::remove_file(xlsx);
         let _ = std::fs::remove_file(smproj);
+    }
+    fn dense_nested_port_script() -> &'static str {
+        include_str!("../../testdata/model-script/pr60-dense-nested-port.groovy")
+    }
+
+    fn normalized_dense_ibd(workspace: &WorkspaceState) -> serde_json::Value {
+        let project_guard = workspace.project.lock().unwrap();
+        let project = project_guard.as_ref().unwrap();
+        let diagrams = workspace.ibd_diagrams.lock().unwrap();
+        let diagram = diagrams
+            .iter()
+            .find(|diagram| diagram.name == "Dense Nested Port IBD")
+            .unwrap();
+
+        let properties = diagram
+            .properties
+            .iter()
+            .map(|property| {
+                let element = project
+                    .element(super::super::parse_element_id(&property.element_id).unwrap())
+                    .unwrap();
+                let ports = property
+                    .ports
+                    .iter()
+                    .map(|port| {
+                        let semantic = project
+                            .element(super::super::parse_element_id(&port.element_id).unwrap())
+                            .unwrap();
+                        serde_json::json!({
+                            "semantic": semantic.external_id,
+                            "x": port.x,
+                            "y": port.y,
+                            "size": port.size,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::json!({
+                    "semantic": element.external_id,
+                    "x": property.x,
+                    "y": property.y,
+                    "width": property.width,
+                    "height": property.height,
+                    "ports": ports,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let boundary_ports = diagram
+            .boundary_ports
+            .iter()
+            .map(|port| {
+                let semantic = project
+                    .element(super::super::parse_element_id(&port.element_id).unwrap())
+                    .unwrap();
+                serde_json::json!({
+                    "semantic": semantic.external_id,
+                    "x": port.x,
+                    "y": port.y,
+                    "size": port.size,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let connectors = diagram
+            .connectors
+            .iter()
+            .map(|connector| {
+                let relationship = project
+                    .relationship(
+                        super::super::parse_relationship_id(&connector.relationship_id).unwrap(),
+                    )
+                    .unwrap();
+                serde_json::json!({
+                    "semantic": relationship.external_id,
+                    "points": connector.points,
+                    "label_anchor": connector.label_anchor,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        serde_json::json!({
+            "diagram": diagram.name,
+            "properties": properties,
+            "boundary_ports": boundary_ports,
+            "connectors": connectors,
+        })
+    }
+
+    #[test]
+    fn dense_nested_port_model_script_is_repeatable_across_preview_candidate_builds() {
+        let (workspace, activity) = states();
+        let source = dense_nested_port_script();
+        let mut baseline = None;
+
+        for iteration in 0..32 {
+            let preview = preview_impl("dense.groovy", source, &workspace, &activity);
+            assert!(
+                preview.valid(),
+                "preview iteration {iteration} failed: {:?}",
+                preview.diagnostics
+            );
+            let (_, candidate_workspace, _) =
+                build_candidate("dense.groovy", source, &workspace, &activity).unwrap();
+            let normalized = normalized_dense_ibd(&candidate_workspace);
+            if let Some(expected) = &baseline {
+                assert_eq!(
+                    expected, &normalized,
+                    "model-script IBD presentation changed on iteration {iteration}"
+                );
+            } else {
+                baseline = Some(normalized);
+            }
+        }
+    }
+
+    #[test]
+    fn dense_nested_port_preview_then_apply_commits_once_and_reports_the_committed_candidate() {
+        let (workspace, activity) = states();
+        let history = super::super::history::HistoryState::default();
+        let source = dense_nested_port_script();
+
+        let preview = preview_impl("dense.groovy", source, &workspace, &activity);
+        assert!(preview.valid(), "{:?}", preview.diagnostics);
+        assert!(!preview.applied);
+
+        let applied = apply_impl("dense.groovy", source, &workspace, &activity, &history);
+        assert!(applied.applied, "{:?}", applied.diagnostics);
+        assert!(applied.diagnostics.is_empty());
+        assert_eq!(workspace.ibd_diagrams.lock().unwrap().len(), 1);
+
+        let committed = normalized_dense_ibd(&workspace);
+        assert_eq!(committed["properties"].as_array().unwrap().len(), 9);
+        assert_eq!(committed["connectors"].as_array().unwrap().len(), 11);
+    }
+
+    #[test]
+    fn default_clean_layout_and_route_flags_execute_one_import_presentation_pass() {
+        let (workspace, activity) = states();
+        let source = dense_nested_port_script();
+        let preview = preview_impl("dense.groovy", source, &workspace, &activity);
+        assert!(preview.valid(), "{:?}", preview.diagnostics);
+        assert!(
+            preview
+                .items
+                .iter()
+                .any(|item| item.external_id.as_deref() == Some("D_IBD"))
+        );
     }
 }

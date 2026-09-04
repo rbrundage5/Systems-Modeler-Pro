@@ -647,9 +647,17 @@ impl Project {
     }
 
     pub fn children(&self, owner_id: ElementId) -> impl Iterator<Item = &Element> {
-        self.elements
+        let mut children = self
+            .elements
             .values()
             .filter(move |element| element.owner_id == Some(owner_id))
+            .collect::<Vec<_>>();
+        children.sort_by(|left, right| {
+            left.external_id
+                .cmp(&right.external_id)
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        children.into_iter()
     }
 
     pub fn owned_features(&self, classifier_id: ElementId) -> impl Iterator<Item = &Element> {
