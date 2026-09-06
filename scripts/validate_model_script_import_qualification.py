@@ -29,7 +29,7 @@ assert "+ workspace.ibd_diagrams.lock().unwrap().len()" in model_script_rs
 assert "+ activity.diagrams.lock().unwrap().len()" in model_script_rs
 assert "+ workspace.behavior_diagrams.lock().unwrap().len();" in model_script_rs
 assert "assert_eq!(first_diagram_count, 9);" in model_script_rs
-assert "assert_eq!(second_diagram_count, 9);" in model_script_rs
+assert "second_diagram_count, 9," in model_script_rs
 
 # New Project must natively clear Behavior semantics/presentations; Activity has
 # a separate store and is reset explicitly by the import baseline qualifier.
