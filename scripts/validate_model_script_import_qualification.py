@@ -59,13 +59,9 @@ for required in [
 ]:
     assert required in model_script_ui, f"missing model-script import qualification contract: {required}"
 
-# A complete nine-family import must explicitly require all nine family IDs.
-required_nine = [
-    "package", "requirement", "use-case", "bdd", "ibd", "activity",
-    "state-machine", "sequence", "parametric",
-]
-for family in required_nine:
-    assert family in model_script_ui
+# A complete nine-family import must explicitly require the exact qualified set.
+required_nine_literal = "new Set(['package', 'requirement', 'use-case', 'bdd', 'ibd', 'activity', 'state-machine', 'sequence', 'parametric'])"
+assert required_nine_literal in model_script_ui
 
 # The UI adapters that expose committed Behavior and Activity diagrams must be
 # loaded in the desktop shell, along with the model-script command itself.
