@@ -49,6 +49,7 @@ jobs:
             apps/desktop/frontend/project-open-compat.js \
             apps/desktop/frontend/diagram-interaction.js \
             apps/desktop/frontend/repository-tree-ui.js \
+            apps/desktop/frontend/imported-diagram-catalog.js \
             apps/desktop/frontend/interaction-runtime-fixes.js \
             apps/desktop/frontend/drilldown-indicators.js \
             apps/desktop/frontend/state-bar-resize.js \
@@ -93,6 +94,8 @@ jobs:
         run: python scripts/validate_history_integration.py
       - name: Shared workspace convergence contract
         run: python scripts/validate_workspace_convergence.py
+      - name: Imported diagram catalog contract
+        run: python scripts/validate_imported_diagram_catalog.py
       - name: Repository editing contract
         run: python scripts/validate_repository_editing.py
       - name: Standard editing integration contract
@@ -145,6 +148,8 @@ jobs:
         run: python scripts/validate_history_integration.py
       - name: Shared workspace convergence contract
         run: python scripts/validate_workspace_convergence.py
+      - name: Imported diagram catalog contract
+        run: python scripts/validate_imported_diagram_catalog.py
       - name: Repository editing contract
         run: python scripts/validate_repository_editing.py
       - name: Standard editing integration contract
