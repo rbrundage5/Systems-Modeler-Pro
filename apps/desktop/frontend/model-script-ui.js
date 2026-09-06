@@ -48,18 +48,91 @@
     return !blocked && !!result;
   }
 
+  function projectIsSemanticallyBlank() {
+    const project = state.snapshot?.project;
+    if (!project) return false;
+    const elements = project.elements || [];
+    const relationships = project.relationships || [];
+    return elements.length === 1
+      && String(elements[0]?.id || '') === String(project.root_id || '')
+      && relationships.length === 0
+      && (state.snapshot?.diagrams || []).length === 0
+      && (state.snapshot?.ibd_diagrams || []).length === 0
+      && (state.snapshot?.behavior_diagrams || []).length === 0;
+  }
+
+  async function repairOrphanedActivityStateForBlankProject() {
+    if (typeof refresh === 'function') await refresh();
+    if (!projectIsSemanticallyBlank()) return;
+
+    const activitySnapshot = await invoke('activity_snapshot');
+    const activities = Object.values(activitySnapshot?.repository?.activities || {});
+    if (!activities.length) return;
+
+    const projectIds = new Set((state.snapshot?.project?.elements || []).map((element) => String(element.id)));
+    const orphaned = activities.some((activity) => {
+      const ownerMissing = !projectIds.has(String(activity.owner_id || ''));
+      const contextMissing = activity.context_id != null && !projectIds.has(String(activity.context_id));
+      return ownerMissing || contextMissing;
+    });
+    if (!orphaned) return;
+
+    // A blank Project cannot legitimately own an Activity whose owner/context
+    // points outside that Project. This is stale cross-store session state, not
+    // authored content. Repair only that provably inconsistent case so dry-run
+    // semantics remain non-destructive for valid projects.
+    await invoke('reset_activity_workspace');
+    await invoke('clear_activity_executions');
+    state.activitySnapshot = { repository: { activities: {} }, diagrams: [] };
+    state.selectedActivityDiagramId = null;
+    state.selectedActivityNodeId = null;
+    notify('Cleared orphaned Activity state from the blank project before model-script validation.');
+  }
+
+  function requestedSpecializedFamilies(applied) {
+    const requested = new Set();
+    for (const item of applied?.items || []) {
+      const operation = String(item.operation || '').toLowerCase();
+      if (!operation.startsWith('diagram::')) continue;
+      const family = operation.slice('diagram::'.length).replace(/_/g, '-').trim();
+      if (family === 'activity') requested.add('ACT');
+      else if (family === 'sequence') requested.add('SEQ');
+      else if (['state machine', 'state-machine', 'statemachine'].includes(family)) requested.add('STM');
+    }
+    return requested;
+  }
+
+  async function qualifySpecializedDiagramCommit(applied) {
+    if (typeof refresh === 'function') await refresh();
+    state.activitySnapshot = await invoke('activity_snapshot');
+    if (window.smpLoadBehaviorSnapshot) await window.smpLoadBehaviorSnapshot();
+
+    const requested = requestedSpecializedFamilies(applied);
+    const missing = [];
+    if (requested.has('ACT') && !(state.activitySnapshot?.diagrams || []).length) missing.push('ACT');
+    const behaviorDiagrams = state.snapshot?.behavior_diagrams || state.behaviorSnapshot?.diagrams || [];
+    if (requested.has('STM') && !behaviorDiagrams.some((diagram) => diagram.kind === 'StateMachine')) missing.push('STM');
+    if (requested.has('SEQ') && !behaviorDiagrams.some((diagram) => diagram.kind === 'Sequence')) missing.push('SEQ');
+
+    if (missing.length) {
+      throw new Error(`SPECIALIZED_DIAGRAM_COMMIT_INCOMPLETE: imported model declared ${missing.join(', ')} diagram(s), but they are absent from the committed Rust workspace`);
+    }
+    if (typeof render === 'function') render();
+  }
+
   async function runModelScript() {
     try {
       const file = await chooseScript();
       if (!file) return;
       const source = await file.text();
+      await repairOrphanedActivityStateForBlankProject();
       notify(`Dry-running ${file.name}…`);
       const preview = await invoke('preview_model_script', { scriptName: file.name, source });
       if (!await inspect(preview)) return;
       notify(`Applying ${file.name} atomically…`);
       const applied = await invoke('apply_model_script', { scriptName: file.name, source });
       if (!applied?.applied) throw new Error(previewText(applied));
-      if (typeof refresh === 'function') await refresh();
+      await qualifySpecializedDiagramCommit(applied);
       notify(`Model script applied: ${actionSummary(applied)}`);
     } catch (error) {
       notify(`Model script failed: ${error?.message || error}`, 'error');
