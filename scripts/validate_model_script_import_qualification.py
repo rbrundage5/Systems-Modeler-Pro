@@ -55,7 +55,7 @@ for required in [
     "ALL_NINE_FAMILY_QUALIFICATION_FAILED",
     "window.smpLoadBehaviorSnapshot",
     "document.querySelectorAll('#diagram-tabs .diagram-tab')",
-    "model script applied and diagram set qualified",
+    "Model script applied and diagram set qualified",
 ]:
     assert required in model_script_ui, f"missing model-script import qualification contract: {required}"
 
