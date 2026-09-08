@@ -68,13 +68,16 @@
   }
 
   function activityStatePresent(snapshot) {
-    return hasEntries(snapshot?.repository?.activities) || (snapshot?.diagrams || []).length > 0;
+    return hasEntries(snapshot?.repository?.activities)
+      || hasEntries(snapshot?.repository?.external_ids)
+      || (snapshot?.diagrams || []).length > 0;
   }
 
   function behaviorStatePresent(snapshot = state.snapshot) {
     const repository = snapshot?.behavior_repository;
     return hasEntries(repository?.state_machines)
       || hasEntries(repository?.interactions)
+      || hasEntries(repository?.external_ids)
       || (snapshot?.behavior_diagrams || []).length > 0;
   }
 
@@ -82,24 +85,17 @@
     if (typeof refresh === 'function') await refresh();
     if (!projectIsSemanticallyBlank()) return false;
 
-    let activitySnapshot = await invoke('activity_snapshot');
-    if (!activityStatePresent(activitySnapshot) && !behaviorStatePresent()) {
-      Object.assign(state, { activitySnapshot });
-      return true;
-    }
-
-    // A genuinely blank Project cannot intentionally contain specialized model
-    // semantics from another Project. Recreate the already-blank Rust workspace
-    // through the authoritative New Project command so Behavior state is reset,
-    // then reset the separate Activity store. This is bounded to a blank Project
-    // and occurs before the model-script dry run; valid nonblank authored models
-    // are never cleared or normalized here.
+    // Blank-project model-script imports always start from one authoritative
+    // clean Rust baseline. Do not infer whether specialized state is stale: a
+    // semantically blank Project cannot intentionally own Activity or Behavior
+    // semantics. Recreate the blank Project to clear Behavior state, then reset
+    // the separately managed Activity workspace and executions before preview.
     const projectName = state.snapshot?.project?.name || 'Model Script Import';
     await invoke('new_project', { name: projectName });
     await invoke('reset_activity_workspace');
     await invoke('clear_activity_executions');
     if (typeof refresh === 'function') await refresh();
-    activitySnapshot = await invoke('activity_snapshot');
+    const activitySnapshot = await invoke('activity_snapshot');
     Object.assign(state, {
       activitySnapshot,
       selectedActivityDiagramId: null,
@@ -112,7 +108,7 @@
     if (!projectIsSemanticallyBlank() || activityStatePresent(activitySnapshot) || behaviorStatePresent()) {
       throw new Error('BLANK_PROJECT_BASELINE_INCOMPLETE: the Rust Project, Activity, and Behavior stores did not converge to one clean blank workspace');
     }
-    notify('Repaired stale specialized state before model-script validation.');
+    notify('Qualified a clean Project, Activity, and Behavior baseline before model-script validation.');
     return true;
   }
 

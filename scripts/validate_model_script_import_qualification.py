@@ -31,8 +31,9 @@ assert "+ workspace.behavior_diagrams.lock().unwrap().len();" in model_script_rs
 assert "assert_eq!(first_diagram_count, 9);" in model_script_rs
 assert "second_diagram_count, 9," in model_script_rs
 
-# New Project must natively clear Behavior semantics/presentations; Activity has
-# a separate store and is reset explicitly by the import baseline qualifier.
+# New Project natively clears Behavior semantics/presentations. A blank model-
+# script run must then unconditionally reset the separately managed Activity
+# workspace before preview rather than trying to infer whether stale state exists.
 new_project = workspace_rs.split("pub fn new_project", 1)[1].split("pub fn save_project_file", 1)[0]
 assert "BehaviorRepository::default()" in new_project
 assert "behavior_diagrams" in new_project and ".clear()" in new_project
@@ -42,9 +43,11 @@ for required in [
     "projectIsSemanticallyBlank",
     "activityStatePresent",
     "behaviorStatePresent",
+    "repository?.external_ids",
     "invoke('new_project'",
     "invoke('reset_activity_workspace')",
     "invoke('clear_activity_executions')",
+    "Qualified a clean Project, Activity, and Behavior baseline",
     "BLANK_PROJECT_BASELINE_INCOMPLETE",
     "requestedDiagrams",
     "committedDiagrams",
@@ -58,6 +61,11 @@ for required in [
     "Model script applied and diagram set qualified",
 ]:
     assert required in model_script_ui, f"missing model-script import qualification contract: {required}"
+
+baseline = model_script_ui.split("async function qualifyBlankProjectBaseline", 1)[1].split("function normalizeDiagramFamily", 1)[0]
+assert baseline.index("invoke('new_project'") < baseline.index("invoke('reset_activity_workspace')")
+assert baseline.index("invoke('reset_activity_workspace')") < baseline.index("invoke('activity_snapshot')")
+assert "if (!activityStatePresent" not in baseline, "blank import must not skip authoritative specialized-state reset"
 
 # A complete nine-family import must explicitly require the exact qualified set.
 required_nine_literal = "new Set(['package', 'requirement', 'use-case', 'bdd', 'ibd', 'activity', 'state-machine', 'sequence', 'parametric'])"
