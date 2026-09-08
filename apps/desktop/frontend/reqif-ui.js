@@ -7,6 +7,19 @@
     else if (typeof renderStatus === 'function') renderStatus(message);
   }
 
+  async function normalizeExportPath(requested, fallbackName) {
+    const raw = String(requested || '').trim() || fallbackName;
+    const pathApi = window.__TAURI__?.path;
+    if (!pathApi?.downloadDir || !pathApi?.join || !pathApi?.isAbsolute) return raw;
+    try {
+      if (await pathApi.isAbsolute(raw)) return raw;
+      return await pathApi.join(await pathApi.downloadDir(), raw);
+    } catch (error) {
+      console.warn('Unable to resolve Downloads export path; using provided path.', error);
+      return raw;
+    }
+  }
+
   function chooseFile() {
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -128,16 +141,19 @@
       if (!invoke) throw new Error('ReqIF export is available in the desktop application.');
       const project = projectState();
       if (!project) throw new Error('Create or open a project before ReqIF export.');
+      const fileName = `${project.name || 'requirements'}.reqif`;
+      const defaultPath = await normalizeExportPath(fileName, fileName);
       const result = await window.smpDialogs?.edit({
         title: 'Export ReqIF',
-        description: 'Exports Requirement/TestCase content and supported traceability in the selected Model/Package scope. Use .reqifz for a compressed exchange container.',
+        description: 'Exports Requirement/TestCase content and supported traceability in the selected Model/Package scope. Use .reqifz for a compressed exchange container. A filename without a folder is exported to Downloads.',
         fields: [
-          { id: 'path', label: 'Destination path (.reqif or .reqifz)', value: `${project.name || 'requirements'}.reqif`, required: true },
+          { id: 'path', label: 'Destination path (.reqif or .reqifz)', value: defaultPath, required: true },
         ],
         confirmLabel: 'Export',
       });
       if (!result) return;
-      const output = await invoke('export_reqif', { path: result.values.path, scopeId: targetScopeId() });
+      const destination = await normalizeExportPath(result.values.path, fileName);
+      const output = await invoke('export_reqif', { path: destination, scopeId: targetScopeId() });
       notify(`ReqIF exported to ${output}.`);
     } catch (error) {
       notify(String(error), 'error');

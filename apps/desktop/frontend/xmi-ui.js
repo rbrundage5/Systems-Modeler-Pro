@@ -7,6 +7,19 @@
   const activeProject = () => window.__MODEL_SNAPSHOT__?.project || window.workspaceSnapshot?.project;
   const targetScopeId = () => window.__MODEL_SELECTION__?.elementId || activeProject()?.root_id;
 
+  async function normalizeExportPath(requested, fallbackName) {
+    const raw = String(requested || '').trim() || fallbackName;
+    const pathApi = window.__TAURI__?.path;
+    if (!pathApi?.downloadDir || !pathApi?.join || !pathApi?.isAbsolute) return raw;
+    try {
+      if (await pathApi.isAbsolute(raw)) return raw;
+      return await pathApi.join(await pathApi.downloadDir(), raw);
+    } catch (error) {
+      console.warn('Unable to resolve Downloads export path; using provided path.', error);
+      return raw;
+    }
+  }
+
   async function pickXmi() {
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -69,9 +82,12 @@
     if (!invoke) throw new Error('XMI export is available in the desktop application.');
     const project = activeProject();
     if (!project) throw new Error('Create or open a project before XMI export.');
-    const result = await dialogs().edit({ title: 'Export semantic XMI', description: 'Diagram geometry is intentionally excluded.', fields: [{ id: 'path', label: 'Destination path', value: `${project.name || 'model'}.xmi`, required: true }], confirmLabel: 'Export' });
+    const fileName = `${project.name || 'model'}.xmi`;
+    const defaultPath = await normalizeExportPath(fileName, fileName);
+    const result = await dialogs().edit({ title: 'Export semantic XMI', description: 'Diagram geometry is intentionally excluded. A filename without a folder is exported to Downloads.', fields: [{ id: 'path', label: 'Destination path', value: defaultPath, required: true }], confirmLabel: 'Export' });
     if (!result) return;
-    const output = await invoke('export_xmi', { path: result.values.path });
+    const destination = await normalizeExportPath(result.values.path, fileName);
+    const output = await invoke('export_xmi', { path: destination });
     notify(`Semantic XMI exported to ${output}. Diagram geometry is intentionally excluded.`);
   }
 
