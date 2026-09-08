@@ -14,6 +14,10 @@ const state = {
 };
 window.smpState = state;
 const $ = (id) => document.getElementById(id);
+function setOptionalText(id, value) {
+  const node = $(id);
+  if (node) node.textContent = value;
+}
 function requireInvoke() {
   if (!invoke) throw new Error('Tauri command bridge is unavailable. Run this UI through the desktop application.');
   return invoke;
@@ -93,8 +97,8 @@ function renderStatus(message) {
 function renderContext() {
   const diagram = state.snapshot?.diagrams?.find((d) => d.id === state.selectedDiagramId);
   const label = diagram?.family === 'requirement' ? 'Requirement Diagram' : 'BDD';
-  $('active-diagram-summary').textContent = diagram ? `${diagram.name} · ${label}` : 'No diagram selected';
-  $('palette-title').textContent = diagram ? `Elements (${label})` : 'Elements';
+  setOptionalText('active-diagram-summary', diagram ? `${diagram.name} · ${label}` : 'No diagram selected');
+  setOptionalText('palette-title', diagram ? `Elements (${label})` : 'Elements');
 }
 function repositoryMatches(element) {
   const filter = state.repositoryFilter.trim().toLowerCase();

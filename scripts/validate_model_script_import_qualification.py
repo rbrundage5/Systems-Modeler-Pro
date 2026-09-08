@@ -10,6 +10,12 @@ frontend = root / "apps/desktop/frontend"
 backend = root / "apps/desktop/src-tauri/src/workspace"
 
 model_script_ui = (frontend / "model-script-ui.js").read_text(encoding="utf-8")
+app_frontend = (frontend / "app.js").read_text(encoding="utf-8")
+ibd_frontend = (frontend / "ibd-ui.js").read_text(encoding="utf-8")
+use_case_frontend = (frontend / "use-case-ui.js").read_text(encoding="utf-8")
+package_frontend = (frontend / "workspace-ux.js").read_text(encoding="utf-8")
+parametric_frontend = (frontend / "parametric-ui.js").read_text(encoding="utf-8")
+shell_frontend = (frontend / "ui-shell.js").read_text(encoding="utf-8")
 index = (frontend / "index.html").read_text(encoding="utf-8")
 model_script_rs = (backend / "model_script.rs").read_text(encoding="utf-8")
 workspace_rs = (root / "apps/desktop/src-tauri/src/workspace.rs").read_text(encoding="utf-8")
@@ -84,3 +90,20 @@ for script in ["behavior-ui.js", "model-script-ui.js", "activity-ui.js", "reposi
     assert f'<script src="{script}"></script>' in index, f"desktop shell is missing {script}"
 
 print("Model-script full-import qualification contract passed")
+
+
+# Model Script is launched from the File ribbon. ui-shell replaces the ribbon
+# contents for that tab, so active-diagram-summary is intentionally absent while
+# model-script refresh/qualification renders the workspace. All family context
+# renderers must therefore treat ribbon context targets as optional.
+assert "File:" in shell_frontend and "ribbon.innerHTML = panels[name]" in shell_frontend, "dynamic ribbon contract changed"
+assert "function setOptionalText(id, value)" in app_frontend, "shared optional DOM text helper is missing"
+for name, source in {
+    "app": app_frontend,
+    "ibd": ibd_frontend,
+    "use-case": use_case_frontend,
+    "package": package_frontend,
+    "parametric": parametric_frontend,
+}.items():
+    assert "$('active-diagram-summary').textContent" not in source, f"{name} context renderer can crash when File/Arrange/View/Help removes active-diagram-summary"
+    assert "setOptionalText('active-diagram-summary'" in source, f"{name} context renderer does not use optional ribbon context writes"

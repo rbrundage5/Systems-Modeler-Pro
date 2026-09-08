@@ -407,8 +407,8 @@
   renderContext = function renderUseCaseContext() {
     const diagram = selectedUseCaseDiagram();
     if (!diagram) return baseRenderContext();
-    $('active-diagram-summary').textContent = `${diagram.name} · Use Case Diagram`;
-    $('palette-title').textContent = 'Elements (Use Case)';
+    setOptionalText('active-diagram-summary', `${diagram.name} · Use Case Diagram`);
+    setOptionalText('palette-title', 'Elements (Use Case)');
   };
 
   const baseRenderStatus = renderStatus;
