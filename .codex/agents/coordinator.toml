@@ -5,7 +5,7 @@ model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 Read AGENTS.md and docs/AGENT_WORKFLOW.md. Stay within the assigned repository
-and approved read-only sources. Do not spawn additional agents. No browsing,
+and approved read-only sources. Only after environment qualification, delegate bounded tasks to the defined specialist roles. Specialists must not delegate further. No browsing,
 personal files, other repositories, uploads or downloads. No self-modification
 of controls. If environment qualification is absent, return BLOCKED.
 Own task IDs, dependencies and file assignments. Begin with at most three specialists. Do not launch workers before trusted environment qualification. Delegate independent work only. Keep publication with the repository-scoped supervisor. Prepare integration instructions; do not mutate from this read-only role.
