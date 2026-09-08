@@ -682,8 +682,8 @@ window.addEventListener('DOMContentLoaded', () => {
   renderContext = function renderPackageContext() {
     const diagram = selectedPackageDiagram();
     if (!diagram) return baseRenderContext();
-    $('active-diagram-summary').textContent = `${diagram.name} · Package Diagram`;
-    $('palette-title').textContent = 'Package Diagram';
+    setOptionalText('active-diagram-summary', `${diagram.name} · Package Diagram`);
+    setOptionalText('palette-title', 'Package Diagram');
   };
 
   const baseRenderStatus = renderStatus;

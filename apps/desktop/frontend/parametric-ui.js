@@ -688,8 +688,8 @@
   renderContext = function renderParametricContext() {
     const diagram = selectedParametricDiagram();
     if (!diagram) return baseRenderContext();
-    $('active-diagram-summary').textContent = `${diagram.name} · Parametric Diagram`;
-    $('palette-title').textContent = 'Elements (Parametric)';
+    setOptionalText('active-diagram-summary', `${diagram.name} · Parametric Diagram`);
+    setOptionalText('palette-title', 'Elements (Parametric)');
   };
 
   const baseRenderStatus = renderStatus;

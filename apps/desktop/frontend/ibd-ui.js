@@ -75,8 +75,8 @@ const baseRenderContextPr11 = renderContext;
 renderContext = function renderContextPr11() {
   const ibd = selectedIbd();
   if (!ibd) return baseRenderContextPr11();
-  $('active-diagram-summary').textContent = `${ibd.name} · IBD`;
-  $('palette-title').textContent = 'Elements (IBD)';
+  setOptionalText('active-diagram-summary', `${ibd.name} · IBD`);
+  setOptionalText('palette-title', 'Elements (IBD)');
 };
 
 const baseRenderStatusPr11 = renderStatus;
