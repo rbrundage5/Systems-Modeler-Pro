@@ -1,5 +1,11 @@
 # Professional Modeling Roadmap
 
+> **Status: strategic roadmap; needs audit-based reprioritization.** These phases
+> are capability themes, not a current implementation checklist or authorization
+> to start work. Several themes already have bounded implementations. Use the
+> [documentation index](README.md), current code/tests, and a future audited
+> backlog to distinguish implemented, defective, missing, and unverified work.
+
 The development target is not feature parity with the legacy prototype. The target is a production-grade systems-modeling platform with the depth, consistency, governance, and scale expected from professional tools such as CATIA/Cameo-class environments.
 
 ## Phase 1 — Native semantic foundation

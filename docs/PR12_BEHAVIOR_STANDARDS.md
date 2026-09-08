@@ -1,5 +1,10 @@
 # PR12 State Machine and Sequence standards baseline
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR12 implements behavior semantics as native Rust model data. The frontend may render and invoke commands, but it must not become the authoritative source of behavioral semantics.
 
 ## Governing sources

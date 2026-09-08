@@ -1,5 +1,10 @@
 # PR #3 — First Visible BDD Workflow
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 This increment connects the Rust BDD semantic foundation to the Tauri desktop shell.
 
 ## User-visible acceptance flow

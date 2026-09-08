@@ -1,5 +1,10 @@
 # PR33 Structural Runtime Conformance Matrix
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> UPDATE REQUIRED: original metamodel limitations must be reconciled with later port/connector/feature imports; authored support does not prove runtime support.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR33 qualifies a deterministic SysML structural runtime against the repository's current SysML 1.x metamodel. `QUALIFIED` means the stated boundary is enforced by automated semantic tests; it is not a claim of OMG or vendor certification. Concepts that the current metamodel cannot represent without guessing remain `PARTIAL` or `UNSUPPORTED`.
 
 | Concept | Status | Qualified boundary / validation | Known limitation |

@@ -1,5 +1,10 @@
 # PR32 Native State Machine Execution
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Retain runtime contract; PR33-35 supersede future-work references. Revalidate pseudostate limitations separately.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR32 adds a Rust-authoritative State Machine execution engine on the shared
 runtime foundation introduced by PR29 and reused by PR31 Activity execution.
 Authored State Machine semantics and diagram geometry remain separate from all

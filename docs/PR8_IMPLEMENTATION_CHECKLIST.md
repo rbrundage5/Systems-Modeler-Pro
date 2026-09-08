@@ -1,5 +1,10 @@
 # PR8 implementation checklist
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Unchecked migration tasks are a historical snapshot; derive remaining work from current code and tests.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR8 is not complete until all checked items are true.
 
 - [x] Rust-defined BDD classifier palette

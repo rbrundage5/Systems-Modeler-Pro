@@ -1,5 +1,10 @@
 # PR8 BDD standards baseline
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR8 treats OMG SysML 1.6 as the normative systems-modeling baseline and UML 2.5.1 as the normative source for inherited UML semantics. `modeler-proto` remains a product-behavior baseline, not the authority for completeness.
 
 ## Migration rule

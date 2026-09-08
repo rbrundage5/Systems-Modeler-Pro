@@ -1,5 +1,10 @@
 # PR13 — Activity Modeling Implementation Checklist
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Unchecked tasks conflict with the implementation described in PR13_STATUS and later Activity code; preserve as original checklist, not current backlog.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR13 is not complete until every required item below is implemented and qualified on the PR branch.
 
 ## Semantic core

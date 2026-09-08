@@ -1,5 +1,10 @@
 # PR 21 Requirements and Traceability Migration
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 ## Authority and compatibility
 
 - Rust owns Requirement/TestCase semantics, identity, ownership, validation, mutation, history, persistence, diagram geometry, and traceability legality.
