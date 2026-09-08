@@ -62,9 +62,7 @@
     const relationships = project.relationships || [];
     return elements.length === 1
       && String(elements[0]?.id || '') === String(project.root_id || '')
-      && relationships.length === 0
-      && (state.snapshot?.diagrams || []).length === 0
-      && (state.snapshot?.ibd_diagrams || []).length === 0;
+      && relationships.length === 0;
   }
 
   function activityStatePresent(snapshot) {

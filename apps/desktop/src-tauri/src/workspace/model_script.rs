@@ -3395,6 +3395,39 @@ fn route_script_diagram(
     Ok(())
 }
 
+fn project_is_semantically_blank(project: &Project) -> bool {
+    project.elements.len() == 1
+        && project.elements.contains_key(&project.root_id)
+        && project.relationships.is_empty()
+}
+
+fn reset_blank_project_specialized_candidate(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+) -> Result<(), String> {
+    *activity
+        .repository
+        .lock()
+        .map_err(|_| "Activity repository lock poisoned")? =
+        systems_modeler_core::ActivityRepository::default();
+    activity
+        .diagrams
+        .lock()
+        .map_err(|_| "Activity diagram lock poisoned")?
+        .clear();
+    *workspace
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")? =
+        systems_modeler_core::BehaviorRepository::default();
+    workspace
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clear();
+    Ok(())
+}
+
 fn build_candidate(
     script_name: &str,
     source: &str,
@@ -3433,7 +3466,8 @@ fn build_candidate(
                 "no project open",
             )],
         })?;
-    let activities = activity
+    let blank_project = project_is_semantically_blank(&project);
+    let mut activities = activity
         .repository
         .lock()
         .map_err(|_| ModelScriptPreview {
@@ -3469,6 +3503,14 @@ fn build_candidate(
             )],
         })?
         .clone();
+    let mut behavior = behavior;
+    if blank_project {
+        // A root-only Project cannot legitimately own pre-existing Activity or
+        // Behavior semantics. Compile as a fresh specialized import so stale
+        // External IDs cannot turn Create operations into Updates.
+        activities = systems_modeler_core::ActivityRepository::default();
+        behavior = systems_modeler_core::BehaviorRepository::default();
+    }
     let compiled = compile_script(script_name, source, &project, &activities, &behavior).map_err(
         |diagnostics| ModelScriptPreview {
             host: SCRIPT_HOST,
@@ -3493,6 +3535,23 @@ fn build_candidate(
                 reason,
             )],
         })?;
+    if blank_project {
+        reset_blank_project_specialized_candidate(&candidate_workspace, &candidate_activity)
+            .map_err(|reason| ModelScriptPreview {
+                host: SCRIPT_HOST,
+                applied: false,
+                source_namespace: compiled.document.source_namespace.clone(),
+                items: compiled.items.clone(),
+                diagnostics: vec![diag(
+                    script_name,
+                    None,
+                    Some("candidate".into()),
+                    None,
+                    "BLANK_PROJECT_SPECIALIZED_RESET_FAILED",
+                    reason,
+                )],
+            })?;
+    }
     if let Err(preview) =
         apply_unified_model_build(&compiled.plan, &candidate_workspace, &candidate_activity)
     {
@@ -3832,6 +3891,73 @@ mod tests {
         let project = Project::new("Script Test");
         *workspace.project.lock().unwrap() = Some(project);
         (workspace, ActivityWorkspaceState::default())
+    }
+
+    #[test]
+    fn blank_model_script_import_discards_orphaned_specialized_state_before_native_preview() {
+        let (workspace, activity) = states();
+        let current_project = workspace.project.lock().unwrap().clone().unwrap();
+
+        // Simulate the exact production failure class: Activity state from an
+        // older Project survives while the current Project is freshly blank.
+        // Native Activity validation then reports ModelError::ElementNotFound
+        // for the old Project root UUID.
+        let old_project = Project::new("Old Project");
+        let mut stale = systems_modeler_core::ActivityRepository::default();
+        stale
+            .create_activity(&old_project, old_project.root_id, None, "Stale Activity")
+            .unwrap();
+        assert!(stale.validate(&current_project).is_err());
+        *activity.repository.lock().unwrap() = stale;
+
+        let source = r#"{
+          "source_namespace":"blank-stale-regression",
+          "operations":[
+            {"op":"activity","external_id":"ACT","name":"Fresh Activity","owner":"$root"},
+            {"op":"activity_node","external_id":"I","activity":"handle:ACT","name":"Initial","node":{"kind":"initial"}},
+            {"op":"activity_node","external_id":"A","activity":"handle:ACT","name":"Work","node":{"kind":"opaque_action","body":"work()"}},
+            {"op":"activity_node","external_id":"F","activity":"handle:ACT","name":"Final","node":{"kind":"activity_final"}},
+            {"op":"activity_edge","external_id":"E1","activity":"handle:ACT","name":"","kind":"ControlFlow","source":"handle:I","target":"handle:A"},
+            {"op":"activity_edge","external_id":"E2","activity":"handle:ACT","name":"","kind":"ControlFlow","source":"handle:A","target":"handle:F"}
+          ],
+          "diagrams":[]
+        }"#;
+
+        let preview = preview_impl("blank-stale.groovy", source, &workspace, &activity);
+        assert!(preview.valid(), "{:?}", preview.diagnostics);
+
+        // Dry run remains non-mutating: the live stale repository is untouched.
+        assert_eq!(activity.repository.lock().unwrap().activities.len(), 1);
+        assert_eq!(
+            activity
+                .repository
+                .lock()
+                .unwrap()
+                .activities
+                .values()
+                .next()
+                .unwrap()
+                .name,
+            "Stale Activity"
+        );
+
+        // The native candidate itself contains only the newly scripted Activity
+        // and validates against the current blank Project.
+        let (_, candidate_workspace, candidate_activity) =
+            build_candidate("blank-stale.groovy", source, &workspace, &activity).unwrap();
+        let candidate_project = candidate_workspace.project.lock().unwrap().clone().unwrap();
+        let candidate_repository = candidate_activity.repository.lock().unwrap();
+        assert_eq!(candidate_repository.activities.len(), 1);
+        assert_eq!(
+            candidate_repository
+                .activities
+                .values()
+                .next()
+                .unwrap()
+                .name,
+            "Fresh Activity"
+        );
+        candidate_repository.validate(&candidate_project).unwrap();
     }
 
     #[test]
