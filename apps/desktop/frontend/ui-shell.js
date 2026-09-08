@@ -166,6 +166,19 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
   }
 
+  async function normalizeExportPath(requested, fallbackName) {
+    const raw = String(requested || '').trim() || fallbackName;
+    const pathApi = window.__TAURI__?.path;
+    if (!pathApi?.downloadDir || !pathApi?.join || !pathApi?.isAbsolute) return raw;
+    try {
+      if (await pathApi.isAbsolute(raw)) return raw;
+      return await pathApi.join(await pathApi.downloadDir(), raw);
+    } catch (error) {
+      console.warn('Unable to resolve Downloads export path; using provided path.', error);
+      return raw;
+    }
+  }
+
   function chooseFile(accept) {
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -277,18 +290,20 @@
   async function openExport() {
     try {
       if (!invoke) throw new Error('Spreadsheet export is available in the desktop application.');
+      const defaultPath = await normalizeExportPath('systems-modeler-export.xlsx', 'systems-modeler-export.xlsx');
       const result = await window.smpDialogs?.edit({
         title: 'Export XLSX',
-        description: 'Systems-Modeler preserves all authored diagrams. CATIA-oriented exports semantic mapping sheets only.',
+        description: 'Systems-Modeler preserves all authored diagrams. A filename without a folder is exported to Downloads.',
         fields: [
-          { id: 'path', label: 'Destination path', value: 'systems-modeler-export.xlsx', required: true },
+          { id: 'path', label: 'Destination path', value: defaultPath, required: true },
           { id: 'profile', label: 'Profile (systems-modeler or catia-semantic)', value: 'systems-modeler', required: true },
         ],
         confirmLabel: 'Export',
       });
       if (!result) return;
-      await invoke('export_spreadsheet_workbook', { path: result.values.path, profile: result.values.profile });
-      notify(`Spreadsheet exported to ${result.values.path}.`);
+      const destination = await normalizeExportPath(result.values.path, 'systems-modeler-export.xlsx');
+      await invoke('export_spreadsheet_workbook', { path: destination, profile: result.values.profile });
+      notify(`Spreadsheet exported to ${destination}.`);
     } catch (error) { notify(String(error), 'error'); }
   }
 
