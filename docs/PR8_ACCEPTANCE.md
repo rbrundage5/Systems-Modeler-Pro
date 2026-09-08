@@ -1,5 +1,10 @@
 # PR8 acceptance
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR8 may move from draft only when:
 
 - all exposed BDD classifier tools create valid Rust semantic elements

@@ -1,5 +1,10 @@
 # SysML Block Definition Diagram (BDD) Conformance
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 This document defines the PR #2 BDD semantic and notation contract for Systems Modeler Pro.
 
 ## Scope

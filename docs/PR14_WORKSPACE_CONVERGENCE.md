@@ -1,5 +1,10 @@
 # PR14 workspace convergence
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Old routing-family limitations predate the shared family registry and later integration contracts.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR14 starts at merged PR13 commit `fb80053a24477db27f4436ecae291b6030dabfd7`.
 
 ## Ownership boundary

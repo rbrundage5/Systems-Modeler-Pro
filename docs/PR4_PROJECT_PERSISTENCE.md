@@ -1,5 +1,10 @@
 # PR #4 — Project persistence and clean local development
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 This increment makes the first visible BDD workflow durable and removes local build artifacts from normal Git status.
 
 ## User-visible acceptance criteria

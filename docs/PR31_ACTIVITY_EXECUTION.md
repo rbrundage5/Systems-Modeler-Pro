@@ -1,5 +1,10 @@
 # PR31 Native Activity Execution
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Retain runtime contract; PR34 operation integration supersedes the original default-operation limitation. Other limitations need current-code audit.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR31 adds a deterministic Activity token engine behind the shared
 `ExecutionEngine` boundary. The authored `ActivityRepository` remains model
 state. Tokens, activation state, call frames, waiting actions, scheduled events,

@@ -19,6 +19,14 @@ The product must eventually support complete SysML-oriented structure, behavior,
 9. **Offline use is first-class.** No GitHub, Cloudflare, or public internet service is required to create, edit, validate, save, or reopen a model.
 10. **Server deployment is optional.** The same Rust model/collaboration logic should support embedded LAN hosting and a standalone on-premises server.
 
+## Current repository layout
+
+The root `Cargo.toml` currently includes `crates/model-core`,
+`crates/persistence`, and `apps/desktop/src-tauri`. The renderer is under
+`apps/desktop/frontend`. Many capabilities are modules in those members.
+The optional server and separately named crates below are architectural direction,
+not existing packages or instructions to create new abstractions.
+
 ## Long-term repository layout
 
 ```text
@@ -40,7 +48,7 @@ sdk/                future CLI and Python SDK
 compatibility/      legacy modeler-proto import/migration fixtures
 ```
 
-## Foundation scope
+## Historical PR1 foundation scope
 
 PR #1 intentionally implements only enough semantics to prove the architecture:
 

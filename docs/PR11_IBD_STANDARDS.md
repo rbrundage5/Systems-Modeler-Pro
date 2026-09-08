@@ -1,5 +1,10 @@
 # PR11 IBD standards baseline
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR11 treats OMG SysML 1.6 and inherited UML structured-classifier semantics as normative. `SysML Distilled` is used as the project reference for notation and modeler-facing interpretation. `modeler-proto` remains a workflow/product baseline only; it is not evidence that an IBD implementation is complete.
 
 ## Complementary BDD/IBD rule

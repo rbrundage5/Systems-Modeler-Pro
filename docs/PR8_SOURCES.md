@@ -1,5 +1,10 @@
 # PR8 normative source hierarchy
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR8 uses the following hierarchy when deciding BDD semantics and notation:
 
 1. OMG SysML 1.6 normative specification and normative SysML XMI.

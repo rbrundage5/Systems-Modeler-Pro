@@ -1,5 +1,10 @@
 # PR53 — Profiles and semantic XMI
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Retain bounded semantic/profile contract; use PR55 for presentation extension and current adapter/tests for verification.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR53 adds native profile semantics and a bounded, namespace-aware XMI 2.x interchange adapter. XMI import is a staged parse → neutral IR → preview → validated candidate → atomic commit pipeline. PR55 extends that pipeline with the bounded diagram/presentation contract in [`PR55_XMI_DI_INTEROPERABILITY.md`](PR55_XMI_DI_INTEROPERABILITY.md).
 
 ## Native profile model

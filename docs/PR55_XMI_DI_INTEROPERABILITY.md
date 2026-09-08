@@ -1,5 +1,10 @@
 # PR55 — XMI diagram interchange closure
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Retain producer/native round-trip distinctions and vendor-fixture limitations; qualification claims are milestone-scoped.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR55 completes the current SysML 1.x interchange milestone by adding a diagram/presentation layer to the PR54 semantic XMI pipeline. The semantic repository remains authoritative; imported diagrams are lowered into the existing native diagram stores and validated as one complete authored workspace before a single atomic commit.
 
 ## Qualified paths

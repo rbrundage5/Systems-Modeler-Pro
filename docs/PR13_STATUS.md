@@ -1,5 +1,10 @@
 # PR13 Status
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Branch and qualification-in-progress statements describe PR13, not current main; retain original evidence without inferring manual acceptance.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 Current branch: `agent/pr13-activity-rust`
 
 Baseline: merged PR #12 / `fe671378dbca700f60eb38a3950faf47f2f46edd`.

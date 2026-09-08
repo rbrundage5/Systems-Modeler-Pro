@@ -1,5 +1,10 @@
 # PR13 — Activity Modeling Standards Baseline
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Preserve semantic/notation requirements and historical scope; validate current implementation independently before changing or promoting coverage.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 ## Purpose
 
 PR #13 completes the next native behavioral-modeling slice after merged PR #12 by implementing SysML/UML Activity modeling behind the Rust semantic boundary. The target is CATIA Magic/Cameo-class modeling depth without copying the legacy browser modeler's architecture.

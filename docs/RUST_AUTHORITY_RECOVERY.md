@@ -1,5 +1,10 @@
 # Rust Authority Recovery
 
+> **Documentation status:** HISTORICAL RECORD — not current task instructions or a current completion checklist.
+> Historical 7,279 JavaScript line ceiling is not enforced by the current script; current gate uses controller ceilings and Rust/frontend ratio.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 Baseline: merged `main` at `d117fc1` (PR14 and PR15).
 
 Systems Modeler Pro is a Rust application with a thin Tauri web renderer. The
@@ -24,8 +29,10 @@ target architecture.
 
 The first recovery slice adds a 38-line compatibility bridge so existing
 renderers publish their interaction mirror to Rust without losing behavior.
-The enforced post-bridge JavaScript ceiling is therefore 7,279 lines. No later
-feature or recovery slice may increase it.
+The post-bridge JavaScript ceiling at that historical milestone was 7,279 lines.
+That absolute line ceiling is superseded. Current enforcement is defined by
+`scripts/validate_rust_authority.py`: controller-debt ceilings and a minimum
+Rust/frontend source ratio of 1.90. Do not restore an obsolete line cap.
 
 ## Recovery rules
 

@@ -1,5 +1,10 @@
 # PR34 Operation, Signal, and Sequence Runtime
 
+> **Documentation status:** MILESTONE CONTRACT — retained reference; current completeness must be revalidated.
+> Retain bounded execution contract; PR35 now has implementation. Historical manual qualification is not a current-run result.
+> See [documentation index](README.md) and [review register](DOCUMENTATION_REVIEW.md).
+
+
 PR34 extends the PR31–PR33 Rust execution session. It does not introduce a
 second simulator, event queue, clock, value store, or frontend semantic store.
 

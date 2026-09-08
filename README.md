@@ -53,3 +53,10 @@ For the authoritative import architecture, supported semantic coverage, reimport
 ## Repository status
 
 The native migration is active and includes qualified semantic construction/import, portable interchange, native project persistence, and execution foundations. Additional diagram-construction, synchronization/export, and external-adapter work remains explicitly staged and is not implied by the current qualified scope.
+
+## Documentation and project context
+
+Start with the [documentation index](docs/README.md). The
+[review register](docs/DOCUMENTATION_REVIEW.md) identifies historical records and
+contracts needing reconciliation. For ChatGPT Project sources, follow the
+[source setup guide](docs/CHATGPT_PROJECT_SETUP.md).
