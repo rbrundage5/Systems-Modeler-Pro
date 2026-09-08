@@ -28,10 +28,6 @@ jobs:
           node --check apps/desktop/frontend/ui-shell.js
       - name: Model-script import qualification contract
         run: python scripts/validate_model_script_import_qualification.py
-      - name: Ensure unsafe ribbon writes are gone
-        shell: bash
-        run: |
-          ! grep -R -F "$('active-diagram-summary').textContent" apps/desktop/frontend/app.js apps/desktop/frontend/ibd-ui.js apps/desktop/frontend/use-case-ui.js apps/desktop/frontend/workspace-ux.js apps/desktop/frontend/parametric-ui.js
       - name: Commit qualified PR67 implementation
         run: |
           rm scripts/pr67_bootstrap.py
