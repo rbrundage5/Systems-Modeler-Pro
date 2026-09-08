@@ -24,18 +24,30 @@ command -v rustup
 command -v cargo
 command -v node
 command -v python3
-# Uses only the preconfigured Ubuntu package sources and Cargo lockfile.
-# Network is required here in setup, not during agent work.
-if [ "$(id -u)" = 0 ]; then
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+# Core is the first setup checkpoint; desktop dependencies are a separate gate.
+setup_profile="${SMP_SETUP_PROFILE:-core}"
+case "$setup_profile" in core|desktop) ;; *) echo "Use core or desktop profile." >&2; exit 2 ;; esac
+command -v cc
+command -v pkg-config
+if [ "$setup_profile" = desktop ]; then
+  if ! pkg-config --exists webkit2gtk-4.1 ayatana-appindicator3-0.1 librsvg-2.0 openssl || ! command -v patchelf >/dev/null; then
+    apt_args=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+    if [ "$(id -u)" = 0 ]; then
+      apt-get "${apt_args[@]}" update
+      DEBIAN_FRONTEND=noninteractive apt-get "${apt_args[@]}" install -y --no-install-recommends libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    else
+      sudo -n apt-get "${apt_args[@]}" update
+      sudo -n env DEBIAN_FRONTEND=noninteractive apt-get "${apt_args[@]}" install -y --no-install-recommends libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    fi
+  fi
+  pkg-config --exists webkit2gtk-4.1 ayatana-appindicator3-0.1 librsvg-2.0 openssl
+  command -v patchelf
 else
-  sudo -n apt-get update
-  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+  echo "Core profile: desktop package installation deferred; desktop qualification remains pending."
 fi
 rustup show active-toolchain
 rustup component add rustfmt clippy
 cargo fetch --locked
 cargo metadata --offline --locked --format-version 1 > /dev/null
 git diff --exit-code -- Cargo.lock
-echo "Dependencies prepared. Agents remain disabled; isolation is not qualified."
+echo "Dependency preparation completed for profile: $setup_profile. Builds and isolation are not qualified; agents remain disabled."
