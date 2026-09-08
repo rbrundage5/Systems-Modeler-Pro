@@ -3,10 +3,23 @@
 set -euo pipefail
 cd /workspace/Systems-Modeler-Pro
 test "$(git rev-parse --show-toplevel)" = /workspace/Systems-Modeler-Pro
-case "$(git remote get-url origin)" in
-  https://github.com/rbrundage5/Systems-Modeler-Pro|https://github.com/rbrundage5/Systems-Modeler-Pro.git) ;;
-  *) echo "Unexpected repository origin; stop setup." >&2; exit 2 ;;
-esac
+# Hosted setup may omit origin. Verify the approved tracked planning baseline
+# independently of remotes; this is a checkout check, not a security sandbox.
+expected_plan_blob=cc3331fc9af7bf4701b94f87ee6c4f4e946432c1
+actual_plan_blob="$(git rev-parse HEAD:docs/STEP5_SCOPE_AND_ACCEPTANCE.md)"
+if [ "$actual_plan_blob" != "$expected_plan_blob" ]; then
+  echo "Checkout does not match the approved planning document; review baseline." >&2
+  exit 2
+fi
+git ls-files --error-unmatch Cargo.toml Cargo.lock crates/model-core/Cargo.toml apps/desktop/src-tauri/Cargo.toml > /dev/null
+if git remote | grep -Fxq origin; then
+  case "$(git remote get-url origin)" in
+    https://github.com/rbrundage5/Systems-Modeler-Pro|https://github.com/rbrundage5/Systems-Modeler-Pro.git) ;;
+    *) echo "Unexpected repository origin; stop setup." >&2; exit 2 ;;
+  esac
+else
+  echo "No origin remote: approved tracked baseline and checkout path verified."
+fi
 command -v rustup
 command -v cargo
 command -v node
