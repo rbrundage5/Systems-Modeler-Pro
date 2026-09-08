@@ -1,0 +1,43 @@
+name: pr67-bootstrap
+
+on:
+  push:
+    branches: [agent/pr67-file-tab-render-context-null-safety]
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/pr67-file-tab-render-context-null-safety
+          fetch-depth: 0
+      - name: Apply File-tab render null-safety patch
+        run: python scripts/pr67_bootstrap.py
+      - name: Frontend syntax
+        run: |
+          node --check apps/desktop/frontend/app.js
+          node --check apps/desktop/frontend/ibd-ui.js
+          node --check apps/desktop/frontend/use-case-ui.js
+          node --check apps/desktop/frontend/workspace-ux.js
+          node --check apps/desktop/frontend/parametric-ui.js
+          node --check apps/desktop/frontend/model-script-ui.js
+          node --check apps/desktop/frontend/ui-shell.js
+      - name: Model-script import qualification contract
+        run: python scripts/validate_model_script_import_qualification.py
+      - name: Ensure unsafe ribbon writes are gone
+        shell: bash
+        run: |
+          ! grep -R -F "$('active-diagram-summary').textContent" apps/desktop/frontend/app.js apps/desktop/frontend/ibd-ui.js apps/desktop/frontend/use-case-ui.js apps/desktop/frontend/workspace-ux.js apps/desktop/frontend/parametric-ui.js
+      - name: Commit qualified PR67 implementation
+        run: |
+          rm scripts/pr67_bootstrap.py
+          rm .github/workflows/pr67-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "PR67: make ribbon context rendering null-safe"
+          git push origin HEAD:agent/pr67-file-tab-render-context-null-safety
