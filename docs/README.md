@@ -6,6 +6,7 @@ contract is useful evidence, but is not a current whole-product completeness cla
 | Need | Read |
 | --- | --- |
 | Step 5 scope and acceptance | [Planning package](STEP5_SCOPE_AND_ACCEPTANCE.md) and [coverage checklist](STEP5_AUDIT_COVERAGE.md) |
+| Agent setup (disabled pending qualification) | [Workflow](AGENT_WORKFLOW.md), [environment gate](AGENT_ENVIRONMENT_GATE.md), [references](AGENT_REFERENCES.md) |
 | Product overview | [Root README](../README.md) |
 | Architecture and current layout | [Architecture](ARCHITECTURE.md) |
 | ChatGPT Project setup | [Source setup](CHATGPT_PROJECT_SETUP.md) and [brief](CHATGPT_PROJECT_BRIEF.md) |

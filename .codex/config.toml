@@ -1,0 +1,7 @@
+# Candidate project configuration; qualify against the actual Codex client first.
+# Do not enable until the external environment gate is satisfied.
+[agents]
+enabled = false
+max_concurrent_threads_per_session = 3
+default_subagent_model = "gpt-5.6-terra"
+default_subagent_reasoning_effort = "medium"

@@ -1,0 +1,38 @@
+name: agent-setup-checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate disabled configuration and blocked preflight
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, tomllib
+          root = pathlib.Path(".")
+          config = tomllib.loads((root / ".codex/config.toml").read_text())
+          assert config["agents"]["enabled"] is False
+          assert config["agents"]["max_concurrent_threads_per_session"] == 3
+          roles = list((root / ".codex/agents").glob("*.toml"))
+          expected = {"coordinator", "code_auditor", "sysml_auditor", "behavior_auditor", "ux_auditor", "implementer", "reviewer"}
+          names = set()
+          for path in roles:
+              role = tomllib.loads(path.read_text())
+              assert role["name"] not in names
+              names.add(role["name"])
+              assert all(role.get(k) for k in ("name", "description", "model", "model_reasoning_effort", "developer_instructions"))
+              expected_mode = "workspace-write" if role["name"] == "implementer" else "read-only"
+              assert role["sandbox_mode"] == expected_mode
+          assert names == expected
+          result = subprocess.run(["python3", "scripts/agent_preflight.py"], capture_output=True, text=True)
+          assert result.returncode == 2
+          assert "BLOCKED:" in result.stderr
+          print("Configuration parses; roles match; preflight refuses startup. Isolation is NOT qualified.")
+          PY
