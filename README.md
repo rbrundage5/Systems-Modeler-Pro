@@ -46,6 +46,8 @@ Semantic import and diagram presentation are separate contracts. Current CSV/XLS
 
 "CATIA-style" and "Cameo-style" describe configurable mapping approaches. No authentic CATIA/No Magic or Cameo/MagicDraw fixture is currently available in this repository, so no vendor release-specific compatibility or certification claim is made.
 
+For humans or agents **creating workbooks, model scripts, or other importer inputs**, use [`docs/IMPORTER_INPUT_SPECIFICATION.md`](docs/IMPORTER_INPUT_SPECIFICATION.md) as the canonical authoring contract. It defines stable identity, ordering, reference syntax, legal model-script operations, mapped workbook configuration, supported semantic properties, diagram rules, and the zero-error preflight checklist.
+
 For the authoritative import architecture, supported semantic coverage, reimport rules, qualification matrices, runtime boundaries, diagram/presentation status, and planned adapter contracts, see [`docs/IMPORT_RULES_AND_QUALIFICATION.txt`](docs/IMPORT_RULES_AND_QUALIFICATION.txt).
 
 ## Repository status
