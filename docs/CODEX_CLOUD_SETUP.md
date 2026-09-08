@@ -16,8 +16,12 @@ branch. If the environment setup tester cannot select that branch, do not run a
 main-based setup that references the missing file: use the full script from the
 PR's Files changed tab in the setup editor, or defer until the file is merged.
 No personal computer commands, secrets or global local configuration changes.
-The script installs Ubuntu packages and fetches locked Cargo dependencies during
-the hosted setup phase. It does not launch Codex, workers or application tests.
+The default core profile skips Ubuntu desktop package installation and fetches
+locked Cargo dependencies during the hosted setup phase. This is dependency
+preparation only, not a passing build. To prepare desktop dependencies separately,
+set SMP_SETUP_PROFILE=desktop in environment variables and retest setup. Desktop
+build and visual qualification remain mandatory. The script retains configured
+package sources and does not silently switch mirrors. It does not launch Codex, workers or application tests.
 Setup may require network; agent-phase internet remains off.
 A missing tool, origin mismatch or dependency failure stops the script.
 
@@ -36,6 +40,10 @@ not hook invocation. Do not enable agents or remove the block to test delegation
 After dependency setup, supervisor-run build checks may use:
 ```bash
 cargo test --offline --locked --workspace --exclude systems-modeler-desktop
+```
+
+Only after the desktop profile completes:
+```bash
 cargo check --offline --locked -p systems-modeler-desktop
 ```
 These checks may write build artifacts inside hosted infrastructure. They do not
