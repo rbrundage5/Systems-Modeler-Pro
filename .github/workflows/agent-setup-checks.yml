@@ -20,6 +20,12 @@ jobs:
           config = tomllib.loads((root / ".codex/config.toml").read_text())
           assert config["agents"]["enabled"] is False
           assert config["agents"]["max_concurrent_threads_per_session"] == 3
+          hook = config["hooks"]["PreToolUse"][0]
+          assert hook["matcher"] == "^(spawn_agent|Agent)$"
+          assert hook["hooks"][0]["command"] == "python3 /workspace/Systems-Modeler-Pro/scripts/agent_preflight.py"
+          subprocess.run(["bash", "-n", "scripts/codex_cloud_setup.sh"], check=True)
+          coordinator = tomllib.loads((root / ".codex/agents/coordinator.toml").read_text())
+          assert "Do not spawn additional agents." not in coordinator["developer_instructions"]
           roles = list((root / ".codex/agents").glob("*.toml"))
           expected = {"coordinator", "code_auditor", "sysml_auditor", "behavior_auditor", "ux_auditor", "implementer", "reviewer"}
           names = set()
