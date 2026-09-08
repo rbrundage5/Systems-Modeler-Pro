@@ -30,6 +30,10 @@ assert "+ activity.diagrams.lock().unwrap().len()" in model_script_rs
 assert "+ workspace.behavior_diagrams.lock().unwrap().len();" in model_script_rs
 assert "assert_eq!(first_diagram_count, 9);" in model_script_rs
 assert "second_diagram_count, 9," in model_script_rs
+assert "fn project_is_semantically_blank(project: &Project)" in model_script_rs
+assert "reset_blank_project_specialized_candidate" in model_script_rs
+assert "blank_model_script_import_discards_orphaned_specialized_state_before_native_preview" in model_script_rs
+assert "BLANK_PROJECT_SPECIALIZED_RESET_FAILED" in model_script_rs
 
 # New Project natively clears Behavior semantics/presentations. A blank model-
 # script run must then unconditionally reset the separately managed Activity
@@ -37,6 +41,9 @@ assert "second_diagram_count, 9," in model_script_rs
 new_project = workspace_rs.split("pub fn new_project", 1)[1].split("pub fn save_project_file", 1)[0]
 assert "BehaviorRepository::default()" in new_project
 assert "behavior_diagrams" in new_project and ".clear()" in new_project
+
+assert "&& (state.snapshot?.diagrams || []).length === 0" not in model_script_ui
+assert "&& (state.snapshot?.ibd_diagrams || []).length === 0" not in model_script_ui
 
 for required in [
     "qualifyBlankProjectBaseline",
