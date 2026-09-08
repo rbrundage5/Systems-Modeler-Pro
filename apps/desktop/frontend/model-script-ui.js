@@ -48,19 +48,175 @@
     return !blocked && !!result;
   }
 
+  function hasEntries(value) {
+    if (!value) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return false;
+  }
+
+  function projectIsSemanticallyBlank() {
+    const project = state.snapshot?.project;
+    if (!project) return false;
+    const elements = project.elements || [];
+    const relationships = project.relationships || [];
+    return elements.length === 1
+      && String(elements[0]?.id || '') === String(project.root_id || '')
+      && relationships.length === 0
+      && (state.snapshot?.diagrams || []).length === 0
+      && (state.snapshot?.ibd_diagrams || []).length === 0;
+  }
+
+  function activityStatePresent(snapshot) {
+    return hasEntries(snapshot?.repository?.activities) || (snapshot?.diagrams || []).length > 0;
+  }
+
+  function behaviorStatePresent(snapshot = state.snapshot) {
+    const repository = snapshot?.behavior_repository;
+    return hasEntries(repository?.state_machines)
+      || hasEntries(repository?.interactions)
+      || (snapshot?.behavior_diagrams || []).length > 0;
+  }
+
+  async function qualifyBlankProjectBaseline() {
+    if (typeof refresh === 'function') await refresh();
+    if (!projectIsSemanticallyBlank()) return false;
+
+    let activitySnapshot = await invoke('activity_snapshot');
+    if (!activityStatePresent(activitySnapshot) && !behaviorStatePresent()) {
+      Object.assign(state, { activitySnapshot });
+      return true;
+    }
+
+    // A genuinely blank Project cannot intentionally contain specialized model
+    // semantics from another Project. Recreate the already-blank Rust workspace
+    // through the authoritative New Project command so Behavior state is reset,
+    // then reset the separate Activity store. This is bounded to a blank Project
+    // and occurs before the model-script dry run; valid nonblank authored models
+    // are never cleared or normalized here.
+    const projectName = state.snapshot?.project?.name || 'Model Script Import';
+    await invoke('new_project', { name: projectName });
+    await invoke('reset_activity_workspace');
+    await invoke('clear_activity_executions');
+    if (typeof refresh === 'function') await refresh();
+    activitySnapshot = await invoke('activity_snapshot');
+    Object.assign(state, {
+      activitySnapshot,
+      selectedActivityDiagramId: null,
+      selectedActivityNodeId: null,
+      selectedActivityEdgeId: null,
+      selectedBehaviorDiagramId: null,
+      selectedBehaviorItem: null,
+    });
+
+    if (!projectIsSemanticallyBlank() || activityStatePresent(activitySnapshot) || behaviorStatePresent()) {
+      throw new Error('BLANK_PROJECT_BASELINE_INCOMPLETE: the Rust Project, Activity, and Behavior stores did not converge to one clean blank workspace');
+    }
+    notify('Repaired stale specialized state before model-script validation.');
+    return true;
+  }
+
+  function normalizeDiagramFamily(value) {
+    const family = String(value || '').trim().toLowerCase().replace(/_/g, '-');
+    if (family === 'requirements') return 'requirement';
+    if (family === 'usecase' || family === 'use case') return 'use-case';
+    if (family === 'statemachine' || family === 'state machine') return 'state-machine';
+    return family;
+  }
+
+  function requestedDiagrams(applied) {
+    return (applied?.items || []).flatMap((item) => {
+      const operation = String(item.operation || '');
+      if (!operation.toLowerCase().startsWith('diagram::')) return [];
+      return [{
+        family: normalizeDiagramFamily(operation.slice('Diagram::'.length)),
+        externalId: item.external_id || '',
+        name: item.semantic_name || '',
+      }];
+    });
+  }
+
+  function committedDiagrams() {
+    const ordinary = (state.snapshot?.diagrams || []).map((diagram) => ({
+      id: diagram.id,
+      name: diagram.name,
+      family: normalizeDiagramFamily(diagram.family),
+    }));
+    const ibd = (state.snapshot?.ibd_diagrams || []).map((diagram) => ({
+      id: diagram.id,
+      name: diagram.name,
+      family: 'ibd',
+    }));
+    const behavior = (state.snapshot?.behavior_diagrams || state.behaviorSnapshot?.diagrams || []).map((diagram) => ({
+      id: diagram.id,
+      name: diagram.name,
+      family: diagram.kind === 'StateMachine' ? 'state-machine' : 'sequence',
+    }));
+    const activity = (state.activitySnapshot?.diagrams || []).map((diagram) => ({
+      id: diagram.id,
+      name: diagram.name,
+      family: 'activity',
+    }));
+    return [...ordinary, ...ibd, ...behavior, ...activity];
+  }
+
+  async function qualifyCommittedDiagramSet(applied, freshImport) {
+    if (typeof refresh === 'function') await refresh();
+    const activitySnapshot = await invoke('activity_snapshot');
+    Object.assign(state, { activitySnapshot });
+    if (window.smpLoadBehaviorSnapshot) await window.smpLoadBehaviorSnapshot();
+
+    const expected = requestedDiagrams(applied);
+    const actual = committedDiagrams();
+    const missing = [];
+    const duplicated = [];
+    for (const diagram of expected) {
+      const matches = actual.filter((candidate) => candidate.family === diagram.family && candidate.name === diagram.name);
+      if (matches.length === 0) missing.push(`${diagram.family}:${diagram.name || diagram.externalId}`);
+      else if (matches.length > 1) duplicated.push(`${diagram.family}:${diagram.name || diagram.externalId}`);
+    }
+    if (missing.length || duplicated.length) {
+      const details = [
+        missing.length ? `missing ${missing.join(', ')}` : null,
+        duplicated.length ? `duplicated ${duplicated.join(', ')}` : null,
+      ].filter(Boolean).join('; ');
+      throw new Error(`DIAGRAM_COMMIT_INCOMPLETE: ${details}`);
+    }
+    if (freshImport && actual.length !== expected.length) {
+      throw new Error(`DIAGRAM_COMMIT_COUNT_MISMATCH: script declared ${expected.length} diagram(s), committed blank-project workspace contains ${actual.length}`);
+    }
+
+    if (typeof render === 'function') render();
+    const tabs = [...document.querySelectorAll('#diagram-tabs .diagram-tab')].map((tab) => String(tab.textContent || ''));
+    const missingTabs = expected.filter((diagram) => !tabs.some((label) => label.includes(diagram.name)));
+    if (missingTabs.length) {
+      throw new Error(`DIAGRAM_UI_REGISTRATION_INCOMPLETE: ${missingTabs.map((diagram) => `${diagram.family}:${diagram.name}`).join(', ')}`);
+    }
+
+    const requiredNine = new Set(['package', 'requirement', 'use-case', 'bdd', 'ibd', 'activity', 'state-machine', 'sequence', 'parametric']);
+    const expectedFamilies = new Set(expected.map((diagram) => diagram.family));
+    if (expected.length === 9 && requiredNine.size === expectedFamilies.size
+      && [...requiredNine].every((family) => expectedFamilies.has(family))) {
+      const committedFamilies = new Set(actual.map((diagram) => diagram.family));
+      const absent = [...requiredNine].filter((family) => !committedFamilies.has(family));
+      if (absent.length) throw new Error(`ALL_NINE_FAMILY_QUALIFICATION_FAILED: ${absent.join(', ')}`);
+    }
+  }
+
   async function runModelScript() {
     try {
       const file = await chooseScript();
       if (!file) return;
       const source = await file.text();
+      const freshImport = await qualifyBlankProjectBaseline();
       notify(`Dry-running ${file.name}…`);
       const preview = await invoke('preview_model_script', { scriptName: file.name, source });
       if (!await inspect(preview)) return;
       notify(`Applying ${file.name} atomically…`);
       const applied = await invoke('apply_model_script', { scriptName: file.name, source });
       if (!applied?.applied) throw new Error(previewText(applied));
-      if (typeof refresh === 'function') await refresh();
-      notify(`Model script applied: ${actionSummary(applied)}`);
+      await qualifyCommittedDiagramSet(applied, freshImport);
+      notify(`Model script applied and diagram set qualified: ${actionSummary(applied)}`);
     } catch (error) {
       notify(`Model script failed: ${error?.message || error}`, 'error');
     }
