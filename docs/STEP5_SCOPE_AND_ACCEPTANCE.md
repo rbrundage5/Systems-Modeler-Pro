@@ -154,6 +154,38 @@ accepts audit scope and gates, not all future product choices or implementation.
 The coordinator brings deadline-specific choices with evidence and a recommendation.
 Feature ordering after the pilot follows severity, dependencies and user priorities.
 
+## Mandatory repository and source boundary
+
+User requirement: work exclusively with Systems-Modeler-Pro; do not access or
+modify personal files, local user folders, other repositories or unrelated services.
+Persistent project changes go through this repository's branches and PRs; no
+automatic merge. Builds/tests may use an isolated hosted checkout or CI workspace,
+never a checkout with access to the user's personal filesystem.
+
+Approved uploaded Project references are read-only evidence inputs. Do not modify,
+delete, republish or commit those uploads. No browsing or new external reference
+retrieval during restricted work; if approved sources are insufficient, report the
+gap and request a source decision. Vendor verification mentioned elsewhere in this
+plan must use approved sources or remain unverified.
+
+Step 6 must implement and Step 7 must verify the actual execution boundary:
+repository-scoped write access, read-only approved reference inputs, restricted
+tools/network, no personal filesystem mounts, and enforcement configuration that
+workers cannot change. Prepared toolchains/dependencies are execution infrastructure,
+not authorization to inspect arbitrary files or download additional sources.
+Any additional setup access must be explicitly scoped before use.
+
+A Git hook or AGENTS.md alone cannot enforce filesystem, network or connector
+isolation. Use supported sandbox/container/tool permission controls; hooks and
+diff checks supplement them. Test denied out-of-scope reads/writes, path traversal
+and symlink escape, network/tool access and enforcement-rule modification before
+the pilot. Use synthetic canaries, never actual personal files. If the environment
+cannot enforce a required boundary, report the limitation and do not start workers
+in that environment. This requirement is recorded, not yet installed or verified.
+
+Source restrictions govern retrieval and evidentiary claims, not pretrained model
+knowledge. Audit conclusions must be supported by the approved reference set.
+
 ## Agent setup handoff (Step 6 requirements only)
 
 Configure lead, domain auditors, implementers and independent reviewers; choose
