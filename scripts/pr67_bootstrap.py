@@ -55,16 +55,16 @@ for path, old, new in [
 
 validator = ROOT / "scripts/validate_model_script_import_qualification.py"
 text = validator.read_text(encoding="utf-8")
-anchor = 'frontend = (root / "apps/desktop/frontend/model-script-ui.js").read_text(encoding="utf-8")\n'
+anchor = 'model_script_ui = (frontend / "model-script-ui.js").read_text(encoding="utf-8")\n'
 if anchor not in text:
     raise SystemExit("model-script qualification frontend anchor not found")
 addition = anchor + (
-    'app_frontend = (root / "apps/desktop/frontend/app.js").read_text(encoding="utf-8")\n'
-    'ibd_frontend = (root / "apps/desktop/frontend/ibd-ui.js").read_text(encoding="utf-8")\n'
-    'use_case_frontend = (root / "apps/desktop/frontend/use-case-ui.js").read_text(encoding="utf-8")\n'
-    'package_frontend = (root / "apps/desktop/frontend/workspace-ux.js").read_text(encoding="utf-8")\n'
-    'parametric_frontend = (root / "apps/desktop/frontend/parametric-ui.js").read_text(encoding="utf-8")\n'
-    'shell_frontend = (root / "apps/desktop/frontend/ui-shell.js").read_text(encoding="utf-8")\n'
+    'app_frontend = (frontend / "app.js").read_text(encoding="utf-8")\n'
+    'ibd_frontend = (frontend / "ibd-ui.js").read_text(encoding="utf-8")\n'
+    'use_case_frontend = (frontend / "use-case-ui.js").read_text(encoding="utf-8")\n'
+    'package_frontend = (frontend / "workspace-ux.js").read_text(encoding="utf-8")\n'
+    'parametric_frontend = (frontend / "parametric-ui.js").read_text(encoding="utf-8")\n'
+    'shell_frontend = (frontend / "ui-shell.js").read_text(encoding="utf-8")\n'
 )
 text = text.replace(anchor, addition, 1)
 
