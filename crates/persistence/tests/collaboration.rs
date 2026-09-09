@@ -31,7 +31,10 @@ fn commits_survive_reopen_and_retries_do_not_duplicate() {
         db.commit_shared_edit(project.id, actor, &request).unwrap()
     };
     let db = ProjectDatabase::open(&path).unwrap();
-    assert_eq!(db.commit_shared_edit(project.id, actor, &request).unwrap(), receipt);
+    assert_eq!(
+        db.commit_shared_edit(project.id, actor, &request).unwrap(),
+        receipt
+    );
     let (loaded, revision) = db.shared_snapshot(project.id, actor).unwrap();
     assert_eq!(revision, 1);
     assert_eq!(loaded.elements.len(), 2);
@@ -52,15 +55,21 @@ fn stale_clients_cannot_overwrite_and_can_resynchronize() {
     let actor = Uuid::new_v4();
     let mut first = ProjectDatabase::open(&path).unwrap();
     first.save_project(&project).unwrap();
-    first.provision_shared_member(project.id, actor, ProjectRole::Editor).unwrap();
+    first
+        .provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
     let second = ProjectDatabase::open(&path).unwrap();
-    first.commit_shared_edit(project.id, actor, &create(project.root_id, 0)).unwrap();
+    first
+        .commit_shared_edit(project.id, actor, &create(project.root_id, 0))
+        .unwrap();
     assert!(matches!(
         second.commit_shared_edit(project.id, actor, &create(project.root_id, 0)),
         Err(CollaborationError::Conflict { current: 1, .. })
     ));
     let (_, revision) = second.shared_snapshot(project.id, actor).unwrap();
-    second.commit_shared_edit(project.id, actor, &create(project.root_id, revision)).unwrap();
+    second
+        .commit_shared_edit(project.id, actor, &create(project.root_id, revision))
+        .unwrap();
     assert_eq!(first.shared_snapshot(project.id, actor).unwrap().1, 2);
 }
 
@@ -72,26 +81,79 @@ fn permissions_invalid_edits_and_legacy_save_preserve_state() {
     let outsider = Uuid::new_v4();
     let mut db = ProjectDatabase::open_in_memory().unwrap();
     db.save_project(&project).unwrap();
-    db.provision_shared_member(project.id, editor, ProjectRole::Editor).unwrap();
-    db.provision_shared_member(project.id, viewer, ProjectRole::Viewer).unwrap();
+    db.provision_shared_member(project.id, editor, ProjectRole::Editor)
+        .unwrap();
+    db.provision_shared_member(project.id, viewer, ProjectRole::Viewer)
+        .unwrap();
     assert!(db.shared_snapshot(project.id, viewer).is_ok());
-    assert!(matches!(db.shared_snapshot(project.id, outsider), Err(CollaborationError::Forbidden)));
+    assert!(matches!(
+        db.shared_snapshot(project.id, outsider),
+        Err(CollaborationError::Forbidden)
+    ));
     for actor in [viewer, outsider] {
-        assert!(matches!(db.commit_shared_edit(project.id, actor, &create(project.root_id, 0)), Err(CollaborationError::Forbidden)));
+        assert!(matches!(
+            db.commit_shared_edit(project.id, actor, &create(project.root_id, 0)),
+            Err(CollaborationError::Forbidden)
+        ));
     }
-    assert!(db.commit_shared_edit(project.id, editor, &create(ElementId::new(), 0)).is_err());
-    assert!(matches!(db.save_project(&project), Err(PersistenceError::SharedProject)));
+    assert!(
+        db.commit_shared_edit(project.id, editor, &create(ElementId::new(), 0))
+            .is_err()
+    );
+    assert!(matches!(
+        db.save_project(&project),
+        Err(PersistenceError::SharedProject)
+    ));
     let (loaded, revision) = db.shared_snapshot(project.id, editor).unwrap();
     assert_eq!(revision, 0);
     assert_eq!(loaded.elements.len(), 1);
-    let receipt = db.commit_shared_edit(project.id, editor, &create(project.root_id, 0)).unwrap();
+    let receipt = db
+        .commit_shared_edit(project.id, editor, &create(project.root_id, 0))
+        .unwrap();
     let rename = EditRequest {
         operation_id: Uuid::new_v4(),
         expected_revision: 1,
-        edit: SharedEdit::RenameElement { element: receipt.element, name: "Motor".into() },
+        edit: SharedEdit::RenameElement {
+            element: receipt.element,
+            name: "Motor".into(),
+        },
     };
     db.commit_shared_edit(project.id, editor, &rename).unwrap();
-    assert_eq!(db.shared_snapshot(project.id, viewer).unwrap().0.element(receipt.element).unwrap().name, "Motor");
-    db.provision_shared_member(project.id, editor, ProjectRole::Viewer).unwrap();
-    assert!(matches!(db.commit_shared_edit(project.id, editor, &rename), Err(CollaborationError::Forbidden)));
+    assert_eq!(
+        db.shared_snapshot(project.id, viewer)
+            .unwrap()
+            .0
+            .element(receipt.element)
+            .unwrap()
+            .name,
+        "Motor"
+    );
+    db.provision_shared_member(project.id, editor, ProjectRole::Viewer)
+        .unwrap();
+    assert!(matches!(
+        db.commit_shared_edit(project.id, editor, &rename),
+        Err(CollaborationError::Forbidden)
+    ));
+}
+
+#[test]
+fn failed_receipt_write_rolls_back_model_and_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shared.sqlite");
+    let project = Project::new("Shared");
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open(&path).unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+    let fault = rusqlite::Connection::open(&path).unwrap();
+    fault.execute_batch("CREATE TRIGGER fail_receipt BEFORE INSERT ON shared_operations BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END;").unwrap();
+    let request = create(project.root_id, 0);
+    assert!(db.commit_shared_edit(project.id, actor, &request).is_err());
+    let (loaded, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 0);
+    assert_eq!(loaded.elements.len(), 1);
+    fault.execute_batch("DROP TRIGGER fail_receipt").unwrap();
+    let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
+    assert_eq!(receipt.revision, 1);
 }

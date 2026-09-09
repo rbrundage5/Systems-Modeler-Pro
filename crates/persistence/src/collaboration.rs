@@ -151,10 +151,8 @@ impl ProjectDatabase {
         authenticated_actor: Uuid,
         request: &EditRequest,
     ) -> Result<CommitReceipt, CollaborationError> {
-        let tx = rusqlite::Transaction::new_unchecked(
-            &self.connection,
-            TransactionBehavior::Immediate,
-        )?;
+        let tx =
+            rusqlite::Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         let current = self.member_revision(project, authenticated_actor, true)?;
         let serialized = serde_json::to_string(request)?;
         let previous: Option<(String, String, i64, String)> = tx
@@ -169,8 +167,8 @@ impl ProjectDatabase {
             if actor != authenticated_actor.to_string() || payload != serialized {
                 return Err(CollaborationError::OperationIdReused);
             }
-            let element = Uuid::parse_str(&element)
-                .map_err(|_| PersistenceError::InvalidUuid(element))?;
+            let element =
+                Uuid::parse_str(&element).map_err(|_| PersistenceError::InvalidUuid(element))?;
             return Ok(CommitReceipt {
                 revision,
                 element: ElementId(element),
