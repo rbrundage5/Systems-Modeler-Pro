@@ -5,6 +5,8 @@ on:
       - 'apps/desktop/src-tauri/src/collaboration.rs'
       - 'apps/desktop/src-tauri/Cargo.toml'
       - 'apps/desktop/frontend/collaboration*'
+      - 'apps/server/src/**'
+      - 'crates/persistence/src/collaboration.rs'
       - 'Cargo.lock'
       - '.github/workflows/desktop-client-qualification.yml'
 permissions:
