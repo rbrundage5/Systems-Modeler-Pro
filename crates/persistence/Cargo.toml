@@ -9,6 +9,7 @@ rust-version.workspace = true
 systems-modeler-core = { path = "../model-core" }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde_json.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 

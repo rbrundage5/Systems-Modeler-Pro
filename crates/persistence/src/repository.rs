@@ -14,6 +14,8 @@ pub enum PersistenceError {
     InvalidUuid(String),
     #[error("project not found: {0}")]
     ProjectNotFound(ProjectId),
+    #[error("shared projects must be changed through the collaboration API")]
+    SharedProject,
     #[error("project database contains no project")]
     NoProject,
 }
@@ -94,11 +96,20 @@ impl ProjectDatabase {
             INSERT OR IGNORE INTO schema_migrations(version) VALUES(2);
             ",
         )?;
+        self.migrate_collaboration()?;
         Ok(())
     }
 
     pub fn save_project(&mut self, project: &Project) -> Result<(), PersistenceError> {
-        let tx = self.connection.transaction()?;
+        let tx = self.connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let shared: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM shared_projects WHERE project_id=?1)", [project.id.to_string()], |row| row.get(0))?;
+        if shared { return Err(PersistenceError::SharedProject); }
+        Self::write_project(&tx, project)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn write_project(tx: &Connection, project: &Project) -> Result<(), PersistenceError> {
         tx.execute(
             "INSERT INTO projects(id,name,root_id,updated_at) VALUES(?1,?2,?3,CURRENT_TIMESTAMP)
              ON CONFLICT(id) DO UPDATE SET name=excluded.name,root_id=excluded.root_id,updated_at=CURRENT_TIMESTAMP",
@@ -155,7 +166,6 @@ impl ProjectDatabase {
                 serde_json::to_string(&project.profiles)?,
             ],
         )?;
-        tx.commit()?;
         Ok(())
     }
 

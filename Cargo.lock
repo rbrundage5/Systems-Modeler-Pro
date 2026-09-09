@@ -3226,6 +3226,7 @@ name = "systems-modeler-persistence"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "serde",
  "serde_json",
  "systems-modeler-core",
  "tempfile",
