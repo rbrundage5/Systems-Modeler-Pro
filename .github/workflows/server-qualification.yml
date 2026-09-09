@@ -19,11 +19,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Prepare formatting and lockfile diagnostics
-        run: |
-          cargo fmt --all
-          cargo metadata --format-version 1 > /dev/null
-          git diff -- Cargo.lock apps/server
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Locked dependency verification
+        run: cargo metadata --locked --format-version 1 > /dev/null
       - name: Server tests
         run: cargo test --locked -p systems-modeler-server
       - name: Server lint
