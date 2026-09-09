@@ -28,6 +28,6 @@ jobs:
           name: desktop-client-preparation
           path: desktop-client-preparation.patch
       - name: Focused client tests
-        run: cargo test --locked -p systems-modeler-desktop collaboration::
+        run: cargo test --locked -p systems-modeler-desktop collaboration
       - name: Desktop lint
         run: cargo clippy --locked -p systems-modeler-desktop --all-targets -- -D warnings
