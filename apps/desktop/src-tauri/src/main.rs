@@ -1,3 +1,6 @@
+mod collaboration;
+use collaboration::*;
+
 mod workspace {
     include!("workspace.rs");
     mod activity_editing;
@@ -607,6 +610,7 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
 
 fn main() {
     tauri::Builder::default()
+        .manage(CollaborationState::default())
         .manage(WorkspaceState::default())
         .manage(ActivityWorkspaceState::default())
         .manage(ActivityExecutionState::default())
@@ -617,6 +621,12 @@ fn main() {
         .manage(SharedWorkspaceState::default())
         .manage(StandardEditingState::default())
         .invoke_handler(tauri::generate_handler![
+            collaboration_connect,
+            collaboration_open,
+            collaboration_edit,
+            collaboration_retry,
+            collaboration_disconnect,
+            collaboration_status,
             engine_status,
             semantic_presentation_manifest,
             semantic_presentation_stylesheet,

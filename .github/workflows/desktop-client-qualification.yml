@@ -1,0 +1,35 @@
+name: desktop-client-qualification
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop/src-tauri/src/collaboration.rs'
+      - 'apps/desktop/src-tauri/Cargo.toml'
+      - 'apps/desktop/frontend/collaboration*'
+      - 'Cargo.lock'
+      - '.github/workflows/desktop-client-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  client:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Strict formatting
+        run: cargo fmt --all --check
+      - name: Locked dependencies
+        shell: bash
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend syntax
+        run: node --check apps/desktop/frontend/collaboration-ui.js
+      - name: Focused client tests
+        run: cargo test --locked -p systems-modeler-desktop collaboration
+      - name: Desktop lint
+        run: cargo clippy --locked -p systems-modeler-desktop --all-targets -- -D warnings
