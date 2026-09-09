@@ -4,7 +4,7 @@
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::time::Duration;
-use systems_modeler_core::{DiagramId, ElementId, Project, ProjectId};
+use systems_modeler_core::{Project, ProjectId};
 use systems_modeler_persistence::collaboration::{EditRequest, SharedBddDiagram, SharedEdit};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -302,130 +302,6 @@ pub async fn collaboration_edit(
 }
 
 #[tauri::command]
-pub async fn collaboration_create_bdd_diagram(
-    state: tauri::State<'_, CollaborationState>,
-    expected_revision: i64,
-    owner: ElementId,
-    name: String,
-) -> Result<View, String> {
-    let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(
-            expected_revision,
-            SharedEdit::CreateBddDiagram {
-                diagram: DiagramId::new(),
-                owner,
-                name,
-            },
-        )
-        .await
-}
-
-#[tauri::command]
-pub async fn collaboration_rename_bdd_diagram(
-    state: tauri::State<'_, CollaborationState>,
-    expected_revision: i64,
-    diagram: DiagramId,
-    name: String,
-) -> Result<View, String> {
-    let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(
-            expected_revision,
-            SharedEdit::RenameBddDiagram { diagram, name },
-        )
-        .await
-}
-
-#[tauri::command]
-pub async fn collaboration_delete_bdd_diagram(
-    state: tauri::State<'_, CollaborationState>,
-    expected_revision: i64,
-    diagram: DiagramId,
-) -> Result<View, String> {
-    let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(expected_revision, SharedEdit::DeleteBddDiagram { diagram })
-        .await
-}
-
-#[tauri::command]
-pub async fn collaboration_place_bdd_element(
-    state: tauri::State<'_, CollaborationState>,
-    expected_revision: i64,
-    diagram: DiagramId,
-    element: ElementId,
-) -> Result<View, String> {
-    let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(
-            expected_revision,
-            SharedEdit::PlaceBddElement {
-                diagram,
-                node: Uuid::new_v4(),
-                element,
-            },
-        )
-        .await
-}
-
-#[tauri::command]
-#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
-pub async fn collaboration_update_bdd_node_geometry(
-    state: tauri::State<'_, CollaborationState>,
-    expected_revision: i64,
-    diagram: DiagramId,
-    node: Uuid,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-) -> Result<View, String> {
-    let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(
-            expected_revision,
-            SharedEdit::UpdateBddNodeGeometry {
-                diagram,
-                node,
-                x,
-                y,
-                width,
-                height,
-            },
-        )
-        .await
-}
-
-#[tauri::command]
-pub async fn collaboration_remove_bdd_node(
-    state: tauri::State<'_, CollaborationState>,
-    expected_revision: i64,
-    diagram: DiagramId,
-    node: Uuid,
-) -> Result<View, String> {
-    let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(
-            expected_revision,
-            SharedEdit::RemoveBddNode { diagram, node },
-        )
-        .await
-}
-
-#[tauri::command]
 pub async fn collaboration_retry(
     state: tauri::State<'_, CollaborationState>,
 ) -> Result<View, String> {
@@ -481,10 +357,7 @@ pub async fn collaboration_status(
     state: tauri::State<'_, CollaborationState>,
 ) -> Result<View, String> {
     let guard = state.0.lock().await;
-    Ok(guard
-        .as_ref()
-        .ok_or("Connect to a server first.")?
-        .view())
+    Ok(guard.as_ref().ok_or("Connect to a server first.")?.view())
 }
 
 #[cfg(test)]
@@ -496,6 +369,7 @@ mod transport_tests {
         sync::Arc,
         thread,
     };
+    use systems_modeler_core::DiagramId;
     use systems_modeler_persistence::ProjectDatabase;
     use systems_modeler_server::{
         Config, Credential, Grant as ServerGrant, Role, Service, serve, token_hash,
@@ -712,17 +586,12 @@ mod transport_tests {
                 },
             ];
             let service = Arc::new(Service::new(database, Config { credentials }).unwrap());
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-                .await
-                .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base = server_url(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
             let server = tokio::spawn(serve(listener, service));
 
-            let mut first = connect_test_session(
-                blank_session(base.clone(), first_token),
-                project.id,
-            )
-            .await;
+            let mut first =
+                connect_test_session(blank_session(base.clone(), first_token), project.id).await;
             let mut second =
                 connect_test_session(blank_session(base, second_token), project.id).await;
             assert_eq!(first.snapshot.as_ref().unwrap().revision, 0);
