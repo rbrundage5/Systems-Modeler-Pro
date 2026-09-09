@@ -73,6 +73,75 @@ fn server_url(value: &str) -> Result<Url, String> {
 }
 
 impl Session {
+    async fn connect(server: &str, token: String) -> Result<Self, String> {
+        if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("Enter the 64-character access token supplied by your administrator.".into());
+    }
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|_| "Could not initialize HTTPS client.")?;
+    let mut session = Session {
+        client,
+        base: server_url(server)?,
+        token,
+        projects: Vec::new(),
+        snapshot: None,
+        pending: None,
+        needs_refresh: false,
+    };
+    let list: ProjectList = session
+        .request(Method::GET, "v1/projects", None)
+        .await
+        .map_err(|e| e.1)?;
+    session.projects = list.projects;
+    Ok(session)
+    }
+
+    async fn open(&mut self, project: ProjectId) -> Result<(), String> {
+        if self.pending.is_some() {
+            return Err("Resolve the pending edit before opening or refreshing a project.".into());
+    }
+    if !self.projects.iter().any(|g| g.id == project) {
+        return Err("Project access denied.".into());
+    }
+    self.refresh(project).await?;
+    Ok(())
+    }
+
+    async fn edit(&mut self, expected_revision: i64, edit: SharedEdit) -> Result<(), String> {
+        if self.pending.is_some() {
+            return Err("Retry the pending edit before submitting another change.".into());
+    }
+    let snapshot = self
+        .snapshot
+        .as_ref()
+        .ok_or("Open a shared project first.")?;
+    if self.needs_refresh
+        || snapshot.revision != expected_revision
+        || expected_revision == i64::MAX
+    {
+        return Err("Refresh and review the project before editing.".into());
+    }
+    if !self
+        .projects
+        .iter()
+        .any(|g| g.id == snapshot.project.id && g.role == "editor")
+    {
+        return Err("This project is view-only.".into());
+    }
+    self.pending = Some(EditRequest {
+        operation_id: Uuid::new_v4(),
+        expected_revision,
+        edit,
+    });
+    self.submit_pending().await?;
+    Ok(())
+    }
+
     fn view(&self) -> View {
         View {
             projects: self.projects.clone(),
@@ -205,30 +274,7 @@ pub async fn collaboration_connect(
     if state.as_ref().is_some_and(|s| s.pending.is_some()) {
         return Err("Resolve the pending edit before reconnecting.".into());
     }
-    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("Enter the 64-character access token supplied by your administrator.".into());
-    }
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .no_proxy()
-        .timeout(Duration::from_secs(20))
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|_| "Could not initialize HTTPS client.")?;
-    let mut session = Session {
-        client,
-        base: server_url(&server)?,
-        token,
-        projects: Vec::new(),
-        snapshot: None,
-        pending: None,
-        needs_refresh: false,
-    };
-    let list: ProjectList = session
-        .request(Method::GET, "v1/projects", None)
-        .await
-        .map_err(|e| e.1)?;
-    session.projects = list.projects;
+    let session = Session::connect(&server, token).await?;
     let view = session.view();
     *state = Some(session);
     Ok(view)
@@ -241,13 +287,7 @@ pub async fn collaboration_open(
 ) -> Result<View, String> {
     let mut guard = state.0.lock().await;
     let session = guard.as_mut().ok_or("Connect to a server first.")?;
-    if session.pending.is_some() {
-        return Err("Resolve the pending edit before opening or refreshing a project.".into());
-    }
-    if !session.projects.iter().any(|g| g.id == project) {
-        return Err("Project access denied.".into());
-    }
-    session.refresh(project).await?;
+    session.open(project).await?;
     Ok(session.view())
 }
 
@@ -259,32 +299,7 @@ pub async fn collaboration_edit(
 ) -> Result<View, String> {
     let mut guard = state.0.lock().await;
     let session = guard.as_mut().ok_or("Connect to a server first.")?;
-    if session.pending.is_some() {
-        return Err("Retry the pending edit before submitting another change.".into());
-    }
-    let snapshot = session
-        .snapshot
-        .as_ref()
-        .ok_or("Open a shared project first.")?;
-    if session.needs_refresh
-        || snapshot.revision != expected_revision
-        || expected_revision == i64::MAX
-    {
-        return Err("Refresh and review the project before editing.".into());
-    }
-    if !session
-        .projects
-        .iter()
-        .any(|g| g.id == snapshot.project.id && g.role == "editor")
-    {
-        return Err("This project is view-only.".into());
-    }
-    session.pending = Some(EditRequest {
-        operation_id: Uuid::new_v4(),
-        expected_revision,
-        edit,
-    });
-    session.submit_pending().await?;
+    session.edit(expected_revision, edit).await?;
     Ok(session.view())
 }
 
@@ -508,3 +523,7 @@ mod transport_tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "collaboration_integration_tests.rs"]
+mod integration_tests;

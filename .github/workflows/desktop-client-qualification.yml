@@ -2,7 +2,7 @@ name: desktop-client-qualification
 on:
   pull_request:
     paths:
-      - 'apps/desktop/src-tauri/src/collaboration.rs'
+      - 'apps/desktop/src-tauri/src/collaboration*.rs'
       - 'apps/desktop/src-tauri/Cargo.toml'
       - 'apps/desktop/frontend/collaboration*'
       - 'Cargo.lock'
@@ -21,6 +21,17 @@ jobs:
           components: rustfmt, clippy
       - name: Strict formatting
         run: cargo fmt --all --check
+      - name: Collect formatting correction on failure
+        if: failure()
+        shell: bash
+        run: |
+          cargo fmt --all
+          git diff --binary > client-format.patch
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: client-format
+          path: client-format.patch
       - name: Locked dependencies
         shell: bash
         run: cargo metadata --locked --format-version 1 > /dev/null
