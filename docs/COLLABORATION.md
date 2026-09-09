@@ -48,3 +48,5 @@ separate-connection stale revision, access denial, invalid-edit rollback, rename
 role downgrade, and legacy-save protection cases. These are storage-level tests;
 network, UI, and simultaneous device acceptance remain pending. Full existing
 CI is required before merge. Never merge automatically.
+
+The next HTTP adapter increment is described in [server setup and limits](COLLABORATION_SERVER.md).
