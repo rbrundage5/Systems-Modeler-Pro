@@ -4,6 +4,8 @@ on:
     paths:
       - 'apps/desktop/src-tauri/src/collaboration.rs'
       - 'apps/desktop/src-tauri/Cargo.toml'
+      - 'apps/desktop/frontend/collaboration*'
+      - 'Cargo.lock'
       - '.github/workflows/desktop-client-qualification.yml'
 permissions:
   contents: read
@@ -17,16 +19,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Prepare formatting and dependency patch
+      - name: Strict formatting
+        run: cargo fmt --all --check
+      - name: Locked dependencies
         shell: bash
-        run: |
-          cargo fmt --all
-          cargo metadata --format-version 1 > /dev/null
-          git diff --binary > desktop-client-preparation.patch
-      - uses: actions/upload-artifact@v4
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - uses: actions/setup-node@v4
         with:
-          name: desktop-client-preparation
-          path: desktop-client-preparation.patch
+          node-version: 22
+      - name: Frontend syntax
+        run: node --check apps/desktop/frontend/collaboration-ui.js
       - name: Focused client tests
         run: cargo test --locked -p systems-modeler-desktop collaboration
       - name: Desktop lint

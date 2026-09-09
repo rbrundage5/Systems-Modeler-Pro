@@ -36,8 +36,10 @@ Responses are bounded to 32 MiB and requests time out after 20 seconds.
 Local checks: frontend syntax, Rust authority regression gate, and diff hygiene.
 Rust compilation, focused transport tests, full native CI, and UI acceptance must
 be recorded against the final PR head. Cargo is unavailable in the authoring
-workspace; the dedicated CI job prepares a reviewable formatting/dependency patch.
-This preparatory job must become strict before this PR is ready for review.
+workspace. The CI-generated formatting/dependency patch was applied; the dedicated
+client job now checks strict formatting and locked dependencies. Visual testing was
+attempted but browser security denied access to the local fixture; no UI pass is
+claimed. Native two-device acceptance remains required.
 
 Focused tests cover endpoint restrictions, exact retry identity over HTTP,
 conflict handling, and accepted edits with failed snapshot refresh. These do not
