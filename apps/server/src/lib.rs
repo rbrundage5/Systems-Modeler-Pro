@@ -113,7 +113,9 @@ impl Service {
             return None;
         }
         let digest = token_hash(token);
-        self.credentials.iter().find(|c| c.token_sha256 == digest)
+        self.credentials
+            .iter()
+            .find(|c| c.token_sha256 == digest)
     }
 
     /// Method/path/body adapter shared by the network service and contract tests.
@@ -156,7 +158,10 @@ impl Service {
         };
         if method == "GET" && segments.len() == 4 {
             return match database.shared_snapshot(project, credential.actor) {
-                Ok((model, revision)) => (200, json!({"project":model,"revision":revision})),
+                Ok((model, diagrams, revision)) => (
+                    200,
+                    json!({"project":model,"diagrams":diagrams,"revision":revision}),
+                ),
                 Err(error) => failure(error),
             };
         }
@@ -186,8 +191,13 @@ fn failure(error: CollaborationError) -> (u16, Value) {
             409,
             json!({"error":"revision_conflict","expected":expected,"current":current}),
         ),
-        CollaborationError::OperationIdReused => (409, json!({"error":"operation_id_reused"})),
-        CollaborationError::Model(_) | CollaborationError::InvalidName => {
+        CollaborationError::OperationIdReused => {
+            (409, json!({"error":"operation_id_reused"}))
+        }
+        CollaborationError::Model(_)
+        | CollaborationError::InvalidName
+        | CollaborationError::DiagramNotFound
+        | CollaborationError::InvalidDiagram(_) => {
             (422, json!({"error":"invalid_model_edit"}))
         }
         _ => (500, json!({"error":"storage_failure"})),
@@ -216,7 +226,10 @@ async fn handle(
     permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     if request.headers().contains_key("origin") {
-        return Ok(response(403, json!({"error":"browser_origin_not_allowed"})));
+        return Ok(response(
+            403,
+            json!({"error":"browser_origin_not_allowed"}),
+        ));
     }
     let authorization = request
         .headers()
@@ -249,7 +262,12 @@ async fn handle(
     .await;
     let body = match collected {
         Ok(Ok(body)) => body.to_bytes(),
-        Ok(Err(_)) => return Ok(response(413, json!({"error":"invalid_or_oversized_body"}))),
+        Ok(Err(_)) => {
+            return Ok(response(
+                413,
+                json!({"error":"invalid_or_oversized_body"}),
+            ));
+        }
         Err(_) => return Ok(response(408, json!({"error":"request_timeout"}))),
     };
     let result = tokio::task::spawn_blocking(move || {
