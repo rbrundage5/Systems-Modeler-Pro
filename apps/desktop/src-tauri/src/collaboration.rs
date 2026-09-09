@@ -4,8 +4,8 @@
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::time::Duration;
-use systems_modeler_core::{Project, ProjectId};
-use systems_modeler_persistence::collaboration::{EditRequest, SharedEdit};
+use systems_modeler_core::{DiagramId, ElementId, Project, ProjectId};
+use systems_modeler_persistence::collaboration::{EditRequest, SharedBddDiagram, SharedEdit};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -33,6 +33,8 @@ pub struct Grant {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Snapshot {
     project: Project,
+    #[serde(default)]
+    diagrams: Vec<SharedBddDiagram>,
     revision: i64,
 }
 
@@ -72,6 +74,16 @@ fn server_url(value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+fn http_client() -> Result<Client, String> {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|_| "Could not initialize HTTPS client.".into())
+}
+
 impl Session {
     fn view(&self) -> View {
         View {
@@ -108,7 +120,7 @@ impl Session {
                     "Project changed or operation conflicts. Refresh, review the latest model, and submit your intended edit again."
                 }
                 422 => {
-                    "The server rejected this model edit. Check the selected owner or element and name."
+                    "The server rejected this shared edit. Check the selected owner, element, diagram, and geometry."
                 }
                 _ => {
                     "The server could not complete the request. Retry a pending edit before making another change."
@@ -193,6 +205,37 @@ impl Session {
             }
         }
     }
+
+    async fn edit(&mut self, expected_revision: i64, edit: SharedEdit) -> Result<View, String> {
+        if self.pending.is_some() {
+            return Err("Retry the pending edit before submitting another change.".into());
+        }
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .ok_or("Open a shared project first.")?;
+        let project_id = snapshot.project.id;
+        if self.needs_refresh
+            || snapshot.revision != expected_revision
+            || expected_revision == i64::MAX
+        {
+            return Err("Refresh and review the project before editing.".into());
+        }
+        if !self
+            .projects
+            .iter()
+            .any(|g| g.id == project_id && g.role == "editor")
+        {
+            return Err("This project is view-only.".into());
+        }
+        self.pending = Some(EditRequest {
+            operation_id: Uuid::new_v4(),
+            expected_revision,
+            edit,
+        });
+        self.submit_pending().await?;
+        Ok(self.view())
+    }
 }
 
 #[tauri::command]
@@ -208,15 +251,8 @@ pub async fn collaboration_connect(
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("Enter the 64-character access token supplied by your administrator.".into());
     }
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .no_proxy()
-        .timeout(Duration::from_secs(20))
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|_| "Could not initialize HTTPS client.")?;
     let mut session = Session {
-        client,
+        client: http_client()?,
         base: server_url(&server)?,
         token,
         projects: Vec::new(),
@@ -258,34 +294,135 @@ pub async fn collaboration_edit(
     edit: SharedEdit,
 ) -> Result<View, String> {
     let mut guard = state.0.lock().await;
-    let session = guard.as_mut().ok_or("Connect to a server first.")?;
-    if session.pending.is_some() {
-        return Err("Retry the pending edit before submitting another change.".into());
-    }
-    let snapshot = session
-        .snapshot
-        .as_ref()
-        .ok_or("Open a shared project first.")?;
-    if session.needs_refresh
-        || snapshot.revision != expected_revision
-        || expected_revision == i64::MAX
-    {
-        return Err("Refresh and review the project before editing.".into());
-    }
-    if !session
-        .projects
-        .iter()
-        .any(|g| g.id == snapshot.project.id && g.role == "editor")
-    {
-        return Err("This project is view-only.".into());
-    }
-    session.pending = Some(EditRequest {
-        operation_id: Uuid::new_v4(),
-        expected_revision,
-        edit,
-    });
-    session.submit_pending().await?;
-    Ok(session.view())
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(expected_revision, edit)
+        .await
+}
+
+#[tauri::command]
+pub async fn collaboration_create_bdd_diagram(
+    state: tauri::State<'_, CollaborationState>,
+    expected_revision: i64,
+    owner: ElementId,
+    name: String,
+) -> Result<View, String> {
+    let mut guard = state.0.lock().await;
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(
+            expected_revision,
+            SharedEdit::CreateBddDiagram {
+                diagram: DiagramId::new(),
+                owner,
+                name,
+            },
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn collaboration_rename_bdd_diagram(
+    state: tauri::State<'_, CollaborationState>,
+    expected_revision: i64,
+    diagram: DiagramId,
+    name: String,
+) -> Result<View, String> {
+    let mut guard = state.0.lock().await;
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(
+            expected_revision,
+            SharedEdit::RenameBddDiagram { diagram, name },
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn collaboration_delete_bdd_diagram(
+    state: tauri::State<'_, CollaborationState>,
+    expected_revision: i64,
+    diagram: DiagramId,
+) -> Result<View, String> {
+    let mut guard = state.0.lock().await;
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(expected_revision, SharedEdit::DeleteBddDiagram { diagram })
+        .await
+}
+
+#[tauri::command]
+pub async fn collaboration_place_bdd_element(
+    state: tauri::State<'_, CollaborationState>,
+    expected_revision: i64,
+    diagram: DiagramId,
+    element: ElementId,
+) -> Result<View, String> {
+    let mut guard = state.0.lock().await;
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(
+            expected_revision,
+            SharedEdit::PlaceBddElement {
+                diagram,
+                node: Uuid::new_v4(),
+                element,
+            },
+        )
+        .await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
+pub async fn collaboration_update_bdd_node_geometry(
+    state: tauri::State<'_, CollaborationState>,
+    expected_revision: i64,
+    diagram: DiagramId,
+    node: Uuid,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<View, String> {
+    let mut guard = state.0.lock().await;
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(
+            expected_revision,
+            SharedEdit::UpdateBddNodeGeometry {
+                diagram,
+                node,
+                x,
+                y,
+                width,
+                height,
+            },
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn collaboration_remove_bdd_node(
+    state: tauri::State<'_, CollaborationState>,
+    expected_revision: i64,
+    diagram: DiagramId,
+    node: Uuid,
+) -> Result<View, String> {
+    let mut guard = state.0.lock().await;
+    guard
+        .as_mut()
+        .ok_or("Connect to a server first.")?
+        .edit(
+            expected_revision,
+            SharedEdit::RemoveBddNode { diagram, node },
+        )
+        .await
 }
 
 #[tauri::command]
@@ -344,7 +481,10 @@ pub async fn collaboration_status(
     state: tauri::State<'_, CollaborationState>,
 ) -> Result<View, String> {
     let guard = state.0.lock().await;
-    Ok(guard.as_ref().ok_or("Connect to a server first.")?.view())
+    Ok(guard
+        .as_ref()
+        .ok_or("Connect to a server first.")?
+        .view())
 }
 
 #[cfg(test)]
@@ -353,7 +493,12 @@ mod transport_tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
+        sync::Arc,
         thread,
+    };
+    use systems_modeler_persistence::ProjectDatabase;
+    use systems_modeler_server::{
+        Config, Credential, Grant as ServerGrant, Role, Service, serve, token_hash,
     };
 
     fn mock(responses: Vec<(u16, String)>) -> (Url, thread::JoinHandle<Vec<String>>) {
@@ -410,11 +555,39 @@ mod transport_tests {
             projects: Vec::new(),
             snapshot: Some(Snapshot {
                 project,
+                diagrams: Vec::new(),
                 revision: 0,
             }),
             pending: Some(request),
             needs_refresh: false,
         }
+    }
+
+    fn blank_session(base: Url, token: String) -> Session {
+        Session {
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            base,
+            token,
+            projects: Vec::new(),
+            snapshot: None,
+            pending: None,
+            needs_refresh: false,
+        }
+    }
+
+    async fn connect_test_session(mut session: Session, project: ProjectId) -> Session {
+        let list: ProjectList = session
+            .request(Method::GET, "v1/projects", None)
+            .await
+            .unwrap();
+        session.projects = list.projects;
+        session.refresh(project).await.unwrap();
+        session
     }
 
     #[test]
@@ -505,6 +678,142 @@ mod transport_tests {
             assert!(session.pending.is_none());
             assert!(session.needs_refresh);
             server.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn two_independent_clients_converge_after_conflict_and_bdd_edits() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut database = ProjectDatabase::open_in_memory().unwrap();
+            let project = Project::new("Shared");
+            database.save_project(&project).unwrap();
+            let first_token = "c".repeat(64);
+            let second_token = "d".repeat(64);
+            let credentials = vec![
+                Credential {
+                    actor: Uuid::new_v4(),
+                    token_sha256: token_hash(&first_token),
+                    projects: vec![ServerGrant {
+                        project: project.id,
+                        role: Role::Editor,
+                    }],
+                },
+                Credential {
+                    actor: Uuid::new_v4(),
+                    token_sha256: token_hash(&second_token),
+                    projects: vec![ServerGrant {
+                        project: project.id,
+                        role: Role::Editor,
+                    }],
+                },
+            ];
+            let service = Arc::new(Service::new(database, Config { credentials }).unwrap());
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .unwrap();
+            let base = server_url(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+            let server = tokio::spawn(serve(listener, service));
+
+            let mut first = connect_test_session(
+                blank_session(base.clone(), first_token),
+                project.id,
+            )
+            .await;
+            let mut second =
+                connect_test_session(blank_session(base, second_token), project.id).await;
+            assert_eq!(first.snapshot.as_ref().unwrap().revision, 0);
+            assert_eq!(second.snapshot.as_ref().unwrap().revision, 0);
+
+            first
+                .edit(
+                    0,
+                    SharedEdit::CreateBlock {
+                        owner: project.root_id,
+                        name: "Motor".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(
+                second
+                    .edit(
+                        0,
+                        SharedEdit::CreatePackage {
+                            owner: project.root_id,
+                            name: "Stale".into(),
+                        },
+                    )
+                    .await
+                    .unwrap_err()
+                    .contains("Refresh")
+            );
+            assert!(second.needs_refresh);
+            second.refresh(project.id).await.unwrap();
+            let block = second
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .project
+                .elements
+                .values()
+                .find(|element| element.name == "Motor")
+                .unwrap()
+                .id;
+            assert_eq!(second.snapshot.as_ref().unwrap().revision, 1);
+
+            let diagram = DiagramId::new();
+            second
+                .edit(
+                    1,
+                    SharedEdit::CreateBddDiagram {
+                        diagram,
+                        owner: project.root_id,
+                        name: "Structure".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            let node = Uuid::new_v4();
+            second
+                .edit(
+                    2,
+                    SharedEdit::PlaceBddElement {
+                        diagram,
+                        node,
+                        element: block,
+                    },
+                )
+                .await
+                .unwrap();
+            second
+                .edit(
+                    3,
+                    SharedEdit::UpdateBddNodeGeometry {
+                        diagram,
+                        node,
+                        x: 400.0,
+                        y: 260.0,
+                        width: 220.0,
+                        height: 140.0,
+                    },
+                )
+                .await
+                .unwrap();
+
+            first.refresh(project.id).await.unwrap();
+            let snapshot = first.snapshot.as_ref().unwrap();
+            assert_eq!(snapshot.revision, 4);
+            assert_eq!(snapshot.diagrams.len(), 1);
+            assert_eq!(snapshot.diagrams[0].id, diagram);
+            assert_eq!(snapshot.diagrams[0].nodes.len(), 1);
+            assert_eq!(snapshot.diagrams[0].nodes[0].element, block);
+            assert_eq!(snapshot.diagrams[0].nodes[0].x, 400.0);
+            assert_eq!(snapshot.diagrams[0].nodes[0].height, 140.0);
+            server.abort();
         });
     }
 }
