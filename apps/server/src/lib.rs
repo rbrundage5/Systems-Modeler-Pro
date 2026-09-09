@@ -113,9 +113,7 @@ impl Service {
             return None;
         }
         let digest = token_hash(token);
-        self.credentials
-            .iter()
-            .find(|c| c.token_sha256 == digest)
+        self.credentials.iter().find(|c| c.token_sha256 == digest)
     }
 
     /// Method/path/body adapter shared by the network service and contract tests.
@@ -191,15 +189,11 @@ fn failure(error: CollaborationError) -> (u16, Value) {
             409,
             json!({"error":"revision_conflict","expected":expected,"current":current}),
         ),
-        CollaborationError::OperationIdReused => {
-            (409, json!({"error":"operation_id_reused"}))
-        }
+        CollaborationError::OperationIdReused => (409, json!({"error":"operation_id_reused"})),
         CollaborationError::Model(_)
         | CollaborationError::InvalidName
         | CollaborationError::DiagramNotFound
-        | CollaborationError::InvalidDiagram(_) => {
-            (422, json!({"error":"invalid_model_edit"}))
-        }
+        | CollaborationError::InvalidDiagram(_) => (422, json!({"error":"invalid_model_edit"})),
         _ => (500, json!({"error":"storage_failure"})),
     }
 }
@@ -226,10 +220,7 @@ async fn handle(
     permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     if request.headers().contains_key("origin") {
-        return Ok(response(
-            403,
-            json!({"error":"browser_origin_not_allowed"}),
-        ));
+        return Ok(response(403, json!({"error":"browser_origin_not_allowed"})));
     }
     let authorization = request
         .headers()
@@ -263,10 +254,7 @@ async fn handle(
     let body = match collected {
         Ok(Ok(body)) => body.to_bytes(),
         Ok(Err(_)) => {
-            return Ok(response(
-                413,
-                json!({"error":"invalid_or_oversized_body"}),
-            ));
+            return Ok(response(413, json!({"error":"invalid_or_oversized_body"})));
         }
         Err(_) => return Ok(response(408, json!({"error":"request_timeout"}))),
     };
