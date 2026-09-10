@@ -4,6 +4,40 @@ Status: **BLOCKED / NOT QUALIFIED**. Evidence-only setup maintenance; no product
 changes, worker launches, configuration activation, or automatic merge.
 
 
+## Current operating decision — supervised tasks
+
+The user declined further platform-support/setup work and requested continuation.
+Proceed with one user-started, bounded top-level Codex Cloud task at a time, with
+a separate top-level independent review for any implementation. This is supervised
+work, not activation or qualification of the registered worker team.
+
+This decision supersedes the support/hook-integration next-action instructions
+below. Step 7 remains BLOCKED / NOT QUALIFIED; automatic delegation remains
+disabled. Do not imitate registered role execution with unrestricted workers,
+change the refusal guard, or claim that instruction compliance proves isolation.
+PR81 remains a draft diagnostic with hook invocation NOT OBSERVED.
+
+Work is limited to this GitHub repository's hosted checkout and explicitly approved
+read-only references. Personal files and local-machine installations remain out of
+scope. Keep Rust authoritative, use one validated finding per implementation,
+check current PRs for overlapping writes, and never merge automatically.
+
+Current GitHub baseline checked for this continuation:
+`5431a45aeb4b17544b8631246e3cff12c465075a`. The configuration, core,
+desktop-check and desktop-linux-check checks all passed on that commit.
+Open PR79 and PR81 were drafts. PR79 remains documentation only and still needs
+independent review of its own current candidate; PR80/PR81 reviews do not cover it.
+
+The first proposed supervised product audit is a read-only C16 leaf: Escape-key
+event ownership between the shared workspace and an open editing dialog. Inspect
+the actual event wiring and available runtime tests before making a finding.
+Relevant entry paths are apps/desktop/frontend/shared-workspace.js and
+apps/desktop/frontend/shared-dialogs.js. Confirm normal canvas cancellation as the
+control and dialog cancellation without unintended workspace mutations as the
+negative/regression scenario. Report missing native/rendered evidence explicitly.
+No product implementation or broad C16 completeness claim is part of this
+checkpoint update.
+
 ## Current status after PR80
 
 Current main observed through GitHub: `5431a45aeb4b17544b8631246e3cff12c465075a`.
