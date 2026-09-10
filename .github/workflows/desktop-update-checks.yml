@@ -1,0 +1,22 @@
+name: desktop-update-checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  startup-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Startup UI controller tests
+        run: node --test scripts/test_startup_updater.cjs
+      - name: Startup ownership tests
+        run: |
+          rustc --edition 2024 --test apps/desktop/src-tauri/src/app_updates/gate.rs -o "$RUNNER_TEMP/update-gate-tests"
+          "$RUNNER_TEMP/update-gate-tests"
