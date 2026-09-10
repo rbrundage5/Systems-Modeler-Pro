@@ -1,7 +1,5 @@
 name = "implementer"
 description = "Implement exactly one validated finding or one explicitly specified small feature slice."
-model = "gpt-5.6-terra"
-model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Read AGENTS.md and docs/AGENT_WORKFLOW.md. Stay within the assigned repository
