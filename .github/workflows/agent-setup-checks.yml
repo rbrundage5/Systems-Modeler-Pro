@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Validate disabled configuration and blocked preflight
+      - name: Validate disabled configuration and bounded role contracts
         run: |
           python3 - <<'PY'
           import pathlib, subprocess, tomllib
@@ -24,21 +24,36 @@ jobs:
           assert hook["matcher"] == "^(spawn_agent|Agent)$"
           assert hook["hooks"][0]["command"] == "python3 /workspace/Systems-Modeler-Pro/scripts/agent_preflight.py"
           subprocess.run(["bash", "-n", "scripts/codex_cloud_setup.sh"], check=True)
-          coordinator = tomllib.loads((root / ".codex/agents/coordinator.toml").read_text())
-          assert "Do not spawn additional agents." not in coordinator["developer_instructions"]
+
           roles = list((root / ".codex/agents").glob("*.toml"))
-          expected = {"coordinator", "code_auditor", "sysml_auditor", "behavior_auditor", "ux_auditor", "implementer", "reviewer"}
-          names = set()
+          expected = {
+              "coordinator", "code_auditor", "sysml_auditor", "behavior_auditor",
+              "ux_auditor", "notation_auditor", "collaboration_auditor",
+              "implementer", "reviewer",
+          }
+          parsed = {}
           for path in roles:
               role = tomllib.loads(path.read_text())
-              assert role["name"] not in names
-              names.add(role["name"])
+              name = role["name"]
+              assert name not in parsed
+              parsed[name] = role
               assert all(role.get(k) for k in ("name", "description", "model", "model_reasoning_effort", "developer_instructions"))
-              expected_mode = "workspace-write" if role["name"] == "implementer" else "read-only"
+              expected_mode = "workspace-write" if name == "implementer" else "read-only"
               assert role["sandbox_mode"] == expected_mode
-          assert names == expected
+          assert set(parsed) == expected
+
+          coordinator = parsed["coordinator"]["developer_instructions"]
+          assert "Never dispatch a whole" in coordinator
+          assert "at most three" in coordinator
+          for name in ("code_auditor", "sysml_auditor", "behavior_auditor", "ux_auditor", "notation_auditor", "collaboration_auditor"):
+              instructions = parsed[name]["developer_instructions"]
+              assert "Audit exactly one assigned child" in instructions
+              assert "Do not edit code" in instructions
+          assert "Implement exactly one validated child finding" in parsed["implementer"]["developer_instructions"]
+          assert "SCOPE_TOO_LARGE" in parsed["reviewer"]["developer_instructions"]
+
           result = subprocess.run(["python3", "scripts/agent_preflight.py"], capture_output=True, text=True)
           assert result.returncode == 2
           assert "BLOCKED:" in result.stderr
-          print("Configuration parses; roles match; preflight refuses startup. Isolation is NOT qualified.")
+          print("Configuration parses; role ownership is leaf-scoped; preflight refuses startup. Isolation is NOT qualified.")
           PY
