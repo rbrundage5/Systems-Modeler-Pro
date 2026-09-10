@@ -99,6 +99,8 @@ jobs:
         run: python scripts/validate_repository_editing.py
       - name: Standard editing integration contract
         run: python scripts/validate_standard_editing_integration.py
+      - name: Dialog Escape ownership regression
+        run: node --test scripts/test_dialog_escape_ownership.cjs
       - name: Spreadsheet interchange integration contract
         run: python scripts/validate_spreadsheet_interchange.py
       - name: XMI interchange integration contract
@@ -153,6 +155,8 @@ jobs:
         run: python scripts/validate_repository_editing.py
       - name: Standard editing integration contract
         run: python scripts/validate_standard_editing_integration.py
+      - name: Dialog Escape ownership regression
+        run: node --test scripts/test_dialog_escape_ownership.cjs
       - name: Spreadsheet interchange integration contract
         run: python scripts/validate_spreadsheet_interchange.py
       - name: XMI interchange integration contract

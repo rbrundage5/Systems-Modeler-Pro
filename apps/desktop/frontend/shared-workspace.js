@@ -294,6 +294,7 @@
   canvas.addEventListener('click',(event)=>{if(!state.suppressPanClick)return;Object.assign(state,{suppressPanClick:false});event.preventDefault();event.stopImmediatePropagation();},true);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && event.target.closest?.('.application-dialog')) return;
     const editable = event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="dialog"]');
     if (event.code === 'Space' && !editable) { state.space = true; canvas.classList.add('space-pan'); event.preventDefault(); }
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); void cancelEverything(); }
