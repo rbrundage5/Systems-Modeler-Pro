@@ -4,6 +4,21 @@ Work only on rbrundage5/Systems-Modeler-Pro and approved read-only Project refer
 Read docs/STEP5_SCOPE_AND_ACCEPTANCE.md, docs/STEP5_AUDIT_COVERAGE.md and
 docs/AGENT_WORKFLOW.md. Historical PR documents are evidence, not current work orders.
 
+## Agent definitions and dispatch
+Project-scoped specialist definitions live in `.codex/agents/*.toml`. Treat those
+files as the authoritative role specifications for coordinator, auditors,
+implementer and reviewer. `.codex/config.toml` is the project-level agent/configuration
+entry point; `AGENTS.md` supplies shared repository instructions and does not replace
+the role TOMLs.
+
+When delegation is qualified and enabled, the coordinator must dispatch work using
+the registered role names and their `.codex/agents/*.toml` instructions rather than
+inventing ad-hoc worker roles or copying broad generic prompts. The work order adds
+the specific leaf scope, allowed paths, acceptance/negative case, references and the
+model/reasoning choice for that task. If the active client does not load the project
+agent definitions or cannot address the requested role, return BLOCKED and record the
+client/configuration gap; do not silently imitate the role in an unrestricted worker.
+
 ## Execution boundary
 Worker execution is DISABLED pending environment qualification. Do not spawn audit,
 implementation or review workers until a trusted supervisor enforces and verifies
