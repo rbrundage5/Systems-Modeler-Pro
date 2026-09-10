@@ -52,7 +52,10 @@ returns SCOPE_TOO_LARGE when a candidate combines unrelated work.
 
 Coverage ownership is non-overlapping: code_auditor C01/C02/C19/C21/C22;
 sysml_auditor C03-C11; behavior_auditor C12-C15; ux_auditor C16/C18;
-notation_auditor C17; collaboration_auditor C20.
+notation_auditor C17; collaboration_auditor C20. tool_gap_auditor is cross-cutting
+comparison support only: it compares one assigned leaf capability/workflow against
+named professional SysML tools using approved evidence and does not replace the
+owning domain auditor or take ownership of a Cxx parent.
 
 ## Delegation and evidence
 Agent roles do not own fixed models or fixed reasoning levels. The coordinator selects
@@ -61,7 +64,9 @@ ambiguity, risk, context and verification burden. Record requested and effective
 settings and do not claim an override worked without evidence.
 
 Give each agent a bounded task and approved reference IDs. Findings need reproduction
-and expected behavior. Implementers cannot approve their own changes. Report exact
+and expected behavior. Implementers cannot approve their own changes. Comparative
+claims about professional tools require named approved sources; unsupported vendor
+capabilities are UNKNOWN/EVIDENCE_GAP, not assumed parity or deficiency. Report exact
 commits, executed checks, manual limitations and next steps. Preserve unresolved
 findings. Do not claim a feature complete from enum presence or a historical
 qualification claim.
