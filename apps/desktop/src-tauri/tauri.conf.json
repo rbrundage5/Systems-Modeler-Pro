@@ -28,6 +28,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer/running-app-guard.nsh"
+      }
+    }
   }
 }
