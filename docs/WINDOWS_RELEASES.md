@@ -71,6 +71,8 @@ version and any unpushed work has been preserved.
   also requires `core`, `desktop-check`, `desktop-linux-check`, `configuration`,
   `startup-update`, `release-contract` and `signed-package` to succeed. Missing,
   pending, failed or untrusted check results cannot authorize publication.
+  Any additional applicable GitHub Actions validation jobs must also pass; only
+  the release's own `plan` and `publish` orchestration jobs are excluded.
 - Versions derive monotonically from the native workflow run number, starting
   in `0.2.*`, with Windows component limits. A later/equal published version or
   newer main SHA skips obsolete work. An unrelated latest-release tag blocks the

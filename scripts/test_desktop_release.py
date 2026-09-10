@@ -97,6 +97,18 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(api.checks(SHA)),100+len(release.REQUIRED))
         self.assertEqual(api.paths,[f"/commits/{SHA}/check-runs?filter=all&per_page=100&page={i}" for i in [1,2]])
 
+    def test_applicable_optional_validation_blocks_but_publication_does_not(self):
+        checks=good_checks()
+        active={"id":900,"status":"in_progress","conclusion":None,"app":{"slug":"github-actions"}}
+        checks.extend([{**active,"name":name} for name in ["plan","publish"]])
+        self.assertTrue(release.check_state(checks))
+        checks.append({**active,"name":"client"})
+        self.assertFalse(release.check_state(checks))
+        checks[-1].update(status="completed",conclusion="failure")
+        with self.assertRaises(ValueError): release.check_state(checks)
+        checks[-1]["conclusion"]="success"
+        self.assertTrue(release.check_state(checks))
+
     def test_superseded_commit_and_newer_release_are_skipped(self):
         api = FakeGitHub(); api.main = "b"*40
         self.assertIsNone(release.plan_release(api,77,attempts=1))

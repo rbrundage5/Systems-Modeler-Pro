@@ -51,12 +51,15 @@ def check_state(checks):
             name = check["name"]
             if name not in latest or check["id"] > latest[name]["id"]:
                 latest[name] = check
-    for name in REQUIRED:
+    # Additional validation jobs may be path-filtered. If present, they must also
+    # pass. Exclude this publication's own active orchestration jobs to avoid a cycle.
+    validation = REQUIRED | (set(latest) - {"plan", "publish"})
+    for name in validation:
         check = latest.get(name)
         if check and check["status"] == "completed" and check["conclusion"] != "success":
             raise ValueError(f"Required check failed: {name}")
     return all(name in latest and latest[name]["status"] == "completed"
-               and latest[name]["conclusion"] == "success" for name in REQUIRED)
+               and latest[name]["conclusion"] == "success" for name in validation)
 
 class GitHub:
     def request(self, path, method="GET", data=None, missing_ok=False):
