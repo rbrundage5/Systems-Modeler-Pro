@@ -183,3 +183,32 @@ Return baseline, client/version, actual root, executed checks, evidence for each
 claim, unresolved blockers, and the exact next bounded integration/qualification
 task. PR79 remains an evidence document requiring independent review; merging it
 does not qualify or activate the agents.
+
+## S7.02A supplied filesystem feasibility evidence
+
+The user supplied a Codex Cloud report at main
+`5431a45aeb4b17544b8631246e3cff12c465075a`: FEASIBLE for synthetic process
+filesystem isolation with /usr/bin/bwrap, Bubblewrap 0.9.0.
+
+Approved reference reads and assigned-directory writes succeeded. Reference/mock
+control writes and deletes, outside-canary reads/writes, traversal and symlink
+access were denied. An ordinary child shell inherited the tested restrictions.
+Host-side canaries remained unchanged and temporary fixtures were removed.
+
+A probe requiring a fresh /proc mount failed with Operation not permitted. The
+successful narrower probe omitted /proc and /dev. An initial runner's redirection
+to absent /dev/null produced invalid test outcomes; only the corrected runner's
+results count. Network namespaces were requested, but network denial itself was
+not tested. Environment sanitization, inherited file descriptors, real toolchain
+execution and model-tool integration were not established.
+
+This is user-supplied evidence for the tested mount namespace, not evidence that
+hosted Codex tools or subagents are forced to execute through it. A repository
+launcher that can be bypassed by direct model tools is not a trusted supervisor.
+No actual worker-model dispatch occurred; requested/effective model and effort N/A.
+
+Next bounded integration check: establish actual client loading and invocation of
+a diagnostic project PreToolUse hook on an ordinary synthetic shell command.
+Keep agents disabled and the existing refusal guard intact. This check would
+verify only a local tool hook; connector/hosted-tool restrictions and immutable
+supervisor enforcement remain separate gates.
