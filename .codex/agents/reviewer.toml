@@ -1,7 +1,5 @@
 name = "reviewer"
 description = "Independently review one candidate patch against its exact leaf work order and regression contract."
-model = "gpt-5.6-sol"
-model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 Read AGENTS.md and docs/AGENT_WORKFLOW.md. Stay within the assigned repository
