@@ -55,3 +55,33 @@ undo, project administration, and production HTTPS deployment remain subsequent
 work. Pending retries are memory-only; after an application crash, reload the
 server snapshot and inspect it before recreating an unconfirmed edit. There is no
 automatic offline merge or crash-persistent outbox in this increment.
+
+## Two-client integration qualification increment
+
+Baseline: `98e92f681929f9656713d7da89c70ce21711616c` (merged PR75).
+The desktop command adapters now delegate to the same private Rust session methods
+used by integration tests; the existing Tauri session mutex remains in place.
+The server is a development-only dependency, not embedded into the desktop build.
+
+Four new integration tests use real desktop session clients, loopback HTTP,
+the production server, and temporary SQLite databases:
+
+- Two editors create a package and block, resolve a stale revision explicitly,
+  rename without changing identity, and converge on the same snapshot.
+- Concurrent editors submit at the same revision; exactly one succeeds, and the
+  loser must refresh before committing its resolved edit.
+- Viewer and invalid credentials are rejected; direct HTTP requests also verify
+  that bypassing the desktop permission check does not bypass server enforcement.
+- An acknowledged-by-server but unprocessed-by-client receipt is recovered using
+  the same operation ID, including a replay after server restart, without a second
+  model edit or revision increment.
+
+Run `cargo test --locked -p systems-modeler-desktop collaboration` to execute these
+alongside the four existing client tests. Final CI results are recorded in the PR.
+Local Cargo is unavailable; do not infer a test pass from this test specification.
+
+These qualify the Rust transport/session workflow when passing. They do not launch
+Tauri windows, simulate a real cable failure, prove TLS deployment, or replace
+physical-device and visual acceptance. The previously denied local-browser check
+has not been retried or bypassed. Full shared-diagram authoring remains the next
+implementation workstream after this qualification increment.
