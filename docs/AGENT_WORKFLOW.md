@@ -29,8 +29,8 @@ child check from its rows, never the whole parent row.
 | implementer | one validated finding or one explicitly specified small feature slice |
 | reviewer | one candidate patch for one leaf work order |
 
-The coordinator owns decomposition, dependencies and file ownership; it does not
-perform implementation or independent review.
+The coordinator owns decomposition, dependencies, file ownership and task-level
+model/reasoning selection; it does not perform implementation or independent review.
 
 ## Leaf-scope rule
 `STEP5_AUDIT_COVERAGE.md` explicitly requires semicolon-separated topics to become
@@ -60,17 +60,24 @@ serialized or re-scoped. If current PR state cannot be checked, record that gap 
 do not assume exclusive ownership of a shared module.
 
 ## Model routing
-Candidate defaults are explicit in role TOMLs. They are not account availability
-claims. Terra medium handles bounded everyday code/UI work; Sol high handles SysML
-semantics, execution, collaboration, notation and independent review. Luna may be
-used for simple extraction/summarization if actually available. More difficult
-architecture may be escalated only when needed. Record the effective model/effort;
-never assume a requested override took effect.
+Agent role files intentionally do not pin a model or reasoning effort, and the
+project `[agents]` configuration intentionally provides no model default. For every
+leaf dispatch, the coordinator chooses both from the models actually available in
+the current environment.
 
-Escalate after two unsuccessful focused correction cycles, or immediately for
-cross-cutting semantic uncertainty. Send prior evidence so the next worker does not
-repeat discovery. Start with at most three read-only specialists in parallel and
-serialize shared-file writes. More agents do not guarantee lower subscription usage.
+Choose based on the task itself: ambiguity, semantic/architectural risk, context
+size, expected verification burden, and cost/latency. Routine, bounded and easily
+verified work should use a lighter available configuration; difficult judgment,
+cross-cutting reasoning or consequential review should receive stronger reasoning.
+Do not create permanent role-to-model mappings. Escalate or re-dispatch only when
+the evidence shows the first choice is insufficient or the task has changed.
+
+Record the requested and effective model/reasoning effort for every dispatched task.
+If task-level selection is unsupported or the requested setting is unavailable,
+record the limitation and do not pretend the override took effect.
+
+Start with at most three independent read-only specialists in parallel and serialize
+shared-file writes. More agents do not guarantee lower subscription usage.
 
 ## Work order required before dispatch
 Record:
@@ -79,7 +86,7 @@ Record:
 - One concrete objective and explicit non-goals.
 - Exact allowed production paths; tests/docs may be separately named.
 - Acceptance scenario, failure/rollback case and relevant reference clause/figure.
-- Effective role, model/effort, dependencies and exclusive file ownership.
+- Effective role, requested/effective model and effort, dependencies and exclusive file ownership.
 - Required focused checks and any integration/manual gate.
 - Environment qualification record tied to the supervisor configuration.
 - Stop condition, remaining correction budget and publication owner.
