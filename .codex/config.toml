@@ -3,8 +3,9 @@
 [agents]
 enabled = false
 max_concurrent_threads_per_session = 3
-default_subagent_model = "gpt-5.6-terra"
-default_subagent_reasoning_effort = "medium"
+
+# Model and reasoning effort are intentionally not pinned here. The coordinator
+# selects them per dispatched leaf task after confirming current availability.
 
 # Block supported delegation calls while qualification is incomplete.
 # This does not intercept hosted tools or enforce filesystem isolation.
