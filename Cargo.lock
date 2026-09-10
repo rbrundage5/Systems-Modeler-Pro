@@ -3649,6 +3649,7 @@ dependencies = [
  "serde_json",
  "systems-modeler-core",
  "systems-modeler-persistence",
+ "systems-modeler-server",
  "tauri",
  "tauri-build",
  "tokio",

@@ -130,6 +130,7 @@
       label.textContent = semantic?.name || String(node.element);
       group.append(rect, stereotype, label);
       group.addEventListener('pointerdown', event => {
+        if (busy) return;
         selectedNodeId = String(node.id);
         canvas.querySelectorAll('.collaboration-bdd-node').forEach(item => item.classList.toggle('selected', item === group));
         find('[data-bdd-remove]').disabled = !canEdit() || !!view?.pending || !!view?.needs_refresh;
@@ -137,6 +138,7 @@
         const start = svgPoint(event);
         drag = {
           pointerId: event.pointerId,
+          expectedRevision: view.snapshot.revision,
           diagramId: String(diagram.id),
           nodeId: String(node.id),
           group,
@@ -181,7 +183,7 @@
   }
 
   async function run(action, success) {
-    if (busy) return;
+    if (busy) return false;
     busy = true;
     dialog.setAttribute('aria-busy', 'true');
     const controls = [...dialog.querySelectorAll('input, select, button')];
@@ -191,11 +193,13 @@
       if (!invoke) throw new Error('Shared projects require the desktop application.');
       await action();
       if (success) message.textContent = success;
+      return true;
     } catch (error) {
       message.textContent = String(error);
       if (view) {
         try { view = await invoke('collaboration_status'); } catch (_) { /* Keep last visible snapshot. */ }
       }
+      return false;
     } finally {
       controls.forEach((control, index) => { control.disabled = disabled[index]; });
       busy = false;
@@ -204,10 +208,9 @@
     }
   }
 
-  async function submitSharedEdit(editPayload, success) {
-    if (!view?.snapshot) return;
-    const expectedRevision = view.snapshot.revision;
-    await run(async () => {
+  async function submitSharedEdit(editPayload, success, expectedRevision = view?.snapshot?.revision) {
+    if (!view?.snapshot) return false;
+    return run(async () => {
       view = await invoke('collaboration_edit', { expectedRevision, edit: editPayload });
     }, success);
   }
@@ -225,6 +228,7 @@
     const completed = drag;
     drag = null;
     try { canvas.releasePointerCapture(event.pointerId); } catch (_) { /* Pointer may already be released. */ }
+    if (completed.x === completed.node.x && completed.y === completed.node.y) return;
     submitSharedEdit({
       UpdateBddNodeGeometry: {
         diagram: completed.diagramId,
@@ -234,7 +238,7 @@
         width: completed.node.width,
         height: completed.node.height,
       },
-    }, 'Shared BDD node moved.');
+    }, 'Shared BDD node moved.', completed.expectedRevision);
   });
 
   canvas.addEventListener('pointercancel', () => {
@@ -267,7 +271,7 @@
     const target = find('[data-element]').value;
     const name = edit.elements.name.value;
     const payload = operation === 'RenameElement' ? { element: target, name } : { owner: target, name };
-    submitSharedEdit({ [operation]: payload }, 'Shared repository edit saved.').then(() => { edit.elements.name.value = ''; });
+    submitSharedEdit({ [operation]: payload }, 'Shared repository edit saved.').then(saved => { if (saved) edit.elements.name.value = ''; });
   };
 
   find('[data-bdd-diagram]').onchange = event => {
@@ -299,7 +303,8 @@
   find('[data-bdd-delete]').onclick = () => {
     if (!selectedDiagramId) return;
     const deleting = selectedDiagramId;
-    submitSharedEdit({ DeleteBddDiagram: { diagram: deleting } }, 'Shared BDD deleted.').then(() => {
+    submitSharedEdit({ DeleteBddDiagram: { diagram: deleting } }, 'Shared BDD deleted.').then(saved => {
+      if (!saved) return;
       if (selectedDiagramId === deleting) selectedDiagramId = '';
       selectedNodeId = '';
     });
@@ -312,7 +317,7 @@
   find('[data-bdd-remove]').onclick = () => {
     if (!selectedDiagramId || !selectedNodeId) return;
     const node = selectedNodeId;
-    submitSharedEdit({ RemoveBddNode: { diagram: selectedDiagramId, node } }, 'Shared BDD node removed.').then(() => { selectedNodeId = ''; });
+    submitSharedEdit({ RemoveBddNode: { diagram: selectedDiagramId, node } }, 'Shared BDD node removed.').then(saved => { if (saved) { selectedNodeId = ''; renderBdd(); } });
   };
   find('[data-retry]').onclick = () => run(async () => {
     view = await invoke('collaboration_retry');
