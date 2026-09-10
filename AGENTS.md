@@ -23,6 +23,22 @@ editing, save/reopen, import and runtime behavior. No arbitrary JavaScript line 
 Use the active work order's baseline, allowed paths, acceptance and verification.
 No overlapping writers on shared modules; no automatic merge or force push.
 
+## Task scope
+The normal unit of work is one leaf child check from STEP5_AUDIT_COVERAGE.md, not a
+whole Cxx/Fxx/Axx parent. Each work order names one concrete workflow, exact allowed
+paths, acceptance evidence and a relevant negative/rollback case. Large feature gaps
+must be specified and split into dependency-ordered increments before implementation.
+
+Auditors are read-only and return evidence. The implementer fixes exactly one
+validated finding or one explicitly bounded feature slice; no opportunistic cleanup,
+broad refactor, or unrelated second fix. If the correct change crosses independent
+subsystems, stop and request a split. The independent reviewer checks scope first and
+returns SCOPE_TOO_LARGE when a candidate combines unrelated work.
+
+Coverage ownership is non-overlapping: code_auditor C01/C02/C19/C21/C22;
+sysml_auditor C03-C11; behavior_auditor C12-C15; ux_auditor C16/C18;
+notation_auditor C17; collaboration_auditor C20.
+
 ## Delegation and evidence
 Lead chooses available models by scope/risk; see workflow. Give each agent a bounded
 task and approved reference IDs. Findings need reproduction and expected behavior.
