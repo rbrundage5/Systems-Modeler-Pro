@@ -3,6 +3,45 @@
 Status: **BLOCKED / NOT QUALIFIED**. Evidence-only setup maintenance; no product
 changes, worker launches, configuration activation, or automatic merge.
 
+
+## Current status after PR80
+
+Current main observed through GitHub: `5431a45aeb4b17544b8631246e3cff12c465075a`.
+PR80 is merged; its tested candidate was
+`428910e37343c1194fca679c2bacb3c6a064253d`.
+
+This section supersedes earlier next-action instructions below. Those sections
+preserve historical observations from Work and the initial Codex handoff.
+
+- The user supplied actual Codex Cloud inventory at the PR78 baseline:
+  the configured /workspace/Systems-Modeler-Pro root exists, all ten TOMLs parse,
+  the refusal script returns its expected diagnostic, and core Rust tools exist.
+  This corrects the applicability of earlier Work-only missing-root/tool findings.
+- Desktop setup initially failed on hosted package-proxy HTTP 502 responses.
+  A subsequent setup supplied all checked desktop prerequisites.
+- The user supplied a successful offline locked desktop Cargo check on the exact
+  PR80 candidate: exit 0, 6m 04s, clean worktree.
+- A separate user-supplied Codex review returned PASS with no findings, validating
+  PNG provenance, bounded scope, preserved existing CI, and Linux compile coverage.
+  This review covers PR80 only; it is not independent review of this document.
+- Before PR80 merged, direct GitHub checks reported core, desktop-linux-check,
+  desktop-check and configuration all successful on its candidate.
+
+Remaining gates: actual custom-role loading/addressability, effective per-task
+model/effort evidence, automatic guard behavior, enforced worker boundaries,
+reference mounts, concurrency/reviewer controls, resumable attestation, and desktop
+visual/manual capability. Codex's earlier live GitHub access gap also remains open;
+GitHub access from Work does not establish access from Codex.
+
+Next: resolve the supported hosted agent runtime and enforcement mechanism before
+another worker qualification attempt. Do not repeat completed desktop build checks
+on the unchanged candidate without a concrete reason. No agent activation follows
+from PR80 or this evidence-only document.
+
+PR79 remains a documentation checkpoint, independent of product/build fixes.
+It may be reviewed and merged while environment qualification remains blocked;
+merging it does not enable delegation. Independent document review is outstanding.
+
 ## Baseline and live GitHub evidence
 
 - Baseline main: `78807b20310a38e5da166383b906e0dd6e825c79` (PR77 merge).
