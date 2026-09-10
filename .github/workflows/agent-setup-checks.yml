@@ -25,7 +25,7 @@ jobs:
           assert "default_subagent_reasoning_effort" not in agents
           hook = config["hooks"]["PreToolUse"][0]
           assert hook["matcher"] == "^(spawn_agent|Agent)$"
-          assert hook["hooks"][0]["command"] == "python3 /workspace/Systems-Modeler-Pro/scripts/agent_preflight.py"
+          assert hook["hooks"][0]["command"] == 'smp_repo_root="$(git rev-parse --show-toplevel)" && python3 "$smp_repo_root/scripts/agent_preflight.py"'
           subprocess.run(["bash", "-n", "scripts/codex_cloud_setup.sh"], check=True)
 
           roles = list((root / ".codex/agents").glob("*.toml"))
@@ -74,3 +74,5 @@ jobs:
           assert "BLOCKED:" in result.stderr
           print("Configuration parses; role ownership is leaf-scoped; model routing is task-driven; professional-tool comparison is bounded; preflight refuses startup. Isolation is NOT qualified.")
           PY
+      - name: Verify configured refusal command from portable checkout roots
+        run: python3 -m unittest discover -s scripts -p 'test_agent_preflight_path.py' -v

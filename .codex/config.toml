@@ -14,4 +14,4 @@ matcher = "^(spawn_agent|Agent)$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = 'python3 /workspace/Systems-Modeler-Pro/scripts/agent_preflight.py'
+command = 'smp_repo_root="$(git rev-parse --show-toplevel)" && python3 "$smp_repo_root/scripts/agent_preflight.py"'
