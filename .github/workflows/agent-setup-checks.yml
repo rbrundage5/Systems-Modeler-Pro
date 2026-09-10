@@ -42,15 +42,17 @@ jobs:
               assert role["sandbox_mode"] == expected_mode
           assert set(parsed) == expected
 
-          coordinator = parsed["coordinator"]["developer_instructions"]
-          assert "Never dispatch a whole" in coordinator
+          coordinator = " ".join(parsed["coordinator"]["developer_instructions"].split()).lower()
+          assert "never dispatch a whole" in coordinator
           assert "at most three" in coordinator
           for name in ("code_auditor", "sysml_auditor", "behavior_auditor", "ux_auditor", "notation_auditor", "collaboration_auditor"):
-              instructions = parsed[name]["developer_instructions"]
-              assert "Audit exactly one assigned child" in instructions
-              assert "Do not edit code" in instructions
-          assert "Implement exactly one validated child finding" in parsed["implementer"]["developer_instructions"]
-          assert "SCOPE_TOO_LARGE" in parsed["reviewer"]["developer_instructions"]
+              instructions = " ".join(parsed[name]["developer_instructions"].split()).lower()
+              assert "audit exactly one assigned child" in instructions
+              assert "do not edit code" in instructions
+          implementer = " ".join(parsed["implementer"]["developer_instructions"].split()).lower()
+          reviewer = " ".join(parsed["reviewer"]["developer_instructions"].split()).lower()
+          assert "implement exactly one validated child finding" in implementer
+          assert "scope_too_large" in reviewer
 
           result = subprocess.run(["python3", "scripts/agent_preflight.py"], capture_output=True, text=True)
           assert result.returncode == 2
