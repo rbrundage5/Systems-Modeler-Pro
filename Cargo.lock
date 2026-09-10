@@ -3652,6 +3652,7 @@ dependencies = [
  "systems-modeler-server",
  "tauri",
  "tauri-build",
+ "tempfile",
  "tokio",
  "uuid",
  "zip 0.6.6",

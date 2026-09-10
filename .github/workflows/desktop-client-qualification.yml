@@ -2,7 +2,7 @@ name: desktop-client-qualification
 on:
   pull_request:
     paths:
-      - 'apps/desktop/src-tauri/src/collaboration.rs'
+      - 'apps/desktop/src-tauri/src/collaboration*.rs'
       - 'apps/desktop/src-tauri/Cargo.toml'
       - 'apps/desktop/frontend/collaboration*'
       - 'apps/server/src/**'
