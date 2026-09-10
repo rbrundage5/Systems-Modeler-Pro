@@ -72,6 +72,19 @@ qualified reference environment.
 | formal-17-12-05.pdf | 416b57e1933780eb48bd60fe513e031da220c28a521bdd334a366bebc78a463e |
 | Practical Guide supplied copy | 75c363e13ca8082e5e89a614828885d301b470b8d0f1c08e83e430d304e74cde |
 
+## Target execution environment
+
+The user confirmed during this checkpoint that all future work will move to Codex
+once the agents are ready. Codex is therefore the qualification target. Work is
+used here for setup preparation and evidence recording; its missing executables
+or checkout are not proof of a defect in the future Codex environment.
+
+Final readiness necessarily includes a setup-only qualification session in the
+actual selected Codex client/environment before production delegation. Record
+which Codex client/version is used rather than assuming all clients support the
+same TOML roles, hooks, model receipts or isolation controls. No Work-specific
+fallback or weakened gate is introduced.
+
 ## Resume work orders
 
 1. User may merge PR78 after checking its live head/clean status. This checkpoint
