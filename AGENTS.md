@@ -40,10 +40,15 @@ sysml_auditor C03-C11; behavior_auditor C12-C15; ux_auditor C16/C18;
 notation_auditor C17; collaboration_auditor C20.
 
 ## Delegation and evidence
-Lead chooses available models by scope/risk; see workflow. Give each agent a bounded
-task and approved reference IDs. Findings need reproduction and expected behavior.
-Implementers cannot approve their own changes. Report exact commits, executed checks,
-manual limitations and next steps. Preserve unresolved findings. Do not claim a
-feature complete from enum presence or a historical qualification claim.
+Agent roles do not own fixed models or fixed reasoning levels. The coordinator selects
+both for each leaf task from what is actually available, based on that task's
+ambiguity, risk, context and verification burden. Record requested and effective
+settings and do not claim an override worked without evidence.
+
+Give each agent a bounded task and approved reference IDs. Findings need reproduction
+and expected behavior. Implementers cannot approve their own changes. Report exact
+commits, executed checks, manual limitations and next steps. Preserve unresolved
+findings. Do not claim a feature complete from enum presence or a historical
+qualification claim.
 Workers may not edit AGENTS.md, .codex/, enforcement scripts or workflow controls.
 Only a separately scoped setup-maintenance task may propose those changes.
