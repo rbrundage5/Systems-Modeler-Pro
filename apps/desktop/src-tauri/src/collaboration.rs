@@ -91,13 +91,7 @@ impl Session {
                 "Enter the 64-character access token supplied by your administrator.".into(),
             );
         }
-        let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|_| "Could not initialize HTTPS client.")?;
+        let client = http_client()?;
         let mut session = Session {
             client,
             base: server_url(server)?,
@@ -276,37 +270,6 @@ impl Session {
             }
         }
     }
-
-    async fn edit(&mut self, expected_revision: i64, edit: SharedEdit) -> Result<View, String> {
-        if self.pending.is_some() {
-            return Err("Retry the pending edit before submitting another change.".into());
-        }
-        let snapshot = self
-            .snapshot
-            .as_ref()
-            .ok_or("Open a shared project first.")?;
-        let project_id = snapshot.project.id;
-        if self.needs_refresh
-            || snapshot.revision != expected_revision
-            || expected_revision == i64::MAX
-        {
-            return Err("Refresh and review the project before editing.".into());
-        }
-        if !self
-            .projects
-            .iter()
-            .any(|g| g.id == project_id && g.role == "editor")
-        {
-            return Err("This project is view-only.".into());
-        }
-        self.pending = Some(EditRequest {
-            operation_id: Uuid::new_v4(),
-            expected_revision,
-            edit,
-        });
-        self.submit_pending().await?;
-        Ok(self.view())
-    }
 }
 
 #[tauri::command]
@@ -319,23 +282,6 @@ pub async fn collaboration_connect(
     if state.as_ref().is_some_and(|s| s.pending.is_some()) {
         return Err("Resolve the pending edit before reconnecting.".into());
     }
-    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("Enter the 64-character access token supplied by your administrator.".into());
-    }
-    let mut session = Session {
-        client: http_client()?,
-        base: server_url(&server)?,
-        token,
-        projects: Vec::new(),
-        snapshot: None,
-        pending: None,
-        needs_refresh: false,
-    };
-    let list: ProjectList = session
-        .request(Method::GET, "v1/projects", None)
-        .await
-        .map_err(|e| e.1)?;
-    session.projects = list.projects;
     let session = Session::connect(&server, token).await?;
     let view = session.view();
     *state = Some(session);
@@ -360,11 +306,6 @@ pub async fn collaboration_edit(
     edit: SharedEdit,
 ) -> Result<View, String> {
     let mut guard = state.0.lock().await;
-    guard
-        .as_mut()
-        .ok_or("Connect to a server first.")?
-        .edit(expected_revision, edit)
-        .await
     let session = guard.as_mut().ok_or("Connect to a server first.")?;
     session.edit(expected_revision, edit).await?;
     Ok(session.view())
