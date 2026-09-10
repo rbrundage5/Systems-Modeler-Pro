@@ -40,6 +40,8 @@
   let selectedDiagramId = '';
   let selectedNodeId = '';
   let drag = null;
+  let bddNameDirty = false;
+  find('[data-bdd-name]').addEventListener('input', () => { bddNameDirty = true; });
 
   function snapshotElements() {
     return Object.values(view?.snapshot?.project?.elements || {}).sort((a, b) => a.name.localeCompare(b.name));
@@ -91,7 +93,7 @@
 
     const diagram = currentDiagram();
     const nameInput = find('[data-bdd-name]');
-    if (document.activeElement !== nameInput) nameInput.value = diagram?.name || '';
+    if (!bddNameDirty && document.activeElement !== nameInput) nameInput.value = diagram?.name || '';
     const editable = canEdit() && !view?.pending && !view?.needs_refresh;
     find('[data-bdd-create]').disabled = !editable || !ownerSelect.value;
     find('[data-bdd-rename]').disabled = !editable || !diagram;
@@ -108,6 +110,17 @@
       canvas.append(empty);
       return;
     }
+    let right = 1200;
+    let bottom = 760;
+    let left = 0;
+    let top = 0;
+    for (const node of diagram.nodes || []) {
+      left = Math.min(left, node.x - 40);
+      top = Math.min(top, node.y - 40);
+      right = Math.max(right, node.x + node.width + 40);
+      bottom = Math.max(bottom, node.y + node.height + 40);
+    }
+    canvas.setAttribute('viewBox', `${left} ${top} ${right - left} ${bottom - top}`);
     const byId = new Map(elements.map(element => [String(element.id), element]));
     for (const node of diagram.nodes || []) {
       const semantic = byId.get(String(node.element));
@@ -258,6 +271,7 @@
   find('[data-open]').onclick = () => run(async () => {
     view = await invoke('collaboration_open', { project: find('[data-project]').value });
     edit.elements.name.value = '';
+    bddNameDirty = false;
     selectedDiagramId = String(view.snapshot?.diagrams?.[0]?.id || '');
     selectedNodeId = '';
   }, 'Shared project loaded.');
@@ -275,6 +289,7 @@
   };
 
   find('[data-bdd-diagram]').onchange = event => {
+    bddNameDirty = false;
     selectedDiagramId = event.target.value;
     selectedNodeId = '';
     renderBdd();
@@ -292,13 +307,16 @@
       });
       const created = diagrams().find(item => !before.has(String(item.id)));
       if (created) selectedDiagramId = String(created.id);
+      bddNameDirty = false;
       selectedNodeId = '';
     }, 'Shared BDD created.');
   };
   find('[data-bdd-rename]').onclick = () => {
     const name = find('[data-bdd-name]').value.trim();
     if (!selectedDiagramId || !name) return;
-    submitSharedEdit({ RenameBddDiagram: { diagram: selectedDiagramId, name } }, 'Shared BDD renamed.');
+    submitSharedEdit({ RenameBddDiagram: { diagram: selectedDiagramId, name } }, 'Shared BDD renamed.').then(saved => {
+      if (saved) { bddNameDirty = false; renderBdd(); }
+    });
   };
   find('[data-bdd-delete]').onclick = () => {
     if (!selectedDiagramId) return;
@@ -335,7 +353,7 @@
   // Never silently rebase an unsent edit or retry an operation with a new identity.
   setInterval(() => {
     const bddNameFocused = document.activeElement === find('[data-bdd-name]');
-    if (dialog.open && !busy && !drag && !bddNameFocused && view?.snapshot && !view.pending && !view.needs_refresh && !edit.elements.name.value) {
+    if (dialog.open && !busy && !drag && !bddNameDirty && !bddNameFocused && view?.snapshot && !view.pending && !view.needs_refresh && !edit.elements.name.value) {
       run(async () => { view = await invoke('collaboration_open', { project: view.snapshot.project.id }); });
     }
   }, 5000);

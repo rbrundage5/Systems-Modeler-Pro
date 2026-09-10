@@ -1,8 +1,9 @@
 # Desktop shared-project increment
 
-Baseline: `c18c770de554a32a345412819c6f35dcd8249f82` (merged PR74).
+Merged baseline: `98e92f681929f9656713d7da89c70ce21711616c` (PR75).
+Shared BDD increment: PR77, resumed from `ecedbda897b91edf23b53617ae7e0888586b7450`.
 
-This increment exposes the existing server's three semantic edits in a desktop
+This increment exposes the server's three semantic edits and shared BDD presentation operations in a desktop
 Shared Projects window. Rust owns credentials, transport, snapshots, revision
 checks, and retry identity. The server remains the committed model authority.
 The existing offline workspace and SQLite database are not replaced or connected
@@ -50,8 +51,44 @@ server, create/rename in one and observe refresh in the other; verify viewer
 rejection, stale-edit conflict, token rejection, reconnect, and unchanged offline
 create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 
-Shared diagram presentation, complete authoring operations, presence, collaborative
+Shared relationships/routing, other diagram families, complete authoring operations, presence, collaborative
 undo, project administration, and production HTTPS deployment remain subsequent
 work. Pending retries are memory-only; after an application crash, reload the
 server snapshot and inspect it before recreating an unconfirmed edit. There is no
 automatic offline merge or crash-persistent outbox in this increment.
+
+## Shared BDD workflow and qualification
+
+After opening a shared project, choose a Model or Package owner, enter a diagram
+name, and select Create BDD. Select an existing supported element and Place on BDD.
+Drag a node to commit geometry; another session observes the same layout on refresh.
+Rename BDD, Remove selected node, and Delete BDD are revisioned operations. Removing
+a presentation does not remove its semantic element. Geometry supports server-side
+resize, but this UI currently exposes movement only. Relationship editing, normal
+workspace integration, frame/compartment parity, zoom/pan, and other families are
+not qualified by this bounded canvas.
+
+A rejected repository edit retains its typed name for review and resubmission.
+Pointer gestures are blocked during requests, capture their starting revision,
+and do not commit on a stationary click. Network uncertainty retains exact retry
+identity; a revision conflict requires explicit refresh. Pending retries remain
+memory-only.
+
+The real-server integration test runs two independent Rust desktop sessions over
+loopback HTTP, covering a stale writer and shared BDD create/place/move convergence.
+The frontend regression script exercises production event handlers in a minimal
+Node DOM fixture; it does not establish native rendering or two-device acceptance.
+Run `node scripts/test_collaboration_ui.cjs` alongside the client CI workflow.
+
+September 10 continuation: original head passed core/persistence CI but failed
+native desktop compilation (test assertion required Debug), and both dedicated
+workflows failed locked-dependency verification. The missing server dependency in
+Cargo.lock and the assertion are corrected without relaxing either gate. Local
+JavaScript syntax, Rust-authority, and diff checks pass. Cargo is unavailable in
+this authoring environment; final native, server, and client results must be read
+from GitHub CI for the published head before merge.
+
+Next acceptance: run two native desktop instances through create/place/move,
+rename/remove/delete, stale edits, viewer rejection, retry and reconnect; verify
+unchanged offline editing/save/reopen. Then extend shared relationship operations
+through existing Rust semantics before broadening diagram-family coverage.

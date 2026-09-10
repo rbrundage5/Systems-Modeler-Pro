@@ -8,6 +8,7 @@ on:
       - 'apps/server/src/**'
       - 'crates/persistence/src/collaboration.rs'
       - 'Cargo.lock'
+      - 'scripts/test_collaboration_ui.cjs'
       - '.github/workflows/desktop-client-qualification.yml'
 permissions:
   contents: read
@@ -31,6 +32,8 @@ jobs:
           node-version: 22
       - name: Frontend syntax
         run: node --check apps/desktop/frontend/collaboration-ui.js
+      - name: Frontend collaboration regressions
+        run: node scripts/test_collaboration_ui.cjs
       - name: Focused client tests
         run: cargo test --locked -p systems-modeler-desktop collaboration
       - name: Desktop lint
