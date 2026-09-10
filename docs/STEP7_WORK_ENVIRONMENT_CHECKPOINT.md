@@ -212,3 +212,27 @@ a diagnostic project PreToolUse hook on an ordinary synthetic shell command.
 Keep agents disabled and the existing refusal guard intact. This check would
 verify only a local tool hook; connector/hosted-tool restrictions and immutable
 supervisor enforcement remain separate gates.
+
+## S7.02B result — NOT OBSERVED
+
+User-supplied independent review of PR81 candidate
+`a85de1a6f688e62d879ac2e8ba363e8c1017dbeb` against
+`5431a45aeb4b17544b8631246e3cff12c465075a`: PASS, no findings.
+Role definitions and original delegation refusal were unchanged.
+
+In a hosted task at that exact candidate, separate direct shell calls both exited
+zero and printed their respective control/probe markers. The runtime did not emit
+S7_02B_HOOK_OBSERVED or prevent the probe's printf from executing. Worktree remained
+clean; no workers, dependencies, edits or bypass were reported.
+
+Conclusion: project PreToolUse invocation NOT OBSERVED in the tested configuration.
+This is not a code-review failure and not proof that every Codex Cloud configuration
+lacks hooks. Loading, trust, supported client surface and tool-path behavior remain
+possible causes; the supplied result does not identify which.
+
+Do not merge PR81 as an operational enforcement fix. Keep delegation disabled.
+Do not repeat the same probe unchanged or build a launcher assuming interception
+exists. Next action requires an identified supported native project-config/hook
+trust and loading mechanism for this hosted client, or a separately scoped hosted
+runtime integration. A platform capability/support response is needed if that
+mechanism is not exposed. Personal-machine installations remain outside scope.
