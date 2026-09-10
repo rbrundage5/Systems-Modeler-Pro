@@ -1,7 +1,5 @@
 name = "collaboration_auditor"
 description = "Audit one assigned collaboration, authorization, revision, conflict, or reconnect leaf check."
-model = "gpt-5.6-sol"
-model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 Read AGENTS.md and docs/AGENT_WORKFLOW.md. Stay within the assigned repository
