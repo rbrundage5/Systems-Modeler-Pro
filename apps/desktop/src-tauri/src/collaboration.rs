@@ -5,7 +5,7 @@ use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::time::Duration;
 use systems_modeler_core::{Project, ProjectId};
-use systems_modeler_persistence::collaboration::{EditRequest, SharedEdit};
+use systems_modeler_persistence::collaboration::{EditRequest, SharedBddDiagram, SharedEdit};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -33,6 +33,8 @@ pub struct Grant {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Snapshot {
     project: Project,
+    #[serde(default)]
+    diagrams: Vec<SharedBddDiagram>,
     revision: i64,
 }
 
@@ -72,6 +74,16 @@ fn server_url(value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+fn http_client() -> Result<Client, String> {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|_| "Could not initialize HTTPS client.".into())
+}
+
 impl Session {
     async fn connect(server: &str, token: String) -> Result<Self, String> {
         if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -79,13 +91,7 @@ impl Session {
                 "Enter the 64-character access token supplied by your administrator.".into(),
             );
         }
-        let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|_| "Could not initialize HTTPS client.")?;
+        let client = http_client()?;
         let mut session = Session {
             client,
             base: server_url(server)?,
@@ -179,7 +185,7 @@ impl Session {
                     "Project changed or operation conflicts. Refresh, review the latest model, and submit your intended edit again."
                 }
                 422 => {
-                    "The server rejected this model edit. Check the selected owner or element and name."
+                    "The server rejected this shared edit. Check the selected owner, element, diagram, and geometry."
                 }
                 _ => {
                     "The server could not complete the request. Retry a pending edit before making another change."
@@ -370,7 +376,13 @@ mod transport_tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
+        sync::Arc,
         thread,
+    };
+    use systems_modeler_core::DiagramId;
+    use systems_modeler_persistence::ProjectDatabase;
+    use systems_modeler_server::{
+        Config, Credential, Grant as ServerGrant, Role, Service, serve, token_hash,
     };
 
     fn mock(responses: Vec<(u16, String)>) -> (Url, thread::JoinHandle<Vec<String>>) {
@@ -427,11 +439,39 @@ mod transport_tests {
             projects: Vec::new(),
             snapshot: Some(Snapshot {
                 project,
+                diagrams: Vec::new(),
                 revision: 0,
             }),
             pending: Some(request),
             needs_refresh: false,
         }
+    }
+
+    fn blank_session(base: Url, token: String) -> Session {
+        Session {
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            base,
+            token,
+            projects: Vec::new(),
+            snapshot: None,
+            pending: None,
+            needs_refresh: false,
+        }
+    }
+
+    async fn connect_test_session(mut session: Session, project: ProjectId) -> Session {
+        let list: ProjectList = session
+            .request(Method::GET, "v1/projects", None)
+            .await
+            .unwrap();
+        session.projects = list.projects;
+        session.refresh(project).await.unwrap();
+        session
     }
 
     #[test]
@@ -486,8 +526,7 @@ mod transport_tests {
                 session
                     .submit_pending()
                     .await
-                    .unwrap_err()
-                    .contains("Refresh")
+                    .is_err_and(|error| error.contains("Refresh"))
             );
             assert!(session.pending.is_none());
             assert!(session.needs_refresh);
@@ -522,6 +561,136 @@ mod transport_tests {
             assert!(session.pending.is_none());
             assert!(session.needs_refresh);
             server.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn two_independent_clients_converge_after_conflict_and_bdd_edits() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut database = ProjectDatabase::open_in_memory().unwrap();
+            let project = Project::new("Shared");
+            database.save_project(&project).unwrap();
+            let first_token = "c".repeat(64);
+            let second_token = "d".repeat(64);
+            let credentials = vec![
+                Credential {
+                    actor: Uuid::new_v4(),
+                    token_sha256: token_hash(&first_token),
+                    projects: vec![ServerGrant {
+                        project: project.id,
+                        role: Role::Editor,
+                    }],
+                },
+                Credential {
+                    actor: Uuid::new_v4(),
+                    token_sha256: token_hash(&second_token),
+                    projects: vec![ServerGrant {
+                        project: project.id,
+                        role: Role::Editor,
+                    }],
+                },
+            ];
+            let service = Arc::new(Service::new(database, Config { credentials }).unwrap());
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = server_url(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+            let server = tokio::spawn(serve(listener, service));
+
+            let mut first =
+                connect_test_session(blank_session(base.clone(), first_token), project.id).await;
+            let mut second =
+                connect_test_session(blank_session(base, second_token), project.id).await;
+            assert_eq!(first.snapshot.as_ref().unwrap().revision, 0);
+            assert_eq!(second.snapshot.as_ref().unwrap().revision, 0);
+
+            first
+                .edit(
+                    0,
+                    SharedEdit::CreateBlock {
+                        owner: project.root_id,
+                        name: "Motor".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(
+                second
+                    .edit(
+                        0,
+                        SharedEdit::CreatePackage {
+                            owner: project.root_id,
+                            name: "Stale".into(),
+                        },
+                    )
+                    .await
+                    .is_err_and(|error| error.contains("Refresh"))
+            );
+            assert!(second.needs_refresh);
+            second.refresh(project.id).await.unwrap();
+            let block = second
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .project
+                .elements
+                .values()
+                .find(|element| element.name == "Motor")
+                .unwrap()
+                .id;
+            assert_eq!(second.snapshot.as_ref().unwrap().revision, 1);
+
+            let diagram = DiagramId::new();
+            second
+                .edit(
+                    1,
+                    SharedEdit::CreateBddDiagram {
+                        diagram,
+                        owner: project.root_id,
+                        name: "Structure".into(),
+                    },
+                )
+                .await
+                .unwrap();
+            let node = Uuid::new_v4();
+            second
+                .edit(
+                    2,
+                    SharedEdit::PlaceBddElement {
+                        diagram,
+                        node,
+                        element: block,
+                    },
+                )
+                .await
+                .unwrap();
+            second
+                .edit(
+                    3,
+                    SharedEdit::UpdateBddNodeGeometry {
+                        diagram,
+                        node,
+                        x: 400.0,
+                        y: 260.0,
+                        width: 220.0,
+                        height: 140.0,
+                    },
+                )
+                .await
+                .unwrap();
+
+            first.refresh(project.id).await.unwrap();
+            let snapshot = first.snapshot.as_ref().unwrap();
+            assert_eq!(snapshot.revision, 4);
+            assert_eq!(snapshot.diagrams.len(), 1);
+            assert_eq!(snapshot.diagrams[0].id, diagram);
+            assert_eq!(snapshot.diagrams[0].nodes.len(), 1);
+            assert_eq!(snapshot.diagrams[0].nodes[0].element, block);
+            assert_eq!(snapshot.diagrams[0].nodes[0].x, 400.0);
+            assert_eq!(snapshot.diagrams[0].nodes[0].height, 140.0);
+            server.abort();
         });
     }
 }

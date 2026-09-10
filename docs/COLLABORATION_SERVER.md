@@ -1,7 +1,7 @@
 # Collaboration server increment
 
 This server wraps PR73 storage with authenticated HTTP. It is an administrator-run
-service, not yet connected to the desktop UI. Central hosted and private deployments
+service connected through the desktop Shared Projects window. Central hosted and private deployments
 use the same binary. No public service is provisioned by this PR.
 
 ## Administrator setup
@@ -52,7 +52,7 @@ are JSON with `Cache-Control: no-store`. POST requires `application/json`.
 | Request | Result |
 | --- | --- |
 | GET /v1/projects | IDs and roles available to this credential |
-| GET /v1/projects/ID | Semantic model plus committed revision |
+| GET /v1/projects/ID | Semantic model, shared BDD presentations, and committed revision |
 | POST /v1/projects/ID/operations | PR73 EditRequest; receipt includes revision and element ID |
 
 Example operation body (UUIDs must refer to your project):
@@ -80,7 +80,7 @@ not a high-availability or large-model performance qualification.
 
 ## Remaining work
 
-Desktop Connect/Open controls, presence, change streaming, diagram metadata,
+Presence, change streaming, additional diagram families,
 complete editing operation coverage, collaborative undo, user-facing project
 administration, token expiry/SSO, and deployed multi-device acceptance remain open.
 Snapshot fetch supports reconnect at this API level; it does not implement offline

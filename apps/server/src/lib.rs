@@ -156,7 +156,10 @@ impl Service {
         };
         if method == "GET" && segments.len() == 4 {
             return match database.shared_snapshot(project, credential.actor) {
-                Ok((model, revision)) => (200, json!({"project":model,"revision":revision})),
+                Ok((model, diagrams, revision)) => (
+                    200,
+                    json!({"project":model,"diagrams":diagrams,"revision":revision}),
+                ),
                 Err(error) => failure(error),
             };
         }
@@ -187,9 +190,10 @@ fn failure(error: CollaborationError) -> (u16, Value) {
             json!({"error":"revision_conflict","expected":expected,"current":current}),
         ),
         CollaborationError::OperationIdReused => (409, json!({"error":"operation_id_reused"})),
-        CollaborationError::Model(_) | CollaborationError::InvalidName => {
-            (422, json!({"error":"invalid_model_edit"}))
-        }
+        CollaborationError::Model(_)
+        | CollaborationError::InvalidName
+        | CollaborationError::DiagramNotFound
+        | CollaborationError::InvalidDiagram(_) => (422, json!({"error":"invalid_model_edit"})),
         _ => (500, json!({"error":"storage_failure"})),
     }
 }
@@ -249,7 +253,9 @@ async fn handle(
     .await;
     let body = match collected {
         Ok(Ok(body)) => body.to_bytes(),
-        Ok(Err(_)) => return Ok(response(413, json!({"error":"invalid_or_oversized_body"}))),
+        Ok(Err(_)) => {
+            return Ok(response(413, json!({"error":"invalid_or_oversized_body"})));
+        }
         Err(_) => return Ok(response(408, json!({"error":"request_timeout"}))),
     };
     let result = tokio::task::spawn_blocking(move || {

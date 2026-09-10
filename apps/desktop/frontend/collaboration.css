@@ -1,10 +1,22 @@
-.collaboration-dialog { width: min(760px, 90vw); max-height: 88vh; overflow: auto; border: 1px solid #a8b5c5; border-radius: 8px; padding: 24px; color: #172c45; background: #fff; box-shadow: 0 18px 60px #142d4a44; }
+.collaboration-dialog { width: min(1120px, 94vw); max-height: 90vh; overflow: auto; border: 1px solid #a8b5c5; border-radius: 8px; padding: 24px; color: #172c45; background: #fff; box-shadow: 0 18px 60px #142d4a44; }
 .collaboration-dialog::backdrop { background: #132b4566; }
 .collaboration-dialog h2 { margin-top: 0; }
+.collaboration-dialog h3 { margin: 10px 0 4px; }
 .collaboration-dialog label { display: grid; gap: 5px; margin: 12px 0; }
 .collaboration-dialog input, .collaboration-dialog select { padding: 8px; min-width: 0; max-width: 100%; border: 1px solid #a8b5c5; border-radius: 4px; }
 .collaboration-dialog button { padding: 8px 12px; margin: 4px 4px 4px 0; }
-.collaboration-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.collaboration-elements { max-height: 220px; overflow: auto; border: 1px solid #dbe2e9; padding: 10px; margin-top: 12px; }
+.collaboration-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.collaboration-actions label { min-width: 190px; flex: 1 1 190px; margin: 4px 0; }
+.collaboration-semantic, .collaboration-bdd { border-top: 1px solid #dbe2e9; margin-top: 16px; padding-top: 12px; }
+.collaboration-elements { max-height: 180px; overflow: auto; border: 1px solid #dbe2e9; padding: 10px; margin-top: 12px; }
 .collaboration-elements > div { padding: 4px; overflow-wrap: anywhere; }
 .collaboration-dialog [data-message] { white-space: pre-wrap; font-weight: 600; }
+.collaboration-canvas-shell { margin-top: 10px; border: 1px solid #a8b5c5; border-radius: 6px; overflow: auto; background: #f8fafc; }
+.collaboration-bdd-canvas { display: block; width: 100%; min-width: 720px; min-height: 480px; touch-action: none; user-select: none; }
+.collaboration-bdd-node rect { fill: #fff; stroke: #3b5878; stroke-width: 1.5; rx: 3; }
+.collaboration-bdd-node text { fill: #172c45; font: 15px system-ui, sans-serif; pointer-events: none; }
+.collaboration-bdd-node .collaboration-bdd-kind { font-size: 12px; }
+.collaboration-bdd-node { cursor: grab; }
+.collaboration-bdd-node:active { cursor: grabbing; }
+.collaboration-bdd-node.selected rect { stroke-width: 3; }
+@media (max-width: 800px) { .collaboration-dialog { padding: 14px; } .collaboration-bdd-canvas { min-width: 620px; } }

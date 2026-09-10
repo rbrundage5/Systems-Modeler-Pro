@@ -1,4 +1,4 @@
-use systems_modeler_core::{ElementId, Project};
+use systems_modeler_core::{DiagramId, ElementId, Project};
 use systems_modeler_persistence::collaboration::{
     CollaborationError, EditRequest, ProjectRole, SharedEdit,
 };
@@ -13,6 +13,14 @@ fn create(root: ElementId, revision: i64) -> EditRequest {
             owner: root,
             name: "Engine".into(),
         },
+    }
+}
+
+fn edit(revision: i64, edit: SharedEdit) -> EditRequest {
+    EditRequest {
+        operation_id: Uuid::new_v4(),
+        expected_revision: revision,
+        edit,
     }
 }
 
@@ -35,8 +43,9 @@ fn commits_survive_reopen_and_retries_do_not_duplicate() {
         db.commit_shared_edit(project.id, actor, &request).unwrap(),
         receipt
     );
-    let (loaded, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    let (loaded, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
     assert_eq!(revision, 1);
+    assert!(diagrams.is_empty());
     assert_eq!(loaded.elements.len(), 2);
     assert_eq!(loaded.element(receipt.element).unwrap().name, "Engine");
     let mut altered = request;
@@ -66,11 +75,11 @@ fn stale_clients_cannot_overwrite_and_can_resynchronize() {
         second.commit_shared_edit(project.id, actor, &create(project.root_id, 0)),
         Err(CollaborationError::Conflict { current: 1, .. })
     ));
-    let (_, revision) = second.shared_snapshot(project.id, actor).unwrap();
+    let (_, _, revision) = second.shared_snapshot(project.id, actor).unwrap();
     second
         .commit_shared_edit(project.id, actor, &create(project.root_id, revision))
         .unwrap();
-    assert_eq!(first.shared_snapshot(project.id, actor).unwrap().1, 2);
+    assert_eq!(first.shared_snapshot(project.id, actor).unwrap().2, 2);
 }
 
 #[test]
@@ -104,8 +113,9 @@ fn permissions_invalid_edits_and_legacy_save_preserve_state() {
         db.save_project(&project),
         Err(PersistenceError::SharedProject)
     ));
-    let (loaded, revision) = db.shared_snapshot(project.id, editor).unwrap();
+    let (loaded, diagrams, revision) = db.shared_snapshot(project.id, editor).unwrap();
     assert_eq!(revision, 0);
+    assert!(diagrams.is_empty());
     assert_eq!(loaded.elements.len(), 1);
     let receipt = db
         .commit_shared_edit(project.id, editor, &create(project.root_id, 0))
@@ -137,6 +147,108 @@ fn permissions_invalid_edits_and_legacy_save_preserve_state() {
 }
 
 #[test]
+fn shared_bdd_node_edits_share_the_project_revision_and_survive_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shared-bdd.sqlite");
+    let project = Project::new("Shared");
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open(&path).unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+
+    let block = db
+        .commit_shared_edit(project.id, actor, &create(project.root_id, 0))
+        .unwrap()
+        .element;
+    let diagram = DiagramId::new();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            1,
+            SharedEdit::CreateBddDiagram {
+                diagram,
+                owner: project.root_id,
+                name: "Structure".into(),
+            },
+        ),
+    )
+    .unwrap();
+    let node = Uuid::new_v4();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            2,
+            SharedEdit::PlaceBddElement {
+                diagram,
+                node,
+                element: block,
+            },
+        ),
+    )
+    .unwrap();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            3,
+            SharedEdit::UpdateBddNodeGeometry {
+                diagram,
+                node,
+                x: 320.0,
+                y: 240.0,
+                width: 210.0,
+                height: 130.0,
+            },
+        ),
+    )
+    .unwrap();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            4,
+            SharedEdit::RenameBddDiagram {
+                diagram,
+                name: "Vehicle Structure".into(),
+            },
+        ),
+    )
+    .unwrap();
+    drop(db);
+
+    let db = ProjectDatabase::open(&path).unwrap();
+    let (_, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 5);
+    assert_eq!(diagrams.len(), 1);
+    assert_eq!(diagrams[0].id, diagram);
+    assert_eq!(diagrams[0].name, "Vehicle Structure");
+    assert_eq!(diagrams[0].nodes.len(), 1);
+    assert_eq!(diagrams[0].nodes[0].id, node);
+    assert_eq!(diagrams[0].nodes[0].element, block);
+    assert_eq!(diagrams[0].nodes[0].x, 320.0);
+
+    assert!(matches!(
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                5,
+                SharedEdit::PlaceBddElement {
+                    diagram,
+                    node: Uuid::new_v4(),
+                    element: block,
+                },
+            ),
+        ),
+        Err(CollaborationError::InvalidDiagram(_))
+    ));
+    assert_eq!(db.shared_snapshot(project.id, actor).unwrap().2, 5);
+}
+
+#[test]
 fn failed_receipt_write_rolls_back_model_and_revision() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shared.sqlite");
@@ -150,8 +262,9 @@ fn failed_receipt_write_rolls_back_model_and_revision() {
     fault.execute_batch("CREATE TRIGGER fail_receipt BEFORE INSERT ON shared_operations BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END;").unwrap();
     let request = create(project.root_id, 0);
     assert!(db.commit_shared_edit(project.id, actor, &request).is_err());
-    let (loaded, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    let (loaded, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
     assert_eq!(revision, 0);
+    assert!(diagrams.is_empty());
     assert_eq!(loaded.elements.len(), 1);
     fault.execute_batch("DROP TRIGGER fail_receipt").unwrap();
     let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
