@@ -516,9 +516,7 @@ mod transport_tests {
                 session
                     .submit_pending()
                     .await
-                    .err()
-                    .expect("stale edit must be rejected")
-                    .contains("Refresh")
+                    .is_err_and(|error| error.contains("Refresh"))
             );
             assert!(session.pending.is_none());
             assert!(session.needs_refresh);
@@ -618,9 +616,7 @@ mod transport_tests {
                         },
                     )
                     .await
-                    .err()
-                    .expect("stale edit must be rejected")
-                    .contains("Refresh")
+                    .is_err_and(|error| error.contains("Refresh"))
             );
             assert!(second.needs_refresh);
             second.refresh(project.id).await.unwrap();
