@@ -106,3 +106,41 @@ fallback or weakened gate is introduced.
 Allowed path for this change: this checkpoint document only. Independent review
 is outstanding; disabled worker execution was respected. No passing qualification
 or feature-completeness claim follows from publishing this document.
+
+## Post-PR78 handoff update
+
+GitHub confirmed PR78 merged. New main baseline:
+`9b7d498f4e4a0b8502b82ac2d7998e4e959a33e8`.
+At this follow-up check, agent-setup-checks run 34471094330 succeeded and
+native-foundation-ci run 34471094422 was in progress. The earlier observations
+above remain historical evidence, not current main status. The checkpoint branch
+still originates at the recorded PR77 baseline; this update does not claim a rebase.
+Current main AGENTS.md and AGENT_WORKFLOW.md were reread after the merge.
+
+### First Codex qualification task
+
+Scope: S7.01 only — establish the actual client, repository and enforcement
+capabilities. Start from live main and record its SHA. Read the documentation index,
+AGENTS.md, workflow, environment gate, references and Step 5 scope/coverage.
+Read this checkpoint from PR79 if it has not been merged.
+
+Keep agents disabled. Do not run product audit, implementation or review workers.
+Inspect supported client configuration and advertised supervisor capabilities
+without starting a worker. Verify the canonical checkout path, current client
+version, role discovery mechanism, per-task model/effort selection and effective
+settings evidence, filesystem/tool/network enforcement, immutable controls,
+preinstalled build tools and hosted desktop capability. Distinguish unavailable,
+unverified and demonstrably supported behavior.
+
+Do not execute dependency-installing setup scripts merely to collect inventory.
+Do not change personal/global configuration. Do not replace unsupported TOML role
+dispatch with ad-hoc agents. If a trustworthy enforcement mechanism is unavailable,
+record the precise missing capability and stop before worker startup.
+
+Publish sanitized observations as a setup-only checkpoint on a separate branch
+from current main (or extend PR79 only after checking its current state and ownership).
+No production paths or activation controls may change in this inventory task.
+Return baseline, client/version, actual root, executed checks, evidence for each
+claim, unresolved blockers, and the exact next bounded integration/qualification
+task. PR79 remains an evidence document requiring independent review; merging it
+does not qualify or activate the agents.
