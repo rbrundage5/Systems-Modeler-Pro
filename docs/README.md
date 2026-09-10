@@ -7,6 +7,7 @@ contract is useful evidence, but is not a current whole-product completeness cla
 | --- | --- |
 | Step 5 scope and acceptance | [Planning package](STEP5_SCOPE_AND_ACCEPTANCE.md) and [coverage checklist](STEP5_AUDIT_COVERAGE.md) |
 | Collaboration implementation and acceptance | [Desktop workflow](COLLABORATION_DESKTOP.md), [server setup](COLLABORATION_SERVER.md), [storage foundation](COLLABORATION.md) |
+| Windows installer and update delivery | [Windows distribution](WINDOWS_DISTRIBUTION.md) |
 | Product overview | [Root README](../README.md) |
 | Architecture and current layout | [Architecture](ARCHITECTURE.md) |
 | ChatGPT Project setup | [Source setup](CHATGPT_PROJECT_SETUP.md) and [brief](CHATGPT_PROJECT_BRIEF.md) |
