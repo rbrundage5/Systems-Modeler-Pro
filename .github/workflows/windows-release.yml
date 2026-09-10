@@ -17,7 +17,8 @@ permissions:
   contents: read
 concurrency:
   group: windows-release-${{ (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && 'publication' || github.ref }}
-  cancel-in-progress: false
+  # Superseded PR validation can stop; publication must finish or leave a draft.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   release-contract:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
