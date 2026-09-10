@@ -32,7 +32,7 @@ jobs:
           expected = {
               "coordinator", "code_auditor", "sysml_auditor", "behavior_auditor",
               "ux_auditor", "notation_auditor", "collaboration_auditor",
-              "implementer", "reviewer",
+              "tool_gap_auditor", "implementer", "reviewer",
           }
           parsed = {}
           for path in roles:
@@ -53,10 +53,17 @@ jobs:
           assert "per-task model selection" in coordinator
           assert "do not bind a model to a role" in coordinator
           assert "requested and effective model/effort" in coordinator
+          assert "use tool_gap_auditor" in coordinator
           for name in ("code_auditor", "sysml_auditor", "behavior_auditor", "ux_auditor", "notation_auditor", "collaboration_auditor"):
               instructions = " ".join(parsed[name]["developer_instructions"].split()).lower()
               assert "audit exactly one assigned child" in instructions
               assert "do not edit code" in instructions
+          gap = " ".join(parsed["tool_gap_auditor"]["developer_instructions"].split()).lower()
+          assert "compare exactly one assigned leaf capability or concrete workflow" in gap
+          assert "one to three named professional sysml modeling tools" in gap
+          assert "do not infer capability from roadmaps, enums or historical pr claims" in gap
+          assert "evidence_gap" in gap
+          assert "do not spawn agents, edit code or modify controls" in gap
           implementer = " ".join(parsed["implementer"]["developer_instructions"].split()).lower()
           reviewer = " ".join(parsed["reviewer"]["developer_instructions"].split()).lower()
           assert "implement exactly one validated child finding" in implementer
@@ -65,5 +72,5 @@ jobs:
           result = subprocess.run(["python3", "scripts/agent_preflight.py"], capture_output=True, text=True)
           assert result.returncode == 2
           assert "BLOCKED:" in result.stderr
-          print("Configuration parses; role ownership is leaf-scoped; model routing is task-driven; preflight refuses startup. Isolation is NOT qualified.")
+          print("Configuration parses; role ownership is leaf-scoped; model routing is task-driven; professional-tool comparison is bounded; preflight refuses startup. Isolation is NOT qualified.")
           PY
