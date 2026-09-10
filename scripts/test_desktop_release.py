@@ -88,6 +88,15 @@ class ReleaseTests(unittest.TestCase):
         checks.append({**checks[0], "id":1000, "conclusion":"failure"})
         with self.assertRaises(ValueError): release.check_state(checks)
 
+    def test_check_fetch_includes_previous_executions_and_paginates(self):
+        class Pages(release.GitHub):
+            def request(self, path):
+                self.paths.append(path)
+                return {"check_runs": [{}]*100 if len(self.paths)==1 else good_checks()}
+        api=Pages(); api.paths=[]
+        self.assertEqual(len(api.checks(SHA)),100+len(release.REQUIRED))
+        self.assertEqual(api.paths,[f"/commits/{SHA}/check-runs?filter=all&per_page=100&page={i}" for i in [1,2]])
+
     def test_superseded_commit_and_newer_release_are_skipped(self):
         api = FakeGitHub(); api.main = "b"*40
         self.assertIsNone(release.plan_release(api,77,attempts=1))

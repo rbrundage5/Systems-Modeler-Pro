@@ -85,7 +85,7 @@ class GitHub:
     def checks(self, sha):
         result = []
         for page in range(1, 11):
-            batch = self.request(f"/commits/{sha}/check-runs?per_page=100&page={page}")["check_runs"]
+            batch = self.request(f"/commits/{sha}/check-runs?filter=all&per_page=100&page={page}")["check_runs"]
             result.extend(batch)
             if len(batch) < 100:
                 return result

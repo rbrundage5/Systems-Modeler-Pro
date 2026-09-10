@@ -24,6 +24,10 @@ if printf '%s\n' "$existing" | grep -Fxq TAURI_SIGNING_PRIVATE_KEY; then
   echo "Signing entries already exist. No key was generated or replaced."
   exit 0
 fi
+if printf '%s\n' "$existing" | grep -Fxq TAURI_SIGNING_PRIVATE_KEY_PASSWORD; then
+  echo "A signing-password secret exists without its private key. Resolve the existing signing setup before generating a new identity." >&2
+  exit 2
+fi
 umask 077
 key_dir="$(mktemp -d /tmp/smp-release-signing.XXXXXX)"
 npm install --prefix "$key_dir/cli" --no-save --package-lock=false @tauri-apps/cli@2.8.4

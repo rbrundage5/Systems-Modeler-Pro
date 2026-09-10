@@ -17,7 +17,7 @@ if (-not (Test-Path $cli)) {
     if ($LASTEXITCODE -ne 0) { throw 'Tauri CLI installation failed' }
 }
 $configPath = Join-Path $env:RUNNER_TEMP 'desktop-release-config.json'
-@{ version=$Version; bundle=@{ createUpdaterArtifacts=$true } } |
+@{ version=$Version; bundle=@{ createUpdaterArtifacts=$true }; plugins=@{ updater=@{ pubkey=$env:SMP_UPDATER_PUBLIC_KEY } } } |
     ConvertTo-Json -Depth 4 | Set-Content $configPath -Encoding utf8
 Push-Location "$root/apps/desktop/src-tauri"
 try {
