@@ -162,3 +162,17 @@ jobs:
       - name: Verify Cargo.lock remains clean
         shell: pwsh
         run: git diff --exit-code -- Cargo.lock
+
+  desktop-linux-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Check Linux desktop shell and embedded icon
+        run: cargo check --locked -p systems-modeler-desktop
+      - name: Verify Cargo.lock remains clean
+        run: git diff --exit-code -- Cargo.lock
