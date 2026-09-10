@@ -4,6 +4,41 @@ Status: **BLOCKED / NOT QUALIFIED**. Evidence-only setup maintenance; no product
 changes, worker launches, configuration activation, or automatic merge.
 
 
+## Agent qualification resumed after PR82
+
+The user requested continuation of agent setup after PR82 merged.
+Current main is `9383c9e3f8dd6f925cc4706f172606ca6dac97a3`.
+At inspection, configuration and core CI passed; Windows/Linux desktop jobs were
+still running. PR79 and PR81 remained drafts.
+
+A bounded compatibility review found that the documented standalone custom-agent
+TOML shape and agents.enabled switch match the repository. No format rewrite is
+justified by the evidence. Official documentation describes custom-agent support
+in local Codex clients; it does not establish that the previously tested hosted
+task loaded these roles. See [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+and [Hooks](https://learn.chatgpt.com/docs/hooks). The NOT OBSERVED result remains
+valid for that tested configuration; the underlying cause is unresolved.
+
+Proposed next qualification target: Codex CLI in a dedicated GitHub Codespace,
+accessed through the browser. This is a hosted-client candidate, not a qualified
+supervisor or automatic authorization to launch workers. Creation requires the
+user's GitHub account and is subject to Codespaces quota/billing. No Codespace,
+client installation, login, trust change, or worker launch was performed here.
+See [GitHub's creation procedure](https://docs.github.com/en/codespaces/developing-in-a-codespace/creating-a-codespace-for-a-repository).
+
+First checkpoint after creation: establish the actual canonical repository root
+and HEAD. Do not assume /workspace/Systems-Modeler-Pro; do not reuse the setup
+script at a different root without a separately reviewed adjustment. Subsequent
+setup must establish the exact client version, native configuration/trust behavior,
+role discovery, credential separation and all existing environment-gate controls.
+A default Codespace does not prove auditor isolation, assigned-file write limits,
+restricted egress, or reviewer independence.
+
+Keep delegation disabled. Do not copy personal files, sync personal configuration,
+forward unrelated secrets, or use trust-bypass flags. The previous supervised
+workflow remains available while this proposed hosted runtime is unqualified.
+PR82's product fix and merge do not qualify Step 7.
+
 ## Current operating decision — supervised tasks
 
 The user declined further platform-support/setup work and requested continuation.
