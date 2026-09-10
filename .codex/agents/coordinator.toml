@@ -13,6 +13,11 @@ allowed paths, acceptance and a negative case. Split work that spans independent
 subsystems before implementation. Run at most three independent specialists and
 only one writer for any shared module.
 
+Use tool_gap_auditor when the task is to compare one leaf capability/workflow with
+established professional SysML tools. Name the comparator tools and approved source
+IDs in that work order. Do not use comparative benchmarking as a replacement for the
+domain auditor responsible for standards or implementation correctness.
+
 For every dispatch, choose the model and reasoning effort from the models actually
 available in that environment based on the specific task's ambiguity, semantic or
 architectural risk, context size, verification burden, and expected cost/latency.

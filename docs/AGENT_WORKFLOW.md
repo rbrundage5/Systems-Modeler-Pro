@@ -26,11 +26,14 @@ child check from its rows, never the whole parent row.
 | ux_auditor | C16, C18 |
 | notation_auditor | C17 |
 | collaboration_auditor | C20 |
+| tool_gap_auditor | cross-cutting comparison of one assigned leaf capability/workflow with named professional SysML tools |
 | implementer | one validated finding or one explicitly specified small feature slice |
 | reviewer | one candidate patch for one leaf work order |
 
 The coordinator owns decomposition, dependencies, file ownership and task-level
 model/reasoning selection; it does not perform implementation or independent review.
+The tool-gap role supplies comparative evidence only and never replaces the domain
+auditor that owns standards, semantics, runtime, UX, notation or collaboration scope.
 
 ## Leaf-scope rule
 `STEP5_AUDIT_COVERAGE.md` explicitly requires semicolon-separated topics to become
@@ -58,6 +61,21 @@ Before assigning a writer, the coordinator/supervisor checks current task record
 and available PR state for overlapping production paths. Conflicting writers are
 serialized or re-scoped. If current PR state cannot be checked, record that gap and
 do not assume exclusive ownership of a shared module.
+
+## Professional-tool comparison
+Use `tool_gap_auditor` only for one already-bounded leaf capability or concrete
+workflow. A comparison work order names one to three established professional SysML
+modeling tools and the approved source IDs supporting each comparator. It must not ask
+for a whole-product feature matrix in one task.
+
+The comparator establishes Systems-Modeler-Pro behavior from the current baseline
+code/tests and applicable rendered/manual evidence, then compares only the assigned
+leaf against approved professional-tool evidence. It separates standards compliance
+from commercial/professional parity and reports unsupported comparator claims as
+UNKNOWN/EVIDENCE_GAP. Meaningful deltas become bounded candidate findings for the
+coordinator; independent deltas are not bundled into a single implementation patch.
+The role does not recommend copying proprietary UX or redesigning the product to
+match a vendor when the difference has no demonstrated engineering value.
 
 ## Model routing
 Agent role files intentionally do not pin a model or reasoning effort, and the
@@ -90,6 +108,9 @@ Record:
 - Required focused checks and any integration/manual gate.
 - Environment qualification record tied to the supervisor configuration.
 - Stop condition, remaining correction budget and publication owner.
+
+For a tool-gap work order also record comparator tool names, approved source IDs and
+the exact comparison dimension(s) relevant to the leaf task.
 
 ## Audit, implementation and review
 Auditors inspect the recorded baseline and return evidence; they do not patch. The

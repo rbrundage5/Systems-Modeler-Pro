@@ -19,6 +19,19 @@ implementation, not normative correctness. Vendor-specific claims lacking an
 approved primary source remain unverified. Record clause/page and observed behavior
 without copying long copyrighted passages. Additional sources require a user decision.
 
+## Professional-tool comparison evidence
+`tool_gap_auditor` may compare only against named professional SysML tools backed by
+approved evidence in its work order. R06 can support bounded CATIA Magic workflow or
+feature comparisons, but it is secondary evidence and is not enough to establish a
+complete multi-vendor parity claim. Other professional tools require separately
+approved current primary/vendor documentation or direct observed evidence before the
+agent may make a concrete capability claim about them. Without that evidence, report
+UNKNOWN/EVIDENCE_GAP rather than inferring a gap from reputation or product category.
+
+A comparison work order should assign source IDs for the exact capability under test.
+Approval of a source does not authorize an open-ended crawl or copying proprietary
+material; source access remains read-only and limited to the bounded comparison.
+
 Configuration format used in this setup is based on the official Codex agent
 documentation already consulted earlier in this conversation. No new external
 retrieval was performed. Actual client support is explicitly a Step 7 test.
