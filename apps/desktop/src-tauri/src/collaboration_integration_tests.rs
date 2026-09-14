@@ -393,9 +393,15 @@ fn two_clients_converge_on_server_routed_bdd_relationship_presentations() {
         first.open(project.id).await.unwrap();
         second.open(project.id).await.unwrap();
 
-        first.edit(0, block(project.root_id, "Source")).await.unwrap();
+        first
+            .edit(0, block(project.root_id, "Source"))
+            .await
+            .unwrap();
         second.open(project.id).await.unwrap();
-        second.edit(1, block(project.root_id, "Target")).await.unwrap();
+        second
+            .edit(1, block(project.root_id, "Target"))
+            .await
+            .unwrap();
         first.open(project.id).await.unwrap();
         let source = named(&first, "Source");
         let target = named(&first, "Target");
@@ -490,7 +496,10 @@ fn two_clients_converge_on_server_routed_bdd_relationship_presentations() {
             )
             .await
             .unwrap();
-        assert_ne!(second.snapshot.as_ref().unwrap().diagrams[0].edges[0].points, before_move);
+        assert_ne!(
+            second.snapshot.as_ref().unwrap().diagrams[0].edges[0].points,
+            before_move
+        );
 
         first.open(project.id).await.unwrap();
         assert_eq!(first.snapshot.as_ref().unwrap().revision, 8);
@@ -504,7 +513,11 @@ fn two_clients_converge_on_server_routed_bdd_relationship_presentations() {
             .unwrap();
         second.open(project.id).await.unwrap();
         assert_eq!(second.snapshot.as_ref().unwrap().revision, 9);
-        assert!(second.snapshot.as_ref().unwrap().diagrams[0].edges.is_empty());
+        assert!(
+            second.snapshot.as_ref().unwrap().diagrams[0]
+                .edges
+                .is_empty()
+        );
         assert_eq!(
             serde_json::to_value(&first.snapshot).unwrap(),
             serde_json::to_value(&second.snapshot).unwrap()

@@ -619,7 +619,10 @@ fn shared_bdd_relationship_presentations_route_retry_move_remove_and_survive_reo
     );
     let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
     assert_eq!(receipt.revision, 7);
-    assert_eq!(db.commit_shared_edit(project.id, actor, &request).unwrap(), receipt);
+    assert_eq!(
+        db.commit_shared_edit(project.id, actor, &request).unwrap(),
+        receipt
+    );
     drop(db);
 
     let db = ProjectDatabase::open(&path).unwrap();
@@ -629,8 +632,7 @@ fn shared_bdd_relationship_presentations_route_retry_move_remove_and_survive_reo
     assert_eq!(edge_before_move.id, edge);
     assert_eq!(edge_before_move.relationship, relationship);
     assert!(edge_before_move.points.windows(2).all(|segment| {
-        (segment[0].x - segment[1].x).abs() <= 0.001
-            || (segment[0].y - segment[1].y).abs() <= 0.001
+        (segment[0].x - segment[1].x).abs() <= 0.001 || (segment[0].y - segment[1].y).abs() <= 0.001
     }));
     assert!(route_is_clear(
         &edge_before_move.points,

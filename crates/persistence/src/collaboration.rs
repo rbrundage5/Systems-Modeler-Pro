@@ -292,8 +292,7 @@ fn point_on_rect_boundary(point: GeometryPoint, rect: RouteRect) -> bool {
     let within_x = point.x >= rect.x - EPSILON && point.x <= right + EPSILON;
     let within_y = point.y >= rect.y - EPSILON && point.y <= bottom + EPSILON;
     let on_vertical = (point.x - rect.x).abs() <= EPSILON || (point.x - right).abs() <= EPSILON;
-    let on_horizontal =
-        (point.y - rect.y).abs() <= EPSILON || (point.y - bottom).abs() <= EPSILON;
+    let on_horizontal = (point.y - rect.y).abs() <= EPSILON || (point.y - bottom).abs() <= EPSILON;
     within_x && within_y && (on_vertical || on_horizontal)
 }
 

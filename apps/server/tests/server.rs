@@ -417,12 +417,16 @@ fn bdd_relationship_presentations_use_authenticated_server_routing() {
     );
     let snapshot = service.dispatch("GET", &path, Some(&viewer), &[]).1;
     assert_eq!(snapshot["revision"], 8);
-    assert!(snapshot["project"]["relationships"]
-        .as_object()
-        .unwrap()
-        .is_empty());
-    assert!(snapshot["diagrams"][0]["edges"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert!(
+        snapshot["project"]["relationships"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        snapshot["diagrams"][0]["edges"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
