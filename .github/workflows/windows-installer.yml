@@ -1,0 +1,104 @@
+name: windows-installer
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-installer.yml'
+      - 'apps/desktop/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'docs/WINDOWS_DISTRIBUTION.md'
+  workflow_run:
+    workflows: [native-foundation-ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-installer-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned Tauri packaging CLI on hosted runner
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/tauri-cli" --no-save --package-lock=false @tauri-apps/cli@2.8.4
+          if ($LASTEXITCODE -ne 0) { throw "Tauri CLI installation failed" }
+      - name: Build Windows installer with embedded frontend
+        working-directory: apps/desktop/src-tauri
+        run: |
+          & "$env:RUNNER_TEMP/tauri-cli/node_modules/.bin/tauri.cmd" build --bundles nsis --target x86_64-pc-windows-msvc -- --locked
+          if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }
+      - name: Verify locked build and collect installer provenance
+        run: |
+          git diff --exit-code -- Cargo.lock
+          if ($LASTEXITCODE -ne 0) { throw "Build modified Cargo.lock" }
+          $installers = @(Get-ChildItem "target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe" -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer" }
+          $installer = $installers[0]
+          $bytes = [System.IO.File]::ReadAllBytes($installer.FullName)
+          if ($bytes.Length -lt 2 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "Installer lacks Windows executable signature" }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item $installer.FullName dist
+          $sourceSha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Cannot record source commit" }
+          $config = Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $info = [ordered]@{
+            source_commit = $sourceSha
+            application_version = $config.version
+            target = "x86_64-pc-windows-msvc"
+            tauri_cli = "2.8.4"
+            installer = $installer.Name
+            sha256 = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            run_url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            distribution = "Development installer; no in-app updater or release signing configured"
+          }
+          $info | ConvertTo-Json | Set-Content dist/BUILD_INFO.json -Encoding utf8
+          "Installer source commit: $sourceSha" >> $env:GITHUB_STEP_SUMMARY
+          "Download the Windows artifact below. This is a development build, not an update release." >> $env:GITHUB_STEP_SUMMARY
+      - name: Install and launch smoke test in disposable hosted Windows
+        run: |
+          $installer = @(Get-ChildItem dist/*-setup.exe -File)[0]
+          $installDir = Join-Path $env:RUNNER_TEMP "smp-installer-smoke"
+          $setup = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)" }
+          $executable = Join-Path $installDir "systems-modeler-desktop.exe"
+          if (-not (Test-Path $executable -PathType Leaf)) { throw "Installed application executable missing" }
+          $app = Start-Process -FilePath $executable -WorkingDirectory $installDir -PassThru
+          try {
+            if ($app.WaitForExit(15000)) { throw "Installed application exited during startup: $($app.ExitCode)" }
+            "Installed application remained running for 15 seconds. Rendered interaction is not qualified." >> $env:GITHUB_STEP_SUMMARY
+          } finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: systems-modeler-pro-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
