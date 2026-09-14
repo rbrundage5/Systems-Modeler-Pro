@@ -10,6 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "visible": false,
         "title": "Systems Modeler Pro",
         "width": 1440,
         "height": 900,
@@ -21,6 +22,9 @@
     "security": {
       "csp": null
     }
+  },
+  "plugins": {
+    "updater": { "pubkey": "", "windows": { "installMode": "passive" } }
   },
   "bundle": {
     "active": true,
