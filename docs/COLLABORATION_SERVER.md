@@ -51,6 +51,7 @@ are JSON with `Cache-Control: no-store`. POST requires `application/json`.
 
 | Request | Result |
 | --- | --- |
+| GET /v1/capabilities | Protocol version, server package version, and supported collaboration capabilities |
 | GET /v1/projects | IDs and roles available to this credential |
 | GET /v1/projects/ID | Semantic model, shared BDD presentations, and committed revision |
 | POST /v1/projects/ID/operations | PR73 EditRequest; receipt includes revision and element ID |
@@ -64,6 +65,12 @@ Example operation body (UUIDs must refer to your project):
   "edit": {"CreateBlock": {"owner": "ROOT_ELEMENT_UUID", "name": "Engine"}}
 }
 ```
+
+The desktop calls the authenticated capabilities endpoint before project discovery.
+Protocol `1` currently requires revisioned operations, shared BDDs, simple semantic
+relationships, and server-routed BDD relationship presentations. A new client will
+not open a project through an older or incomplete server; deploy matching desktop
+and server versions instead of attempting an operation with unknown semantics.
 
 CreatePackage and RenameElement are also supported. Identity comes exclusively from
 credential verification. Unknown top-level request fields are rejected. A retry
