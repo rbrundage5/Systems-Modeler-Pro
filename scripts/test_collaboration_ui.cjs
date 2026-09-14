@@ -29,7 +29,8 @@ class Element {
   removeAttribute(key) { delete this.attributes[key]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   querySelectorAll(selector) {
-    return this.children.filter(child => selector === '.collaboration-bdd-node' && child.classes.has('collaboration-bdd-node'));
+    if (!selector.startsWith('.')) return [];
+    return this.children.filter(child => child.classes.has(selector.slice(1)));
   }
   setPointerCapture() {}
   releasePointerCapture() {}
@@ -45,7 +46,7 @@ async function fixture() {
   const controls = new Map();
   const selectNames = new Set([
     'project', 'element', 'relationship-source', 'relationship-target', 'relationship-owner',
-    'relationship', 'bdd-owner', 'bdd-diagram', 'bdd-element',
+    'relationship', 'bdd-owner', 'bdd-diagram', 'bdd-element', 'bdd-relationship', 'bdd-edge',
   ]);
   const find = selector => {
     if (!controls.has(selector)) {
@@ -85,7 +86,7 @@ async function fixture() {
       }, relationships: {} },
       diagrams: [{ id: 'bdd', name: 'Structure', owner: 'root', nodes: [
         { id: 'node', element: 'block', x: 72, y: 90, width: 190, height: 115 },
-      ] }],
+      ], edges: [] }],
     },
   };
   const calls = [];
@@ -208,4 +209,84 @@ test('relationship deletion uses the selected stable relationship identity', asy
   const calls = ui.calls.filter(call => call.command === 'collaboration_edit');
   assert.equal(calls.at(-1).payload.expectedRevision, 7);
   assert.equal(calls.at(-1).payload.edit.DeleteRelationship.relationship, 'relationship');
+});
+
+test('a semantic relationship can be presented on a BDD at the visible revision', async () => {
+  const ui = await fixture();
+  ui.view.snapshot.project.elements.target = { id: 'target', name: 'Controller', kind: 'Block' };
+  ui.view.snapshot.project.relationships.relationship = {
+    id: 'relationship', kind: 'Dependency', source_id: 'block', target_id: 'target', owner_id: 'root',
+  };
+  ui.view.snapshot.diagrams[0].nodes.push({
+    id: 'target-node', element: 'target', x: 400, y: 90, width: 190, height: 115,
+  });
+  ui.find('[data-refresh]').onclick();
+  await flush();
+  assert.equal(ui.find('[data-bdd-relationship]').value, 'relationship');
+  ui.find('[data-bdd-edge-place]').onclick();
+  await flush();
+  const call = ui.calls.filter(item => item.command === 'collaboration_edit').at(-1);
+  assert.equal(call.payload.expectedRevision, 7);
+  assert.equal(call.payload.edit.PresentBddRelationship.diagram, 'bdd');
+  assert.equal(call.payload.edit.PresentBddRelationship.edge, 'new-id');
+  assert.equal(call.payload.edit.PresentBddRelationship.relationship, 'relationship');
+});
+
+test('server-routed BDD edges render behind nodes with notation and selection', async () => {
+  const ui = await fixture();
+  ui.view.snapshot.project.elements.target = { id: 'target', name: 'Controller', kind: 'Block' };
+  ui.view.snapshot.project.relationships.relationship = {
+    id: 'relationship', kind: 'Satisfy', source_id: 'block', target_id: 'target', owner_id: 'root',
+  };
+  ui.view.snapshot.diagrams[0].nodes.push({
+    id: 'target-node', element: 'target', x: 400, y: 90, width: 190, height: 115,
+  });
+  ui.view.snapshot.diagrams[0].edges.push({
+    id: 'edge', relationship: 'relationship', source_node: 'node', target_node: 'target-node',
+    points: [{ x: 262, y: 147.5 }, { x: 400, y: 147.5 }],
+    label_anchor: { x: 331, y: 115.5 },
+  });
+  ui.find('[data-refresh]').onclick();
+  await flush();
+  const edge = ui.canvas.children.find(child => child.classes.has('collaboration-bdd-edge'));
+  const line = edge.children.find(child => child.tag === 'polyline');
+  const label = edge.children.find(child => child.tag === 'text');
+  assert.equal(line.attributes.points, '262,147.5 400,147.5');
+  assert.equal(line.attributes['marker-end'], 'url(#collaboration-bdd-arrow)');
+  assert.equal(label.textContent, '«satisfy»');
+  edge.listeners.pointerdown(event());
+  assert.equal(ui.find('[data-bdd-edge]').value, 'edge');
+  assert.equal(ui.find('[data-bdd-edge-remove]').disabled, false);
+});
+
+test('BDD edge removal and rerouting use stable presentation identity', async () => {
+  const ui = await fixture();
+  ui.view.snapshot.project.elements.target = { id: 'target', name: 'Controller', kind: 'Block' };
+  ui.view.snapshot.project.relationships.relationship = {
+    id: 'relationship', kind: 'Generalization', source_id: 'block', target_id: 'target', owner_id: 'root',
+  };
+  ui.view.snapshot.diagrams[0].nodes.push({
+    id: 'target-node', element: 'target', x: 400, y: 90, width: 190, height: 115,
+  });
+  ui.view.snapshot.diagrams[0].edges.push({
+    id: 'edge', relationship: 'relationship', source_node: 'node', target_node: 'target-node',
+    points: [{ x: 262, y: 147.5 }, { x: 400, y: 147.5 }],
+    label_anchor: { x: 331, y: 115.5 },
+  });
+  ui.find('[data-refresh]').onclick();
+  await flush();
+  const edgeSelect = ui.find('[data-bdd-edge]');
+  edgeSelect.value = 'edge';
+  edgeSelect.onchange({ target: edgeSelect });
+  ui.find('[data-bdd-edge-remove]').onclick();
+  await flush();
+  let call = ui.calls.filter(item => item.command === 'collaboration_edit').at(-1);
+  assert.equal(call.payload.expectedRevision, 7);
+  assert.equal(call.payload.edit.RemoveBddEdge.diagram, 'bdd');
+  assert.equal(call.payload.edit.RemoveBddEdge.edge, 'edge');
+  ui.find('[data-bdd-route]').onclick();
+  await flush();
+  call = ui.calls.filter(item => item.command === 'collaboration_edit').at(-1);
+  assert.equal(call.payload.expectedRevision, 7);
+  assert.equal(call.payload.edit.RouteBddDiagram.diagram, 'bdd');
 });

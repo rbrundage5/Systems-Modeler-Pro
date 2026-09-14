@@ -11,6 +11,11 @@
     'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend',
   ];
   const SHARED_RELATIONSHIP_KIND_SET = new Set(SHARED_RELATIONSHIP_KINDS);
+  const RELATIONSHIP_LABELS = {
+    Dependency: '«dependency»', Allocate: '«allocate»', DeriveRequirement: '«deriveReqt»',
+    Satisfy: '«satisfy»', Verify: '«verify»', Refine: '«refine»', Trace: '«trace»',
+    Copy: '«copy»', Include: '«include»', Extend: '«extend»',
+  };
   const button = document.createElement('button');
   button.textContent = 'Shared Projects';
   button.type = 'button';
@@ -27,13 +32,14 @@
     <label>Element / owner<select data-element></select></label>
     <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="RenameElement">Rename element</option></select></label>
     <label>Name<input name="name" required maxlength="1024" autocomplete="off"></label><button data-submit>Save shared edit</button></form>
-    <div class="collaboration-relationships"><h4>Semantic relationships</h4><p>Create or delete the relationship kinds whose complete payload is source, target, and Model/Package owner. Specialized Association, Connector, ItemFlow, BindingConnector, import, and presentation operations remain separate.</p>
+    <div class="collaboration-relationships"><h4>Semantic relationships</h4><p>Create or delete the relationship kinds whose complete payload is source, target, and Model/Package owner. Specialized Association, Connector, ItemFlow, BindingConnector, and import operations remain separate.</p>
     <form data-relationship-edit><div class="collaboration-actions"><label>Kind<select name="kind">${SHARED_RELATIONSHIP_KINDS.map(kind => `<option value="${kind}">${kind}</option>`).join('')}</select></label><label>Source<select data-relationship-source></select></label><label>Target<select data-relationship-target></select></label><label>Owner<select data-relationship-owner></select></label></div><button data-relationship-create>Create relationship</button></form>
     <div class="collaboration-actions"><label>Existing relationship<select data-relationship></select></label><button type="button" data-relationship-delete>Delete relationship</button></div></div></section>
-    <section class="collaboration-bdd"><h3>Shared Block Definition Diagram</h3><p>This diagram slice supports shared BDD creation, node placement, movement, rename, removal, and deletion. Semantic relationships are shared in the repository; BDD edge presentation/routing and other diagram families remain separate increments.</p>
+    <section class="collaboration-bdd"><h3>Shared Block Definition Diagram</h3><p>BDD nodes and simple semantic relationship presentations are revisioned together. The server reroutes every presented relationship after endpoint movement and rejects edits when no obstacle-clear orthogonal route is available.</p>
     <div class="collaboration-actions"><label>Diagram owner<select data-bdd-owner></select></label><label>Diagram name<input data-bdd-name maxlength="1024" autocomplete="off"></label><button type="button" data-bdd-create>Create BDD</button></div>
     <div class="collaboration-actions"><label>BDD<select data-bdd-diagram aria-label="Shared BDD"></select></label><button type="button" data-bdd-rename>Rename BDD</button><button type="button" data-bdd-delete>Delete BDD</button></div>
     <div class="collaboration-actions"><label>Model element<select data-bdd-element></select></label><button type="button" data-bdd-place>Place on BDD</button><button type="button" data-bdd-remove>Remove selected node</button></div>
+    <div class="collaboration-actions"><label>Semantic relationship<select data-bdd-relationship></select></label><button type="button" data-bdd-edge-place>Show on BDD</button><label>Presented relationship<select data-bdd-edge></select></label><button type="button" data-bdd-edge-remove>Remove edge</button><button type="button" data-bdd-route>Route edges</button></div>
     <div class="collaboration-canvas-shell"><svg data-bdd-canvas class="collaboration-bdd-canvas" viewBox="0 0 1200 760" role="img" aria-label="Shared BDD canvas" tabindex="0"></svg></div></section>
     <button data-retry hidden>Retry pending edit</button><div class="collaboration-elements" data-elements></div></section>
     <p data-message role="status" aria-live="polite"></p><button data-close>Close</button>`;
@@ -48,6 +54,7 @@
   let busy = false;
   let selectedDiagramId = '';
   let selectedNodeId = '';
+  let selectedEdgeId = '';
   let drag = null;
   let bddNameDirty = false;
   find('[data-bdd-name]').addEventListener('input', () => { bddNameDirty = true; });
@@ -60,6 +67,12 @@
     return Object.values(view?.snapshot?.project?.relationships || {})
       .filter(relationship => SHARED_RELATIONSHIP_KIND_SET.has(relationship.kind))
       .sort((a, b) => a.kind.localeCompare(b.kind) || String(a.id).localeCompare(String(b.id)));
+  }
+
+  function relationshipDescription(relationship, byId) {
+    const source = byId.get(String(relationship.source_id))?.name || relationship.source_id;
+    const target = byId.get(String(relationship.target_id))?.name || relationship.target_id;
+    return `${source} — ${relationship.kind} → ${target}`;
   }
 
   function diagrams() {
@@ -88,6 +101,7 @@
     if (!allDiagrams.some(item => String(item.id) === String(selectedDiagramId))) {
       selectedDiagramId = allDiagrams[0] ? String(allDiagrams[0].id) : '';
       selectedNodeId = '';
+      selectedEdgeId = '';
     }
     const diagramSelect = find('[data-bdd-diagram]');
     diagramSelect.replaceChildren(...allDiagrams.map(item => new Option(item.name, item.id)));
@@ -106,7 +120,34 @@
     bddElement.replaceChildren(...presentable.map(element => new Option(`${element.name} [${element.kind}]`, element.id)));
     if (presentable.some(element => element.id === priorElement)) bddElement.value = priorElement;
 
+    const byId = new Map(elements.map(element => [String(element.id), element]));
+    const relationshipsById = new Map(snapshotRelationships().map(relationship => [String(relationship.id), relationship]));
     const diagram = currentDiagram();
+    const nodeElements = new Set((diagram?.nodes || []).map(node => String(node.element)));
+    const presentedRelationships = new Set((diagram?.edges || []).map(edge => String(edge.relationship)));
+    const availableRelationships = [...relationshipsById.values()].filter(relationship =>
+      nodeElements.has(String(relationship.source_id))
+      && nodeElements.has(String(relationship.target_id))
+      && !presentedRelationships.has(String(relationship.id)));
+    const bddRelationship = find('[data-bdd-relationship]');
+    const priorBddRelationship = bddRelationship.value;
+    bddRelationship.replaceChildren(...availableRelationships.map(relationship =>
+      new Option(relationshipDescription(relationship, byId), relationship.id)));
+    if (availableRelationships.some(relationship => String(relationship.id) === String(priorBddRelationship))) {
+      bddRelationship.value = priorBddRelationship;
+    }
+    const bddEdge = find('[data-bdd-edge]');
+    const priorBddEdge = selectedEdgeId || bddEdge.value;
+    bddEdge.replaceChildren(...(diagram?.edges || []).map(edge => {
+      const relationship = relationshipsById.get(String(edge.relationship));
+      return new Option(relationship ? relationshipDescription(relationship, byId) : String(edge.relationship), edge.id);
+    }));
+    if ((diagram?.edges || []).some(edge => String(edge.id) === String(priorBddEdge))) {
+      selectedEdgeId = String(priorBddEdge);
+      bddEdge.value = priorBddEdge;
+    } else {
+      selectedEdgeId = '';
+    }
     const nameInput = find('[data-bdd-name]');
     if (!bddNameDirty && document.activeElement !== nameInput) nameInput.value = diagram?.name || '';
     const editable = canEdit() && !view?.pending && !view?.needs_refresh;
@@ -115,6 +156,9 @@
     find('[data-bdd-delete]').disabled = !editable || !diagram;
     find('[data-bdd-place]').disabled = !editable || !diagram || !bddElement.value;
     find('[data-bdd-remove]').disabled = !editable || !diagram || !selectedNodeId;
+    find('[data-bdd-edge-place]').disabled = !editable || !diagram || !bddRelationship.value;
+    find('[data-bdd-edge-remove]').disabled = !editable || !diagram || !selectedEdgeId;
+    find('[data-bdd-route]').disabled = !editable || !diagram || !(diagram.edges || []).length;
 
     canvas.replaceChildren();
     if (!diagram) {
@@ -135,8 +179,82 @@
       right = Math.max(right, node.x + node.width + 40);
       bottom = Math.max(bottom, node.y + node.height + 40);
     }
+    for (const edge of diagram.edges || []) {
+      for (const point of edge.points || []) {
+        left = Math.min(left, point.x - 40);
+        top = Math.min(top, point.y - 40);
+        right = Math.max(right, point.x + 40);
+        bottom = Math.max(bottom, point.y + 40);
+      }
+      if (edge.label_anchor) {
+        left = Math.min(left, edge.label_anchor.x - 80);
+        top = Math.min(top, edge.label_anchor.y - 35);
+        right = Math.max(right, edge.label_anchor.x + 80);
+        bottom = Math.max(bottom, edge.label_anchor.y + 20);
+      }
+    }
     canvas.setAttribute('viewBox', `${left} ${top} ${right - left} ${bottom - top}`);
-    const byId = new Map(elements.map(element => [String(element.id), element]));
+    if ((diagram.edges || []).length) {
+      const defs = document.createElementNS(NS, 'defs');
+      const arrow = document.createElementNS(NS, 'marker');
+      arrow.setAttribute('id', 'collaboration-bdd-arrow');
+      arrow.setAttribute('viewBox', '0 0 10 10');
+      arrow.setAttribute('refX', '9');
+      arrow.setAttribute('refY', '5');
+      arrow.setAttribute('markerWidth', '8');
+      arrow.setAttribute('markerHeight', '8');
+      arrow.setAttribute('orient', 'auto-start-reverse');
+      const arrowPath = document.createElementNS(NS, 'path');
+      arrowPath.setAttribute('d', 'M 1 1 L 9 5 L 1 9');
+      arrowPath.classList.add('collaboration-bdd-arrow');
+      arrow.append(arrowPath);
+      const triangle = document.createElementNS(NS, 'marker');
+      triangle.setAttribute('id', 'collaboration-bdd-triangle');
+      triangle.setAttribute('viewBox', '0 0 12 10');
+      triangle.setAttribute('refX', '11');
+      triangle.setAttribute('refY', '5');
+      triangle.setAttribute('markerWidth', '10');
+      triangle.setAttribute('markerHeight', '10');
+      triangle.setAttribute('orient', 'auto-start-reverse');
+      const trianglePath = document.createElementNS(NS, 'path');
+      trianglePath.setAttribute('d', 'M 1 1 L 11 5 L 1 9 Z');
+      trianglePath.classList.add('collaboration-bdd-triangle');
+      triangle.append(trianglePath);
+      defs.append(arrow, triangle);
+      canvas.append(defs);
+    }
+    for (const edge of diagram.edges || []) {
+      const relationship = relationshipsById.get(String(edge.relationship));
+      const group = document.createElementNS(NS, 'g');
+      group.classList.add('collaboration-bdd-edge');
+      if (String(edge.id) === String(selectedEdgeId)) group.classList.add('selected');
+      group.dataset.edgeId = edge.id;
+      const line = document.createElementNS(NS, 'polyline');
+      line.setAttribute('points', (edge.points || []).map(point => `${point.x},${point.y}`).join(' '));
+      line.classList.add('collaboration-bdd-edge-line');
+      if (relationship?.kind !== 'Generalization') line.classList.add('dashed');
+      line.setAttribute('marker-end', relationship?.kind === 'Generalization' || relationship?.kind === 'Realization'
+        ? 'url(#collaboration-bdd-triangle)'
+        : 'url(#collaboration-bdd-arrow)');
+      group.append(line);
+      const labelValue = RELATIONSHIP_LABELS[relationship?.kind];
+      if (labelValue && edge.label_anchor) {
+        const label = document.createElementNS(NS, 'text');
+        label.setAttribute('x', edge.label_anchor.x);
+        label.setAttribute('y', edge.label_anchor.y);
+        label.classList.add('collaboration-bdd-edge-label');
+        label.textContent = labelValue;
+        group.append(label);
+      }
+      group.addEventListener('pointerdown', event => {
+        selectedEdgeId = String(edge.id);
+        selectedNodeId = '';
+        bddEdge.value = selectedEdgeId;
+        renderBdd();
+        event.preventDefault();
+      });
+      canvas.append(group);
+    }
     for (const node of diagram.nodes || []) {
       const semantic = byId.get(String(node.element));
       const group = document.createElementNS(NS, 'g');
@@ -160,6 +278,7 @@
       group.addEventListener('pointerdown', event => {
         if (busy) return;
         selectedNodeId = String(node.id);
+        selectedEdgeId = '';
         canvas.querySelectorAll('.collaboration-bdd-node').forEach(item => item.classList.toggle('selected', item === group));
         find('[data-bdd-remove]').disabled = !canEdit() || !!view?.pending || !!view?.needs_refresh;
         if (!canEdit() || view?.pending || view?.needs_refresh || event.button !== 0) return;
@@ -220,9 +339,7 @@
     const priorRelationship = relationshipSelect.value;
     const relationships = snapshotRelationships();
     relationshipSelect.replaceChildren(...relationships.map(relationship => {
-      const sourceName = byId.get(String(relationship.source_id))?.name || relationship.source_id;
-      const targetName = byId.get(String(relationship.target_id))?.name || relationship.target_id;
-      return new Option(`${sourceName} — ${relationship.kind} → ${targetName}`, relationship.id);
+      return new Option(relationshipDescription(relationship, byId), relationship.id);
     }));
     if (relationships.some(relationship => String(relationship.id) === String(priorRelationship))) relationshipSelect.value = priorRelationship;
     const relationshipEditable = editable && !view.pending && !view.needs_refresh;
@@ -313,6 +430,7 @@
     bddNameDirty = false;
     selectedDiagramId = String(view.snapshot?.diagrams?.[0]?.id || '');
     selectedNodeId = '';
+    selectedEdgeId = '';
   }, 'Shared project loaded.');
   find('[data-refresh]').onclick = () => run(async () => {
     view = await invoke('collaboration_open', { project: view.snapshot.project.id });
@@ -348,6 +466,12 @@
     bddNameDirty = false;
     selectedDiagramId = event.target.value;
     selectedNodeId = '';
+    selectedEdgeId = '';
+    renderBdd();
+  };
+  find('[data-bdd-edge]').onchange = event => {
+    selectedEdgeId = event.target.value;
+    selectedNodeId = '';
     renderBdd();
   };
   find('[data-bdd-create]').onclick = () => {
@@ -365,6 +489,7 @@
       if (created) selectedDiagramId = String(created.id);
       bddNameDirty = false;
       selectedNodeId = '';
+      selectedEdgeId = '';
     }, 'Shared BDD created.');
   };
   find('[data-bdd-rename]').onclick = () => {
@@ -381,6 +506,7 @@
       if (!saved) return;
       if (selectedDiagramId === deleting) selectedDiagramId = '';
       selectedNodeId = '';
+      selectedEdgeId = '';
     });
   };
   find('[data-bdd-place]').onclick = () => {
@@ -393,6 +519,32 @@
     const node = selectedNodeId;
     submitSharedEdit({ RemoveBddNode: { diagram: selectedDiagramId, node } }, 'Shared BDD node removed.').then(saved => { if (saved) { selectedNodeId = ''; renderBdd(); } });
   };
+  find('[data-bdd-edge-place]').onclick = () => {
+    const relationship = find('[data-bdd-relationship]').value;
+    if (!selectedDiagramId || !relationship || !view?.snapshot) return;
+    const before = new Set((currentDiagram()?.edges || []).map(edge => String(edge.id)));
+    const expectedRevision = view.snapshot.revision;
+    run(async () => {
+      view = await invoke('collaboration_edit', {
+        expectedRevision,
+        edit: { PresentBddRelationship: { diagram: selectedDiagramId, edge: crypto.randomUUID(), relationship } },
+      });
+      const created = (currentDiagram()?.edges || []).find(edge => !before.has(String(edge.id)));
+      selectedEdgeId = created ? String(created.id) : '';
+      selectedNodeId = '';
+    }, 'Relationship shown and routed on shared BDD.');
+  };
+  find('[data-bdd-edge-remove]').onclick = () => {
+    if (!selectedDiagramId || !selectedEdgeId) return;
+    const edge = selectedEdgeId;
+    submitSharedEdit({ RemoveBddEdge: { diagram: selectedDiagramId, edge } }, 'Relationship presentation removed from shared BDD.').then(saved => {
+      if (saved) { selectedEdgeId = ''; renderBdd(); }
+    });
+  };
+  find('[data-bdd-route]').onclick = () => {
+    if (!selectedDiagramId) return;
+    submitSharedEdit({ RouteBddDiagram: { diagram: selectedDiagramId } }, 'Shared BDD relationships routed.');
+  };
   find('[data-retry]').onclick = () => run(async () => {
     view = await invoke('collaboration_retry');
     edit.elements.name.value = '';
@@ -402,6 +554,7 @@
     view = null;
     selectedDiagramId = '';
     selectedNodeId = '';
+    selectedEdgeId = '';
     edit.elements.name.value = '';
   }, 'Disconnected.');
 

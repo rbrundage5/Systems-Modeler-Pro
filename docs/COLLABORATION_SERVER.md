@@ -95,9 +95,32 @@ DeriveRequirement, Satisfy, Verify, Refine, Trace, Copy, Include, and Extend.
 `DeleteRelationship` accepts the stable relationship UUID for those same kinds.
 All endpoint/direction/owner/duplicate/cycle checks are performed by model-core and
 the model, revision, and operation receipt commit atomically. Association,
-Connector, ItemFlow, BindingConnector, package/element import, and diagram edge
-presentation require specialized payloads and are deliberately rejected by the
+Connector, ItemFlow, BindingConnector, package/element import, and their specialized
+presentations require additional payloads and are deliberately rejected by the
 simple relationship deletion path.
+
+Once both semantic endpoints are nodes on a shared BDD, the relationship can be
+presented and routed with the same project revision:
+
+```json
+{
+  "operation_id": "NEW_OPERATION_UUID",
+  "expected_revision": 6,
+  "edit": {
+    "PresentBddRelationship": {
+      "diagram": "BDD_DIAGRAM_UUID",
+      "edge": "NEW_PRESENTATION_UUID",
+      "relationship": "SEMANTIC_RELATIONSHIP_UUID"
+    }
+  }
+}
+```
+
+The server uses the shared model-core batch router; clients cannot submit arbitrary
+points. `RouteBddDiagram` reroutes all edges, `RemoveBddEdge` removes only one
+presentation, endpoint movement reroutes atomically, and semantic deletion removes
+all affected BDD presentations. Invalid or impossible routes leave the model,
+diagram, revision, and receipt unchanged.
 
 Request bodies are limited to 16 KiB, at most 32 connections are active, request
 body timeout is 5 seconds, and the connection lifetime is bounded to 15 seconds.
@@ -117,6 +140,7 @@ merge. Existing individual offline desktop workflows remain separate.
 ## Validation
 
 The server tests cover authenticated edit/retry/conflict, viewer access, unknown
-project denial, malformed/oversized inputs, forged identity, and real loopback HTTP
-authentication. Required full CI and server checks must pass before merge. Public
-HTTPS deployment and desktop behavior have not been tested by these server tests.
+project denial, malformed/oversized inputs, forged identity, real loopback HTTP
+authentication, and authenticated BDD edge routing/cascade behavior. Required full
+CI and server checks must pass before merge. Public HTTPS deployment and native
+two-device behavior have not been tested by these server tests.

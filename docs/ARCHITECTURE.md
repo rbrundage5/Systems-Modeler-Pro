@@ -22,8 +22,10 @@ The product must eventually support complete SysML-oriented structure, behavior,
 ## Current repository layout
 
 The root `Cargo.toml` currently includes `crates/model-core`,
-`crates/persistence`, and `apps/desktop/src-tauri`. The renderer is under
-`apps/desktop/frontend`. Many capabilities are modules in those members.
+`crates/persistence`, `apps/server`, and `apps/desktop/src-tauri`. The renderer is
+under `apps/desktop/frontend`. The deterministic obstacle-clear routing service is
+owned by model-core so offline diagrams and server-authoritative shared presentations
+cannot diverge. Many capabilities are modules in those members.
 The optional server and separately named crates below are architectural direction,
 not existing packages or instructions to create new abstractions.
 

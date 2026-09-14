@@ -4,7 +4,9 @@ use crate::{PersistenceError, ProjectDatabase};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use systems_modeler_core::{
-    DiagramId, ElementId, ElementKind, ModelError, ProjectId, RelationshipId, RelationshipKind,
+    DiagramId, ElementId, ElementKind, GeometryPoint, ModelError, ProjectId, RelationshipId,
+    RelationshipKind,
+    routing::{DiagramRouteEdge, RouteRect, route_diagram, route_is_clear},
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -24,11 +26,23 @@ pub struct SharedBddNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SharedBddEdge {
+    pub id: Uuid,
+    pub relationship: RelationshipId,
+    pub source_node: Uuid,
+    pub target_node: Uuid,
+    pub points: Vec<GeometryPoint>,
+    pub label_anchor: GeometryPoint,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SharedBddDiagram {
     pub id: DiagramId,
     pub name: String,
     pub owner: ElementId,
     pub nodes: Vec<SharedBddNode>,
+    #[serde(default)]
+    pub edges: Vec<SharedBddEdge>,
 }
 
 /// Relationship kinds whose complete semantic payload is source, target and
@@ -140,6 +154,18 @@ pub enum SharedEdit {
         diagram: DiagramId,
         node: Uuid,
     },
+    PresentBddRelationship {
+        diagram: DiagramId,
+        edge: Uuid,
+        relationship: RelationshipId,
+    },
+    RemoveBddEdge {
+        diagram: DiagramId,
+        edge: Uuid,
+    },
+    RouteBddDiagram {
+        diagram: DiagramId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -250,6 +276,121 @@ fn validate_geometry(node: &SharedBddNode) -> Result<(), CollaborationError> {
     Ok(())
 }
 
+fn bdd_node_rect(node: &SharedBddNode) -> RouteRect {
+    RouteRect {
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+    }
+}
+
+fn point_on_rect_boundary(point: GeometryPoint, rect: RouteRect) -> bool {
+    const EPSILON: f64 = 0.001;
+    let right = rect.x + rect.width;
+    let bottom = rect.y + rect.height;
+    let within_x = point.x >= rect.x - EPSILON && point.x <= right + EPSILON;
+    let within_y = point.y >= rect.y - EPSILON && point.y <= bottom + EPSILON;
+    let on_vertical = (point.x - rect.x).abs() <= EPSILON || (point.x - right).abs() <= EPSILON;
+    let on_horizontal =
+        (point.y - rect.y).abs() <= EPSILON || (point.y - bottom).abs() <= EPSILON;
+    within_x && within_y && (on_vertical || on_horizontal)
+}
+
+fn validate_bdd_edge_geometry(
+    diagram: &SharedBddDiagram,
+    edge: &SharedBddEdge,
+    source: &SharedBddNode,
+    target: &SharedBddNode,
+) -> Result<(), CollaborationError> {
+    if edge.id.is_nil()
+        || edge.points.len() < 2
+        || !edge.label_anchor.x.is_finite()
+        || !edge.label_anchor.y.is_finite()
+        || edge
+            .points
+            .iter()
+            .any(|point| !point.x.is_finite() || !point.y.is_finite())
+        || edge.points.windows(2).any(|segment| {
+            let horizontal = (segment[0].y - segment[1].y).abs() <= 0.001;
+            let vertical = (segment[0].x - segment[1].x).abs() <= 0.001;
+            !(horizontal ^ vertical)
+        })
+        || !point_on_rect_boundary(edge.points[0], bdd_node_rect(source))
+        || !point_on_rect_boundary(
+            *edge.points.last().expect("length was checked"),
+            bdd_node_rect(target),
+        )
+    {
+        return Err(CollaborationError::InvalidDiagram(
+            "BDD edge routing geometry or identity is invalid",
+        ));
+    }
+    let obstacles: Vec<_> = diagram
+        .nodes
+        .iter()
+        .filter(|node| node.id != source.id && node.id != target.id)
+        .map(bdd_node_rect)
+        .collect();
+    if !route_is_clear(&edge.points, &obstacles) {
+        return Err(CollaborationError::InvalidDiagram(
+            "BDD edge route intersects a presented element",
+        ));
+    }
+    Ok(())
+}
+
+fn route_shared_bdd(diagram: &mut SharedBddDiagram) -> Result<(), CollaborationError> {
+    let obstacles: Vec<_> = diagram.nodes.iter().map(bdd_node_rect).collect();
+    let requested = diagram
+        .edges
+        .iter()
+        .map(|edge| {
+            let source = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.source_node)
+                .ok_or(CollaborationError::InvalidDiagram(
+                    "BDD edge source presentation was not found",
+                ))?;
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.target_node)
+                .ok_or(CollaborationError::InvalidDiagram(
+                    "BDD edge target presentation was not found",
+                ))?;
+            Ok(DiagramRouteEdge {
+                id: edge.id.to_string(),
+                source_id: source.id.to_string(),
+                target_id: target.id.to_string(),
+                source: bdd_node_rect(source),
+                target: bdd_node_rect(target),
+            })
+        })
+        .collect::<Result<Vec<_>, CollaborationError>>()?;
+    let routed = route_diagram(&requested, &obstacles).map_err(|_| {
+        CollaborationError::InvalidDiagram(
+            "no obstacle-clear orthogonal BDD relationship route is available",
+        )
+    })?;
+    for route in routed {
+        let routed_id = Uuid::parse_str(&route.id).map_err(|_| {
+            CollaborationError::InvalidDiagram("router returned an invalid BDD edge identity")
+        })?;
+        let edge = diagram
+            .edges
+            .iter_mut()
+            .find(|edge| edge.id == routed_id)
+            .ok_or(CollaborationError::InvalidDiagram(
+                "routed BDD edge presentation was not found",
+            ))?;
+        edge.points = route.points;
+        edge.label_anchor = route.label_anchor;
+    }
+    Ok(())
+}
+
 fn validate_shared_bdd(
     project: &systems_modeler_core::Project,
     diagram: &SharedBddDiagram,
@@ -276,6 +417,41 @@ fn validate_shared_bdd(
                 "semantic element kind is not valid on a BDD",
             ));
         }
+    }
+    let mut edges = std::collections::HashSet::new();
+    let mut relationships = std::collections::HashSet::new();
+    for edge in &diagram.edges {
+        if !edges.insert(edge.id) || !relationships.insert(edge.relationship) {
+            return Err(CollaborationError::InvalidDiagram(
+                "duplicate BDD edge or semantic relationship presentation",
+            ));
+        }
+        let relationship = project.relationship(edge.relationship)?;
+        if !SharedRelationshipKind::supports(&relationship.kind) {
+            return Err(CollaborationError::InvalidDiagram(
+                "relationship kind requires a specialized BDD presentation",
+            ));
+        }
+        let source = diagram
+            .nodes
+            .iter()
+            .find(|node| node.id == edge.source_node)
+            .ok_or(CollaborationError::InvalidDiagram(
+                "BDD edge source presentation was not found",
+            ))?;
+        let target = diagram
+            .nodes
+            .iter()
+            .find(|node| node.id == edge.target_node)
+            .ok_or(CollaborationError::InvalidDiagram(
+                "BDD edge target presentation was not found",
+            ))?;
+        if source.element != relationship.source_id || target.element != relationship.target_id {
+            return Err(CollaborationError::InvalidDiagram(
+                "BDD edge endpoints do not match the semantic relationship",
+            ));
+        }
+        validate_bdd_edge_geometry(diagram, edge, source, target)?;
     }
     Ok(())
 }
@@ -476,7 +652,10 @@ impl ProjectDatabase {
             | SharedEdit::DeleteRelationship { .. }
             | SharedEdit::PlaceBddElement { .. }
             | SharedEdit::UpdateBddNodeGeometry { .. }
-            | SharedEdit::RemoveBddNode { .. } => {}
+            | SharedEdit::RemoveBddNode { .. }
+            | SharedEdit::PresentBddRelationship { .. }
+            | SharedEdit::RemoveBddEdge { .. }
+            | SharedEdit::RouteBddDiagram { .. } => {}
         }
 
         let mut model = self.load_project(project)?;
@@ -514,6 +693,17 @@ impl ProjectDatabase {
                 }
                 let source = existing.source_id;
                 model.relationships.remove(relationship);
+                for mut diagram in Self::load_shared_bdd_diagrams_from(&tx, project)? {
+                    let previous = diagram.edges.len();
+                    diagram
+                        .edges
+                        .retain(|edge| edge.relationship != *relationship);
+                    if diagram.edges.len() != previous {
+                        route_shared_bdd(&mut diagram)?;
+                        validate_shared_bdd(&model, &diagram)?;
+                        Self::save_shared_bdd_diagram_to(&tx, project, &diagram)?;
+                    }
+                }
                 semantic_changed = true;
                 source
             }
@@ -540,6 +730,7 @@ impl ProjectDatabase {
                     name: name.clone(),
                     owner: *owner,
                     nodes: Vec::new(),
+                    edges: Vec::new(),
                 };
                 validate_shared_bdd(&model, &created)?;
                 Self::save_shared_bdd_diagram_to(&tx, project, &created)?;
@@ -622,6 +813,7 @@ impl ProjectDatabase {
                 presented.width = *width;
                 presented.height = *height;
                 let element = presented.element;
+                route_shared_bdd(&mut existing)?;
                 validate_shared_bdd(&model, &existing)?;
                 Self::save_shared_bdd_diagram_to(&tx, project, &existing)?;
                 element
@@ -634,9 +826,88 @@ impl ProjectDatabase {
                     .position(|presented| presented.id == *node)
                     .ok_or(CollaborationError::InvalidDiagram("BDD node was not found"))?;
                 let element = existing.nodes.remove(index).element;
+                existing
+                    .edges
+                    .retain(|edge| edge.source_node != *node && edge.target_node != *node);
+                route_shared_bdd(&mut existing)?;
                 validate_shared_bdd(&model, &existing)?;
                 Self::save_shared_bdd_diagram_to(&tx, project, &existing)?;
                 element
+            }
+            SharedEdit::PresentBddRelationship {
+                diagram,
+                edge,
+                relationship,
+            } => {
+                if edge.is_nil() {
+                    return Err(CollaborationError::InvalidDiagram(
+                        "BDD edge identity must not be nil",
+                    ));
+                }
+                let semantic = model.relationship(*relationship)?;
+                if !SharedRelationshipKind::supports(&semantic.kind) {
+                    return Err(CollaborationError::InvalidDiagram(
+                        "relationship kind requires a specialized BDD presentation",
+                    ));
+                }
+                let mut existing = Self::load_shared_bdd_diagram_from(&tx, project, *diagram)?;
+                if existing.edges.iter().any(|presented| {
+                    presented.id == *edge || presented.relationship == *relationship
+                }) {
+                    return Err(CollaborationError::InvalidDiagram(
+                        "edge or relationship is already presented on this BDD",
+                    ));
+                }
+                let source_node = existing
+                    .nodes
+                    .iter()
+                    .find(|node| node.element == semantic.source_id)
+                    .ok_or(CollaborationError::InvalidDiagram(
+                        "relationship source must be presented on the selected BDD",
+                    ))?
+                    .id;
+                let target_node = existing
+                    .nodes
+                    .iter()
+                    .find(|node| node.element == semantic.target_id)
+                    .ok_or(CollaborationError::InvalidDiagram(
+                        "relationship target must be presented on the selected BDD",
+                    ))?
+                    .id;
+                existing.edges.push(SharedBddEdge {
+                    id: *edge,
+                    relationship: *relationship,
+                    source_node,
+                    target_node,
+                    points: Vec::new(),
+                    label_anchor: GeometryPoint::default(),
+                });
+                route_shared_bdd(&mut existing)?;
+                validate_shared_bdd(&model, &existing)?;
+                Self::save_shared_bdd_diagram_to(&tx, project, &existing)?;
+                semantic.source_id
+            }
+            SharedEdit::RemoveBddEdge { diagram, edge } => {
+                let mut existing = Self::load_shared_bdd_diagram_from(&tx, project, *diagram)?;
+                let index = existing
+                    .edges
+                    .iter()
+                    .position(|presented| presented.id == *edge)
+                    .ok_or(CollaborationError::InvalidDiagram("BDD edge was not found"))?;
+                let relationship = existing.edges.remove(index).relationship;
+                let element = model.relationship(relationship)?.source_id;
+                route_shared_bdd(&mut existing)?;
+                validate_shared_bdd(&model, &existing)?;
+                Self::save_shared_bdd_diagram_to(&tx, project, &existing)?;
+                element
+            }
+            SharedEdit::RouteBddDiagram { diagram } => {
+                let mut existing = Self::load_shared_bdd_diagram_from(&tx, project, *diagram)?;
+                route_shared_bdd(&mut existing)?;
+                validate_shared_bdd(&model, &existing)?;
+                let owner = existing.owner;
+                Self::save_shared_bdd_diagram_to(&tx, project, &existing)?;
+                owner
             }
         };
         model.validate()?;

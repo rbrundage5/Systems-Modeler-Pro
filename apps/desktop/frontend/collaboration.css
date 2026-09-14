@@ -20,4 +20,11 @@
 .collaboration-bdd-node { cursor: grab; }
 .collaboration-bdd-node:active { cursor: grabbing; }
 .collaboration-bdd-node.selected rect { stroke-width: 3; }
+.collaboration-bdd-edge { cursor: pointer; }
+.collaboration-bdd-edge-line { fill: none; stroke: #3b5878; stroke-width: 2; stroke-linejoin: round; pointer-events: stroke; }
+.collaboration-bdd-edge-line.dashed { stroke-dasharray: 8 6; }
+.collaboration-bdd-edge.selected .collaboration-bdd-edge-line { stroke: #1261a0; stroke-width: 3.5; }
+.collaboration-bdd-arrow { fill: none; stroke: #3b5878; stroke-width: 1.5; }
+.collaboration-bdd-triangle { fill: #fff; stroke: #3b5878; stroke-width: 1.5; }
+.collaboration-bdd-edge-label { fill: #172c45; stroke: #fff; stroke-width: 4; paint-order: stroke; text-anchor: middle; font: 13px system-ui, sans-serif; pointer-events: none; }
 @media (max-width: 800px) { .collaboration-dialog { padding: 14px; } .collaboration-bdd-canvas { min-width: 620px; } }
