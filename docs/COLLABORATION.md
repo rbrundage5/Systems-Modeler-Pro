@@ -25,8 +25,9 @@ not a running server or a finished shared-project UI.
 
 The database API is trusted server infrastructure, not a security sandbox.
 Existing raw load/metadata/activity APIs must never be exposed as remote handlers.
-No desktop database is marked shared automatically. Diagram metadata is not yet
-included in shared edits or reconnect snapshots. Model writes currently reuse
+No desktop database is marked shared automatically. Shared BDD node and simple
+relationship presentation metadata is included in reconnect snapshots; other
+diagram families remain outside this boundary. Model writes currently reuse
 whole-model persistence internally; this is not a large-model performance claim.
 
 ## Remaining increments
@@ -53,7 +54,9 @@ The next HTTP adapter increment is described in [server setup and limits](COLLAB
 
 Later merged increments provide the authenticated HTTP server, desktop session,
 real two-session transport qualification, and shared BDD node presentations. The
-current relationship increment adds revisioned create/delete operations for the
-simple semantic relationship kinds whose complete payload is source, target, and
-namespace owner. Specialized relationships and diagram edge routing remain
-separate so their required semantic/presentation payloads cannot be bypassed.
+relationship increment adds revisioned create/delete operations for the simple
+semantic relationship kinds whose complete payload is source, target, and namespace
+owner. The current stacked increment presents those relationships on shared BDDs
+and routes them through the same model-core obstacle-clear orthogonal router used by
+offline diagrams. Specialized relationships remain separate so their required
+semantic/presentation payloads cannot be bypassed.

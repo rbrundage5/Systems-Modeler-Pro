@@ -66,8 +66,10 @@ assert "pub fn active_diagram_router" in read(root / "apps/desktop/src-tauri/src
 assert "fn route_bdd_with_bounds" in read(root / "apps/desktop/src-tauri/src/workspace.rs")
 assert '"bdd" | "requirement" | "use-case" | "package"' in shared_workspace
 assert "route_diagram_geometry" in main
-router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
-assert "route_diagram_geometry" in router
+desktop_router = read(root / "apps/desktop/src-tauri/src/workspace/routing.rs")
+core_router = read(root / "crates/model-core/src/routing.rs")
+router = desktop_router + core_router
+assert "systems_modeler_core::routing::route_diagram_geometry" in desktop_router
 for routing_contract in ["DiagramRouteEdge", "RouteRect", "reserved_routes", "allow_shared_departure"]:
     assert routing_contract in router
 for family in ["bdd", "ibd", "requirement", "use-case", "parametric", "package", "state-machine", "sequence", "activity"]:
