@@ -1,6 +1,8 @@
-use systems_modeler_core::{DiagramId, ElementId, Project};
+use systems_modeler_core::{
+    AggregationKind, DiagramId, ElementId, ElementKind, Multiplicity, Project, RelationshipKind,
+};
 use systems_modeler_persistence::collaboration::{
-    CollaborationError, EditRequest, ProjectRole, SharedEdit,
+    CollaborationError, EditRequest, ProjectRole, SharedEdit, SharedRelationshipKind,
 };
 use systems_modeler_persistence::{PersistenceError, ProjectDatabase};
 use uuid::Uuid;
@@ -269,4 +271,222 @@ fn failed_receipt_write_rolls_back_model_and_revision() {
     fault.execute_batch("DROP TRIGGER fail_receipt").unwrap();
     let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
     assert_eq!(receipt.revision, 1);
+}
+
+#[test]
+fn simple_relationship_edits_commit_retry_delete_and_survive_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shared-relationships.sqlite");
+    let project = Project::new("Shared");
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open(&path).unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+
+    let base = db
+        .commit_shared_edit(project.id, actor, &create(project.root_id, 0))
+        .unwrap()
+        .element;
+    let derived = db
+        .commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                1,
+                SharedEdit::CreateBlock {
+                    owner: project.root_id,
+                    name: "Derived".into(),
+                },
+            ),
+        )
+        .unwrap()
+        .element;
+    let request = edit(
+        2,
+        SharedEdit::CreateRelationship {
+            kind: SharedRelationshipKind::Generalization,
+            source: derived,
+            target: base,
+            owner: project.root_id,
+        },
+    );
+    let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
+    assert_eq!(receipt.element, derived);
+    assert_eq!(
+        db.commit_shared_edit(project.id, actor, &request).unwrap(),
+        receipt
+    );
+    let relationship = db
+        .shared_snapshot(project.id, actor)
+        .unwrap()
+        .0
+        .relationships
+        .values()
+        .find(|relationship| relationship.kind == RelationshipKind::Generalization)
+        .unwrap()
+        .id;
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(3, SharedEdit::DeleteRelationship { relationship }),
+    )
+    .unwrap();
+    drop(db);
+
+    let db = ProjectDatabase::open(&path).unwrap();
+    let (loaded, _, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 4);
+    assert!(loaded.relationships.is_empty());
+    assert_eq!(loaded.elements.len(), 3);
+    loaded.validate().unwrap();
+}
+
+#[test]
+fn every_advertised_simple_relationship_kind_uses_model_core_validation() {
+    let mut project = Project::new("Shared relationship kinds");
+    let block_a = project
+        .create_element(ElementKind::Block, "Block A", project.root_id)
+        .unwrap();
+    let block_b = project
+        .create_element(ElementKind::Block, "Block B", project.root_id)
+        .unwrap();
+    let requirement_a = project
+        .create_requirement("Requirement A", "REQ-A", "A", project.root_id)
+        .unwrap();
+    let requirement_b = project
+        .create_requirement("Requirement B", "REQ-B", "B", project.root_id)
+        .unwrap();
+    let copy_a = project
+        .create_requirement("Copy A", "REQ-COPY-A", "A", project.root_id)
+        .unwrap();
+    let copy_b = project
+        .create_requirement("Copy B", "REQ-COPY-B", "B", project.root_id)
+        .unwrap();
+    let test_case = project
+        .create_element(ElementKind::TestCase, "Test", project.root_id)
+        .unwrap();
+    let use_case_a = project
+        .create_element(ElementKind::UseCase, "Use A", project.root_id)
+        .unwrap();
+    let use_case_b = project
+        .create_element(ElementKind::UseCase, "Use B", project.root_id)
+        .unwrap();
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open_in_memory().unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+    let cases = [
+        (SharedRelationshipKind::Dependency, block_a, block_b),
+        (SharedRelationshipKind::Generalization, block_a, block_b),
+        (SharedRelationshipKind::Realization, block_a, block_b),
+        (SharedRelationshipKind::Allocate, block_a, block_b),
+        (
+            SharedRelationshipKind::DeriveRequirement,
+            requirement_a,
+            requirement_b,
+        ),
+        (SharedRelationshipKind::Satisfy, block_a, requirement_a),
+        (SharedRelationshipKind::Verify, test_case, requirement_a),
+        (SharedRelationshipKind::Refine, block_b, requirement_b),
+        (SharedRelationshipKind::Trace, block_a, requirement_b),
+        (SharedRelationshipKind::Copy, copy_a, copy_b),
+        (SharedRelationshipKind::Include, use_case_a, use_case_b),
+        (SharedRelationshipKind::Extend, use_case_b, use_case_a),
+    ];
+    for (revision, (kind, source, target)) in cases.into_iter().enumerate() {
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                revision as i64,
+                SharedEdit::CreateRelationship {
+                    kind,
+                    source,
+                    target,
+                    owner: project.root_id,
+                },
+            ),
+        )
+        .unwrap();
+    }
+    let (loaded, _, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 12);
+    assert_eq!(loaded.relationships.len(), 12);
+    loaded.validate().unwrap();
+}
+
+#[test]
+fn invalid_and_specialized_relationship_edits_roll_back_atomically() {
+    let mut project = Project::new("Shared");
+    let base = project
+        .create_element(ElementKind::Block, "Base", project.root_id)
+        .unwrap();
+    let derived = project
+        .create_element(ElementKind::Block, "Derived", project.root_id)
+        .unwrap();
+    let association = project
+        .create_association(
+            Some(project.root_id),
+            vec![
+                Project::association_end(
+                    base,
+                    "base",
+                    Multiplicity::ONE,
+                    true,
+                    AggregationKind::None,
+                ),
+                Project::association_end(
+                    derived,
+                    "derived",
+                    Multiplicity::ONE,
+                    true,
+                    AggregationKind::None,
+                ),
+            ],
+        )
+        .unwrap();
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open_in_memory().unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+
+    assert!(matches!(
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                0,
+                SharedEdit::CreateRelationship {
+                    kind: SharedRelationshipKind::Generalization,
+                    source: derived,
+                    target: derived,
+                    owner: project.root_id,
+                },
+            ),
+        ),
+        Err(CollaborationError::Model(_))
+    ));
+    assert!(matches!(
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                0,
+                SharedEdit::DeleteRelationship {
+                    relationship: association
+                }
+            ),
+        ),
+        Err(CollaborationError::InvalidRelationship(_))
+    ));
+    let (loaded, _, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 0);
+    assert_eq!(loaded.relationships.len(), 1);
+    assert_eq!(
+        loaded.relationship(association).unwrap().kind,
+        RelationshipKind::Association
+    );
 }

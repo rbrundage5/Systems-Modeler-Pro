@@ -43,7 +43,10 @@ const event = (x = 72, y = 90) => ({ pointerId: 1, button: 0, clientX: x, client
 
 async function fixture() {
   const controls = new Map();
-  const selectNames = new Set(['project', 'element', 'bdd-owner', 'bdd-diagram', 'bdd-element']);
+  const selectNames = new Set([
+    'project', 'element', 'relationship-source', 'relationship-target', 'relationship-owner',
+    'relationship', 'bdd-owner', 'bdd-diagram', 'bdd-element',
+  ]);
   const find = selector => {
     if (!controls.has(selector)) {
       const name = selector.slice(6, -1);
@@ -56,9 +59,15 @@ async function fixture() {
   const edit = find('[data-edit]');
   edit.elements = { name: new Element('input'), operation: new Element('select') };
   edit.elements.operation.value = 'CreateBlock';
+  const relationshipEdit = find('[data-relationship-edit]');
+  relationshipEdit.elements = { kind: new Element('select') };
+  relationshipEdit.elements.kind.value = 'Dependency';
   const dialog = new Element('dialog');
   dialog.querySelector = find;
-  dialog.querySelectorAll = () => [...controls.values(), ...Object.values(connect.elements), ...Object.values(edit.elements)];
+  dialog.querySelectorAll = () => [
+    ...controls.values(), ...Object.values(connect.elements), ...Object.values(edit.elements),
+    ...Object.values(relationshipEdit.elements),
+  ];
   const body = new Element();
   const document = {
     activeElement: null, body,
@@ -73,7 +82,7 @@ async function fixture() {
       project: { id: 'project', name: 'Shared', root_id: 'root', elements: {
         root: { id: 'root', name: 'Model', kind: 'Model' },
         block: { id: 'block', name: 'Motor', kind: 'Block' },
-      } },
+      }, relationships: {} },
       diagrams: [{ id: 'bdd', name: 'Structure', owner: 'root', nodes: [
         { id: 'node', element: 'block', x: 72, y: 90, width: 190, height: 115 },
       ] }],
@@ -94,7 +103,7 @@ async function fixture() {
   find('[data-open]').onclick();
   await flush();
   calls.length = 0;
-  return { find, edit, view, calls, setHandler: value => { handler = value; }, canvas: find('[data-bdd-canvas]') };
+  return { find, edit, relationshipEdit, view, calls, setHandler: value => { handler = value; }, canvas: find('[data-bdd-canvas]') };
 }
 
 test('a rejected semantic edit retains the typed intention', async () => {
@@ -164,4 +173,39 @@ test('remote node geometry outside the initial canvas remains in view', async ()
   await flush();
   const bounds = ui.canvas.attributes.viewBox.split(' ').map(Number);
   assert.ok(bounds[1] + bounds[3] >= 890 + 115);
+});
+
+test('relationship creation submits kind, endpoints, owner, and visible revision', async () => {
+  const ui = await fixture();
+  ui.relationshipEdit.elements.kind.value = 'Generalization';
+  ui.find('[data-relationship-source]').value = 'block';
+  ui.find('[data-relationship-target]').value = 'root';
+  ui.find('[data-relationship-owner]').value = 'root';
+  ui.relationshipEdit.onsubmit(event());
+  await flush();
+  const calls = ui.calls.filter(call => call.command === 'collaboration_edit');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.expectedRevision, 7);
+  const relationship = calls[0].payload.edit.CreateRelationship;
+  assert.equal(relationship.kind, 'Generalization');
+  assert.equal(relationship.source, 'block');
+  assert.equal(relationship.target, 'root');
+  assert.equal(relationship.owner, 'root');
+});
+
+test('relationship deletion uses the selected stable relationship identity', async () => {
+  const ui = await fixture();
+  ui.view.snapshot.project.relationships = {
+    relationship: {
+      id: 'relationship', kind: 'Dependency', source_id: 'block', target_id: 'root', owner_id: 'root',
+    },
+  };
+  ui.find('[data-refresh]').onclick();
+  await flush();
+  ui.find('[data-relationship]').value = 'relationship';
+  ui.find('[data-relationship-delete]').onclick();
+  await flush();
+  const calls = ui.calls.filter(call => call.command === 'collaboration_edit');
+  assert.equal(calls.at(-1).payload.expectedRevision, 7);
+  assert.equal(calls.at(-1).payload.edit.DeleteRelationship.relationship, 'relationship');
 });

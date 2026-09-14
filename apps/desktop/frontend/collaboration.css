@@ -8,6 +8,7 @@
 .collaboration-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .collaboration-actions label { min-width: 190px; flex: 1 1 190px; margin: 4px 0; }
 .collaboration-semantic, .collaboration-bdd { border-top: 1px solid #dbe2e9; margin-top: 16px; padding-top: 12px; }
+.collaboration-relationships { border-top: 1px solid #e7ebf0; margin-top: 14px; padding-top: 8px; }
 .collaboration-elements { max-height: 180px; overflow: auto; border: 1px solid #dbe2e9; padding: 10px; margin-top: 12px; }
 .collaboration-elements > div { padding: 4px; overflow-wrap: anywhere; }
 .collaboration-dialog [data-message] { white-space: pre-wrap; font-weight: 600; }

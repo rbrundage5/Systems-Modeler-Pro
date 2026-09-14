@@ -72,6 +72,33 @@ resnapshot and resolve explicitly, never blindly overwrite. HTTP 401 means inval
 credentials; 403 means insufficient access; 422 means semantic rejection. Storage
 errors do not expose internal SQL or filesystem paths.
 
+Simple semantic relationship creation uses the same endpoint and revision. For
+example, a Block generalizing another Block is submitted as:
+
+```json
+{
+  "operation_id": "NEW_OPERATION_UUID",
+  "expected_revision": 2,
+  "edit": {
+    "CreateRelationship": {
+      "kind": "Generalization",
+      "source": "SPECIFIC_BLOCK_UUID",
+      "target": "GENERAL_BLOCK_UUID",
+      "owner": "MODEL_OR_PACKAGE_UUID"
+    }
+  }
+}
+```
+
+Supported kinds are Dependency, Generalization, Realization, Allocate,
+DeriveRequirement, Satisfy, Verify, Refine, Trace, Copy, Include, and Extend.
+`DeleteRelationship` accepts the stable relationship UUID for those same kinds.
+All endpoint/direction/owner/duplicate/cycle checks are performed by model-core and
+the model, revision, and operation receipt commit atomically. Association,
+Connector, ItemFlow, BindingConnector, package/element import, and diagram edge
+presentation require specialized payloads and are deliberately rejected by the
+simple relationship deletion path.
+
 Request bodies are limited to 16 KiB, at most 32 connections are active, request
 body timeout is 5 seconds, and the connection lifetime is bounded to 15 seconds.
 An interrupted response may correspond to a committed operation: retry the exact
@@ -80,9 +107,10 @@ not a high-availability or large-model performance qualification.
 
 ## Remaining work
 
-Presence, change streaming, additional diagram families,
-complete editing operation coverage, collaborative undo, user-facing project
-administration, token expiry/SSO, and deployed multi-device acceptance remain open.
+Presence, change streaming, specialized relationship editing and presentation,
+additional diagram families, complete editing operation coverage, collaborative
+undo, user-facing project administration, token expiry/SSO, and deployed
+multi-device acceptance remain open.
 Snapshot fetch supports reconnect at this API level; it does not implement offline
 merge. Existing individual offline desktop workflows remain separate.
 
