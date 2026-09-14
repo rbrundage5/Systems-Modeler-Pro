@@ -6,7 +6,10 @@ use std::{
     time::Duration,
 };
 use systems_modeler_core::{Project, RelationshipKind};
-use systems_modeler_persistence::ProjectDatabase;
+use systems_modeler_persistence::{
+    ProjectDatabase,
+    collaboration::{COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION},
+};
 use systems_modeler_server::{
     Config, Credential, Grant, MAX_BODY, Role, Service, serve, token_hash,
 };
@@ -46,6 +49,24 @@ fn fixture() -> (Arc<Service>, Project, String, String) {
 
 fn operation(project: &Project) -> Value {
     json!({"operation_id":Uuid::new_v4(),"expected_revision":0,"edit":{"CreateBlock":{"owner":project.root_id,"name":"Engine"}}})
+}
+
+#[test]
+fn authenticated_capabilities_define_the_client_server_contract() {
+    let (service, _, editor, _) = fixture();
+    assert_eq!(
+        service.dispatch("GET", "/v1/capabilities", None, &[]).0,
+        401
+    );
+
+    let response = service.dispatch("GET", "/v1/capabilities", Some(&editor), &[]);
+    assert_eq!(response.0, 200);
+    assert_eq!(response.1["protocol"], COLLABORATION_PROTOCOL_VERSION);
+    assert_eq!(
+        response.1["capabilities"],
+        serde_json::to_value(COLLABORATION_CAPABILITIES).unwrap()
+    );
+    assert_eq!(response.1["server_version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
@@ -285,5 +306,148 @@ fn relationship_edits_use_the_authenticated_revisioned_http_contract() {
     assert_eq!(
         relationships.values().next().unwrap()["kind"],
         serde_json::to_value(RelationshipKind::Generalization).unwrap()
+    );
+}
+
+#[test]
+fn bdd_relationship_presentations_use_authenticated_server_routing() {
+    let (service, project, editor, viewer) = fixture();
+    let path = format!("/v1/projects/{}", project.id);
+    let edits = format!("{path}/operations");
+    let post = |authorization: &str, body: &Value| {
+        service.dispatch(
+            "POST",
+            &edits,
+            Some(authorization),
+            &serde_json::to_vec(body).unwrap(),
+        )
+    };
+    for (revision, name) in [(0, "Source"), (1, "Target")] {
+        assert_eq!(
+            post(
+                &editor,
+                &json!({
+                    "operation_id": Uuid::new_v4(),
+                    "expected_revision": revision,
+                    "edit": {"CreateBlock": {"owner": project.root_id, "name": name}}
+                }),
+            )
+            .0,
+            200
+        );
+    }
+    let snapshot = service.dispatch("GET", &path, Some(&editor), &[]).1;
+    let elements = snapshot["project"]["elements"].as_object().unwrap();
+    let id_for = |name: &str| {
+        elements
+            .values()
+            .find(|element| element["name"] == name)
+            .unwrap()["id"]
+            .clone()
+    };
+    assert_eq!(
+        post(
+            &editor,
+            &json!({
+                "operation_id": Uuid::new_v4(),
+                "expected_revision": 2,
+                "edit": {"CreateRelationship": {
+                    "kind": "Dependency",
+                    "source": id_for("Source"),
+                    "target": id_for("Target"),
+                    "owner": project.root_id
+                }}
+            }),
+        )
+        .0,
+        200
+    );
+    let snapshot = service.dispatch("GET", &path, Some(&editor), &[]).1;
+    let relationship = snapshot["project"]["relationships"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()["id"]
+        .clone();
+    let diagram = Uuid::new_v4();
+    assert_eq!(
+        post(
+            &editor,
+            &json!({
+                "operation_id": Uuid::new_v4(),
+                "expected_revision": 3,
+                "edit": {"CreateBddDiagram": {
+                    "diagram": diagram,
+                    "owner": project.root_id,
+                    "name": "Structure"
+                }}
+            }),
+        )
+        .0,
+        200
+    );
+    for (revision, node, element) in [
+        (4, Uuid::new_v4(), id_for("Source")),
+        (5, Uuid::new_v4(), id_for("Target")),
+    ] {
+        assert_eq!(
+            post(
+                &editor,
+                &json!({
+                    "operation_id": Uuid::new_v4(),
+                    "expected_revision": revision,
+                    "edit": {"PlaceBddElement": {
+                        "diagram": diagram,
+                        "node": node,
+                        "element": element
+                    }}
+                }),
+            )
+            .0,
+            200
+        );
+    }
+    let edge = json!({
+        "operation_id": Uuid::new_v4(),
+        "expected_revision": 6,
+        "edit": {"PresentBddRelationship": {
+            "diagram": diagram,
+            "edge": Uuid::new_v4(),
+            "relationship": relationship
+        }}
+    });
+    assert_eq!(post(&viewer, &edge).0, 403);
+    assert_eq!(post(&editor, &edge).0, 200);
+    let snapshot = service.dispatch("GET", &path, Some(&viewer), &[]).1;
+    assert_eq!(snapshot["revision"], 7);
+    let presented = &snapshot["diagrams"][0]["edges"][0];
+    assert_eq!(presented["relationship"], relationship);
+    assert!(presented["points"].as_array().unwrap().len() >= 2);
+    assert_eq!(
+        post(
+            &editor,
+            &json!({
+                "operation_id": Uuid::new_v4(),
+                "expected_revision": 7,
+                "edit": {"DeleteRelationship": {"relationship": relationship}}
+            }),
+        )
+        .0,
+        200
+    );
+    let snapshot = service.dispatch("GET", &path, Some(&viewer), &[]).1;
+    assert_eq!(snapshot["revision"], 8);
+    assert!(
+        snapshot["project"]["relationships"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        snapshot["diagrams"][0]["edges"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 }

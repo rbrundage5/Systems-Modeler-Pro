@@ -2,7 +2,7 @@
 //! These tests do not launch WebView windows or claim physical-device UI coverage.
 use super::*;
 use std::{path::Path, sync::Arc};
-use systems_modeler_core::ElementId;
+use systems_modeler_core::{DiagramId, ElementId};
 use systems_modeler_persistence::{ProjectDatabase, collaboration::SharedRelationshipKind};
 use systems_modeler_server::{
     Config, Credential, Grant as ServerGrant, Role, Service, serve, token_hash,
@@ -370,6 +370,152 @@ fn two_clients_converge_after_relationship_create_and_delete() {
                 .unwrap()
                 .project
                 .relationships
+                .is_empty()
+        );
+        assert_eq!(
+            serde_json::to_value(&first.snapshot).unwrap(),
+            serde_json::to_value(&second.snapshot).unwrap()
+        );
+        task.abort();
+        let _ = task.await;
+    });
+}
+
+#[test]
+fn two_clients_converge_on_server_routed_bdd_relationship_presentations() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared-bdd-edges.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut first = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        let mut second = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        first.open(project.id).await.unwrap();
+        second.open(project.id).await.unwrap();
+
+        first
+            .edit(0, block(project.root_id, "Source"))
+            .await
+            .unwrap();
+        second.open(project.id).await.unwrap();
+        second
+            .edit(1, block(project.root_id, "Target"))
+            .await
+            .unwrap();
+        first.open(project.id).await.unwrap();
+        let source = named(&first, "Source");
+        let target = named(&first, "Target");
+        first
+            .edit(
+                2,
+                SharedEdit::CreateRelationship {
+                    kind: SharedRelationshipKind::Dependency,
+                    source,
+                    target,
+                    owner: project.root_id,
+                },
+            )
+            .await
+            .unwrap();
+        let relationship = first
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .project
+            .relationships
+            .values()
+            .next()
+            .unwrap()
+            .id;
+        let diagram = DiagramId::new();
+        first
+            .edit(
+                3,
+                SharedEdit::CreateBddDiagram {
+                    diagram,
+                    owner: project.root_id,
+                    name: "Structure".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let source_node = Uuid::new_v4();
+        let target_node = Uuid::new_v4();
+        first
+            .edit(
+                4,
+                SharedEdit::PlaceBddElement {
+                    diagram,
+                    node: source_node,
+                    element: source,
+                },
+            )
+            .await
+            .unwrap();
+        first
+            .edit(
+                5,
+                SharedEdit::PlaceBddElement {
+                    diagram,
+                    node: target_node,
+                    element: target,
+                },
+            )
+            .await
+            .unwrap();
+        let edge = Uuid::new_v4();
+        first
+            .edit(
+                6,
+                SharedEdit::PresentBddRelationship {
+                    diagram,
+                    edge,
+                    relationship,
+                },
+            )
+            .await
+            .unwrap();
+
+        second.open(project.id).await.unwrap();
+        let shared = &second.snapshot.as_ref().unwrap().diagrams[0];
+        assert_eq!(second.snapshot.as_ref().unwrap().revision, 7);
+        assert_eq!(shared.edges.len(), 1);
+        assert_eq!(shared.edges[0].relationship, relationship);
+        let before_move = shared.edges[0].points.clone();
+        second
+            .edit(
+                7,
+                SharedEdit::UpdateBddNodeGeometry {
+                    diagram,
+                    node: source_node,
+                    x: 120.0,
+                    y: 360.0,
+                    width: 190.0,
+                    height: 115.0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_ne!(
+            second.snapshot.as_ref().unwrap().diagrams[0].edges[0].points,
+            before_move
+        );
+
+        first.open(project.id).await.unwrap();
+        assert_eq!(first.snapshot.as_ref().unwrap().revision, 8);
+        assert_eq!(
+            serde_json::to_value(&first.snapshot).unwrap(),
+            serde_json::to_value(&second.snapshot).unwrap()
+        );
+        first
+            .edit(8, SharedEdit::RemoveBddEdge { diagram, edge })
+            .await
+            .unwrap();
+        second.open(project.id).await.unwrap();
+        assert_eq!(second.snapshot.as_ref().unwrap().revision, 9);
+        assert!(
+            second.snapshot.as_ref().unwrap().diagrams[0]
+                .edges
                 .is_empty()
         );
         assert_eq!(

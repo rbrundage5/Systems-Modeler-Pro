@@ -15,7 +15,9 @@ to remote state by this increment.
 1. Configure the [server](COLLABORATION_SERVER.md) and obtain its HTTPS origin and
    administrator-issued access token. Loopback HTTP is supported for local tests.
 2. Click **Shared Projects** in the desktop status bar, enter the address/token,
-   and connect. Choose an authorized project and click **Open project**.
+   and connect. The client first verifies the server's authenticated protocol and
+   required capabilities; incompatible installations stop with a version remedy
+   before project discovery. Choose an authorized project and click **Open project**.
 3. Select an owner/element, choose Create Package, Create Block, or Rename element,
    enter a name, and save. The relationship controls create or delete the supported
    source/target/namespace-owned semantic relationships. Viewer credentials cannot
@@ -46,16 +48,16 @@ attempted but browser security denied access to the local fixture; no UI pass is
 claimed. Native two-device acceptance remains required.
 
 Focused tests cover endpoint restrictions, exact retry identity over HTTP,
-conflict handling, and accepted edits with failed snapshot refresh. These do not
-establish deployed multi-device usability.
+protocol negotiation/version rejection, conflict handling, and accepted edits with
+failed snapshot refresh. These do not establish deployed multi-device usability.
 
 Manual acceptance remains required: connect two desktop instances to the same
 server, create/rename in one and observe refresh in the other; verify viewer
 rejection, stale-edit conflict, token rejection, reconnect, and unchanged offline
 create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 
-BDD relationship presentations/routing, specialized Association/Connector/ItemFlow/
-BindingConnector and import operations, other diagram families, complete element
+Specialized Association/Connector/ItemFlow/BindingConnector and import operations,
+other diagram families, standard-workspace integration, complete element
 authoring/configuration, presence, collaborative undo, project administration, and
 production HTTPS deployment remain subsequent work. Pending retries are memory-only;
 after an application crash, reload the server snapshot and inspect it before
@@ -76,9 +78,15 @@ name, and select Create BDD. Select an existing supported element and Place on B
 Drag a node to commit geometry; another session observes the same layout on refresh.
 Rename BDD, Remove selected node, and Delete BDD are revisioned operations. Removing
 a presentation does not remove its semantic element. Geometry supports server-side
-resize, but this UI currently exposes movement only. Relationship editing, normal
-workspace integration, frame/compartment parity, zoom/pan, and other families are
-not qualified by this bounded canvas.
+resize, but this UI currently exposes movement only. After both relationship
+endpoints are presented, select its semantic relationship and choose Show on BDD.
+The server computes obstacle-clear orthogonal points and a label anchor through the
+shared model-core router. Moving a node reroutes every edge atomically; a routing
+failure preserves the prior diagram and revision. Remove edge removes only the
+presentation, while deleting its semantic relationship or removing an endpoint node
+cascades the affected BDD edge presentations. Route edges deterministically reruns
+the authoritative batch router. Normal workspace integration, frame/compartment
+parity, zoom/pan, and other families are not qualified by this bounded canvas.
 
 A rejected repository edit retains its typed name for review and resubmission.
 Pointer gestures are blocked during requests, capture their starting revision,
@@ -87,7 +95,8 @@ identity; a revision conflict requires explicit refresh. Pending retries remain
 memory-only.
 
 The real-server integration test runs two independent Rust desktop sessions over
-loopback HTTP, covering a stale writer and shared BDD create/place/move convergence.
+loopback HTTP, covering a stale writer and shared BDD node/relationship presentation
+create, routing, endpoint movement, removal, and convergence.
 The frontend regression script exercises production event handlers in a minimal
 Node DOM fixture; it does not establish native rendering or two-device acceptance.
 Run `node scripts/test_collaboration_ui.cjs` alongside the client CI workflow.
@@ -101,7 +110,7 @@ this authoring environment; final native, server, and client results must be rea
 from GitHub CI for the published head before merge.
 
 Next acceptance: run two native desktop instances through element and relationship
-create/delete plus BDD create/place/move/rename/remove/delete, stale edits, viewer
-rejection, retry and reconnect; verify unchanged offline editing/save/reopen. Then
-add server-routed BDD relationship presentations before broadening diagram-family
-coverage.
+create/delete plus BDD create/place/move/rename/remove/delete and edge show/route/
+remove, stale edits, viewer rejection, retry and reconnect; verify unchanged offline
+editing/save/reopen. Then broaden the shared command boundary through another bounded
+diagram-family or reliability slice.

@@ -1,8 +1,10 @@
 use systems_modeler_core::{
     AggregationKind, DiagramId, ElementId, ElementKind, Multiplicity, Project, RelationshipKind,
+    routing::{RouteRect, route_is_clear},
 };
 use systems_modeler_persistence::collaboration::{
-    CollaborationError, EditRequest, ProjectRole, SharedEdit, SharedRelationshipKind,
+    CollaborationError, EditRequest, ProjectRole, SharedBddDiagram, SharedEdit,
+    SharedRelationshipKind,
 };
 use systems_modeler_persistence::{PersistenceError, ProjectDatabase};
 use uuid::Uuid;
@@ -24,6 +26,24 @@ fn edit(revision: i64, edit: SharedEdit) -> EditRequest {
         expected_revision: revision,
         edit,
     }
+}
+
+#[test]
+fn legacy_shared_bdd_payload_without_edges_defaults_to_empty() {
+    let diagram = SharedBddDiagram {
+        id: DiagramId::new(),
+        name: "Legacy structure".into(),
+        owner: ElementId(Uuid::new_v4()),
+        nodes: Vec::new(),
+        edges: Vec::new(),
+    };
+    let mut payload = serde_json::to_value(&diagram).unwrap();
+    payload.as_object_mut().unwrap().remove("edges");
+
+    assert_eq!(
+        serde_json::from_value::<SharedBddDiagram>(payload).unwrap(),
+        diagram
+    );
 }
 
 #[test]
@@ -489,4 +509,339 @@ fn invalid_and_specialized_relationship_edits_roll_back_atomically() {
         loaded.relationship(association).unwrap().kind,
         RelationshipKind::Association
     );
+}
+
+#[test]
+fn shared_bdd_relationship_presentations_route_retry_move_remove_and_survive_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shared-bdd-edges.sqlite");
+    let mut project = Project::new("Shared BDD edges");
+    let source = project
+        .create_element(ElementKind::Block, "Source", project.root_id)
+        .unwrap();
+    let target = project
+        .create_element(ElementKind::Block, "Target", project.root_id)
+        .unwrap();
+    let obstacle = project
+        .create_element(ElementKind::Block, "Obstacle", project.root_id)
+        .unwrap();
+    let relationship = project
+        .create_relationship(
+            RelationshipKind::Dependency,
+            source,
+            target,
+            Some(project.root_id),
+        )
+        .unwrap();
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open(&path).unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+
+    let diagram = DiagramId::new();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            0,
+            SharedEdit::CreateBddDiagram {
+                diagram,
+                owner: project.root_id,
+                name: "Structure".into(),
+            },
+        ),
+    )
+    .unwrap();
+    let source_node = Uuid::new_v4();
+    let target_node = Uuid::new_v4();
+    let obstacle_node = Uuid::new_v4();
+    for (revision, node, element) in [
+        (1, source_node, source),
+        (2, target_node, target),
+        (3, obstacle_node, obstacle),
+    ] {
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                revision,
+                SharedEdit::PlaceBddElement {
+                    diagram,
+                    node,
+                    element,
+                },
+            ),
+        )
+        .unwrap();
+    }
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            4,
+            SharedEdit::UpdateBddNodeGeometry {
+                diagram,
+                node: target_node,
+                x: 720.0,
+                y: 90.0,
+                width: 190.0,
+                height: 115.0,
+            },
+        ),
+    )
+    .unwrap();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            5,
+            SharedEdit::UpdateBddNodeGeometry {
+                diagram,
+                node: obstacle_node,
+                x: 400.0,
+                y: 80.0,
+                width: 190.0,
+                height: 135.0,
+            },
+        ),
+    )
+    .unwrap();
+
+    let edge = Uuid::new_v4();
+    let request = edit(
+        6,
+        SharedEdit::PresentBddRelationship {
+            diagram,
+            edge,
+            relationship,
+        },
+    );
+    let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
+    assert_eq!(receipt.revision, 7);
+    assert_eq!(
+        db.commit_shared_edit(project.id, actor, &request).unwrap(),
+        receipt
+    );
+    drop(db);
+
+    let db = ProjectDatabase::open(&path).unwrap();
+    let (_, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 7);
+    let edge_before_move = &diagrams[0].edges[0];
+    assert_eq!(edge_before_move.id, edge);
+    assert_eq!(edge_before_move.relationship, relationship);
+    assert!(edge_before_move.points.windows(2).all(|segment| {
+        (segment[0].x - segment[1].x).abs() <= 0.001 || (segment[0].y - segment[1].y).abs() <= 0.001
+    }));
+    assert!(route_is_clear(
+        &edge_before_move.points,
+        &[RouteRect {
+            x: 400.0,
+            y: 80.0,
+            width: 190.0,
+            height: 135.0,
+        }],
+    ));
+    let previous_points = edge_before_move.points.clone();
+
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            7,
+            SharedEdit::UpdateBddNodeGeometry {
+                diagram,
+                node: obstacle_node,
+                x: 400.0,
+                y: 350.0,
+                width: 190.0,
+                height: 135.0,
+            },
+        ),
+    )
+    .unwrap();
+    let (_, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 8);
+    assert_ne!(diagrams[0].edges[0].points, previous_points);
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(8, SharedEdit::RouteBddDiagram { diagram }),
+    )
+    .unwrap();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(9, SharedEdit::RemoveBddEdge { diagram, edge }),
+    )
+    .unwrap();
+    let (_, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 10);
+    assert!(diagrams[0].edges.is_empty());
+}
+
+#[test]
+fn shared_bdd_edge_invariants_and_cascades_preserve_semantic_state() {
+    let mut project = Project::new("Shared BDD edge invariants");
+    let source = project
+        .create_element(ElementKind::Block, "Source", project.root_id)
+        .unwrap();
+    let target = project
+        .create_element(ElementKind::Block, "Target", project.root_id)
+        .unwrap();
+    let relationship = project
+        .create_relationship(
+            RelationshipKind::Dependency,
+            source,
+            target,
+            Some(project.root_id),
+        )
+        .unwrap();
+    let actor = Uuid::new_v4();
+    let mut db = ProjectDatabase::open_in_memory().unwrap();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+    let diagram = DiagramId::new();
+    let source_node = Uuid::new_v4();
+    let target_node = Uuid::new_v4();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            0,
+            SharedEdit::CreateBddDiagram {
+                diagram,
+                owner: project.root_id,
+                name: "Structure".into(),
+            },
+        ),
+    )
+    .unwrap();
+    for (revision, node, element) in [(1, source_node, source), (2, target_node, target)] {
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                revision,
+                SharedEdit::PlaceBddElement {
+                    diagram,
+                    node,
+                    element,
+                },
+            ),
+        )
+        .unwrap();
+    }
+    let edge = Uuid::new_v4();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            3,
+            SharedEdit::PresentBddRelationship {
+                diagram,
+                edge,
+                relationship,
+            },
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                4,
+                SharedEdit::PresentBddRelationship {
+                    diagram,
+                    edge: Uuid::new_v4(),
+                    relationship,
+                },
+            ),
+        ),
+        Err(CollaborationError::InvalidDiagram(_))
+    ));
+    assert_eq!(db.shared_snapshot(project.id, actor).unwrap().2, 4);
+
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(4, SharedEdit::DeleteRelationship { relationship }),
+    )
+    .unwrap();
+    let (model, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 5);
+    assert!(model.relationships.is_empty());
+    assert!(diagrams[0].edges.is_empty());
+
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            5,
+            SharedEdit::CreateRelationship {
+                kind: SharedRelationshipKind::Dependency,
+                source,
+                target,
+                owner: project.root_id,
+            },
+        ),
+    )
+    .unwrap();
+    let new_relationship = db
+        .shared_snapshot(project.id, actor)
+        .unwrap()
+        .0
+        .relationships
+        .values()
+        .next()
+        .unwrap()
+        .id;
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            6,
+            SharedEdit::PresentBddRelationship {
+                diagram,
+                edge: Uuid::new_v4(),
+                relationship: new_relationship,
+            },
+        ),
+    )
+    .unwrap();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &edit(
+            7,
+            SharedEdit::RemoveBddNode {
+                diagram,
+                node: source_node,
+            },
+        ),
+    )
+    .unwrap();
+    let (model, diagrams, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 8);
+    assert_eq!(model.relationships.len(), 1);
+    assert!(diagrams[0].edges.is_empty());
+    assert!(matches!(
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &edit(
+                8,
+                SharedEdit::PresentBddRelationship {
+                    diagram,
+                    edge: Uuid::new_v4(),
+                    relationship: new_relationship,
+                },
+            ),
+        ),
+        Err(CollaborationError::InvalidDiagram(_))
+    ));
+    assert_eq!(db.shared_snapshot(project.id, actor).unwrap().2, 8);
 }

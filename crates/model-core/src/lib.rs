@@ -38,5 +38,7 @@ pub use diagram_family::{
     zoom_viewport_at,
 };
 
+pub mod routing;
+
 mod package_registry;
 pub use package_registry::supported_diagram_families;

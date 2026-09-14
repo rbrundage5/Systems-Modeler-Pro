@@ -92,11 +92,7 @@ pub struct ProjectSnapshot {
     pub profiles: systems_modeler_core::ProfileRepository,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct DiagramPoint {
-    pub x: f64,
-    pub y: f64,
-}
+pub type DiagramPoint = systems_modeler_core::GeometryPoint;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagramNode {
