@@ -54,7 +54,10 @@ fn operation(project: &Project) -> Value {
 #[test]
 fn authenticated_capabilities_define_the_client_server_contract() {
     let (service, _, editor, _) = fixture();
-    assert_eq!(service.dispatch("GET", "/v1/capabilities", None, &[]).0, 401);
+    assert_eq!(
+        service.dispatch("GET", "/v1/capabilities", None, &[]).0,
+        401
+    );
 
     let response = service.dispatch("GET", "/v1/capabilities", Some(&editor), &[]);
     assert_eq!(response.0, 200);

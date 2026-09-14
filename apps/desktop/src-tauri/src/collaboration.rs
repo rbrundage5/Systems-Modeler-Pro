@@ -112,9 +112,7 @@ fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
         };
         return Err(format!(
             "The server is not compatible with this collaboration client (required protocol {}, server protocol {}, missing capabilities: {}). Install matching server and desktop versions.",
-            COLLABORATION_PROTOCOL_VERSION,
-            info.protocol,
-            missing,
+            COLLABORATION_PROTOCOL_VERSION, info.protocol, missing,
         ));
     }
     Ok(())
