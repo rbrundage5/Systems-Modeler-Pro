@@ -10,6 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "visible": false,
         "title": "Systems Modeler Pro",
         "width": 1440,
         "height": 900,
@@ -22,8 +23,16 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": { "pubkey": "", "windows": { "installMode": "passive" } }
+  },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer/running-app-guard.nsh"
+      }
+    }
   }
 }

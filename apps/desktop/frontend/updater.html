@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Systems Modeler Pro — Updates</title>
+<style>
+:root { font-family: system-ui, sans-serif; color: #172b3a; background: #f5f7fa; }
+body { margin: 0; padding: 28px; }
+h1 { font-size: 22px; margin: 0 0 12px; }
+p { line-height: 1.5; }
+#status { min-height: 52px; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 24px; }
+button { padding: 10px 16px; border: 1px solid #73899a; border-radius: 5px; background: white; color: #172b3a; font: inherit; cursor: pointer; }
+button.primary { background: #174f76; color: white; border-color: #174f76; }
+button:focus-visible { outline: 3px solid #d18b00; outline-offset: 3px; }
+button:disabled { opacity: .6; cursor: wait; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>Systems Modeler Pro</h1>
+<p>Updates are installed before you open your models.</p>
+<p id="status" role="status" aria-live="polite">Checking for updates…</p>
+<div class="actions">
+<button id="install" class="primary" hidden>Install update and restart</button>
+<button id="open" autofocus>Open application</button>
+<button id="retry" hidden>Check again</button>
+</div>
+<script src="updater.js"></script>
+</body>
+</html>
