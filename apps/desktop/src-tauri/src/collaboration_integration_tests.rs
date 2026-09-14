@@ -3,9 +3,7 @@
 use super::*;
 use std::{path::Path, sync::Arc};
 use systems_modeler_core::ElementId;
-use systems_modeler_persistence::{
-    ProjectDatabase, collaboration::SharedRelationshipKind,
-};
+use systems_modeler_persistence::{ProjectDatabase, collaboration::SharedRelationshipKind};
 use systems_modeler_server::{
     Config, Credential, Grant as ServerGrant, Role, Service, serve, token_hash,
 };
@@ -314,10 +312,7 @@ fn two_clients_converge_after_relationship_create_and_delete() {
         first.open(project.id).await.unwrap();
         second.open(project.id).await.unwrap();
 
-        first
-            .edit(0, block(project.root_id, "Base"))
-            .await
-            .unwrap();
+        first.edit(0, block(project.root_id, "Base")).await.unwrap();
         second.open(project.id).await.unwrap();
         second
             .edit(1, block(project.root_id, "Derived"))

@@ -311,9 +311,7 @@ fn simple_relationship_edits_commit_retry_delete_and_survive_reopen() {
             owner: project.root_id,
         },
     );
-    let receipt = db
-        .commit_shared_edit(project.id, actor, &request)
-        .unwrap();
+    let receipt = db.commit_shared_edit(project.id, actor, &request).unwrap();
     assert_eq!(receipt.element, derived);
     assert_eq!(
         db.commit_shared_edit(project.id, actor, &request).unwrap(),
@@ -475,7 +473,12 @@ fn invalid_and_specialized_relationship_edits_roll_back_atomically() {
         db.commit_shared_edit(
             project.id,
             actor,
-            &edit(0, SharedEdit::DeleteRelationship { relationship: association }),
+            &edit(
+                0,
+                SharedEdit::DeleteRelationship {
+                    relationship: association
+                }
+            ),
         ),
         Err(CollaborationError::InvalidRelationship(_))
     ));
