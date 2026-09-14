@@ -19,6 +19,9 @@ not a running server or a finished shared-project UI.
 - Requests carry a unique operation ID and expected project revision. Exact
   retries return the original receipt; changed payloads or actors using that ID
   are rejected. Stale requests fail explicitly and must resynchronize.
+- The desktop negotiates an authenticated protocol version and required capability
+  set before listing projects, so independently deployed client/server version skew
+  fails before any shared model is opened or edited.
 - Authorized snapshots read the model and revision in one transaction.
 - Ordinary save_project rejects shared projects to prevent stale whole-project
   replacement. Existing unshared project save behavior remains available.

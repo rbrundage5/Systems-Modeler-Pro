@@ -6,7 +6,10 @@ use std::{
     time::Duration,
 };
 use systems_modeler_core::{Project, RelationshipKind};
-use systems_modeler_persistence::ProjectDatabase;
+use systems_modeler_persistence::{
+    ProjectDatabase,
+    collaboration::{COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION},
+};
 use systems_modeler_server::{
     Config, Credential, Grant, MAX_BODY, Role, Service, serve, token_hash,
 };
@@ -46,6 +49,21 @@ fn fixture() -> (Arc<Service>, Project, String, String) {
 
 fn operation(project: &Project) -> Value {
     json!({"operation_id":Uuid::new_v4(),"expected_revision":0,"edit":{"CreateBlock":{"owner":project.root_id,"name":"Engine"}}})
+}
+
+#[test]
+fn authenticated_capabilities_define_the_client_server_contract() {
+    let (service, _, editor, _) = fixture();
+    assert_eq!(service.dispatch("GET", "/v1/capabilities", None, &[]).0, 401);
+
+    let response = service.dispatch("GET", "/v1/capabilities", Some(&editor), &[]);
+    assert_eq!(response.0, 200);
+    assert_eq!(response.1["protocol"], COLLABORATION_PROTOCOL_VERSION);
+    assert_eq!(
+        response.1["capabilities"],
+        serde_json::to_value(COLLABORATION_CAPABILITIES).unwrap()
+    );
+    assert_eq!(response.1["server_version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]

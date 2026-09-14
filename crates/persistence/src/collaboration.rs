@@ -11,6 +11,14 @@ use systems_modeler_core::{
 use thiserror::Error;
 use uuid::Uuid;
 
+pub const COLLABORATION_PROTOCOL_VERSION: u32 = 1;
+pub const COLLABORATION_CAPABILITIES: &[&str] = &[
+    "revisioned-operations",
+    "shared-bdd",
+    "simple-relationships",
+    "server-routed-bdd-relationships",
+];
+
 const MIN_BDD_NODE_WIDTH: f64 = 48.0;
 const MIN_BDD_NODE_HEIGHT: f64 = 32.0;
 const BDD_GRID_COLUMNS: usize = 4;

@@ -16,7 +16,10 @@ use std::{
 use systems_modeler_core::ProjectId;
 use systems_modeler_persistence::{
     ProjectDatabase,
-    collaboration::{CollaborationError, EditRequest, ProjectRole},
+    collaboration::{
+        COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, CollaborationError,
+        EditRequest, ProjectRole,
+    },
 };
 use tokio::{net::TcpListener, sync::Semaphore};
 use uuid::Uuid;
@@ -129,6 +132,16 @@ impl Service {
         };
         if body.len() > MAX_BODY {
             return (413, json!({"error":"request_too_large"}));
+        }
+        if method == "GET" && path == "/v1/capabilities" {
+            return (
+                200,
+                json!({
+                    "protocol": COLLABORATION_PROTOCOL_VERSION,
+                    "server_version": env!("CARGO_PKG_VERSION"),
+                    "capabilities": COLLABORATION_CAPABILITIES,
+                }),
+            );
         }
         if method == "GET" && path == "/v1/projects" {
             return (

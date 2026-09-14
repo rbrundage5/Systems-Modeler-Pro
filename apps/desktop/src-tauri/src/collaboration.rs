@@ -5,7 +5,10 @@ use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::time::Duration;
 use systems_modeler_core::{Project, ProjectId};
-use systems_modeler_persistence::collaboration::{EditRequest, SharedBddDiagram, SharedEdit};
+use systems_modeler_persistence::collaboration::{
+    COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, SharedBddDiagram,
+    SharedEdit,
+};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -52,6 +55,12 @@ struct ProjectList {
 }
 
 #[derive(Deserialize)]
+struct ProtocolInfo {
+    protocol: u32,
+    capabilities: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct Receipt {
     operation_id: Uuid,
     revision: i64,
@@ -84,6 +93,33 @@ fn http_client() -> Result<Client, String> {
         .map_err(|_| "Could not initialize HTTPS client.".into())
 }
 
+fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
+    let missing: Vec<_> = COLLABORATION_CAPABILITIES
+        .iter()
+        .copied()
+        .filter(|required| {
+            !info
+                .capabilities
+                .iter()
+                .any(|available| available.as_str() == *required)
+        })
+        .collect();
+    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() {
+        let missing = if missing.is_empty() {
+            "none".to_string()
+        } else {
+            missing.join(", ")
+        };
+        return Err(format!(
+            "The server is not compatible with this collaboration client (required protocol {}, server protocol {}, missing capabilities: {}). Install matching server and desktop versions.",
+            COLLABORATION_PROTOCOL_VERSION,
+            info.protocol,
+            missing,
+        ));
+    }
+    Ok(())
+}
+
 impl Session {
     async fn connect(server: &str, token: String) -> Result<Self, String> {
         if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -101,6 +137,11 @@ impl Session {
             pending: None,
             needs_refresh: false,
         };
+        let protocol: ProtocolInfo = session
+            .request(Method::GET, "v1/capabilities", None)
+            .await
+            .map_err(|e| e.1)?;
+        validate_protocol(&protocol)?;
         let list: ProjectList = session
             .request(Method::GET, "v1/projects", None)
             .await
@@ -181,6 +222,9 @@ impl Session {
             let message = match status {
                 401 => "Authentication failed. Reconnect with a valid access token.",
                 403 => "Access denied. Your server permissions do not allow this action.",
+                404 => {
+                    "The collaboration endpoint is unavailable. Confirm the server and desktop use compatible versions."
+                }
                 409 => {
                     "Project changed or operation conflicts. Refresh, review the latest model, and submit your intended edit again."
                 }
@@ -360,6 +404,38 @@ mod tests {
             assert!(server_url(address).is_err(), "{address}");
         }
     }
+
+    #[test]
+    fn protocol_boundary_accepts_additions_and_rejects_missing_or_wrong_versions() {
+        let mut capabilities = COLLABORATION_CAPABILITIES
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>();
+        capabilities.push("future-capability".into());
+        assert!(
+            validate_protocol(&ProtocolInfo {
+                protocol: COLLABORATION_PROTOCOL_VERSION,
+                capabilities: capabilities.clone(),
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_protocol(&ProtocolInfo {
+                protocol: COLLABORATION_PROTOCOL_VERSION + 1,
+                capabilities,
+            })
+            .unwrap_err()
+            .contains("required protocol")
+        );
+        assert!(
+            validate_protocol(&ProtocolInfo {
+                protocol: COLLABORATION_PROTOCOL_VERSION,
+                capabilities: Vec::new(),
+            })
+            .unwrap_err()
+            .contains("server-routed-bdd-relationships")
+        );
+    }
 }
 
 #[tauri::command]
@@ -472,6 +548,45 @@ mod transport_tests {
         session.projects = list.projects;
         session.refresh(project).await.unwrap();
         session
+    }
+
+    #[test]
+    fn connection_negotiates_protocol_before_project_discovery() {
+        tauri::async_runtime::block_on(async {
+            let capabilities = serde_json::json!({
+                "protocol": COLLABORATION_PROTOCOL_VERSION,
+                "server_version": "0.1.0",
+                "capabilities": COLLABORATION_CAPABILITIES,
+            })
+            .to_string();
+            let projects = serde_json::json!({"projects": []}).to_string();
+            let (base, server) = mock(vec![(200, capabilities), (200, projects)]);
+            let session = Session::connect(base.as_str(), "a".repeat(64))
+                .await
+                .unwrap();
+            assert!(session.projects.is_empty());
+            let requests = server.join().unwrap();
+            assert!(requests[0].starts_with("GET /v1/capabilities "));
+            assert!(requests[1].starts_with("GET /v1/projects "));
+        });
+    }
+
+    #[test]
+    fn incompatible_protocol_stops_before_project_discovery() {
+        tauri::async_runtime::block_on(async {
+            let protocol = serde_json::json!({
+                "protocol": COLLABORATION_PROTOCOL_VERSION + 1,
+                "capabilities": COLLABORATION_CAPABILITIES,
+            })
+            .to_string();
+            let (base, server) = mock(vec![(200, protocol)]);
+            let error = Session::connect(base.as_str(), "a".repeat(64))
+                .await
+                .err()
+                .unwrap();
+            assert!(error.contains("not compatible"));
+            assert_eq!(server.join().unwrap().len(), 1);
+        });
     }
 
     #[test]

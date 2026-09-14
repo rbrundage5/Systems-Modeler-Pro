@@ -15,7 +15,9 @@ to remote state by this increment.
 1. Configure the [server](COLLABORATION_SERVER.md) and obtain its HTTPS origin and
    administrator-issued access token. Loopback HTTP is supported for local tests.
 2. Click **Shared Projects** in the desktop status bar, enter the address/token,
-   and connect. Choose an authorized project and click **Open project**.
+   and connect. The client first verifies the server's authenticated protocol and
+   required capabilities; incompatible installations stop with a version remedy
+   before project discovery. Choose an authorized project and click **Open project**.
 3. Select an owner/element, choose Create Package, Create Block, or Rename element,
    enter a name, and save. The relationship controls create or delete the supported
    source/target/namespace-owned semantic relationships. Viewer credentials cannot
@@ -46,8 +48,8 @@ attempted but browser security denied access to the local fixture; no UI pass is
 claimed. Native two-device acceptance remains required.
 
 Focused tests cover endpoint restrictions, exact retry identity over HTTP,
-conflict handling, and accepted edits with failed snapshot refresh. These do not
-establish deployed multi-device usability.
+protocol negotiation/version rejection, conflict handling, and accepted edits with
+failed snapshot refresh. These do not establish deployed multi-device usability.
 
 Manual acceptance remains required: connect two desktop instances to the same
 server, create/rename in one and observe refresh in the other; verify viewer
