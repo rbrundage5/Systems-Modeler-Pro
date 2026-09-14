@@ -61,9 +61,25 @@ if (-not (Test-Path $appPath -PathType Leaf)) { throw 'Installed executable is m
 $app = Start-Process -FilePath $appPath -WorkingDirectory $installDir -PassThru
 try {
     if ($app.WaitForExit(15000)) { throw "Signed application exited at startup: $($app.ExitCode)" }
+    $installedHash = (Get-FileHash $appPath -Algorithm SHA256).Hash
+    # Exercise the updater's /UPDATE path while a separate application is alive.
+    # /S makes this negative CI case noninteractive; the same macro also owns /P.
+    $blocked = Start-Process -FilePath $installer.FullName -ArgumentList "/S /UPDATE /D=$installDir" -PassThru
+    if (-not $blocked.WaitForExit(30000)) {
+        Stop-Process -Id $blocked.Id -Force
+        throw 'Installer did not promptly refuse a running application'
+    }
+    if ($blocked.ExitCode -eq 0) { throw 'Installer accepted an update while another copy was running' }
+    if ($app.HasExited) { throw 'Installer closed the running application' }
+    if ((Get-FileHash $appPath -Algorithm SHA256).Hash -ne $installedHash) {
+        throw 'Refused installation changed the existing executable'
+    }
 } finally {
     if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
 }
+# The guard must permit the same update after the other application has closed.
+$retry = Start-Process -FilePath $installer.FullName -ArgumentList "/S /UPDATE /D=$installDir" -Wait -PassThru
+if ($retry.ExitCode -ne 0) { throw 'Installer refused the retry after application closure' }
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 Copy-Item $installer.FullName, $signature $dist
