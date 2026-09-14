@@ -3,7 +3,9 @@
 use super::*;
 use std::{path::Path, sync::Arc};
 use systems_modeler_core::ElementId;
-use systems_modeler_persistence::ProjectDatabase;
+use systems_modeler_persistence::{
+    ProjectDatabase, collaboration::SharedRelationshipKind,
+};
 use systems_modeler_server::{
     Config, Credential, Grant as ServerGrant, Role, Service, serve, token_hash,
 };
@@ -295,6 +297,90 @@ fn unacknowledged_edit_retries_once_and_survives_server_restart() {
             .project
             .validate()
             .unwrap();
+        task.abort();
+        let _ = task.await;
+    });
+}
+
+#[test]
+fn two_clients_converge_after_relationship_create_and_delete() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut first = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        let mut second = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        first.open(project.id).await.unwrap();
+        second.open(project.id).await.unwrap();
+
+        first
+            .edit(0, block(project.root_id, "Base"))
+            .await
+            .unwrap();
+        second.open(project.id).await.unwrap();
+        second
+            .edit(1, block(project.root_id, "Derived"))
+            .await
+            .unwrap();
+        first.open(project.id).await.unwrap();
+        let base = named(&first, "Base");
+        let derived = named(&first, "Derived");
+        first
+            .edit(
+                2,
+                SharedEdit::CreateRelationship {
+                    kind: SharedRelationshipKind::Generalization,
+                    source: derived,
+                    target: base,
+                    owner: project.root_id,
+                },
+            )
+            .await
+            .unwrap();
+
+        second.open(project.id).await.unwrap();
+        let relationship = second
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .project
+            .relationships
+            .values()
+            .next()
+            .unwrap();
+        assert_eq!(
+            relationship.kind,
+            systems_modeler_core::RelationshipKind::Generalization
+        );
+        assert_eq!(relationship.source_id, derived);
+        assert_eq!(relationship.target_id, base);
+        let relationship_id = relationship.id;
+
+        second
+            .edit(
+                3,
+                SharedEdit::DeleteRelationship {
+                    relationship: relationship_id,
+                },
+            )
+            .await
+            .unwrap();
+        first.open(project.id).await.unwrap();
+        assert_eq!(first.snapshot.as_ref().unwrap().revision, 4);
+        assert!(
+            first
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .project
+                .relationships
+                .is_empty()
+        );
+        assert_eq!(
+            serde_json::to_value(&first.snapshot).unwrap(),
+            serde_json::to_value(&second.snapshot).unwrap()
+        );
         task.abort();
         let _ = task.await;
     });

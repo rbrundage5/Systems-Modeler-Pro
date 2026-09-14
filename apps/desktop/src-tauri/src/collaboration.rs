@@ -185,7 +185,7 @@ impl Session {
                     "Project changed or operation conflicts. Refresh, review the latest model, and submit your intended edit again."
                 }
                 422 => {
-                    "The server rejected this shared edit. Check the selected owner, element, diagram, and geometry."
+                    "The server rejected this shared edit. Check the selected owner, element or relationship endpoints, diagram, and geometry."
                 }
                 _ => {
                     "The server could not complete the request. Retry a pending edit before making another change."

@@ -50,3 +50,10 @@ network, UI, and simultaneous device acceptance remain pending. Full existing
 CI is required before merge. Never merge automatically.
 
 The next HTTP adapter increment is described in [server setup and limits](COLLABORATION_SERVER.md).
+
+Later merged increments provide the authenticated HTTP server, desktop session,
+real two-session transport qualification, and shared BDD node presentations. The
+current relationship increment adds revisioned create/delete operations for the
+simple semantic relationship kinds whose complete payload is source, target, and
+namespace owner. Specialized relationships and diagram edge routing remain
+separate so their required semantic/presentation payloads cannot be bypassed.

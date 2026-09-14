@@ -3,7 +3,9 @@
 use crate::{PersistenceError, ProjectDatabase};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use systems_modeler_core::{DiagramId, ElementId, ElementKind, ModelError, ProjectId};
+use systems_modeler_core::{
+    DiagramId, ElementId, ElementKind, ModelError, ProjectId, RelationshipId, RelationshipKind,
+};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -29,6 +31,63 @@ pub struct SharedBddDiagram {
     pub nodes: Vec<SharedBddNode>,
 }
 
+/// Relationship kinds whose complete semantic payload is source, target and
+/// namespace owner. Relationships with additional required structure (such as
+/// Association ends, Connectors, ItemFlows and BindingConnectors) use separate
+/// collaboration operations so their invariants cannot be bypassed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SharedRelationshipKind {
+    Dependency,
+    Generalization,
+    Realization,
+    Allocate,
+    DeriveRequirement,
+    Satisfy,
+    Verify,
+    Refine,
+    Trace,
+    Copy,
+    Include,
+    Extend,
+}
+
+impl SharedRelationshipKind {
+    fn model_kind(self) -> RelationshipKind {
+        match self {
+            Self::Dependency => RelationshipKind::Dependency,
+            Self::Generalization => RelationshipKind::Generalization,
+            Self::Realization => RelationshipKind::Realization,
+            Self::Allocate => RelationshipKind::Allocate,
+            Self::DeriveRequirement => RelationshipKind::DeriveRequirement,
+            Self::Satisfy => RelationshipKind::Satisfy,
+            Self::Verify => RelationshipKind::Verify,
+            Self::Refine => RelationshipKind::Refine,
+            Self::Trace => RelationshipKind::Trace,
+            Self::Copy => RelationshipKind::Copy,
+            Self::Include => RelationshipKind::Include,
+            Self::Extend => RelationshipKind::Extend,
+        }
+    }
+
+    fn supports(kind: &RelationshipKind) -> bool {
+        matches!(
+            kind,
+            RelationshipKind::Dependency
+                | RelationshipKind::Generalization
+                | RelationshipKind::Realization
+                | RelationshipKind::Allocate
+                | RelationshipKind::DeriveRequirement
+                | RelationshipKind::Satisfy
+                | RelationshipKind::Verify
+                | RelationshipKind::Refine
+                | RelationshipKind::Trace
+                | RelationshipKind::Copy
+                | RelationshipKind::Include
+                | RelationshipKind::Extend
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SharedEdit {
     CreateBlock {
@@ -42,6 +101,15 @@ pub enum SharedEdit {
     RenameElement {
         element: ElementId,
         name: String,
+    },
+    CreateRelationship {
+        kind: SharedRelationshipKind,
+        source: ElementId,
+        target: ElementId,
+        owner: ElementId,
+    },
+    DeleteRelationship {
+        relationship: RelationshipId,
     },
     CreateBddDiagram {
         diagram: DiagramId,
@@ -116,6 +184,8 @@ pub enum CollaborationError {
     DiagramNotFound,
     #[error("shared BDD diagram edit is invalid: {0}")]
     InvalidDiagram(&'static str),
+    #[error("shared relationship edit is invalid: {0}")]
+    InvalidRelationship(&'static str),
     #[error("project revision exhausted")]
     RevisionExhausted,
 }
@@ -402,6 +472,8 @@ impl ProjectDatabase {
             | SharedEdit::CreateBddDiagram { name, .. }
             | SharedEdit::RenameBddDiagram { name, .. } => validate_name(name)?,
             SharedEdit::DeleteBddDiagram { .. }
+            | SharedEdit::CreateRelationship { .. }
+            | SharedEdit::DeleteRelationship { .. }
             | SharedEdit::PlaceBddElement { .. }
             | SharedEdit::UpdateBddNodeGeometry { .. }
             | SharedEdit::RemoveBddNode { .. } => {}
@@ -422,6 +494,28 @@ impl ProjectDatabase {
                 semantic_changed = true;
                 model.rename_element(*element, name)?;
                 *element
+            }
+            SharedEdit::CreateRelationship {
+                kind,
+                source,
+                target,
+                owner,
+            } => {
+                semantic_changed = true;
+                model.create_relationship(kind.model_kind(), *source, *target, Some(*owner))?;
+                *source
+            }
+            SharedEdit::DeleteRelationship { relationship } => {
+                let existing = model.relationship(*relationship)?;
+                if !SharedRelationshipKind::supports(&existing.kind) {
+                    return Err(CollaborationError::InvalidRelationship(
+                        "relationship kind requires a specialized collaboration operation",
+                    ));
+                }
+                let source = existing.source_id;
+                model.relationships.remove(relationship);
+                semantic_changed = true;
+                source
             }
             SharedEdit::CreateBddDiagram {
                 diagram,

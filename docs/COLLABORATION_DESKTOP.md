@@ -3,9 +3,10 @@
 Merged baseline: `98e92f681929f9656713d7da89c70ce21711616c` (PR75).
 Shared BDD increment: PR77, resumed from `ecedbda897b91edf23b53617ae7e0888586b7450`.
 
-This increment exposes the server's three semantic edits and shared BDD presentation operations in a desktop
-Shared Projects window. Rust owns credentials, transport, snapshots, revision
-checks, and retry identity. The server remains the committed model authority.
+The desktop Shared Projects window exposes server-authoritative element edits,
+the supported simple semantic relationship operations, and shared BDD presentation
+operations. Rust owns credentials, transport, snapshots, revision checks, semantic
+validation, and retry identity. The server remains the committed model authority.
 The existing offline workspace and SQLite database are not replaced or connected
 to remote state by this increment.
 
@@ -16,7 +17,9 @@ to remote state by this increment.
 2. Click **Shared Projects** in the desktop status bar, enter the address/token,
    and connect. Choose an authorized project and click **Open project**.
 3. Select an owner/element, choose Create Package, Create Block, or Rename element,
-   enter a name, and save. Viewer credentials cannot submit edits.
+   enter a name, and save. The relationship controls create or delete the supported
+   source/target/namespace-owned semantic relationships. Viewer credentials cannot
+   submit edits.
 4. The window refreshes every five seconds while visible and no name is being
    composed. Explicit Refresh retrieves the current revision. Each user's local
    canvas, selection, and offline project remain independent.
@@ -51,11 +54,20 @@ server, create/rename in one and observe refresh in the other; verify viewer
 rejection, stale-edit conflict, token rejection, reconnect, and unchanged offline
 create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 
-Shared relationships/routing, other diagram families, complete authoring operations, presence, collaborative
-undo, project administration, and production HTTPS deployment remain subsequent
-work. Pending retries are memory-only; after an application crash, reload the
-server snapshot and inspect it before recreating an unconfirmed edit. There is no
-automatic offline merge or crash-persistent outbox in this increment.
+BDD relationship presentations/routing, specialized Association/Connector/ItemFlow/
+BindingConnector and import operations, other diagram families, complete element
+authoring/configuration, presence, collaborative undo, project administration, and
+production HTTPS deployment remain subsequent work. Pending retries are memory-only;
+after an application crash, reload the server snapshot and inspect it before
+recreating an unconfirmed edit. There is no automatic offline merge or
+crash-persistent outbox in this increment.
+
+The simple relationship set is Dependency, Generalization, Realization, Allocate,
+DeriveRequirement, Satisfy, Verify, Refine, Trace, Copy, Include, and Extend. Each
+operation uses the existing model-core endpoint, direction, ownership, duplicate,
+and cycle rules. Invalid edits do not advance the shared revision. Relationship
+deletion is limited to this set; kinds with additional required payloads cannot be
+deleted through the simple operation.
 
 ## Shared BDD workflow and qualification
 
@@ -88,7 +100,8 @@ JavaScript syntax, Rust-authority, and diff checks pass. Cargo is unavailable in
 this authoring environment; final native, server, and client results must be read
 from GitHub CI for the published head before merge.
 
-Next acceptance: run two native desktop instances through create/place/move,
-rename/remove/delete, stale edits, viewer rejection, retry and reconnect; verify
-unchanged offline editing/save/reopen. Then extend shared relationship operations
-through existing Rust semantics before broadening diagram-family coverage.
+Next acceptance: run two native desktop instances through element and relationship
+create/delete plus BDD create/place/move/rename/remove/delete, stale edits, viewer
+rejection, retry and reconnect; verify unchanged offline editing/save/reopen. Then
+add server-routed BDD relationship presentations before broadening diagram-family
+coverage.

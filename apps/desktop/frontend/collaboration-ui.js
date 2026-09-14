@@ -6,6 +6,11 @@
     'PrimitiveType', 'Enumeration', 'Signal', 'Unit', 'QuantityKind', 'InstanceSpecification',
     'Comment', 'Requirement', 'TestCase', 'Actor', 'UseCase',
   ]);
+  const SHARED_RELATIONSHIP_KINDS = [
+    'Dependency', 'Generalization', 'Realization', 'Allocate', 'DeriveRequirement',
+    'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend',
+  ];
+  const SHARED_RELATIONSHIP_KIND_SET = new Set(SHARED_RELATIONSHIP_KINDS);
   const button = document.createElement('button');
   button.textContent = 'Shared Projects';
   button.type = 'button';
@@ -18,11 +23,14 @@
     <label>Access token<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><button>Connect</button></form>
     <section data-session hidden><div class="collaboration-actions"><select data-project aria-label="Shared project"></select><button data-open>Open project</button><button data-refresh>Refresh</button><button data-disconnect>Disconnect</button></div>
     <p data-revision></p>
-    <section class="collaboration-semantic"><h3>Repository edits</h3><p>Create Package, create Block, and rename use the same project revision as shared diagram edits.</p>
+    <section class="collaboration-semantic"><h3>Repository edits</h3><p>Elements and relationships use the same server-authoritative project revision as shared diagram edits.</p>
     <label>Element / owner<select data-element></select></label>
     <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="RenameElement">Rename element</option></select></label>
-    <label>Name<input name="name" required maxlength="1024" autocomplete="off"></label><button data-submit>Save shared edit</button></form></section>
-    <section class="collaboration-bdd"><h3>Shared Block Definition Diagram</h3><p>This initial diagram-collaboration slice supports shared BDD creation, node placement, movement, rename, removal, and deletion. Relationships/routes and other diagram families remain outside this increment.</p>
+    <label>Name<input name="name" required maxlength="1024" autocomplete="off"></label><button data-submit>Save shared edit</button></form>
+    <div class="collaboration-relationships"><h4>Semantic relationships</h4><p>Create or delete the relationship kinds whose complete payload is source, target, and Model/Package owner. Specialized Association, Connector, ItemFlow, BindingConnector, import, and presentation operations remain separate.</p>
+    <form data-relationship-edit><div class="collaboration-actions"><label>Kind<select name="kind">${SHARED_RELATIONSHIP_KINDS.map(kind => `<option value="${kind}">${kind}</option>`).join('')}</select></label><label>Source<select data-relationship-source></select></label><label>Target<select data-relationship-target></select></label><label>Owner<select data-relationship-owner></select></label></div><button data-relationship-create>Create relationship</button></form>
+    <div class="collaboration-actions"><label>Existing relationship<select data-relationship></select></label><button type="button" data-relationship-delete>Delete relationship</button></div></div></section>
+    <section class="collaboration-bdd"><h3>Shared Block Definition Diagram</h3><p>This diagram slice supports shared BDD creation, node placement, movement, rename, removal, and deletion. Semantic relationships are shared in the repository; BDD edge presentation/routing and other diagram families remain separate increments.</p>
     <div class="collaboration-actions"><label>Diagram owner<select data-bdd-owner></select></label><label>Diagram name<input data-bdd-name maxlength="1024" autocomplete="off"></label><button type="button" data-bdd-create>Create BDD</button></div>
     <div class="collaboration-actions"><label>BDD<select data-bdd-diagram aria-label="Shared BDD"></select></label><button type="button" data-bdd-rename>Rename BDD</button><button type="button" data-bdd-delete>Delete BDD</button></div>
     <div class="collaboration-actions"><label>Model element<select data-bdd-element></select></label><button type="button" data-bdd-place>Place on BDD</button><button type="button" data-bdd-remove>Remove selected node</button></div>
@@ -33,6 +41,7 @@
   const find = selector => dialog.querySelector(selector);
   const connect = find('[data-connect]');
   const edit = find('[data-edit]');
+  const relationshipEdit = find('[data-relationship-edit]');
   const message = find('[data-message]');
   const canvas = find('[data-bdd-canvas]');
   let view = null;
@@ -45,6 +54,12 @@
 
   function snapshotElements() {
     return Object.values(view?.snapshot?.project?.elements || {}).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function snapshotRelationships() {
+    return Object.values(view?.snapshot?.project?.relationships || {})
+      .filter(relationship => SHARED_RELATIONSHIP_KIND_SET.has(relationship.kind))
+      .sort((a, b) => a.kind.localeCompare(b.kind) || String(a.id).localeCompare(String(b.id)));
   }
 
   function diagrams() {
@@ -178,6 +193,7 @@
     const snapshot = view.snapshot;
     find('[data-revision]').textContent = snapshot ? `${snapshot.project.name} · revision ${snapshot.revision}${view.needs_refresh ? ' · refresh required' : ''}` : 'Choose a project to open.';
     const elements = snapshotElements();
+    const byId = new Map(elements.map(element => [String(element.id), element]));
     const select = find('[data-element]');
     const selected = select.value;
     select.replaceChildren(...elements.map(element => new Option(`${element.name} [${element.kind}]`, element.id)));
@@ -189,6 +205,29 @@
     }));
     const editable = canEdit();
     find('[data-submit]').disabled = !editable || view.pending || view.needs_refresh;
+    const setElementChoices = (selector, choices = elements) => {
+      const control = find(selector);
+      const previous = control.value;
+      control.replaceChildren(...choices.map(element => new Option(`${element.name} [${element.kind}]`, element.id)));
+      if (choices.some(element => String(element.id) === String(previous))) control.value = previous;
+      return control;
+    };
+    const source = setElementChoices('[data-relationship-source]');
+    const target = setElementChoices('[data-relationship-target]');
+    const owners = elements.filter(element => element.kind === 'Model' || element.kind === 'Package');
+    const owner = setElementChoices('[data-relationship-owner]', owners);
+    const relationshipSelect = find('[data-relationship]');
+    const priorRelationship = relationshipSelect.value;
+    const relationships = snapshotRelationships();
+    relationshipSelect.replaceChildren(...relationships.map(relationship => {
+      const sourceName = byId.get(String(relationship.source_id))?.name || relationship.source_id;
+      const targetName = byId.get(String(relationship.target_id))?.name || relationship.target_id;
+      return new Option(`${sourceName} — ${relationship.kind} → ${targetName}`, relationship.id);
+    }));
+    if (relationships.some(relationship => String(relationship.id) === String(priorRelationship))) relationshipSelect.value = priorRelationship;
+    const relationshipEditable = editable && !view.pending && !view.needs_refresh;
+    find('[data-relationship-create]').disabled = !relationshipEditable || !source.value || !target.value || !owner.value;
+    find('[data-relationship-delete]').disabled = !relationshipEditable || !relationshipSelect.value;
     find('[data-retry]').hidden = !view.pending;
     find('[data-refresh]').disabled = !snapshot || view.pending;
     find('[data-open]').disabled = view.pending || !view.projects.length;
@@ -286,6 +325,23 @@
     const name = edit.elements.name.value;
     const payload = operation === 'RenameElement' ? { element: target, name } : { owner: target, name };
     submitSharedEdit({ [operation]: payload }, 'Shared repository edit saved.').then(saved => { if (saved) edit.elements.name.value = ''; });
+  };
+  relationshipEdit.onsubmit = event => {
+    event.preventDefault();
+    if (!view?.snapshot) return;
+    submitSharedEdit({
+      CreateRelationship: {
+        kind: relationshipEdit.elements.kind.value,
+        source: find('[data-relationship-source]').value,
+        target: find('[data-relationship-target]').value,
+        owner: find('[data-relationship-owner]').value,
+      },
+    }, 'Shared semantic relationship created.');
+  };
+  find('[data-relationship-delete]').onclick = () => {
+    const relationship = find('[data-relationship]').value;
+    if (!relationship) return;
+    submitSharedEdit({ DeleteRelationship: { relationship } }, 'Shared semantic relationship deleted.');
   };
 
   find('[data-bdd-diagram]').onchange = event => {

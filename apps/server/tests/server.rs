@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use systems_modeler_core::Project;
+use systems_modeler_core::{Project, RelationshipKind};
 use systems_modeler_persistence::ProjectDatabase;
 use systems_modeler_server::{
     Config, Credential, Grant, MAX_BODY, Role, Service, serve, token_hash,
@@ -210,4 +210,80 @@ fn non_loopback_listener_is_rejected() {
         .unwrap();
     let error = runtime.block_on(serve(listener, service)).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+}
+
+#[test]
+fn relationship_edits_use_the_authenticated_revisioned_http_contract() {
+    let (service, project, editor, viewer) = fixture();
+    let path = format!("/v1/projects/{}", project.id);
+    let edits = format!("{path}/operations");
+    let first = json!({"operation_id":Uuid::new_v4(),"expected_revision":0,"edit":{"CreateBlock":{"owner":project.root_id,"name":"Base"}}});
+    let second = json!({"operation_id":Uuid::new_v4(),"expected_revision":1,"edit":{"CreateBlock":{"owner":project.root_id,"name":"Derived"}}});
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &edits,
+                Some(&editor),
+                &serde_json::to_vec(&first).unwrap()
+            )
+            .0,
+        200
+    );
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &edits,
+                Some(&editor),
+                &serde_json::to_vec(&second).unwrap()
+            )
+            .0,
+        200
+    );
+    let snapshot = service.dispatch("GET", &path, Some(&viewer), &[]).1;
+    let elements = snapshot["project"]["elements"].as_object().unwrap();
+    let id_for = |name: &str| {
+        elements
+            .values()
+            .find(|element| element["name"] == name)
+            .unwrap()["id"]
+            .clone()
+    };
+    let relationship = json!({
+        "operation_id": Uuid::new_v4(),
+        "expected_revision": 2,
+        "edit": {"CreateRelationship": {
+            "kind": "Generalization",
+            "source": id_for("Derived"),
+            "target": id_for("Base"),
+            "owner": project.root_id
+        }}
+    });
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &edits,
+                Some(&viewer),
+                &serde_json::to_vec(&relationship).unwrap()
+            )
+            .0,
+        403
+    );
+    let receipt = service.dispatch(
+        "POST",
+        &edits,
+        Some(&editor),
+        &serde_json::to_vec(&relationship).unwrap(),
+    );
+    assert_eq!(receipt.0, 200);
+    let snapshot = service.dispatch("GET", &path, Some(&viewer), &[]).1;
+    assert_eq!(snapshot["revision"], 3);
+    let relationships = snapshot["project"]["relationships"].as_object().unwrap();
+    assert_eq!(relationships.len(), 1);
+    assert_eq!(
+        relationships.values().next().unwrap()["kind"],
+        serde_json::to_value(RelationshipKind::Generalization).unwrap()
+    );
 }

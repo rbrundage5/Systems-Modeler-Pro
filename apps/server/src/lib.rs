@@ -193,7 +193,10 @@ fn failure(error: CollaborationError) -> (u16, Value) {
         CollaborationError::Model(_)
         | CollaborationError::InvalidName
         | CollaborationError::DiagramNotFound
-        | CollaborationError::InvalidDiagram(_) => (422, json!({"error":"invalid_model_edit"})),
+        | CollaborationError::InvalidDiagram(_)
+        | CollaborationError::InvalidRelationship(_) => {
+            (422, json!({"error":"invalid_model_edit"}))
+        }
         _ => (500, json!({"error":"storage_failure"})),
     }
 }
