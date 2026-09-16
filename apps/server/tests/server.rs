@@ -52,8 +52,67 @@ fn operation(project: &Project) -> Value {
 }
 
 #[test]
+fn shared_history_is_actor_scoped_and_reversal_uses_the_authenticated_editor() {
+    let (service, project, editor, viewer) = fixture();
+    let base = format!("/v1/projects/{}", project.id);
+    let created = operation(&project);
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &format!("{base}/operations"),
+                Some(&editor),
+                &serde_json::to_vec(&created).unwrap()
+            )
+            .0,
+        200
+    );
+    let history = service.dispatch("GET", &format!("{base}/history"), Some(&editor), &[]);
+    assert_eq!(history.0, 200);
+    assert_eq!(
+        history.1["operations"][0]["operation_id"],
+        created["operation_id"]
+    );
+    assert_eq!(history.1["operations"][0]["can_undo"], true);
+    assert!(
+        service
+            .dispatch("GET", &format!("{base}/history"), Some(&viewer), &[])
+            .1["operations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        service
+            .dispatch("GET", &format!("{base}/history"), None, &[])
+            .0,
+        401
+    );
+    let reverse = json!({"operation_id":Uuid::new_v4(),"expected_revision":1,"edit":{"UndoOperation":{"operation":created["operation_id"]}}});
+    let body = serde_json::to_vec(&reverse).unwrap();
+    assert_eq!(
+        service
+            .dispatch("POST", &format!("{base}/operations"), Some(&viewer), &body)
+            .0,
+        403
+    );
+    let receipt = service.dispatch("POST", &format!("{base}/operations"), Some(&editor), &body);
+    assert_eq!(receipt.0, 200);
+    assert_eq!(
+        service.dispatch("POST", &format!("{base}/operations"), Some(&editor), &body),
+        receipt
+    );
+    let snapshot = service.dispatch("GET", &base, Some(&editor), &[]);
+    assert_eq!(snapshot.1["revision"], 2);
+    assert_eq!(
+        snapshot.1["project"]["elements"].as_object().unwrap().len(),
+        1
+    );
+}
+
+#[test]
 fn authenticated_capabilities_define_the_client_server_contract() {
-    let (service, _, editor, _) = fixture();
+    let (service, _, editor, viewer) = fixture();
     assert_eq!(
         service.dispatch("GET", "/v1/capabilities", None, &[]).0,
         401
@@ -67,6 +126,68 @@ fn authenticated_capabilities_define_the_client_server_contract() {
         serde_json::to_value(COLLABORATION_CAPABILITIES).unwrap()
     );
     assert_eq!(response.1["server_version"], env!("CARGO_PKG_VERSION"));
+    let actor = Uuid::parse_str(response.1["actor"].as_str().unwrap()).unwrap();
+    assert!(!actor.is_nil());
+    let other = service.dispatch("GET", "/v1/capabilities", Some(&viewer), &[]);
+    assert_ne!(response.1["actor"], other.1["actor"]);
+    assert!(
+        service
+            .dispatch("GET", "/v1/capabilities", None, &[])
+            .1
+            .get("actor")
+            .is_none()
+    );
+}
+
+#[test]
+fn presence_uses_authenticated_identity_and_never_changes_model_revision() {
+    let (service, project, editor, viewer) = fixture();
+    let snapshot = format!("/v1/projects/{}", project.id);
+    let endpoint = format!("{snapshot}/presence");
+    let before = service.dispatch("GET", &snapshot, Some(&editor), &[]);
+    let session = Uuid::new_v4();
+    let body = serde_json::to_vec(&json!({"session":session,"name":"Editor label"})).unwrap();
+    assert_eq!(service.dispatch("POST", &endpoint, None, &body).0, 401);
+    let joined = service.dispatch("POST", &endpoint, Some(&editor), &body);
+    assert_eq!(joined.0, 200);
+    assert_eq!(joined.1["participants"][0]["role"], "editor");
+    let identity = service
+        .dispatch("GET", "/v1/capabilities", Some(&editor), &[])
+        .1["actor"]
+        .clone();
+    assert_eq!(joined.1["participants"][0]["actor"], identity);
+    let attempted_delete = service.dispatch("DELETE", &endpoint, Some(&viewer), &body);
+    assert_eq!(
+        attempted_delete.1["participants"].as_array().unwrap().len(),
+        1
+    );
+    let viewer_body =
+        serde_json::to_vec(&json!({"session":Uuid::new_v4(),"name":"Reviewer"})).unwrap();
+    let joined = service.dispatch("POST", &endpoint, Some(&viewer), &viewer_body);
+    assert_eq!(joined.0, 200);
+    assert_eq!(joined.1["participants"].as_array().unwrap().len(), 2);
+    assert!(
+        joined.1["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["role"] == "viewer")
+    );
+    let spoof =
+        serde_json::to_vec(&json!({"session":session,"name":"Spoof","actor":Uuid::new_v4()}))
+            .unwrap();
+    assert_eq!(
+        service.dispatch("POST", &endpoint, Some(&editor), &spoof).0,
+        400
+    );
+    let other = format!("/v1/projects/{}/presence", Uuid::new_v4());
+    assert_eq!(service.dispatch("GET", &other, Some(&viewer), &[]).0, 403);
+    let left = service.dispatch("DELETE", &endpoint, Some(&editor), &body);
+    assert_eq!(left.1["participants"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        service.dispatch("GET", &snapshot, Some(&editor), &[]),
+        before
+    );
 }
 
 #[test]
@@ -99,6 +220,80 @@ fn authenticated_edits_retries_conflicts_and_viewer_reads() {
     );
     let unknown = format!("/v1/projects/{}", Uuid::new_v4());
     assert_eq!(service.dispatch("GET", &unknown, Some(&editor), &[]).0, 403);
+}
+
+#[test]
+fn requirement_api_rejects_duplicate_ids_stale_edits_and_viewer_mutation() {
+    let (service, project, editor, viewer) = fixture();
+    let path = format!("/v1/projects/{}", project.id);
+    let edits = format!("{path}/operations");
+    let create = json!({
+        "operation_id": Uuid::new_v4(), "expected_revision": 0,
+        "edit": {"CreateRequirement": {
+            "owner": project.root_id, "name": "Response", "requirement_id": "REQ-1",
+            "text": "Respond within 50 ms.\nMeasured at the interface."
+        }}
+    });
+    let body = serde_json::to_vec(&create).unwrap();
+    assert_eq!(
+        service.dispatch("POST", &edits, Some(&viewer), &body).0,
+        403
+    );
+    let receipt = service.dispatch("POST", &edits, Some(&editor), &body);
+    assert_eq!(receipt.0, 200);
+    assert_eq!(
+        service.dispatch("POST", &edits, Some(&editor), &body),
+        receipt
+    );
+    let before = service.dispatch("GET", &path, Some(&viewer), &[]);
+    let mut duplicate = create.clone();
+    duplicate["operation_id"] = json!(Uuid::new_v4());
+    duplicate["expected_revision"] = json!(1);
+    let diagnostic = service.dispatch(
+        "POST",
+        &edits,
+        Some(&editor),
+        &serde_json::to_vec(&duplicate).unwrap(),
+    );
+    assert_eq!(diagnostic.1["diagnostic"], "requirement_id_duplicate");
+    assert!(diagnostic.1.get("message").is_none());
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &edits,
+                Some(&editor),
+                &serde_json::to_vec(&duplicate).unwrap()
+            )
+            .0,
+        422
+    );
+    assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
+    let mut blank = duplicate.clone();
+    blank["edit"]["CreateRequirement"]["requirement_id"] = json!(" ");
+    let diagnostic = service.dispatch(
+        "POST",
+        &edits,
+        Some(&editor),
+        &serde_json::to_vec(&blank).unwrap(),
+    );
+    assert_eq!(diagnostic.0, 422);
+    assert_eq!(diagnostic.1["diagnostic"], "requirement_id_empty");
+    assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
+    let mut stale = duplicate;
+    stale["expected_revision"] = json!(0);
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &edits,
+                Some(&editor),
+                &serde_json::to_vec(&stale).unwrap()
+            )
+            .0,
+        409
+    );
+    assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
 }
 
 #[test]

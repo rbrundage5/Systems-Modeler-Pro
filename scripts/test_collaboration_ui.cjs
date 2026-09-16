@@ -47,6 +47,8 @@ async function fixture() {
   const selectNames = new Set([
     'project', 'element', 'relationship-source', 'relationship-target', 'relationship-owner',
     'relationship', 'bdd-owner', 'bdd-diagram', 'bdd-element', 'bdd-relationship', 'bdd-edge',
+    'requirement-owner', 'requirement-target',
+    'history',
   ]);
   const find = selector => {
     if (!controls.has(selector)) {
@@ -56,18 +58,24 @@ async function fixture() {
     return controls.get(selector);
   };
   const connect = find('[data-connect]');
-  connect.elements = { server: new Element('input'), token: new Element('input') };
+  connect.elements = { server: new Element('input'), token: new Element('input'), displayName: new Element('input') };
+  connect.elements.displayName.value = 'Engineer';
   const edit = find('[data-edit]');
   edit.elements = { name: new Element('input'), operation: new Element('select') };
   edit.elements.operation.value = 'CreateBlock';
   const relationshipEdit = find('[data-relationship-edit]');
   relationshipEdit.elements = { kind: new Element('select') };
   relationshipEdit.elements.kind.value = 'Dependency';
+  const requirementEdit = find('[data-requirement-edit]');
+  requirementEdit.elements = {
+    name: new Element('input'), requirementId: new Element('input'), text: new Element('textarea'),
+  };
   const dialog = new Element('dialog');
   dialog.querySelector = find;
   dialog.querySelectorAll = () => [
     ...controls.values(), ...Object.values(connect.elements), ...Object.values(edit.elements),
     ...Object.values(relationshipEdit.elements),
+    ...Object.values(requirementEdit.elements),
   ];
   const body = new Element();
   const document = {
@@ -90,12 +98,14 @@ async function fixture() {
     },
   };
   const calls = [];
+  let poll;
+  let presence;
   let handler = async () => structuredClone(view);
   const invoke = async (command, payload) => { calls.push({ command, payload }); return handler(command, payload); };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/collaboration-ui.js'), 'utf8'), {
     window: { __TAURI__: { core: { invoke } } }, document,
     Option: function (text, value) { return { text, value }; },
-    crypto: { randomUUID: () => 'new-id' }, setInterval() {},
+    crypto: { randomUUID: () => 'new-id' }, setInterval(callback, interval) { if (interval === 5000) poll = callback; else presence = callback; },
   });
   connect.elements.server.value = 'https://example.test';
   connect.elements.token.value = 'a'.repeat(64);
@@ -104,8 +114,230 @@ async function fixture() {
   find('[data-open]').onclick();
   await flush();
   calls.length = 0;
-  return { find, edit, relationshipEdit, view, calls, setHandler: value => { handler = value; }, canvas: find('[data-bdd-canvas]') };
+  return { find, edit, relationshipEdit, requirementEdit, view, calls, poll, presence, dialog, setHandler: value => { handler = value; }, canvas: find('[data-bdd-canvas]') };
 }
+
+test('presence updates while composing a draft without refreshing or changing its text', async () => {
+  const ui = await fixture();
+  ui.dialog.open = true;
+  requirementDraft(ui);
+  ui.setHandler(async command => {
+    assert.equal(command, 'collaboration_presence');
+    return { participants: [{ name: '<script>literal label</script>', actor: 'actor-123456789', role: 'viewer' }] };
+  });
+  await ui.presence();
+  assert.equal(ui.find('[data-participants]').children[0].textContent, '<script>literal label</script> · viewer · actor-12');
+  assert.match(ui.find('[data-presence-status]').textContent, /1 active session/);
+  assert.match(ui.requirementEdit.elements.text.value, /Preserve this second line/);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_open').length, 0);
+});
+
+test('a failed heartbeat clears stale presence without changing pending recovery', async () => {
+  const ui = await fixture();
+  ui.dialog.open = true;
+  requirementDraft(ui);
+  ui.setHandler(async () => { throw new Error('Offline'); });
+  await ui.presence();
+  assert.match(ui.find('[data-presence-status]').textContent, /unavailable/);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  assert.equal(ui.calls.length, 1);
+});
+
+function requirementDraft(ui) {
+  ui.requirementEdit.elements.name.value = 'Response time';
+  ui.requirementEdit.elements.requirementId.value = 'REQ-1';
+  ui.requirementEdit.elements.text.value = 'Respond within 50 ms.\nPreserve this second line.';
+  ui.requirementEdit.listeners.input();
+}
+
+test('history reversal submits the selected operation with the visible revision', async () => {
+  const ui = await fixture();
+  ui.setHandler(async command => command === 'collaboration_history'
+    ? { operations: [{ operation_id: 'own-change', revision: 5, summary: 'Rename element', can_undo: true }] }
+    : structuredClone(ui.view));
+  await ui.find('[data-history-refresh]').onclick();
+  assert.equal(ui.find('[data-history-reverse]').disabled, false);
+  await ui.find('[data-history-reverse]').onclick();
+  const sent = ui.calls.find(call => call.command === 'collaboration_edit');
+  assert.equal(sent.payload.expectedRevision, 7);
+  assert.equal(sent.payload.edit.UndoOperation.operation, 'own-change');
+});
+
+test('history reversal respects viewer permission and retains unsaved drafts', async () => {
+  const ui = await fixture();
+  ui.setHandler(async command => command === 'collaboration_history'
+    ? { operations: [{ operation_id: 'own-change', revision: 5, summary: 'Update Requirement', can_undo: true }] }
+    : structuredClone(ui.view));
+  await ui.find('[data-history-refresh]').onclick();
+  requirementDraft(ui);
+  await ui.find('[data-history-reverse]').onclick();
+  assert.match(ui.find('[data-message]').textContent, /Save or clear your draft/);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  ui.find('[data-requirement-reset]').onclick();
+  ui.view.projects[0].role = 'viewer';
+  await ui.find('[data-refresh]').onclick();
+  assert.equal(ui.find('[data-history-reverse]').disabled, true);
+  await ui.find('[data-history-reverse]').onclick();
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+});
+
+test('reconnect restores a pending requirement draft and retries without a new edit', async () => {
+  const ui = await fixture();
+  await ui.find('[data-disconnect]').onclick();
+  ui.view.pending = true;
+  ui.view.pending_request = {
+    operation_id: 'original-operation', expected_revision: 6,
+    edit: { CreateRequirement: { owner: 'root', name: 'Recovered requirement', requirement_id: 'REQ-RECOVERED', text: 'Original multiline\ntext.' } },
+  };
+  ui.find('[data-connect]').elements.token.value = 'a'.repeat(64);
+  ui.find('[data-connect]').onsubmit(event());
+  await flush();
+  assert.equal(ui.requirementEdit.elements.requirementId.value, 'REQ-RECOVERED');
+  assert.equal(ui.requirementEdit.elements.text.value, 'Original multiline\ntext.');
+  assert.match(ui.find('[data-requirement-context]').textContent, /revision 6/);
+  assert.match(ui.find('[data-recovery]').textContent, /Retry pending edit/);
+  assert.equal(ui.find('[data-requirement-submit]').disabled, true);
+  ui.setHandler(async command => {
+    if (command === 'collaboration_retry') { ui.view.pending = false; ui.view.pending_request = null; }
+    return structuredClone(ui.view);
+  });
+  await ui.find('[data-retry]').onclick();
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_retry').length, 1);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+  assert.equal(ui.requirementEdit.elements.text.value, '');
+  assert.equal(ui.find('[data-recovery]').textContent, '');
+});
+
+test('a recovered requirement rejected as stale remains available for explicit review', async () => {
+  const ui = await fixture();
+  await ui.find('[data-disconnect]').onclick();
+  ui.view.pending = true;
+  ui.view.pending_request = { expected_revision: 6, edit: { CreateRequirement: {
+    owner: 'root', name: 'Saved draft', requirement_id: 'REQ-OLD', text: 'Do not discard me.',
+  } } };
+  ui.find('[data-connect]').onsubmit(event());
+  await flush();
+  ui.setHandler(async command => {
+    if (command === 'collaboration_retry') {
+      ui.view.pending = false; ui.view.needs_refresh = true; ui.view.pending_request = null;
+      throw new Error('Project changed. Refresh and review.');
+    }
+    return structuredClone(ui.view);
+  });
+  await ui.find('[data-retry]').onclick();
+  assert.equal(ui.requirementEdit.elements.text.value, 'Do not discard me.');
+  assert.equal(ui.find('[data-requirement-submit]').disabled, true);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+});
+
+test('shared requirement creation submits full text against the captured revision', async () => {
+  const ui = await fixture();
+  requirementDraft(ui);
+  await ui.requirementEdit.onsubmit(event());
+  const call = ui.calls.find(item => item.command === 'collaboration_edit');
+  assert.equal(call.payload.expectedRevision, 7);
+  assert.equal(call.payload.edit.CreateRequirement.owner, 'root');
+  assert.equal(call.payload.edit.CreateRequirement.requirement_id, 'REQ-1');
+  assert.equal(call.payload.edit.CreateRequirement.text, 'Respond within 50 ms.\nPreserve this second line.');
+  assert.equal(ui.requirementEdit.elements.text.value, '');
+});
+
+test('requirement conflicts preserve drafts and require explicit review before rebasing', async () => {
+  const ui = await fixture();
+  ui.view.snapshot.project.elements.req = {
+    id: 'req', kind: 'Requirement', name: 'Original', requirement_id: 'REQ-1', requirement_text: 'Original text.',
+  };
+  await ui.find('[data-refresh]').onclick();
+  ui.find('[data-requirement-load]').onclick();
+  requirementDraft(ui);
+  ui.view.snapshot.revision = 8;
+  ui.view.snapshot.project.elements.req.requirement_text = 'Other editor revision.';
+  await ui.find('[data-refresh]').onclick();
+  assert.match(ui.find('[data-requirement-current]').textContent, /Other editor revision/);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  ui.setHandler(async command => {
+    if (command === 'collaboration_edit') throw new Error('Refresh and review the project before editing.');
+    return structuredClone(ui.view);
+  });
+  await ui.requirementEdit.onsubmit(event());
+  assert.equal(ui.calls.filter(item => item.command === 'collaboration_edit').at(-1).payload.expectedRevision, 7);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  ui.find('[data-requirement-rebase]').onclick();
+  ui.setHandler(async () => structuredClone(ui.view));
+  await ui.requirementEdit.onsubmit(event());
+  const call = ui.calls.filter(item => item.command === 'collaboration_edit').at(-1);
+  assert.equal(call.payload.expectedRevision, 8);
+  assert.equal(call.payload.edit.UpdateRequirement.element, 'req');
+  assert.equal(call.payload.edit.UpdateRequirement.requirement_id, 'REQ-1');
+});
+
+test('requirement drafts block background refresh and project switching', async () => {
+  const ui = await fixture();
+  ui.dialog.open = true;
+  requirementDraft(ui);
+  ui.poll();
+  await flush();
+  assert.equal(ui.calls.length, 0);
+  await ui.find('[data-open]').onclick();
+  assert.equal(ui.calls.filter(item => item.command === 'collaboration_open').length, 0);
+  assert.match(ui.find('[data-message]').textContent, /Save or clear/);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+});
+
+test('viewers can inspect requirement text but cannot submit changes', async () => {
+  const ui = await fixture();
+  ui.view.projects[0].role = 'viewer';
+  ui.view.snapshot.project.elements.req = {
+    id: 'req', kind: 'Requirement', name: 'Read only', requirement_id: 'REQ-1', requirement_text: '<example> & text',
+  };
+  await ui.find('[data-refresh]').onclick();
+  ui.find('[data-requirement-load]').onclick();
+  assert.equal(ui.requirementEdit.elements.text.value, '<example> & text');
+  assert.equal(ui.find('[data-requirement-submit]').disabled, true);
+  await ui.requirementEdit.onsubmit(event());
+  assert.equal(ui.calls.filter(item => item.command === 'collaboration_edit').length, 0);
+});
+
+test('uncertain requirement submission retains draft until exact pending retry succeeds', async () => {
+  const ui = await fixture();
+  requirementDraft(ui);
+  ui.setHandler(async command => {
+    if (command === 'collaboration_edit') { ui.view.pending = true; throw new Error('Network interrupted'); }
+    if (command === 'collaboration_retry') ui.view.pending = false;
+    return structuredClone(ui.view);
+  });
+  await ui.requirementEdit.onsubmit(event());
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  assert.equal(ui.find('[data-requirement-reset]').disabled, true);
+  await ui.requirementEdit.onsubmit(event());
+  assert.equal(ui.calls.filter(item => item.command === 'collaboration_edit').length, 1);
+  await ui.find('[data-retry]').onclick();
+  assert.equal(ui.requirementEdit.elements.text.value, '');
+  assert.equal(ui.calls.filter(item => item.command === 'collaboration_retry').length, 1);
+});
+
+test('requirement text is disabled during an in-flight request', async () => {
+  const ui = await fixture();
+  requirementDraft(ui);
+  let complete;
+  ui.setHandler(() => new Promise(resolve => { complete = resolve; }));
+  const submitted = ui.requirementEdit.onsubmit(event());
+  assert.equal(ui.requirementEdit.elements.text.disabled, true);
+  complete(structuredClone(ui.view));
+  await submitted;
+  assert.equal(ui.requirementEdit.elements.text.disabled, false);
+});
+
+test('test cases can be created for existing Verify relationship controls', async () => {
+  const ui = await fixture();
+  ui.edit.elements.operation.value = 'CreateTestCase';
+  ui.edit.elements.name.value = 'Response verification';
+  ui.edit.onsubmit(event());
+  await flush();
+  const call = ui.calls.find(item => item.command === 'collaboration_edit');
+  assert.equal(call.payload.edit.CreateTestCase.owner, 'root');
+  assert.equal(call.payload.edit.CreateTestCase.name, 'Response verification');
+});
 
 test('a rejected semantic edit retains the typed intention', async () => {
   const ui = await fixture();

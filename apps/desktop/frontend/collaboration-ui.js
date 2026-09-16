@@ -25,13 +25,25 @@
   dialog.innerHTML = `<h2>Shared Projects</h2>
     <p>Connect to your team's server to view and edit server-authoritative shared model content.</p>
     <form data-connect><label>Server address<input name="server" type="url" required placeholder="https://models.example.com" autocomplete="off"></label>
-    <label>Access token<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><button>Connect</button></form>
+    <label>Access token<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><label>Your display name<input name="displayName" maxlength="64" required value="Collaborator" autocomplete="off"></label><button>Connect</button></form>
     <section data-session hidden><div class="collaboration-actions"><select data-project aria-label="Shared project"></select><button data-open>Open project</button><button data-refresh>Refresh</button><button data-disconnect>Disconnect</button></div>
-    <p data-revision></p>
+    <p data-revision></p><p data-recovery role="status"></p>
+    <section aria-label="Active collaborators"><p data-presence-status role="status"></p><ul data-participants></ul></section>
+    <section aria-label="My shared change history"><h3>My recent changes</h3><button type="button" data-history-refresh>Load my change history</button><label>Change<select data-history></select></label><button type="button" data-history-reverse>Reverse selected change</button><p>Reversal preserves unrelated work and is rejected if affected records changed or have new dependencies. Reverse a reversal to restore a change.</p></section>
     <section class="collaboration-semantic"><h3>Repository edits</h3><p>Elements and relationships use the same server-authoritative project revision as shared diagram edits.</p>
     <label>Element / owner<select data-element></select></label>
-    <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="RenameElement">Rename element</option></select></label>
+    <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="CreateTestCase">Create Test Case</option><option value="RenameElement">Rename element</option></select></label>
     <label>Name<input name="name" required maxlength="1024" autocomplete="off"></label><button data-submit>Save shared edit</button></form>
+    <section class="collaboration-requirements"><h4>Requirements</h4>
+    <div class="collaboration-actions"><label>Existing requirement<select data-requirement-target></select></label><button type="button" data-requirement-load>Load requirement</button></div>
+    <pre data-requirement-current aria-label="Current saved requirement"></pre>
+    <form data-requirement-edit><label>Owner for new requirement<select data-requirement-owner></select></label>
+    <label>Name<input name="name" required maxlength="1024" autocomplete="off"></label>
+    <label>Requirement ID<input name="requirementId" required autocomplete="off"></label>
+    <label>Requirement text<textarea name="text" rows="5"></textarea></label>
+    <p data-requirement-context></p><button data-requirement-submit>Save requirement</button>
+    <button type="button" data-requirement-reset>Clear draft / new requirement</button>
+    <button type="button" data-requirement-rebase>Keep draft after reviewing latest revision</button></form></section>
     <div class="collaboration-relationships"><h4>Semantic relationships</h4><p>Create or delete the relationship kinds whose complete payload is source, target, and Model/Package owner. Specialized Association, Connector, ItemFlow, BindingConnector, and import operations remain separate.</p>
     <form data-relationship-edit><div class="collaboration-actions"><label>Kind<select name="kind">${SHARED_RELATIONSHIP_KINDS.map(kind => `<option value="${kind}">${kind}</option>`).join('')}</select></label><label>Source<select data-relationship-source></select></label><label>Target<select data-relationship-target></select></label><label>Owner<select data-relationship-owner></select></label></div><button data-relationship-create>Create relationship</button></form>
     <div class="collaboration-actions"><label>Existing relationship<select data-relationship></select></label><button type="button" data-relationship-delete>Delete relationship</button></div></div></section>
@@ -48,6 +60,7 @@
   const connect = find('[data-connect]');
   const edit = find('[data-edit]');
   const relationshipEdit = find('[data-relationship-edit]');
+  const requirementEdit = find('[data-requirement-edit]');
   const message = find('[data-message]');
   const canvas = find('[data-bdd-canvas]');
   let view = null;
@@ -57,7 +70,112 @@
   let selectedEdgeId = '';
   let drag = null;
   let bddNameDirty = false;
+  let requirementDraft = null;
+  let requirementDirty = false;
+  let requirementRetry = false;
+  let presenceBusy = false;
+  let presenceGeneration = 0;
+  let presenceProject = '';
+  let ownHistory = [];
+  let historyProject = '';
   find('[data-bdd-name]').addEventListener('input', () => { bddNameDirty = true; });
+
+  function resetRequirementDraft() {
+    requirementDraft = null;
+    requirementDirty = false;
+    requirementRetry = false;
+    for (const field of ['name', 'requirementId', 'text']) requirementEdit.elements[field].value = '';
+  }
+
+  function captureRequirementDraft() {
+    if (!view?.snapshot) return;
+    if (!requirementDraft) requirementDraft = {
+      project: view.snapshot.project.id, revision: view.snapshot.revision, element: null,
+    };
+    requirementDirty = true;
+  }
+  requirementEdit.addEventListener('input', captureRequirementDraft);
+  find('[data-requirement-owner]').addEventListener('change', captureRequirementDraft);
+
+  async function updatePresence() {
+    if (!invoke || !dialog.open || presenceBusy || busy || !view?.snapshot) return;
+    presenceBusy = true;
+    const generation = presenceGeneration;
+    const project = view.snapshot.project.id;
+    try {
+      const status = await invoke('collaboration_presence');
+      if (generation !== presenceGeneration || project !== view?.snapshot?.project.id) return;
+      const participants = status.participants || [];
+      find('[data-participants]').replaceChildren(...participants.map(participant => {
+        const row = document.createElement('li');
+        row.textContent = `${participant.name} · ${participant.role} · ${participant.actor.slice(0, 8)}`;
+        return row;
+      }));
+      find('[data-presence-status]').textContent = `${participants.length} active session${participants.length === 1 ? '' : 's'}. Display names are participant labels; the account ID identifies the user.`;
+    } catch (_) {
+      if (generation === presenceGeneration && project === view?.snapshot?.project.id) {
+        find('[data-participants]').replaceChildren();
+        find('[data-presence-status]').textContent = 'Participant status unavailable. Editing and pending-edit recovery are unchanged.';
+      }
+    } finally { presenceBusy = false; }
+  }
+
+  function restorePendingDraft() {
+    const request = view?.pending_request;
+    if (!view?.pending || !request || !view.snapshot) return;
+    render();
+    const requirement = request.edit.CreateRequirement || request.edit.UpdateRequirement;
+    if (requirement) {
+      requirementDraft = {
+        project: view.snapshot.project.id, revision: request.expected_revision,
+        element: requirement.element || null,
+      };
+      requirementDirty = true;
+      requirementRetry = true;
+      requirementEdit.elements.name.value = requirement.name;
+      requirementEdit.elements.requirementId.value = requirement.requirement_id;
+      requirementEdit.elements.text.value = requirement.text;
+      if (requirement.owner) find('[data-requirement-owner]').value = requirement.owner;
+    } else {
+      for (const operation of ['CreateBlock', 'CreatePackage', 'CreateTestCase', 'RenameElement']) {
+        const payload = request.edit[operation];
+        if (!payload) continue;
+        edit.elements.operation.value = operation;
+        edit.elements.name.value = payload.name;
+        find('[data-element]').value = payload.owner || payload.element;
+      }
+    }
+  }
+
+  function renderRequirements(elements) {
+    const owner = find('[data-requirement-owner]');
+    const priorOwner = owner.value;
+    const owners = elements.filter(element => ['Model', 'Package', 'ModelLibrary'].includes(element.kind));
+    owner.replaceChildren(...owners.map(element => new Option(element.name, element.id)));
+    if (owners.some(element => element.id === priorOwner)) owner.value = priorOwner;
+    const target = find('[data-requirement-target]');
+    const priorTarget = target.value;
+    const requirements = elements.filter(element => element.kind === 'Requirement');
+    target.replaceChildren(...requirements.map(element => new Option(`${element.requirement_id || ''} · ${element.name}`, element.id)));
+    if (requirements.some(element => element.id === priorTarget)) target.value = priorTarget;
+    const current = requirements.find(element => element.id === (requirementDraft?.element || target.value));
+    find('[data-requirement-current]').textContent = current
+      ? `Saved at revision ${view.snapshot.revision}: ${current.name}\nID: ${current.requirement_id || ''}\n${current.requirement_text || ''}`
+      : 'Select a saved requirement to inspect it, or enter a new requirement below.';
+    const available = !!view?.snapshot && !view.pending && !view.needs_refresh;
+    const editable = available && canEdit();
+    owner.disabled = !editable || !!requirementDraft?.element;
+    for (const field of ['name', 'requirementId', 'text']) requirementEdit.elements[field].disabled = !editable;
+    find('[data-requirement-submit]').disabled = !editable;
+    find('[data-requirement-load]').disabled = !available || !target.value || requirementDirty;
+    find('[data-requirement-reset]').disabled = !!view.pending;
+    const stale = requirementDraft && requirementDraft.revision !== view.snapshot?.revision;
+    find('[data-requirement-rebase]').hidden = !stale;
+    find('[data-requirement-rebase]').disabled = !editable || (!!requirementDraft?.element && !current);
+    find('[data-requirement-context]').textContent = requirementDraft
+      ? `${requirementDraft.element ? 'Editing requirement' : 'New requirement'} from revision ${requirementDraft.revision}.${stale ? ' Review the saved values above before keeping this draft on the latest revision.' : ''}`
+      : 'Enter a new requirement, or load an existing requirement to edit its ID and text.';
+  }
 
   function snapshotElements() {
     return Object.values(view?.snapshot?.project?.elements || {}).sort((a, b) => a.name.localeCompare(b.name));
@@ -310,6 +428,21 @@
     projects.replaceChildren(...view.projects.map(grant => new Option(`${grant.id} (${grant.role})`, grant.id)));
     if (view.projects.some(grant => grant.id === chosen)) projects.value = chosen;
     const snapshot = view.snapshot;
+    if (historyProject !== (snapshot?.project.id || '')) {
+      historyProject = snapshot?.project.id || '';
+      ownHistory = [];
+      find('[data-history]').replaceChildren();
+    }
+    find('[data-history-refresh]').disabled = !snapshot || view.pending;
+    const selectedChange = ownHistory.find(entry => entry.operation_id === find('[data-history]').value);
+    find('[data-history-reverse]').disabled = !canEdit() || view.pending || view.needs_refresh || !selectedChange?.can_undo;
+    if (presenceProject !== (snapshot?.project.id || '')) {
+      presenceProject = snapshot?.project.id || '';
+      find('[data-participants]').replaceChildren();
+      find('[data-presence-status]').textContent = snapshot ? 'Checking active participants…' : '';
+    }
+    find('[data-recovery]').textContent = view.pending
+      ? 'An unfinished edit is retained for recovery. Use Retry pending edit to confirm its result before making another change.' : '';
     find('[data-revision]').textContent = snapshot ? `${snapshot.project.name} · revision ${snapshot.revision}${view.needs_refresh ? ' · refresh required' : ''}` : 'Choose a project to open.';
     const elements = snapshotElements();
     const byId = new Map(elements.map(element => [String(element.id), element]));
@@ -348,6 +481,7 @@
     find('[data-retry]').hidden = !view.pending;
     find('[data-refresh]').disabled = !snapshot || view.pending;
     find('[data-open]').disabled = view.pending || !view.projects.length;
+    renderRequirements(elements);
     renderBdd();
   }
 
@@ -355,7 +489,7 @@
     if (busy) return false;
     busy = true;
     dialog.setAttribute('aria-busy', 'true');
-    const controls = [...dialog.querySelectorAll('input, select, button')];
+    const controls = [...dialog.querySelectorAll('input, select, textarea, button')];
     const disabled = controls.map(control => control.disabled);
     controls.forEach(control => { control.disabled = true; });
     try {
@@ -421,11 +555,22 @@
     event.preventDefault();
     const server = connect.elements.server.value.trim();
     const token = connect.elements.token.value.trim();
+    const displayName = connect.elements.displayName.value.trim();
     connect.elements.token.value = '';
-    run(async () => { view = await invoke('collaboration_connect', { server, token }); }, 'Connected. Select a shared project.');
+    run(async () => {
+      view = await invoke('collaboration_connect', { server, token, displayName });
+      presenceGeneration += 1;
+      presenceProject = '';
+      historyProject = '';
+      ownHistory = [];
+      restorePendingDraft();
+    }, 'Connected. Review any recovered edit, or select a shared project.');
   };
   find('[data-open]').onclick = () => run(async () => {
+    if (requirementDirty) throw new Error('Save or clear the requirement draft before opening a project. Use Refresh to inspect the current project.');
     view = await invoke('collaboration_open', { project: find('[data-project]').value });
+    presenceGeneration += 1;
+    resetRequirementDraft();
     edit.elements.name.value = '';
     bddNameDirty = false;
     selectedDiagramId = String(view.snapshot?.diagrams?.[0]?.id || '');
@@ -435,6 +580,62 @@
   find('[data-refresh]').onclick = () => run(async () => {
     view = await invoke('collaboration_open', { project: view.snapshot.project.id });
   }, 'Latest shared revision loaded. Review it before saving an edit.');
+  find('[data-history-refresh]').onclick = () => run(async () => {
+    const history = await invoke('collaboration_history');
+    ownHistory = history.operations;
+    find('[data-history]').replaceChildren(...ownHistory.map(entry => new Option(`Revision ${entry.revision} · ${entry.summary}${entry.can_undo ? '' : ' · unavailable'}`, entry.operation_id)));
+  }, 'Recent changes made by your account loaded.');
+  find('[data-history]').onchange = render;
+  find('[data-history-reverse]').onclick = async () => {
+    const selected = ownHistory.find(entry => entry.operation_id === find('[data-history]').value);
+    if (busy || !selected?.can_undo || !canEdit() || view.pending || view.needs_refresh) return;
+    if (requirementDirty || edit.elements.name.value || bddNameDirty) {
+      message.textContent = 'Save or clear your draft before reversing a shared change.';
+      return;
+    }
+    const saved = await submitSharedEdit({ UndoOperation: { operation: selected.operation_id } }, 'Selected change reversed. Other users’ unrelated changes were preserved.');
+    if (saved) await find('[data-history-refresh]').onclick();
+  };
+  find('[data-requirement-target]').onchange = () => renderRequirements(snapshotElements());
+  find('[data-requirement-load]').onclick = () => {
+    if (busy || requirementDirty || view?.pending || view?.needs_refresh) return;
+    const element = snapshotElements().find(item => item.id === find('[data-requirement-target]').value && item.kind === 'Requirement');
+    if (!element) return;
+    requirementDraft = { project: view.snapshot.project.id, revision: view.snapshot.revision, element: element.id };
+    requirementEdit.elements.name.value = element.name;
+    requirementEdit.elements.requirementId.value = element.requirement_id || '';
+    requirementEdit.elements.text.value = element.requirement_text || '';
+    renderRequirements(snapshotElements());
+  };
+  find('[data-requirement-reset]').onclick = () => {
+    if (busy || view?.pending) return;
+    resetRequirementDraft();
+    renderRequirements(snapshotElements());
+  };
+  find('[data-requirement-rebase]').onclick = () => {
+    if (busy || !requirementDraft || !canEdit() || view.pending || view.needs_refresh) return;
+    if (requirementDraft.project !== view.snapshot.project.id) return;
+    requirementDraft.revision = view.snapshot.revision;
+    renderRequirements(snapshotElements());
+  };
+  requirementEdit.onsubmit = async event => {
+    event.preventDefault();
+    if (busy || !canEdit() || view.pending || view.needs_refresh) return;
+    captureRequirementDraft();
+    if (!requirementDraft || requirementDraft.project !== view.snapshot.project.id) return;
+    const payload = {
+      name: requirementEdit.elements.name.value,
+      requirement_id: requirementEdit.elements.requirementId.value,
+      text: requirementEdit.elements.text.value,
+    };
+    const operation = requirementDraft.element ? 'UpdateRequirement' : 'CreateRequirement';
+    if (requirementDraft.element) payload.element = requirementDraft.element;
+    else payload.owner = find('[data-requirement-owner]').value;
+    const saved = await submitSharedEdit({ [operation]: payload }, 'Shared requirement saved.', requirementDraft.revision);
+    requirementRetry = !saved && !!view?.pending;
+    if (saved) resetRequirementDraft();
+    renderRequirements(snapshotElements());
+  };
   edit.onsubmit = event => {
     event.preventDefault();
     if (!view?.snapshot) return;
@@ -548,9 +749,13 @@
   find('[data-retry]').onclick = () => run(async () => {
     view = await invoke('collaboration_retry');
     edit.elements.name.value = '';
+    if (requirementRetry) resetRequirementDraft();
   }, 'Pending edit confirmed.');
   find('[data-disconnect]').onclick = () => run(async () => {
+    if (requirementDirty) throw new Error('Save or clear the requirement draft before disconnecting.');
     await invoke('collaboration_disconnect');
+    presenceGeneration += 1;
+    resetRequirementDraft();
     view = null;
     selectedDiagramId = '';
     selectedNodeId = '';
@@ -562,8 +767,10 @@
   // Never silently rebase an unsent edit or retry an operation with a new identity.
   setInterval(() => {
     const bddNameFocused = document.activeElement === find('[data-bdd-name]');
-    if (dialog.open && !busy && !drag && !bddNameDirty && !bddNameFocused && view?.snapshot && !view.pending && !view.needs_refresh && !edit.elements.name.value) {
+    if (dialog.open && !busy && !drag && !bddNameDirty && !bddNameFocused && !requirementDirty && view?.snapshot && !view.pending && !view.needs_refresh && !edit.elements.name.value) {
       run(async () => { view = await invoke('collaboration_open', { project: view.snapshot.project.id }); });
     }
   }, 5000);
+  // Presence is ephemeral and independent of unsent draft composition.
+  setInterval(updatePresence, 10000);
 })();
