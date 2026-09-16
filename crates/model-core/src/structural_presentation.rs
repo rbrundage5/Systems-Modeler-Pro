@@ -582,3 +582,5 @@ pub fn validate_package_diagram(project: &Project, diagram: &BddDiagram) -> Resu
     }
     Ok(())
 }
+
+pub mod geometry;
