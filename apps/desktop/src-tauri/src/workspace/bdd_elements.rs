@@ -547,7 +547,20 @@ pub fn create_bdd_element(
             "{kind:?} is an owned feature, not a top-level BDD element"
         ));
     }
-    create_element(kind, owner_id, name, state)
+    if kind == ElementKind::Requirement {
+        return create_element(kind, owner_id, name, state);
+    }
+    use systems_modeler_core::structural_presentation::creation::{BddElementKind, CreateBddElement};
+    let command = CreateBddElement {
+        kind: BddElementKind::from_model_kind(&kind).ok_or("unsupported BDD classifier creation")?,
+        owner: parse_element_id(&owner_id)?,
+        name,
+    };
+    let mut project = state.project.lock().map_err(|_| "project lock poisoned")?;
+    command
+        .apply(project.as_mut().ok_or("no project open")?)
+        .map(|id| id.to_string())
+        .map_err(|error| error.to_string())
 }
 
 fn parse_multiplicity(lower: u32, upper: Option<u32>) -> Result<Multiplicity, String> {

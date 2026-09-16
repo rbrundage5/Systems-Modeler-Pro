@@ -6,6 +6,7 @@
     'PrimitiveType', 'Enumeration', 'Signal', 'Unit', 'QuantityKind', 'InstanceSpecification',
     'Comment', 'Requirement', 'TestCase', 'Actor', 'UseCase',
   ]);
+  const BDD_CREATE_KINDS = [...BDD_KINDS].filter(kind => !['Requirement', 'Block', 'TestCase'].includes(kind));
   const SHARED_RELATIONSHIP_KINDS = [
     'Dependency', 'Generalization', 'Realization', 'Allocate', 'DeriveRequirement',
     'Satisfy', 'Verify', 'Refine', 'Trace', 'Copy', 'Include', 'Extend',
@@ -32,7 +33,7 @@
     <section aria-label="My shared change history"><h3>My recent changes</h3><button type="button" data-history-refresh>Load my change history</button><label>Change<select data-history></select></label><button type="button" data-history-reverse>Reverse selected change</button><p>Reversal preserves unrelated work and is rejected if affected records changed or have new dependencies. Reverse a reversal to restore a change.</p></section>
     <section class="collaboration-semantic"><h3>Repository edits</h3><p>Elements and relationships use the same server-authoritative project revision as shared diagram edits.</p>
     <label>Element / owner<select data-element></select></label>
-    <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="CreateTestCase">Create Test Case</option><option value="RenameElement">Rename element</option></select></label>
+    <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="CreateTestCase">Create Test Case</option>${BDD_CREATE_KINDS.map(kind => `<option value="Create${kind}">Create ${kind.replace(/([a-z])([A-Z])/g, '$1 $2')}</option>`).join('')}<option value="RenameElement">Rename element</option></select></label>
     <label>Name<input name="name" required maxlength="1024" autocomplete="off"></label><button data-submit>Save shared edit</button></form>
     <section class="collaboration-requirements"><h4>Requirements</h4>
     <div class="collaboration-actions"><label>Existing requirement<select data-requirement-target></select></label><button type="button" data-requirement-load>Load requirement</button></div>
@@ -136,6 +137,11 @@
       requirementEdit.elements.requirementId.value = requirement.requirement_id;
       requirementEdit.elements.text.value = requirement.text;
       if (requirement.owner) find('[data-requirement-owner]').value = requirement.owner;
+    } else if (request.edit.CreateBddElement) {
+      const payload = request.edit.CreateBddElement;
+      edit.elements.operation.value = `Create${payload.kind}`;
+      edit.elements.name.value = payload.name;
+      find('[data-element]').value = payload.owner;
     } else {
       for (const operation of ['CreateBlock', 'CreatePackage', 'CreateTestCase', 'RenameElement']) {
         const payload = request.edit[operation];
@@ -639,10 +645,15 @@
   edit.onsubmit = event => {
     event.preventDefault();
     if (!view?.snapshot) return;
-    const operation = edit.elements.operation.value;
+    let operation = edit.elements.operation.value;
     const target = find('[data-element]').value;
     const name = edit.elements.name.value;
     const payload = operation === 'RenameElement' ? { element: target, name } : { owner: target, name };
+    const kind = operation.slice('Create'.length);
+    if (BDD_CREATE_KINDS.includes(kind)) {
+      operation = 'CreateBddElement';
+      payload.kind = kind;
+    }
     submitSharedEdit({ [operation]: payload }, 'Shared repository edit saved.').then(saved => { if (saved) edit.elements.name.value = ''; });
   };
   relationshipEdit.onsubmit = event => {
