@@ -42,3 +42,5 @@ pub mod routing;
 
 mod package_registry;
 pub use package_registry::supported_diagram_families;
+
+pub mod structural_presentation;
