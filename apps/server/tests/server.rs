@@ -53,7 +53,7 @@ fn operation(project: &Project) -> Value {
 
 #[test]
 fn authenticated_capabilities_define_the_client_server_contract() {
-    let (service, _, editor, _) = fixture();
+    let (service, _, editor, viewer) = fixture();
     assert_eq!(
         service.dispatch("GET", "/v1/capabilities", None, &[]).0,
         401
@@ -67,6 +67,17 @@ fn authenticated_capabilities_define_the_client_server_contract() {
         serde_json::to_value(COLLABORATION_CAPABILITIES).unwrap()
     );
     assert_eq!(response.1["server_version"], env!("CARGO_PKG_VERSION"));
+    let actor = Uuid::parse_str(response.1["actor"].as_str().unwrap()).unwrap();
+    assert!(!actor.is_nil());
+    let other = service.dispatch("GET", "/v1/capabilities", Some(&viewer), &[]);
+    assert_ne!(response.1["actor"], other.1["actor"]);
+    assert!(
+        service
+            .dispatch("GET", "/v1/capabilities", None, &[])
+            .1
+            .get("actor")
+            .is_none()
+    );
 }
 
 #[test]

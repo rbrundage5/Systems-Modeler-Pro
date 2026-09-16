@@ -79,10 +79,14 @@ create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 Specialized Association/Connector/ItemFlow/BindingConnector and import operations,
 other diagram families, standard-workspace integration, complete element
 authoring/configuration, presence, collaborative undo, project administration, and
-production HTTPS deployment remain subsequent work. Pending retries are memory-only;
-after an application crash, reload the server snapshot and inspect it before
-recreating an unconfirmed edit. There is no automatic offline merge or
-crash-persistent outbox in this increment.
+production HTTPS deployment remain subsequent work. Submitted pending edits are
+recorded in a separate application-data SQLite outbox before transmission. After
+restart, reconnect to the same server with credentials for the same authenticated
+actor and use Retry pending edit. A rotated access token for that same actor can
+recover the operation; another actor cannot. Credentials remain memory-only.
+The original operation ID and revision are retained even if the server already
+committed it. New writes are blocked if recovery storage cannot reserve the edit.
+Unsubmitted drafts are still memory-only; automatic offline merge is not supported.
 
 The simple relationship set is Dependency, Generalization, Realization, Allocate,
 DeriveRequirement, Satisfy, Verify, Refine, Trace, Copy, Include, and Extend. Each
@@ -112,7 +116,7 @@ A rejected repository edit retains its typed name for review and resubmission.
 Pointer gestures are blocked during requests, capture their starting revision,
 and do not commit on a stationary click. Network uncertainty retains exact retry
 identity; a revision conflict requires explicit refresh. Pending retries remain
-memory-only.
+retained across desktop restart by the Rust recovery outbox.
 
 The real-server integration test runs two independent Rust desktop sessions over
 loopback HTTP, covering a stale writer and shared BDD node/relationship presentation

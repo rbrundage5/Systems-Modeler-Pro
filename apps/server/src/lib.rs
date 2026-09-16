@@ -139,6 +139,7 @@ impl Service {
                 json!({
                     "protocol": COLLABORATION_PROTOCOL_VERSION,
                     "server_version": env!("CARGO_PKG_VERSION"),
+                    "actor": credential.actor,
                     "capabilities": COLLABORATION_CAPABILITIES,
                 }),
             );
