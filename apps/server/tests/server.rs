@@ -56,22 +56,58 @@ fn shared_history_is_actor_scoped_and_reversal_uses_the_authenticated_editor() {
     let (service, project, editor, viewer) = fixture();
     let base = format!("/v1/projects/{}", project.id);
     let created = operation(&project);
-    assert_eq!(service.dispatch("POST", &format!("{base}/operations"), Some(&editor), &serde_json::to_vec(&created).unwrap()).0, 200);
+    assert_eq!(
+        service
+            .dispatch(
+                "POST",
+                &format!("{base}/operations"),
+                Some(&editor),
+                &serde_json::to_vec(&created).unwrap()
+            )
+            .0,
+        200
+    );
     let history = service.dispatch("GET", &format!("{base}/history"), Some(&editor), &[]);
     assert_eq!(history.0, 200);
-    assert_eq!(history.1["operations"][0]["operation_id"], created["operation_id"]);
+    assert_eq!(
+        history.1["operations"][0]["operation_id"],
+        created["operation_id"]
+    );
     assert_eq!(history.1["operations"][0]["can_undo"], true);
-    assert!(service.dispatch("GET", &format!("{base}/history"), Some(&viewer), &[]).1["operations"].as_array().unwrap().is_empty());
-    assert_eq!(service.dispatch("GET", &format!("{base}/history"), None, &[]).0, 401);
+    assert!(
+        service
+            .dispatch("GET", &format!("{base}/history"), Some(&viewer), &[])
+            .1["operations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        service
+            .dispatch("GET", &format!("{base}/history"), None, &[])
+            .0,
+        401
+    );
     let reverse = json!({"operation_id":Uuid::new_v4(),"expected_revision":1,"edit":{"UndoOperation":{"operation":created["operation_id"]}}});
     let body = serde_json::to_vec(&reverse).unwrap();
-    assert_eq!(service.dispatch("POST", &format!("{base}/operations"), Some(&viewer), &body).0, 403);
+    assert_eq!(
+        service
+            .dispatch("POST", &format!("{base}/operations"), Some(&viewer), &body)
+            .0,
+        403
+    );
     let receipt = service.dispatch("POST", &format!("{base}/operations"), Some(&editor), &body);
     assert_eq!(receipt.0, 200);
-    assert_eq!(service.dispatch("POST", &format!("{base}/operations"), Some(&editor), &body), receipt);
+    assert_eq!(
+        service.dispatch("POST", &format!("{base}/operations"), Some(&editor), &body),
+        receipt
+    );
     let snapshot = service.dispatch("GET", &base, Some(&editor), &[]);
     assert_eq!(snapshot.1["revision"], 2);
-    assert_eq!(snapshot.1["project"]["elements"].as_object().unwrap().len(), 1);
+    assert_eq!(
+        snapshot.1["project"]["elements"].as_object().unwrap().len(),
+        1
+    );
 }
 
 #[test]

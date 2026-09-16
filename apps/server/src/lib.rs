@@ -244,10 +244,12 @@ fn failure(error: CollaborationError) -> (u16, Value) {
         ),
         CollaborationError::OperationIdReused => (409, json!({"error":"operation_id_reused"})),
         CollaborationError::UndoConflict => (
-            422, json!({"error":"invalid_model_edit","diagnostic":"undo_conflict"}),
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"undo_conflict"}),
         ),
         CollaborationError::UndoUnavailable => (
-            422, json!({"error":"invalid_model_edit","diagnostic":"undo_unavailable"}),
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"undo_unavailable"}),
         ),
         CollaborationError::Model(ModelError::EmptyRequirementId(_)) => (
             422,

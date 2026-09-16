@@ -543,12 +543,12 @@ pub async fn collaboration_disconnect(
             "Retry the pending edit before disconnecting; its result is not yet known.".into(),
         );
     }
-    if let Some(session) = guard.as_ref() {
-        if let Some(snapshot) = session.snapshot.as_ref() {
-            let _ = session
-                .presence_request(snapshot.project.id, Method::DELETE)
-                .await;
-        }
+    if let Some(session) = guard.as_ref()
+        && let Some(snapshot) = session.snapshot.as_ref()
+    {
+        let _ = session
+            .presence_request(snapshot.project.id, Method::DELETE)
+            .await;
     }
     *guard = None;
     Ok(())
@@ -570,11 +570,21 @@ pub async fn collaboration_presence(
 }
 
 #[tauri::command]
-pub async fn collaboration_history(state: tauri::State<'_, CollaborationState>) -> Result<SharedHistory, String> {
+pub async fn collaboration_history(
+    state: tauri::State<'_, CollaborationState>,
+) -> Result<SharedHistory, String> {
     let guard = state.0.lock().await;
     let session = guard.as_ref().ok_or("Connect to a server first.")?;
-    let project = session.snapshot.as_ref().ok_or("Open a shared project first.")?.project.id;
-    session.request(Method::GET, &format!("v1/projects/{project}/history"), None).await.map_err(|error| error.1)
+    let project = session
+        .snapshot
+        .as_ref()
+        .ok_or("Open a shared project first.")?
+        .project
+        .id;
+    session
+        .request(Method::GET, &format!("v1/projects/{project}/history"), None)
+        .await
+        .map_err(|error| error.1)
 }
 
 #[cfg(test)]

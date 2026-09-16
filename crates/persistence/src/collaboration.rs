@@ -676,7 +676,11 @@ impl ProjectDatabase {
             .ok_or(CollaborationError::Forbidden)
     }
 
-    pub fn shared_history(&self, project: ProjectId, actor: Uuid) -> Result<Vec<SharedHistoryEntry>, CollaborationError> {
+    pub fn shared_history(
+        &self,
+        project: ProjectId,
+        actor: Uuid,
+    ) -> Result<Vec<SharedHistoryEntry>, CollaborationError> {
         let transaction = self.connection.unchecked_transaction()?;
         self.member_revision(project, actor, false)?;
         let mut statement = self.connection.prepare(
@@ -685,14 +689,23 @@ impl ProjectDatabase {
              WHERE o.project_id=?1 AND o.actor_id=?2 ORDER BY o.revision DESC LIMIT 50",
         )?;
         let rows = statement.query_map(params![project.to_string(), actor.to_string()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
         })?;
         let mut history = Vec::new();
         for row in rows {
             let (id, revision, request, delta, reversed) = row?;
             let request: EditRequest = serde_json::from_str(&request)?;
             let can_undo = match delta {
-                Some(delta) => reversed.is_none() && !serde_json::from_str::<undo::UndoDelta>(&delta)?.is_empty(),
+                Some(delta) => {
+                    reversed.is_none()
+                        && !serde_json::from_str::<undo::UndoDelta>(&delta)?.is_empty()
+                }
                 None => false,
             };
             let summary = match request.edit {
@@ -716,8 +729,11 @@ impl ProjectDatabase {
                 SharedEdit::RouteBddDiagram { .. } => "Route BDD edges",
             };
             history.push(SharedHistoryEntry {
-                operation_id: Uuid::parse_str(&id).map_err(|_| PersistenceError::InvalidUuid(id))?,
-                revision, summary: summary.into(), can_undo,
+                operation_id: Uuid::parse_str(&id)
+                    .map_err(|_| PersistenceError::InvalidUuid(id))?,
+                revision,
+                summary: summary.into(),
+                can_undo,
             });
         }
         drop(statement);
@@ -725,7 +741,14 @@ impl ProjectDatabase {
         Ok(history)
     }
 
-    fn reverse_shared_operation(connection: &Connection, project: ProjectId, actor: Uuid, operation: Uuid, reversal: Uuid, model: &mut systems_modeler_core::Project) -> Result<(), CollaborationError> {
+    fn reverse_shared_operation(
+        connection: &Connection,
+        project: ProjectId,
+        actor: Uuid,
+        operation: Uuid,
+        reversal: Uuid,
+        model: &mut systems_modeler_core::Project,
+    ) -> Result<(), CollaborationError> {
         let record: Option<(String, String, Option<String>)> = connection.query_row(
             "SELECT o.actor_id,u.delta,u.reversed_by FROM shared_operations o JOIN shared_undo u
              ON o.project_id=u.project_id AND o.operation_id=u.operation_id
@@ -734,13 +757,32 @@ impl ProjectDatabase {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).optional()?;
         let (owner, delta, reversed) = record.ok_or(CollaborationError::UndoUnavailable)?;
-        if owner != actor.to_string() { return Err(CollaborationError::Forbidden); }
+        if owner != actor.to_string() {
+            return Err(CollaborationError::Forbidden);
+        }
         let delta: undo::UndoDelta = serde_json::from_str(&delta)?;
-        if reversed.is_some() || delta.is_empty() { return Err(CollaborationError::UndoUnavailable); }
-        let diagrams = delta.apply(model, Self::load_shared_bdd_diagrams_from(connection, project)?)?;
-        connection.execute("DELETE FROM shared_bdd_diagrams WHERE project_id=?1", [project.to_string()])?;
-        for diagram in &diagrams { Self::save_shared_bdd_diagram_to(connection, project, diagram)?; }
-        connection.execute("UPDATE shared_undo SET reversed_by=?3 WHERE project_id=?1 AND operation_id=?2", params![project.to_string(), operation.to_string(), reversal.to_string()])?;
+        if reversed.is_some() || delta.is_empty() {
+            return Err(CollaborationError::UndoUnavailable);
+        }
+        let diagrams = delta.apply(
+            model,
+            Self::load_shared_bdd_diagrams_from(connection, project)?,
+        )?;
+        connection.execute(
+            "DELETE FROM shared_bdd_diagrams WHERE project_id=?1",
+            [project.to_string()],
+        )?;
+        for diagram in &diagrams {
+            Self::save_shared_bdd_diagram_to(connection, project, diagram)?;
+        }
+        connection.execute(
+            "UPDATE shared_undo SET reversed_by=?3 WHERE project_id=?1 AND operation_id=?2",
+            params![
+                project.to_string(),
+                operation.to_string(),
+                reversal.to_string()
+            ],
+        )?;
         Ok(())
     }
 
@@ -809,7 +851,14 @@ impl ProjectDatabase {
         let mut semantic_changed = false;
         let element = match &request.edit {
             SharedEdit::UndoOperation { operation } => {
-                Self::reverse_shared_operation(&tx, project, authenticated_actor, *operation, request.operation_id, &mut model)?;
+                Self::reverse_shared_operation(
+                    &tx,
+                    project,
+                    authenticated_actor,
+                    *operation,
+                    request.operation_id,
+                    &mut model,
+                )?;
                 semantic_changed = true;
                 model.root_id
             }
@@ -1110,10 +1159,19 @@ impl ProjectDatabase {
                 element.to_string(),
             ],
         )?;
-        let delta = undo::UndoDelta::capture(&before_model, &model, &before_diagrams, &Self::load_shared_bdd_diagrams_from(&tx, project)?)?;
+        let delta = undo::UndoDelta::capture(
+            &before_model,
+            &model,
+            &before_diagrams,
+            &Self::load_shared_bdd_diagrams_from(&tx, project)?,
+        )?;
         tx.execute(
             "INSERT INTO shared_undo(project_id,operation_id,delta) VALUES(?1,?2,?3)",
-            params![project.to_string(), request.operation_id.to_string(), serde_json::to_string(&delta)?],
+            params![
+                project.to_string(),
+                request.operation_id.to_string(),
+                serde_json::to_string(&delta)?
+            ],
         )?;
         tx.commit()?;
         Ok(CommitReceipt { revision, element })
