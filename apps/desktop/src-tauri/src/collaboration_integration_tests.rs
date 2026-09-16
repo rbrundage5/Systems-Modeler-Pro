@@ -562,7 +562,10 @@ fn two_clients_author_requirements_and_verify_without_losing_stale_edits() {
             .await
             .unwrap();
         first.open(project.id).await.unwrap();
-        first.edit(2, block(project.root_id, "Controller")).await.unwrap();
+        first
+            .edit(2, block(project.root_id, "Controller"))
+            .await
+            .unwrap();
         let test_case = named(&first, "Timing test");
         let controller = named(&first, "Controller");
         for (revision, kind, source) in [
@@ -590,12 +593,20 @@ fn two_clients_author_requirements_and_verify_without_losing_stale_edits() {
             text: "Respond within 40 ms.\nMeasured at the interface.".into(),
         };
         first.edit(5, revised).await.unwrap();
-        assert!(second.edit(5, SharedEdit::UpdateRequirement {
-            element: requirement,
-            name: "Stale response".into(),
-            requirement_id: "REQ-1".into(),
-            text: "Stale text must not overwrite the committed revision.".into(),
-        }).await.is_err());
+        assert!(
+            second
+                .edit(
+                    5,
+                    SharedEdit::UpdateRequirement {
+                        element: requirement,
+                        name: "Stale response".into(),
+                        requirement_id: "REQ-1".into(),
+                        text: "Stale text must not overwrite the committed revision.".into(),
+                    }
+                )
+                .await
+                .is_err()
+        );
         assert!(second.needs_refresh);
         second.open(project.id).await.unwrap();
         assert_eq!(
@@ -604,9 +615,23 @@ fn two_clients_author_requirements_and_verify_without_losing_stale_edits() {
         );
         let snapshot = second.snapshot.as_ref().unwrap();
         assert_eq!(snapshot.revision, 6);
-        assert_eq!(snapshot.project.element(requirement).unwrap().requirement_id.as_deref(), Some("REQ-1A"));
+        assert_eq!(
+            snapshot
+                .project
+                .element(requirement)
+                .unwrap()
+                .requirement_id
+                .as_deref(),
+            Some("REQ-1A")
+        );
         assert_eq!(snapshot.project.relationships.len(), 2);
-        assert!(snapshot.project.relationships.values().all(|relationship| relationship.target_id == requirement));
+        assert!(
+            snapshot
+                .project
+                .relationships
+                .values()
+                .all(|relationship| relationship.target_id == requirement)
+        );
         task.abort();
         let _ = task.await;
         let (url, restarted) = start(&path, credentials(project.id)).await;

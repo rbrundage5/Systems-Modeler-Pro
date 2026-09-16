@@ -74,7 +74,10 @@ fn shared_requirements_keep_identity_traceability_and_retry_receipts_after_reope
         ),
     )
     .unwrap();
-    let change = request(3, update(created.element, "REQ-1A", "Respond within 40 ms."));
+    let change = request(
+        3,
+        update(created.element, "REQ-1A", "Respond within 40 ms."),
+    );
     let updated = db.commit_shared_edit(project.id, actor, &change).unwrap();
     assert_eq!(updated.element, created.element);
     drop(db);
@@ -90,7 +93,10 @@ fn shared_requirements_keep_identity_traceability_and_retry_receipts_after_reope
     let saved = model.element(created.element).unwrap();
     assert_eq!(saved.name, "Updated requirement");
     assert_eq!(saved.requirement_id.as_deref(), Some("REQ-1A"));
-    assert_eq!(saved.requirement_text.as_deref(), Some("Respond within 40 ms."));
+    assert_eq!(
+        saved.requirement_text.as_deref(),
+        Some("Respond within 40 ms.")
+    );
     let verification = model.relationships.values().next().unwrap();
     assert_eq!(verification.kind, RelationshipKind::Verify);
     assert_eq!(verification.source_id, test.element);
@@ -110,10 +116,18 @@ fn invalid_requirement_changes_preserve_model_revision_and_operation_identity() 
     db.provision_shared_member(project.id, viewer, ProjectRole::Viewer)
         .unwrap();
     let first = db
-        .commit_shared_edit(project.id, actor, &request(0, requirement(project.root_id, "REQ-1")))
+        .commit_shared_edit(
+            project.id,
+            actor,
+            &request(0, requirement(project.root_id, "REQ-1")),
+        )
         .unwrap();
-    db.commit_shared_edit(project.id, actor, &request(1, requirement(project.root_id, "REQ-2")))
-        .unwrap();
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &request(1, requirement(project.root_id, "REQ-2")),
+    )
+    .unwrap();
     let before = serde_json::to_value(db.shared_snapshot(project.id, actor).unwrap()).unwrap();
     let invalid = [
         requirement(project.root_id, "REQ-1"),
@@ -129,7 +143,10 @@ fn invalid_requirement_changes_preserve_model_revision_and_operation_identity() 
         },
     ];
     for edit in invalid {
-        assert!(db.commit_shared_edit(project.id, actor, &request(2, edit)).is_err());
+        assert!(
+            db.commit_shared_edit(project.id, actor, &request(2, edit))
+                .is_err()
+        );
         assert_eq!(
             serde_json::to_value(db.shared_snapshot(project.id, actor).unwrap()).unwrap(),
             before
@@ -154,7 +171,12 @@ fn invalid_requirement_changes_preserve_model_revision_and_operation_identity() 
     let mut rejected = valid.clone();
     rejected.edit = update(first.element, "REQ-2", "Rejected duplicate.");
     assert!(db.commit_shared_edit(project.id, actor, &rejected).is_err());
-    assert_eq!(db.commit_shared_edit(project.id, actor, &valid).unwrap().revision, 3);
+    assert_eq!(
+        db.commit_shared_edit(project.id, actor, &valid)
+            .unwrap()
+            .revision,
+        3
+    );
 }
 
 #[test]
@@ -166,22 +188,58 @@ fn shared_copy_protects_slave_text_and_propagates_supplier_updates_atomically() 
     db.provision_shared_member(project.id, actor, ProjectRole::Editor)
         .unwrap();
     let master = db
-        .commit_shared_edit(project.id, actor, &request(0, requirement(project.root_id, "REQ-M")))
-        .unwrap().element;
+        .commit_shared_edit(
+            project.id,
+            actor,
+            &request(0, requirement(project.root_id, "REQ-M")),
+        )
+        .unwrap()
+        .element;
     let slave = db
-        .commit_shared_edit(project.id, actor, &request(1, requirement(project.root_id, "REQ-S")))
-        .unwrap().element;
-    db.commit_shared_edit(project.id, actor, &request(2, SharedEdit::CreateRelationship {
-        kind: SharedRelationshipKind::Copy,
-        source: slave,
-        target: master,
-        owner: project.root_id,
-    })).unwrap();
+        .commit_shared_edit(
+            project.id,
+            actor,
+            &request(1, requirement(project.root_id, "REQ-S")),
+        )
+        .unwrap()
+        .element;
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &request(
+            2,
+            SharedEdit::CreateRelationship {
+                kind: SharedRelationshipKind::Copy,
+                source: slave,
+                target: master,
+                owner: project.root_id,
+            },
+        ),
+    )
+    .unwrap();
     let before = serde_json::to_value(db.shared_snapshot(project.id, actor).unwrap()).unwrap();
-    assert!(db.commit_shared_edit(project.id, actor, &request(3, update(slave, "REQ-S", "Forbidden."))).is_err());
-    assert_eq!(serde_json::to_value(db.shared_snapshot(project.id, actor).unwrap()).unwrap(), before);
-    db.commit_shared_edit(project.id, actor, &request(3, update(master, "REQ-M", "Updated supplier text."))).unwrap();
+    assert!(
+        db.commit_shared_edit(
+            project.id,
+            actor,
+            &request(3, update(slave, "REQ-S", "Forbidden."))
+        )
+        .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(db.shared_snapshot(project.id, actor).unwrap()).unwrap(),
+        before
+    );
+    db.commit_shared_edit(
+        project.id,
+        actor,
+        &request(3, update(master, "REQ-M", "Updated supplier text.")),
+    )
+    .unwrap();
     let (model, _, revision) = db.shared_snapshot(project.id, actor).unwrap();
     assert_eq!(revision, 4);
-    assert_eq!(model.element(slave).unwrap().requirement_text.as_deref(), Some("Updated supplier text."));
+    assert_eq!(
+        model.element(slave).unwrap().requirement_text.as_deref(),
+        Some("Updated supplier text.")
+    );
 }
