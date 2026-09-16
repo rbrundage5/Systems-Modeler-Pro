@@ -25,9 +25,10 @@
   dialog.innerHTML = `<h2>Shared Projects</h2>
     <p>Connect to your team's server to view and edit server-authoritative shared model content.</p>
     <form data-connect><label>Server address<input name="server" type="url" required placeholder="https://models.example.com" autocomplete="off"></label>
-    <label>Access token<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><button>Connect</button></form>
+    <label>Access token<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><label>Your display name<input name="displayName" maxlength="64" required value="Collaborator" autocomplete="off"></label><button>Connect</button></form>
     <section data-session hidden><div class="collaboration-actions"><select data-project aria-label="Shared project"></select><button data-open>Open project</button><button data-refresh>Refresh</button><button data-disconnect>Disconnect</button></div>
     <p data-revision></p><p data-recovery role="status"></p>
+    <section aria-label="Active collaborators"><p data-presence-status role="status"></p><ul data-participants></ul></section>
     <section class="collaboration-semantic"><h3>Repository edits</h3><p>Elements and relationships use the same server-authoritative project revision as shared diagram edits.</p>
     <label>Element / owner<select data-element></select></label>
     <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="CreateTestCase">Create Test Case</option><option value="RenameElement">Rename element</option></select></label>
@@ -71,6 +72,9 @@
   let requirementDraft = null;
   let requirementDirty = false;
   let requirementRetry = false;
+  let presenceBusy = false;
+  let presenceGeneration = 0;
+  let presenceProject = '';
   find('[data-bdd-name]').addEventListener('input', () => { bddNameDirty = true; });
 
   function resetRequirementDraft() {
@@ -89,6 +93,29 @@
   }
   requirementEdit.addEventListener('input', captureRequirementDraft);
   find('[data-requirement-owner]').addEventListener('change', captureRequirementDraft);
+
+  async function updatePresence() {
+    if (!invoke || !dialog.open || presenceBusy || busy || !view?.snapshot) return;
+    presenceBusy = true;
+    const generation = presenceGeneration;
+    const project = view.snapshot.project.id;
+    try {
+      const status = await invoke('collaboration_presence');
+      if (generation !== presenceGeneration || project !== view?.snapshot?.project.id) return;
+      const participants = status.participants || [];
+      find('[data-participants]').replaceChildren(...participants.map(participant => {
+        const row = document.createElement('li');
+        row.textContent = `${participant.name} · ${participant.role} · ${participant.actor.slice(0, 8)}`;
+        return row;
+      }));
+      find('[data-presence-status]').textContent = `${participants.length} active session${participants.length === 1 ? '' : 's'}. Display names are participant labels; the account ID identifies the user.`;
+    } catch (_) {
+      if (generation === presenceGeneration && project === view?.snapshot?.project.id) {
+        find('[data-participants]').replaceChildren();
+        find('[data-presence-status]').textContent = 'Participant status unavailable. Editing and pending-edit recovery are unchanged.';
+      }
+    } finally { presenceBusy = false; }
+  }
 
   function restorePendingDraft() {
     const request = view?.pending_request;
@@ -398,6 +425,11 @@
     projects.replaceChildren(...view.projects.map(grant => new Option(`${grant.id} (${grant.role})`, grant.id)));
     if (view.projects.some(grant => grant.id === chosen)) projects.value = chosen;
     const snapshot = view.snapshot;
+    if (presenceProject !== (snapshot?.project.id || '')) {
+      presenceProject = snapshot?.project.id || '';
+      find('[data-participants]').replaceChildren();
+      find('[data-presence-status]').textContent = snapshot ? 'Checking active participants…' : '';
+    }
     find('[data-recovery]').textContent = view.pending
       ? 'An unfinished edit is retained for recovery. Use Retry pending edit to confirm its result before making another change.' : '';
     find('[data-revision]').textContent = snapshot ? `${snapshot.project.name} · revision ${snapshot.revision}${view.needs_refresh ? ' · refresh required' : ''}` : 'Choose a project to open.';
@@ -512,15 +544,19 @@
     event.preventDefault();
     const server = connect.elements.server.value.trim();
     const token = connect.elements.token.value.trim();
+    const displayName = connect.elements.displayName.value.trim();
     connect.elements.token.value = '';
     run(async () => {
-      view = await invoke('collaboration_connect', { server, token });
+      view = await invoke('collaboration_connect', { server, token, displayName });
+      presenceGeneration += 1;
+      presenceProject = '';
       restorePendingDraft();
     }, 'Connected. Review any recovered edit, or select a shared project.');
   };
   find('[data-open]').onclick = () => run(async () => {
     if (requirementDirty) throw new Error('Save or clear the requirement draft before opening a project. Use Refresh to inspect the current project.');
     view = await invoke('collaboration_open', { project: find('[data-project]').value });
+    presenceGeneration += 1;
     resetRequirementDraft();
     edit.elements.name.value = '';
     bddNameDirty = false;
@@ -689,6 +725,7 @@
   find('[data-disconnect]').onclick = () => run(async () => {
     if (requirementDirty) throw new Error('Save or clear the requirement draft before disconnecting.');
     await invoke('collaboration_disconnect');
+    presenceGeneration += 1;
     resetRequirementDraft();
     view = null;
     selectedDiagramId = '';
@@ -705,4 +742,6 @@
       run(async () => { view = await invoke('collaboration_open', { project: view.snapshot.project.id }); });
     }
   }, 5000);
+  // Presence is ephemeral and independent of unsent draft composition.
+  setInterval(updatePresence, 10000);
 })();

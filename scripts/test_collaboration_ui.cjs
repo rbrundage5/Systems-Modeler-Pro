@@ -57,7 +57,8 @@ async function fixture() {
     return controls.get(selector);
   };
   const connect = find('[data-connect]');
-  connect.elements = { server: new Element('input'), token: new Element('input') };
+  connect.elements = { server: new Element('input'), token: new Element('input'), displayName: new Element('input') };
+  connect.elements.displayName.value = 'Engineer';
   const edit = find('[data-edit]');
   edit.elements = { name: new Element('input'), operation: new Element('select') };
   edit.elements.operation.value = 'CreateBlock';
@@ -97,12 +98,13 @@ async function fixture() {
   };
   const calls = [];
   let poll;
+  let presence;
   let handler = async () => structuredClone(view);
   const invoke = async (command, payload) => { calls.push({ command, payload }); return handler(command, payload); };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/collaboration-ui.js'), 'utf8'), {
     window: { __TAURI__: { core: { invoke } } }, document,
     Option: function (text, value) { return { text, value }; },
-    crypto: { randomUUID: () => 'new-id' }, setInterval(callback) { poll = callback; },
+    crypto: { randomUUID: () => 'new-id' }, setInterval(callback, interval) { if (interval === 5000) poll = callback; else presence = callback; },
   });
   connect.elements.server.value = 'https://example.test';
   connect.elements.token.value = 'a'.repeat(64);
@@ -111,8 +113,34 @@ async function fixture() {
   find('[data-open]').onclick();
   await flush();
   calls.length = 0;
-  return { find, edit, relationshipEdit, requirementEdit, view, calls, poll, dialog, setHandler: value => { handler = value; }, canvas: find('[data-bdd-canvas]') };
+  return { find, edit, relationshipEdit, requirementEdit, view, calls, poll, presence, dialog, setHandler: value => { handler = value; }, canvas: find('[data-bdd-canvas]') };
 }
+
+test('presence updates while composing a draft without refreshing or changing its text', async () => {
+  const ui = await fixture();
+  ui.dialog.open = true;
+  requirementDraft(ui);
+  ui.setHandler(async command => {
+    assert.equal(command, 'collaboration_presence');
+    return { participants: [{ name: '<script>literal label</script>', actor: 'actor-123456789', role: 'viewer' }] };
+  });
+  await ui.presence();
+  assert.equal(ui.find('[data-participants]').children[0].textContent, '<script>literal label</script> · viewer · actor-12');
+  assert.match(ui.find('[data-presence-status]').textContent, /1 active session/);
+  assert.match(ui.requirementEdit.elements.text.value, /Preserve this second line/);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_open').length, 0);
+});
+
+test('a failed heartbeat clears stale presence without changing pending recovery', async () => {
+  const ui = await fixture();
+  ui.dialog.open = true;
+  requirementDraft(ui);
+  ui.setHandler(async () => { throw new Error('Offline'); });
+  await ui.presence();
+  assert.match(ui.find('[data-presence-status]').textContent, /unavailable/);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  assert.equal(ui.calls.length, 1);
+});
 
 function requirementDraft(ui) {
   ui.requirementEdit.elements.name.value = 'Response time';

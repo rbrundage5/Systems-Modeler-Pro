@@ -68,6 +68,34 @@ fn named(session: &Session, name: &str) -> ElementId {
 }
 
 #[test]
+fn editor_and_viewer_presence_converges_over_http_without_mutating_the_project() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut editor = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        let mut viewer = Session::connect(&url, "c".repeat(64)).await.unwrap();
+        editor.display_name = "Engineer".into();
+        viewer.display_name = "Reviewer".into();
+        editor.open(project.id).await.unwrap();
+        viewer.open(project.id).await.unwrap();
+        assert_eq!(editor.presence_request(project.id, Method::POST).await.unwrap().participants.len(), 1);
+        let participants = viewer.presence_request(project.id, Method::POST).await.unwrap();
+        assert_eq!(participants.participants.len(), 2);
+        assert!(participants.participants.iter().any(|person| person.actor == viewer.actor && person.role == "viewer" && person.name == "Reviewer"));
+        assert_eq!(editor.presence_request(project.id, Method::POST).await.unwrap().participants.len(), 2);
+        editor.presence_request(project.id, Method::DELETE).await.unwrap();
+        assert_eq!(viewer.presence_request(project.id, Method::POST).await.unwrap().participants.len(), 1);
+        viewer.open(project.id).await.unwrap();
+        assert_eq!(viewer.snapshot.as_ref().unwrap().revision, 0);
+        assert!(viewer.pending.is_none());
+        assert!(!viewer.needs_refresh);
+        task.abort();
+    });
+}
+
+#[test]
 fn restarted_client_recovers_committed_operation_and_does_not_duplicate_it() {
     tauri::async_runtime::block_on(async {
         let directory = tempfile::tempdir().unwrap();

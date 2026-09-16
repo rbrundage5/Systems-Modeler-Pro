@@ -81,6 +81,36 @@ fn authenticated_capabilities_define_the_client_server_contract() {
 }
 
 #[test]
+fn presence_uses_authenticated_identity_and_never_changes_model_revision() {
+    let (service, project, editor, viewer) = fixture();
+    let snapshot = format!("/v1/projects/{}", project.id);
+    let endpoint = format!("{snapshot}/presence");
+    let before = service.dispatch("GET", &snapshot, Some(&editor), &[]);
+    let session = Uuid::new_v4();
+    let body = serde_json::to_vec(&json!({"session":session,"name":"Editor label"})).unwrap();
+    assert_eq!(service.dispatch("POST", &endpoint, None, &body).0, 401);
+    let joined = service.dispatch("POST", &endpoint, Some(&editor), &body);
+    assert_eq!(joined.0, 200);
+    assert_eq!(joined.1["participants"][0]["role"], "editor");
+    let identity = service.dispatch("GET", "/v1/capabilities", Some(&editor), &[]).1["actor"].clone();
+    assert_eq!(joined.1["participants"][0]["actor"], identity);
+    let attempted_delete = service.dispatch("DELETE", &endpoint, Some(&viewer), &body);
+    assert_eq!(attempted_delete.1["participants"].as_array().unwrap().len(), 1);
+    let viewer_body = serde_json::to_vec(&json!({"session":Uuid::new_v4(),"name":"Reviewer"})).unwrap();
+    let joined = service.dispatch("POST", &endpoint, Some(&viewer), &viewer_body);
+    assert_eq!(joined.0, 200);
+    assert_eq!(joined.1["participants"].as_array().unwrap().len(), 2);
+    assert!(joined.1["participants"].as_array().unwrap().iter().any(|entry| entry["role"] == "viewer"));
+    let spoof = serde_json::to_vec(&json!({"session":session,"name":"Spoof","actor":Uuid::new_v4()})).unwrap();
+    assert_eq!(service.dispatch("POST", &endpoint, Some(&editor), &spoof).0, 400);
+    let other = format!("/v1/projects/{}/presence", Uuid::new_v4());
+    assert_eq!(service.dispatch("GET", &other, Some(&viewer), &[]).0, 403);
+    let left = service.dispatch("DELETE", &endpoint, Some(&editor), &body);
+    assert_eq!(left.1["participants"].as_array().unwrap().len(), 1);
+    assert_eq!(service.dispatch("GET", &snapshot, Some(&editor), &[]), before);
+}
+
+#[test]
 fn authenticated_edits_retries_conflicts_and_viewer_reads() {
     let (service, project, editor, viewer) = fixture();
     let path = format!("/v1/projects/{}", project.id);
