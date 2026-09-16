@@ -68,6 +68,117 @@ fn named(session: &Session, name: &str) -> ElementId {
 }
 
 #[test]
+fn restarted_client_recovers_committed_operation_and_does_not_duplicate_it() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let journal = directory.path().join("outbox.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut first = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        first.attach_outbox(&journal).await.unwrap();
+        first.open(project.id).await.unwrap();
+        let request = EditRequest {
+            operation_id: Uuid::new_v4(), expected_revision: 0,
+            edit: block(project.root_id, "Recovered actuator"),
+        };
+        first.outbox.as_mut().unwrap().reserve(first.base.as_str(), first.actor, &PendingSharedEdit {
+            project: project.id, request: request.clone(),
+        }).unwrap();
+        // Commit via real HTTP, then terminate the session before receipt handling.
+        let receipt: Receipt = first.request(Method::POST, &format!("v1/projects/{}/operations", project.id), Some(&request)).await.unwrap();
+        assert_eq!(receipt.revision, 1);
+        drop(first);
+        let mut other = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        other.attach_outbox(&journal).await.unwrap();
+        assert!(other.pending.is_none());
+        let mut recovered = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        recovered.attach_outbox(&journal).await.unwrap();
+        assert_eq!(recovered.pending.as_ref(), Some(&request));
+        assert_eq!(recovered.snapshot.as_ref().unwrap().revision, 1);
+        recovered.submit_pending().await.unwrap();
+        assert!(recovered.pending.is_none());
+        assert_eq!(recovered.snapshot.as_ref().unwrap().revision, 1);
+        assert_eq!(recovered.snapshot.as_ref().unwrap().project.elements.values().filter(|element| element.name == "Recovered actuator").count(), 1);
+        assert!(recovered.outbox.as_ref().unwrap().load(recovered.base.as_str(), recovered.actor).unwrap().is_none());
+        drop(recovered);
+        let bytes = std::fs::read(&journal).unwrap();
+        assert!(!bytes.windows(64).any(|window| window == "a".repeat(64).as_bytes()));
+        task.abort();
+    });
+}
+
+#[test]
+fn durable_reservation_blocks_competing_edits_and_rejected_retry_clears_it() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let journal = directory.path().join("outbox.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut first = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        first.attach_outbox(&journal).await.unwrap();
+        first.open(project.id).await.unwrap();
+        let saved = PendingSharedEdit {
+            project: project.id,
+            request: EditRequest { operation_id: Uuid::new_v4(), expected_revision: 0,
+                edit: block(project.root_id, "Unsent edit") },
+        };
+        first.outbox.as_mut().unwrap().reserve(first.base.as_str(), first.actor, &saved).unwrap();
+        assert!(first.edit(0, block(project.root_id, "Must not transmit")).await.unwrap_err().contains("No edit was sent"));
+        assert!(first.pending.is_none());
+        let mut other = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        other.open(project.id).await.unwrap();
+        assert_eq!(other.snapshot.as_ref().unwrap().revision, 0);
+        other.edit(0, block(project.root_id, "Other actor")).await.unwrap();
+        drop(first);
+        let mut recovered = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        recovered.attach_outbox(&journal).await.unwrap();
+        assert_eq!(recovered.pending.as_ref(), Some(&saved.request));
+        assert!(recovered.submit_pending().await.unwrap_err().contains("Refresh"));
+        assert!(recovered.pending.is_none());
+        assert!(recovered.needs_refresh);
+        assert!(recovered.outbox.as_ref().unwrap().load(recovered.base.as_str(), recovered.actor).unwrap().is_none());
+        task.abort();
+    });
+}
+
+#[test]
+fn authenticated_actor_recovers_unsent_operation_after_token_rotation() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let journal = directory.path().join("outbox.sqlite");
+        let project = seed(&path);
+        let mut identities = credentials(project.id);
+        let actor = identities[0].actor;
+        identities[0].token_sha256 = token_hash(&"d".repeat(64));
+        let (url, task) = start(&path, identities).await;
+        let server = server_url(&url).unwrap();
+        let pending = PendingSharedEdit {
+            project: project.id,
+            request: EditRequest {
+                operation_id: Uuid::new_v4(), expected_revision: 0,
+                edit: block(project.root_id, "Restored unsent edit"),
+            },
+        };
+        // The journal created before a crash has no dependency on the old token.
+        CollaborationOutbox::open(&journal).unwrap().reserve(server.as_str(), actor, &pending).unwrap();
+        assert!(Session::connect(&url, "a".repeat(64)).await.is_err());
+        let mut recovered = Session::connect(&url, "d".repeat(64)).await.unwrap();
+        recovered.attach_outbox(&journal).await.unwrap();
+        assert_eq!(recovered.actor, actor);
+        assert_eq!(recovered.pending.as_ref(), Some(&pending.request));
+        assert_eq!(recovered.snapshot.as_ref().unwrap().revision, 0);
+        recovered.submit_pending().await.unwrap();
+        assert_eq!(recovered.snapshot.as_ref().unwrap().revision, 1);
+        assert!(recovered.pending.is_none());
+        assert!(recovered.snapshot.as_ref().unwrap().project.elements.values().any(|element| element.name == "Restored unsent edit"));
+        task.abort();
+    });
+}
+
+#[test]
 fn two_clients_share_edits_and_recover_from_stale_revision() {
     tauri::async_runtime::block_on(async {
         let directory = tempfile::tempdir().unwrap();

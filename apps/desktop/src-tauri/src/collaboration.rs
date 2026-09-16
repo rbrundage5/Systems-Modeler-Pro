@@ -3,12 +3,14 @@
 //! enter snapshots, local storage, project files, or diagnostics.
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::time::Duration;
+use std::{path::Path, time::Duration};
+use tauri::Manager;
 use systems_modeler_core::{Project, ProjectId};
 use systems_modeler_persistence::collaboration::{
     COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, SharedBddDiagram,
     SharedEdit,
 };
+use systems_modeler_persistence::collaboration_outbox::{CollaborationOutbox, PendingSharedEdit};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -25,6 +27,8 @@ struct Session {
     snapshot: Option<Snapshot>,
     pending: Option<EditRequest>,
     needs_refresh: bool,
+    actor: Uuid,
+    outbox: Option<CollaborationOutbox>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -47,6 +51,7 @@ pub struct View {
     snapshot: Option<Snapshot>,
     pending: bool,
     needs_refresh: bool,
+    pending_request: Option<EditRequest>,
 }
 
 #[derive(Deserialize)]
@@ -58,6 +63,8 @@ struct ProjectList {
 struct ProtocolInfo {
     protocol: u32,
     capabilities: Vec<String>,
+    #[serde(default)]
+    actor: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -104,7 +111,7 @@ fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
                 .any(|available| available.as_str() == *required)
         })
         .collect();
-    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() {
+    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() || info.actor.is_nil() {
         let missing = if missing.is_empty() {
             "none".to_string()
         } else {
@@ -182,18 +189,52 @@ impl Session {
             snapshot: None,
             pending: None,
             needs_refresh: false,
+            actor: Uuid::nil(),
+            outbox: None,
         };
         let protocol: ProtocolInfo = session
             .request(Method::GET, "v1/capabilities", None)
             .await
             .map_err(|e| e.1)?;
         validate_protocol(&protocol)?;
+        session.actor = protocol.actor;
         let list: ProjectList = session
             .request(Method::GET, "v1/projects", None)
             .await
             .map_err(|e| e.1)?;
         session.projects = list.projects;
         Ok(session)
+    }
+
+    async fn attach_outbox(&mut self, path: &Path) -> Result<(), String> {
+        let outbox = CollaborationOutbox::open(path)
+            .map_err(|_| "Could not open edit recovery storage. No shared edit was sent.")?;
+        let pending = outbox.load(self.base.as_str(), self.actor)
+            .map_err(|_| "Could not read the saved pending edit. Recovery storage was preserved.")?;
+        if let Some(pending) = pending {
+            if pending.request.expected_revision < 0 || pending.request.expected_revision == i64::MAX
+                || pending.request.operation_id.is_nil()
+            {
+                return Err("The saved pending edit is invalid. Recovery storage was preserved.".into());
+            }
+            self.open(pending.project).await.map_err(|_| {
+                "A pending edit is saved for this account. Restore access to its project and reconnect to recover it."
+            })?;
+            self.pending = Some(pending.request);
+        }
+        self.outbox = Some(outbox);
+        Ok(())
+    }
+
+    fn complete_pending(&mut self, project: ProjectId) -> Result<(), String> {
+        if let (Some(outbox), Some(request)) = (&mut self.outbox, &self.pending) {
+            outbox.complete(self.base.as_str(), self.actor, &PendingSharedEdit {
+                project, request: request.clone(),
+            }).map_err(|_| "Could not clear edit recovery storage. Retry the pending edit; its original identity is preserved.")?;
+        }
+        self.pending = None;
+        self.needs_refresh = true;
+        Ok(())
     }
 
     async fn open(&mut self, project: ProjectId) -> Result<(), String> {
@@ -228,11 +269,17 @@ impl Session {
         {
             return Err("This project is view-only.".into());
         }
-        self.pending = Some(EditRequest {
+        let request = EditRequest {
             operation_id: Uuid::new_v4(),
             expected_revision,
             edit,
-        });
+        };
+        if let Some(outbox) = &mut self.outbox {
+            outbox.reserve(self.base.as_str(), self.actor, &PendingSharedEdit {
+                project: snapshot.project.id, request: request.clone(),
+            }).map_err(|_| "Could not reserve edit recovery storage. No edit was sent. Reconnect to recover any pending edit from another application instance.")?;
+        }
+        self.pending = Some(request);
         self.submit_pending().await?;
         Ok(())
     }
@@ -243,6 +290,7 @@ impl Session {
             snapshot: self.snapshot.clone(),
             pending: self.pending.is_some(),
             needs_refresh: self.needs_refresh,
+            pending_request: self.pending.clone(),
         }
     }
 
@@ -344,8 +392,7 @@ impl Session {
                 if receipt.operation_id == request.operation_id
                     && receipt.revision == request.expected_revision + 1 =>
             {
-                self.pending = None;
-                self.needs_refresh = true;
+                self.complete_pending(id)?;
                 // Do not allow another edit against a stale snapshot if this GET fails.
                 self.refresh(id).await.map_err(|_| {
                     "Edit saved. Refresh the project before editing again.".to_string()
@@ -356,8 +403,7 @@ impl Session {
             }
             Err((uncertain, message)) => {
                 if !uncertain {
-                    self.pending = None;
-                    self.needs_refresh = true;
+                    self.complete_pending(id)?;
                 }
                 Err(message)
             }
@@ -367,6 +413,7 @@ impl Session {
 
 #[tauri::command]
 pub async fn collaboration_connect(
+    app: tauri::AppHandle,
     state: tauri::State<'_, CollaborationState>,
     server: String,
     token: String,
@@ -375,7 +422,12 @@ pub async fn collaboration_connect(
     if state.as_ref().is_some_and(|s| s.pending.is_some()) {
         return Err("Resolve the pending edit before reconnecting.".into());
     }
-    let session = Session::connect(&server, token).await?;
+    let mut session = Session::connect(&server, token).await?;
+    let directory = app.path().app_data_dir()
+        .map_err(|_| "Could not locate edit recovery storage.")?;
+    std::fs::create_dir_all(&directory)
+        .map_err(|_| "Could not create edit recovery storage.")?;
+    session.attach_outbox(&directory.join("collaboration-outbox.sqlite")).await?;
     let view = session.view();
     *state = Some(session);
     Ok(view)
@@ -465,6 +517,7 @@ mod tests {
             validate_protocol(&ProtocolInfo {
                 protocol: COLLABORATION_PROTOCOL_VERSION,
                 capabilities: capabilities.clone(),
+                actor: Uuid::new_v4(),
             })
             .is_ok()
         );
@@ -472,6 +525,7 @@ mod tests {
             validate_protocol(&ProtocolInfo {
                 protocol: COLLABORATION_PROTOCOL_VERSION + 1,
                 capabilities,
+                actor: Uuid::new_v4(),
             })
             .unwrap_err()
             .contains("required protocol")
@@ -480,6 +534,7 @@ mod tests {
             validate_protocol(&ProtocolInfo {
                 protocol: COLLABORATION_PROTOCOL_VERSION,
                 capabilities: Vec::new(),
+                actor: Uuid::new_v4(),
             })
             .unwrap_err()
             .contains("server-routed-bdd-relationships")
@@ -569,6 +624,8 @@ mod transport_tests {
             }),
             pending: Some(request),
             needs_refresh: false,
+            actor: Uuid::new_v4(),
+            outbox: None,
         }
     }
 
@@ -586,6 +643,8 @@ mod transport_tests {
             snapshot: None,
             pending: None,
             needs_refresh: false,
+            actor: Uuid::new_v4(),
+            outbox: None,
         }
     }
 
@@ -665,6 +724,7 @@ mod transport_tests {
                 "protocol": COLLABORATION_PROTOCOL_VERSION,
                 "server_version": "0.1.0",
                 "capabilities": COLLABORATION_CAPABILITIES,
+                "actor": Uuid::new_v4(),
             })
             .to_string();
             let projects = serde_json::json!({"projects": []}).to_string();
@@ -685,6 +745,7 @@ mod transport_tests {
             let protocol = serde_json::json!({
                 "protocol": COLLABORATION_PROTOCOL_VERSION + 1,
                 "capabilities": COLLABORATION_CAPABILITIES,
+                "actor": Uuid::new_v4(),
             })
             .to_string();
             let (base, server) = mock(vec![(200, protocol)]);

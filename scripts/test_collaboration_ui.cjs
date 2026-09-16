@@ -121,6 +121,55 @@ function requirementDraft(ui) {
   ui.requirementEdit.listeners.input();
 }
 
+test('reconnect restores a pending requirement draft and retries without a new edit', async () => {
+  const ui = await fixture();
+  await ui.find('[data-disconnect]').onclick();
+  ui.view.pending = true;
+  ui.view.pending_request = {
+    operation_id: 'original-operation', expected_revision: 6,
+    edit: { CreateRequirement: { owner: 'root', name: 'Recovered requirement', requirement_id: 'REQ-RECOVERED', text: 'Original multiline\ntext.' } },
+  };
+  ui.find('[data-connect]').elements.token.value = 'a'.repeat(64);
+  ui.find('[data-connect]').onsubmit(event());
+  await flush();
+  assert.equal(ui.requirementEdit.elements.requirementId.value, 'REQ-RECOVERED');
+  assert.equal(ui.requirementEdit.elements.text.value, 'Original multiline\ntext.');
+  assert.match(ui.find('[data-requirement-context]').textContent, /revision 6/);
+  assert.match(ui.find('[data-recovery]').textContent, /Retry pending edit/);
+  assert.equal(ui.find('[data-requirement-submit]').disabled, true);
+  ui.setHandler(async command => {
+    if (command === 'collaboration_retry') { ui.view.pending = false; ui.view.pending_request = null; }
+    return structuredClone(ui.view);
+  });
+  await ui.find('[data-retry]').onclick();
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_retry').length, 1);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+  assert.equal(ui.requirementEdit.elements.text.value, '');
+  assert.equal(ui.find('[data-recovery]').textContent, '');
+});
+
+test('a recovered requirement rejected as stale remains available for explicit review', async () => {
+  const ui = await fixture();
+  await ui.find('[data-disconnect]').onclick();
+  ui.view.pending = true;
+  ui.view.pending_request = { expected_revision: 6, edit: { CreateRequirement: {
+    owner: 'root', name: 'Saved draft', requirement_id: 'REQ-OLD', text: 'Do not discard me.',
+  } } };
+  ui.find('[data-connect]').onsubmit(event());
+  await flush();
+  ui.setHandler(async command => {
+    if (command === 'collaboration_retry') {
+      ui.view.pending = false; ui.view.needs_refresh = true; ui.view.pending_request = null;
+      throw new Error('Project changed. Refresh and review.');
+    }
+    return structuredClone(ui.view);
+  });
+  await ui.find('[data-retry]').onclick();
+  assert.equal(ui.requirementEdit.elements.text.value, 'Do not discard me.');
+  assert.equal(ui.find('[data-requirement-submit]').disabled, true);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+});
+
 test('shared requirement creation submits full text against the captured revision', async () => {
   const ui = await fixture();
   requirementDraft(ui);

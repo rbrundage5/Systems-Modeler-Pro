@@ -18,6 +18,7 @@ pub const COLLABORATION_CAPABILITIES: &[&str] = &[
     "simple-relationships",
     "server-routed-bdd-relationships",
     "shared-requirements-v1",
+    "authenticated-actor-v1",
 ];
 
 const MIN_BDD_NODE_WIDTH: f64 = 48.0;

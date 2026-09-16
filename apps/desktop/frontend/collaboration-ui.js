@@ -27,7 +27,7 @@
     <form data-connect><label>Server address<input name="server" type="url" required placeholder="https://models.example.com" autocomplete="off"></label>
     <label>Access token<input name="token" type="password" required autocomplete="off" spellcheck="false"></label><button>Connect</button></form>
     <section data-session hidden><div class="collaboration-actions"><select data-project aria-label="Shared project"></select><button data-open>Open project</button><button data-refresh>Refresh</button><button data-disconnect>Disconnect</button></div>
-    <p data-revision></p>
+    <p data-revision></p><p data-recovery role="status"></p>
     <section class="collaboration-semantic"><h3>Repository edits</h3><p>Elements and relationships use the same server-authoritative project revision as shared diagram edits.</p>
     <label>Element / owner<select data-element></select></label>
     <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="CreateTestCase">Create Test Case</option><option value="RenameElement">Rename element</option></select></label>
@@ -89,6 +89,33 @@
   }
   requirementEdit.addEventListener('input', captureRequirementDraft);
   find('[data-requirement-owner]').addEventListener('change', captureRequirementDraft);
+
+  function restorePendingDraft() {
+    const request = view?.pending_request;
+    if (!view?.pending || !request || !view.snapshot) return;
+    render();
+    const requirement = request.edit.CreateRequirement || request.edit.UpdateRequirement;
+    if (requirement) {
+      requirementDraft = {
+        project: view.snapshot.project.id, revision: request.expected_revision,
+        element: requirement.element || null,
+      };
+      requirementDirty = true;
+      requirementRetry = true;
+      requirementEdit.elements.name.value = requirement.name;
+      requirementEdit.elements.requirementId.value = requirement.requirement_id;
+      requirementEdit.elements.text.value = requirement.text;
+      if (requirement.owner) find('[data-requirement-owner]').value = requirement.owner;
+    } else {
+      for (const operation of ['CreateBlock', 'CreatePackage', 'CreateTestCase', 'RenameElement']) {
+        const payload = request.edit[operation];
+        if (!payload) continue;
+        edit.elements.operation.value = operation;
+        edit.elements.name.value = payload.name;
+        find('[data-element]').value = payload.owner || payload.element;
+      }
+    }
+  }
 
   function renderRequirements(elements) {
     const owner = find('[data-requirement-owner]');
@@ -371,6 +398,8 @@
     projects.replaceChildren(...view.projects.map(grant => new Option(`${grant.id} (${grant.role})`, grant.id)));
     if (view.projects.some(grant => grant.id === chosen)) projects.value = chosen;
     const snapshot = view.snapshot;
+    find('[data-recovery]').textContent = view.pending
+      ? 'An unfinished edit is retained for recovery. Use Retry pending edit to confirm its result before making another change.' : '';
     find('[data-revision]').textContent = snapshot ? `${snapshot.project.name} · revision ${snapshot.revision}${view.needs_refresh ? ' · refresh required' : ''}` : 'Choose a project to open.';
     const elements = snapshotElements();
     const byId = new Map(elements.map(element => [String(element.id), element]));
@@ -484,7 +513,10 @@
     const server = connect.elements.server.value.trim();
     const token = connect.elements.token.value.trim();
     connect.elements.token.value = '';
-    run(async () => { view = await invoke('collaboration_connect', { server, token }); }, 'Connected. Select a shared project.');
+    run(async () => {
+      view = await invoke('collaboration_connect', { server, token });
+      restorePendingDraft();
+    }, 'Connected. Review any recovered edit, or select a shared project.');
   };
   find('[data-open]').onclick = () => run(async () => {
     if (requirementDirty) throw new Error('Save or clear the requirement draft before opening a project. Use Refresh to inspect the current project.');
