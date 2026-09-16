@@ -631,7 +631,8 @@ mod transport_tests {
             for body in [
                 "not json".into(),
                 "{\"error\":\"invalid_model_edit\",\"diagnostic\":\"unknown\"}".into(),
-                "{\"error\":\"storage_failure\",\"diagnostic\":\"requirement_id_duplicate\"}".into(),
+                "{\"error\":\"storage_failure\",\"diagnostic\":\"requirement_id_duplicate\"}"
+                    .into(),
                 "x".repeat(1025),
             ] {
                 let (base, server) = mock(vec![(422, body)]);
