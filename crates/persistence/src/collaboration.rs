@@ -19,7 +19,29 @@ pub const COLLABORATION_CAPABILITIES: &[&str] = &[
     "server-routed-bdd-relationships",
     "shared-requirements-v1",
     "authenticated-actor-v1",
+    "project-presence-v1",
 ];
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PresenceRequest {
+    pub session: Uuid,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PresenceParticipant {
+    pub actor: Uuid,
+    pub session: Uuid,
+    pub name: String,
+    pub role: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ProjectPresence {
+    pub participants: Vec<PresenceParticipant>,
+}
 
 const MIN_BDD_NODE_WIDTH: f64 = 48.0;
 const MIN_BDD_NODE_HEIGHT: f64 = 32.0;

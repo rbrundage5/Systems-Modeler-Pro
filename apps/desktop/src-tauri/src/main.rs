@@ -632,6 +632,7 @@ fn main() {
             app_updates::install_app_update,
             app_updates::open_application,
             collaboration_connect,
+            collaboration_presence,
             collaboration_open,
             collaboration_edit,
             collaboration_retry,

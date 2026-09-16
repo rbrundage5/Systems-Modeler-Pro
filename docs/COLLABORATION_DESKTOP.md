@@ -57,6 +57,17 @@ bypasses environment proxy discovery. An administrator-provided direct HTTPS ori
 is required; deployments requiring an explicit outbound proxy are not supported yet.
 Responses are bounded to 32 MiB and requests time out after 20 seconds.
 
+## Active participants
+
+Enter a display name when connecting. While Shared Projects is open, a separate
+ten-second heartbeat lists active sessions, authenticated account IDs and roles.
+The heartbeat continues during draft composition and does not refresh model state
+or advance its revision. Display names are participant-selected labels. Presence
+does not grant permissions or lock model elements. Silent sessions expire after
+45 seconds; closing the window or losing the network can leave a temporary entry
+until expiry. Disconnect/project switch attempts immediate departure. See
+[the presence contract](C20_PROJECT_PRESENCE.md).
+
 ## Qualification and limits
 
 Local checks: frontend syntax, Rust authority regression gate, and diff hygiene.
@@ -78,7 +89,7 @@ create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 
 Specialized Association/Connector/ItemFlow/BindingConnector and import operations,
 other diagram families, standard-workspace integration, complete element
-authoring/configuration, presence, collaborative undo, project administration, and
+authoring/configuration, collaborative undo, project administration, and
 production HTTPS deployment remain subsequent work. Submitted pending edits are
 recorded in a separate application-data SQLite outbox before transmission. After
 restart, reconnect to the same server with credentials for the same authenticated

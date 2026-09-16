@@ -18,11 +18,13 @@ use systems_modeler_persistence::{
     ProjectDatabase,
     collaboration::{
         COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, CollaborationError,
-        EditRequest, ProjectRole,
+        EditRequest, PresenceRequest, ProjectRole,
     },
 };
 use tokio::{net::TcpListener, sync::Semaphore};
 use uuid::Uuid;
+
+mod presence;
 
 pub const MAX_BODY: usize = 16 * 1024;
 
@@ -61,6 +63,7 @@ pub fn token_hash(token: &str) -> String {
 pub struct Service {
     database: Mutex<ProjectDatabase>,
     credentials: Vec<Credential>,
+    presence: Mutex<presence::PresenceRegistry>,
 }
 
 impl Service {
@@ -107,6 +110,7 @@ impl Service {
         Ok(Self {
             database: Mutex::new(database),
             credentials: config.credentials,
+            presence: Mutex::new(presence::PresenceRegistry::default()),
         })
     }
 
@@ -165,6 +169,35 @@ impl Service {
         let Some(grant) = credential.projects.iter().find(|g| g.project == project) else {
             return (403, json!({"error":"forbidden"}));
         };
+        if segments.len() == 5 && segments[4] == "presence" {
+            let Ok(mut presence) = self.presence.lock() else {
+                return (503, json!({"error":"unavailable"}));
+            };
+            let now = std::time::Instant::now();
+            if method == "GET" {
+                return (200, json!(presence.snapshot(project, now)));
+            }
+            if method == "POST" || method == "DELETE" {
+                let Ok(request) = serde_json::from_slice::<PresenceRequest>(body) else {
+                    return (400, json!({"error":"invalid_presence"}));
+                };
+                if method == "DELETE" {
+                    return (
+                        200,
+                        json!(presence.leave(project, credential.actor, request.session, now)),
+                    );
+                }
+                let role = match grant.role {
+                    Role::Viewer => "viewer",
+                    Role::Editor => "editor",
+                };
+                return match presence.heartbeat(project, credential.actor, role, request, now) {
+                    Ok(view) => (200, json!(view)),
+                    Err(status) => (status, json!({"error":"presence_rejected"})),
+                };
+            }
+            return (405, json!({"error":"method_not_allowed"}));
+        }
         let Ok(database) = self.database.lock() else {
             return (503, json!({"error":"unavailable"}));
         };
@@ -267,7 +300,7 @@ async fn handle(
     if request.uri().query().is_some() {
         return Ok(response(400, json!({"error":"query_not_supported"})));
     }
-    if request.method() == Method::POST
+    if (request.method() == Method::POST || request.method() == Method::DELETE)
         && request
             .headers()
             .get("content-type")
