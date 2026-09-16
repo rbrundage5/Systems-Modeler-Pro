@@ -1,9 +1,9 @@
-use systems_modeler_core::structural_presentation::geometry::{
-    BddGeometryCommand, BddRoutingScope, apply_bdd_geometry,
-};
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
 use super::{WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases};
+use systems_modeler_core::structural_presentation::geometry::{
+    BddGeometryCommand, BddRoutingScope, apply_bdd_geometry,
+};
 
 fn validate_geometry(
     x: f64,

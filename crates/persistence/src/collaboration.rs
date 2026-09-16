@@ -11,8 +11,8 @@ use systems_modeler_core::{
 use thiserror::Error;
 use uuid::Uuid;
 
-mod undo;
 mod native_bdd;
+mod undo;
 use systems_modeler_core::structural_presentation::geometry::BddGeometryCommand;
 
 pub const COLLABORATION_PROTOCOL_VERSION: u32 = 1;

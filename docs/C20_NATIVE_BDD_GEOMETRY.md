@@ -9,7 +9,8 @@ The command stages a diagram clone and publishes geometry only after successful
 routing. No semantic mutation or whole-project replacement is introduced.
 
 Allowed production paths: core structural_presentation.rs and its new geometry
-module; desktop workspace.rs and workspace/presentation_interaction.rs;
+module; desktop workspace.rs, workspace/presentation_interaction.rs and
+workspace/routing.rs (remove the superseded routing re-export);
 persistence collaboration.rs and its new native_bdd adapter module. Tests: focused
 core BDD geometry and persistence transaction/compatibility tests. No frontend,
 protocol, permission, inverse schema, dependencies or worker/workflow changes.
