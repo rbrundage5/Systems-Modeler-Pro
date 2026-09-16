@@ -128,6 +128,14 @@ fn requirement_api_rejects_duplicate_ids_stale_edits_and_viewer_mutation() {
     let mut duplicate = create.clone();
     duplicate["operation_id"] = json!(Uuid::new_v4());
     duplicate["expected_revision"] = json!(1);
+    let diagnostic = service.dispatch(
+        "POST",
+        &edits,
+        Some(&editor),
+        &serde_json::to_vec(&duplicate).unwrap(),
+    );
+    assert_eq!(diagnostic.1["diagnostic"], "requirement_id_duplicate");
+    assert!(diagnostic.1.get("message").is_none());
     assert_eq!(
         service
             .dispatch(
@@ -139,6 +147,17 @@ fn requirement_api_rejects_duplicate_ids_stale_edits_and_viewer_mutation() {
             .0,
         422
     );
+    assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
+    let mut blank = duplicate.clone();
+    blank["edit"]["CreateRequirement"]["requirement_id"] = json!(" ");
+    let diagnostic = service.dispatch(
+        "POST",
+        &edits,
+        Some(&editor),
+        &serde_json::to_vec(&blank).unwrap(),
+    );
+    assert_eq!(diagnostic.0, 422);
+    assert_eq!(diagnostic.1["diagnostic"], "requirement_id_empty");
     assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
     let mut stale = duplicate;
     stale["expected_revision"] = json!(0);
