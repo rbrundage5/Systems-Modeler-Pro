@@ -8,7 +8,8 @@ recover an uncertain creation and reverse their own creation safely.
 Allowed production paths: model-core structural_presentation.rs and the new
 creation module; desktop workspace/bdd_elements.rs; persistence collaboration.rs;
 frontend collaboration-ui.js. Supporting paths: core/persistence creation tests,
-existing HTTP client integration tests, frontend regression script and this document.
+existing HTTP client integration tests, frontend regression script, this document,
+and the desktop/server collaboration guides for the new creation contract.
 No other active writer; worker delegation remains disabled.
 
 Reuse Project::create_element through a typed core command for native and shared
@@ -32,3 +33,8 @@ required. Independent review and rendered two-device acceptance are outstanding.
 This supplies creation only. Complete feature/property/relationship editing,
 ordinary-workspace remote session integration and all-nine collaboration remain
 open. Do not merge automatically.
+
+Local qualification: JavaScript syntax and 27 frontend regression tests pass;
+Rust-authority, workspace-convergence and diff checks pass. Rust tests, formatting,
+lint and native builds run in existing GitHub CI because this workspace has no Rust
+toolchain. PR106 records exact-head results and remains draft for independent review.
