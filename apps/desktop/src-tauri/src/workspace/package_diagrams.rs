@@ -7,9 +7,6 @@ use systems_modeler_core::structural_presentation::{
 };
 use systems_modeler_core::{ElementKind, Project, RelationshipKind, VisibilityKind};
 
-const PACKAGE_MIN_WIDTH: f64 = 120.0;
-const PACKAGE_MIN_HEIGHT: f64 = 70.0;
-
 fn checkpoint(
     workspace: &WorkspaceState,
     activity: &activity_workspace::ActivityWorkspaceState,
