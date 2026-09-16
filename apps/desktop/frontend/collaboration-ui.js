@@ -29,6 +29,7 @@
     <section data-session hidden><div class="collaboration-actions"><select data-project aria-label="Shared project"></select><button data-open>Open project</button><button data-refresh>Refresh</button><button data-disconnect>Disconnect</button></div>
     <p data-revision></p><p data-recovery role="status"></p>
     <section aria-label="Active collaborators"><p data-presence-status role="status"></p><ul data-participants></ul></section>
+    <section aria-label="My shared change history"><h3>My recent changes</h3><button type="button" data-history-refresh>Load my change history</button><label>Change<select data-history></select></label><button type="button" data-history-reverse>Reverse selected change</button><p>Reversal preserves unrelated work and is rejected if affected records changed or have new dependencies. Reverse a reversal to restore a change.</p></section>
     <section class="collaboration-semantic"><h3>Repository edits</h3><p>Elements and relationships use the same server-authoritative project revision as shared diagram edits.</p>
     <label>Element / owner<select data-element></select></label>
     <form data-edit><label>Operation<select name="operation"><option value="CreatePackage">Create Package</option><option value="CreateBlock">Create Block</option><option value="CreateTestCase">Create Test Case</option><option value="RenameElement">Rename element</option></select></label>
@@ -75,6 +76,8 @@
   let presenceBusy = false;
   let presenceGeneration = 0;
   let presenceProject = '';
+  let ownHistory = [];
+  let historyProject = '';
   find('[data-bdd-name]').addEventListener('input', () => { bddNameDirty = true; });
 
   function resetRequirementDraft() {
@@ -425,6 +428,14 @@
     projects.replaceChildren(...view.projects.map(grant => new Option(`${grant.id} (${grant.role})`, grant.id)));
     if (view.projects.some(grant => grant.id === chosen)) projects.value = chosen;
     const snapshot = view.snapshot;
+    if (historyProject !== (snapshot?.project.id || '')) {
+      historyProject = snapshot?.project.id || '';
+      ownHistory = [];
+      find('[data-history]').replaceChildren();
+    }
+    find('[data-history-refresh]').disabled = !snapshot || view.pending;
+    const selectedChange = ownHistory.find(entry => entry.operation_id === find('[data-history]').value);
+    find('[data-history-reverse]').disabled = !canEdit() || view.pending || view.needs_refresh || !selectedChange?.can_undo;
     if (presenceProject !== (snapshot?.project.id || '')) {
       presenceProject = snapshot?.project.id || '';
       find('[data-participants]').replaceChildren();
@@ -550,6 +561,8 @@
       view = await invoke('collaboration_connect', { server, token, displayName });
       presenceGeneration += 1;
       presenceProject = '';
+      historyProject = '';
+      ownHistory = [];
       restorePendingDraft();
     }, 'Connected. Review any recovered edit, or select a shared project.');
   };
@@ -567,6 +580,22 @@
   find('[data-refresh]').onclick = () => run(async () => {
     view = await invoke('collaboration_open', { project: view.snapshot.project.id });
   }, 'Latest shared revision loaded. Review it before saving an edit.');
+  find('[data-history-refresh]').onclick = () => run(async () => {
+    const history = await invoke('collaboration_history');
+    ownHistory = history.operations;
+    find('[data-history]').replaceChildren(...ownHistory.map(entry => new Option(`Revision ${entry.revision} · ${entry.summary}${entry.can_undo ? '' : ' · unavailable'}`, entry.operation_id)));
+  }, 'Recent changes made by your account loaded.');
+  find('[data-history]').onchange = render;
+  find('[data-history-reverse]').onclick = async () => {
+    const selected = ownHistory.find(entry => entry.operation_id === find('[data-history]').value);
+    if (busy || !selected?.can_undo || !canEdit() || view.pending || view.needs_refresh) return;
+    if (requirementDirty || edit.elements.name.value || bddNameDirty) {
+      message.textContent = 'Save or clear your draft before reversing a shared change.';
+      return;
+    }
+    const saved = await submitSharedEdit({ UndoOperation: { operation: selected.operation_id } }, 'Selected change reversed. Other users’ unrelated changes were preserved.');
+    if (saved) await find('[data-history-refresh]').onclick();
+  };
   find('[data-requirement-target]').onchange = () => renderRequirements(snapshotElements());
   find('[data-requirement-load]').onclick = () => {
     if (busy || requirementDirty || view?.pending || view?.needs_refresh) return;

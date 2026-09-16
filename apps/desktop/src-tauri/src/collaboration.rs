@@ -7,7 +7,7 @@ use std::{path::Path, time::Duration};
 use systems_modeler_core::{Project, ProjectId};
 use systems_modeler_persistence::collaboration::{
     COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, PresenceRequest,
-    ProjectPresence, SharedBddDiagram, SharedEdit,
+    ProjectPresence, SharedBddDiagram, SharedEdit, SharedHistoryEntry,
 };
 use systems_modeler_persistence::collaboration_outbox::{CollaborationOutbox, PendingSharedEdit};
 use tauri::Manager;
@@ -73,6 +73,11 @@ struct ProtocolInfo {
 struct Receipt {
     operation_id: Uuid,
     revision: i64,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SharedHistory {
+    operations: Vec<SharedHistoryEntry>,
 }
 
 fn server_url(value: &str) -> Result<Url, String> {
@@ -160,6 +165,12 @@ async fn edit_rejection_message(mut response: reqwest::Response) -> &'static str
         return GENERIC_EDIT_REJECTION;
     }
     match body["diagnostic"].as_str() {
+        Some("undo_conflict") => {
+            "This change cannot be reversed because affected records changed or new dependencies exist. Refresh and review the project; other users' work was preserved."
+        }
+        Some("undo_unavailable") => {
+            "This change has already been reversed or has no recorded inverse. Refresh your change history and select another change."
+        }
         Some("requirement_id_empty") => {
             "Requirement ID cannot be blank. Enter an ID and retry the edit after refreshing."
         }
@@ -556,6 +567,14 @@ pub async fn collaboration_presence(
         .project
         .id;
     session.presence_request(project, Method::POST).await
+}
+
+#[tauri::command]
+pub async fn collaboration_history(state: tauri::State<'_, CollaborationState>) -> Result<SharedHistory, String> {
+    let guard = state.0.lock().await;
+    let session = guard.as_ref().ok_or("Connect to a server first.")?;
+    let project = session.snapshot.as_ref().ok_or("Open a shared project first.")?.project.id;
+    session.request(Method::GET, &format!("v1/projects/{project}/history"), None).await.map_err(|error| error.1)
 }
 
 #[cfg(test)]

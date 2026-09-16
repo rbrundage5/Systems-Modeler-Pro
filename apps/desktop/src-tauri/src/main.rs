@@ -633,6 +633,7 @@ fn main() {
             app_updates::open_application,
             collaboration_connect,
             collaboration_presence,
+            collaboration_history,
             collaboration_open,
             collaboration_edit,
             collaboration_retry,
