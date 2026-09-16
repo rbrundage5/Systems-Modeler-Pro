@@ -532,12 +532,12 @@ pub async fn collaboration_disconnect(
             "Retry the pending edit before disconnecting; its result is not yet known.".into(),
         );
     }
-    if let Some(session) = guard.as_ref() {
-        if let Some(snapshot) = session.snapshot.as_ref() {
-            let _ = session
-                .presence_request(snapshot.project.id, Method::DELETE)
-                .await;
-        }
+    if let Some(session) = guard.as_ref()
+        && let Some(snapshot) = session.snapshot.as_ref()
+    {
+        let _ = session
+            .presence_request(snapshot.project.id, Method::DELETE)
+            .await;
     }
     *guard = None;
     Ok(())
