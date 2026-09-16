@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use systems_modeler_core::{
     AggregationKind, BehaviorRepository, DiagramId, ElementId, ElementKind,
-    Multiplicity, Project, Relationship, RelationshipId, RelationshipKind, VisibilityKind,
+    Multiplicity, Project, RelationshipId, RelationshipKind, VisibilityKind,
 };
 use systems_modeler_persistence::ProjectDatabase;
 
