@@ -1,3 +1,6 @@
+use systems_modeler_core::structural_presentation::geometry::{
+    BddGeometryCommand, BddRoutingScope, apply_bdd_geometry,
+};
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
 use super::{WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases};
@@ -136,6 +139,20 @@ fn apply_bdd_presentation_geometry(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("BDD not found")?;
+    if diagram.family == "bdd" {
+        return apply_bdd_geometry(
+            diagram,
+            &BddGeometryCommand::UpdateNode {
+                presentation_id: presentation_id.into(),
+                x,
+                y,
+                width,
+                height,
+            },
+            BddRoutingScope::IncidentEdges,
+            None,
+        );
+    }
     let node = diagram
         .nodes
         .iter_mut()
