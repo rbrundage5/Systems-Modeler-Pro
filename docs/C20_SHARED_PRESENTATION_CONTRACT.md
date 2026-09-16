@@ -52,3 +52,7 @@ Next action requires explicit approval to push this branch to
 rbrundage5/Systems-Modeler-Pro and open a draft PR against
 codex/c20-collaboration-review-candidate. Run existing CI, resolve any diagnostics,
 and qualify this leaf before implementing its dependent command integration.
+
+Publication was explicitly approved by the user on 2026-09-16. Draft PR104 is
+open against PR103. The authenticated GitHub connector publishes the candidate
+because shell Git has no credential. The earlier approval blocker is resolved.

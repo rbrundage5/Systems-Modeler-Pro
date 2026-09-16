@@ -2,10 +2,12 @@
 //! This is the existing desktop wire/storage shape; it contains no session, view,
 //! selection, file-path or runtime state. Commands remain separately scoped.
 
+use crate::{
+    AggregationKind, BindingEndpoint, DiagramId, ElementId, ElementKind, Project, Relationship,
+    RelationshipId, RelationshipKind,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use crate::{AggregationKind, BindingEndpoint, DiagramId, ElementId, ElementKind,
-    Project, Relationship, RelationshipId, RelationshipKind};
 
 const PACKAGE_MIN_WIDTH: f64 = 120.0;
 const PACKAGE_MIN_HEIGHT: f64 = 70.0;
@@ -158,7 +160,10 @@ pub fn relationship_display_kind(relationship: &Relationship) -> &'static str {
     }
 }
 
-pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Result<(), String> {
+pub fn validate_structural_diagrams(
+    project: &Project,
+    diagrams: &[BddDiagram],
+) -> Result<(), String> {
     let mut diagram_ids = HashSet::new();
     let mut node_ids = HashSet::new();
     let mut edge_ids = HashSet::new();
@@ -168,9 +173,14 @@ pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) 
             return Err(format!("duplicate diagram id: {}", diagram.id));
         }
         let owner_id = parse_element_id(&diagram.owner_id)?;
-        let owner = project.element(owner_id).map_err(|error| error.to_string())?;
+        let owner = project
+            .element(owner_id)
+            .map_err(|error| error.to_string())?;
         if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
-            return Err(format!("BDD owner is not a Model or Package: {}", diagram.owner_id));
+            return Err(format!(
+                "BDD owner is not a Model or Package: {}",
+                diagram.owner_id
+            ));
         }
         if let Some(context_id) = diagram.semantic_context_id.as_deref() {
             let context = project
@@ -180,7 +190,9 @@ pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) 
                 && (!context.is_classifier()
                     || matches!(context.kind, ElementKind::Actor | ElementKind::UseCase))
             {
-                return Err("Use Case diagram context is not a represented system classifier".into());
+                return Err(
+                    "Use Case diagram context is not a represented system classifier".into(),
+                );
             }
             if diagram.family == "parametric"
                 && !matches!(
@@ -228,7 +240,9 @@ pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) 
                 return Err(format!("duplicate diagram node id: {}", node.id));
             }
             let element_id = parse_element_id(&node.element_id)?;
-            let element = project.element(element_id).map_err(|error| error.to_string())?;
+            let element = project
+                .element(element_id)
+                .map_err(|error| error.to_string())?;
             if diagram.family == "use-case"
                 && !matches!(element.kind, ElementKind::Actor | ElementKind::UseCase)
             {
@@ -256,7 +270,8 @@ pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) 
                     return Err("ValueProperty presentations cannot own parameter endpoints".into());
                 }
                 if element.kind == ElementKind::ConstraintProperty {
-                    let constraint_block_id = element.type_id.ok_or("ConstraintProperty has no type")?;
+                    let constraint_block_id =
+                        element.type_id.ok_or("ConstraintProperty has no type")?;
                     let expected_parameters: HashSet<_> = project
                         .children(constraint_block_id)
                         .filter(|parameter| parameter.kind == ElementKind::ConstraintParameter)
@@ -332,9 +347,16 @@ pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) 
                 return Err(format!("duplicate diagram edge id: {}", edge.id));
             }
             let relationship_id = parse_relationship_id(&edge.relationship_id)?;
-            let relationship = project.relationship(relationship_id).map_err(|error| error.to_string())?;
-            if matches!(relationship.kind, RelationshipKind::Connector | RelationshipKind::ItemFlow) {
-                return Err("Connector and ItemFlow presentations belong on an IBD, not a BDD".into());
+            let relationship = project
+                .relationship(relationship_id)
+                .map_err(|error| error.to_string())?;
+            if matches!(
+                relationship.kind,
+                RelationshipKind::Connector | RelationshipKind::ItemFlow
+            ) {
+                return Err(
+                    "Connector and ItemFlow presentations belong on an IBD, not a BDD".into(),
+                );
             }
             if diagram.family == "parametric"
                 && relationship.kind != RelationshipKind::BindingConnector
@@ -368,13 +390,33 @@ pub fn validate_structural_diagrams(project: &Project, diagrams: &[BddDiagram]) 
                 if !parametric_endpoint_matches(diagram, &edge.source_node_id, &binding.source)
                     || !parametric_endpoint_matches(diagram, &edge.target_node_id, &binding.target)
                 {
-                    return Err(format!("diagram binding endpoints do not match semantic relationship: {}", edge.relationship_id));
+                    return Err(format!(
+                        "diagram binding endpoints do not match semantic relationship: {}",
+                        edge.relationship_id
+                    ));
                 }
             } else {
-                let source = diagram.nodes.iter().find(|node| node.id == edge.source_node_id).ok_or_else(|| format!("edge source node not found: {}", edge.source_node_id))?;
-                let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id).ok_or_else(|| format!("edge target node not found: {}", edge.target_node_id))?;
-                if source.element_id != relationship.source_id.to_string() || target.element_id != relationship.target_id.to_string() {
-                    return Err(format!("diagram edge endpoints do not match semantic relationship: {}", edge.relationship_id));
+                let source = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.source_node_id)
+                    .ok_or_else(|| {
+                        format!("edge source node not found: {}", edge.source_node_id)
+                    })?;
+                let target = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.target_node_id)
+                    .ok_or_else(|| {
+                        format!("edge target node not found: {}", edge.target_node_id)
+                    })?;
+                if source.element_id != relationship.source_id.to_string()
+                    || target.element_id != relationship.target_id.to_string()
+                {
+                    return Err(format!(
+                        "diagram edge endpoints do not match semantic relationship: {}",
+                        edge.relationship_id
+                    ));
                 }
             }
             if edge.points.len() < 2 {
@@ -436,10 +478,7 @@ pub fn dependency_endpoints(
     Ok(())
 }
 
-pub fn validate_package_diagram(
-    project: &Project,
-    diagram: &BddDiagram,
-) -> Result<(), String> {
+pub fn validate_package_diagram(project: &Project, diagram: &BddDiagram) -> Result<(), String> {
     if diagram.family != "package" {
         return Err("target diagram is not a Package Diagram".into());
     }

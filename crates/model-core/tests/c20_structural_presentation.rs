@@ -4,11 +4,20 @@ use systems_modeler_core::{DiagramId, ElementKind, Project, RelationshipKind};
 
 fn fixture() -> (Project, BddDiagram) {
     let mut project = Project::new("Shared engineering");
-    let source = project.create_element(ElementKind::Block, "Specific", project.root_id).unwrap();
-    let target = project.create_element(ElementKind::Block, "General", project.root_id).unwrap();
-    let relationship = project.create_relationship(
-        RelationshipKind::Generalization, source, target, Some(project.root_id),
-    ).unwrap();
+    let source = project
+        .create_element(ElementKind::Block, "Specific", project.root_id)
+        .unwrap();
+    let target = project
+        .create_element(ElementKind::Block, "General", project.root_id)
+        .unwrap();
+    let relationship = project
+        .create_relationship(
+            RelationshipKind::Generalization,
+            source,
+            target,
+            Some(project.root_id),
+        )
+        .unwrap();
     let diagram = serde_json::from_value(json!({
         "id": DiagramId::new().to_string(), "name": "Structure",
         "owner_id": project.root_id.to_string(),
@@ -23,7 +32,8 @@ fn fixture() -> (Project, BddDiagram) {
             "source_node_id": "10000000-0000-0000-0000-000000000001",
             "target_node_id": "10000000-0000-0000-0000-000000000002",
             "points": [{"x": 260.0, "y": 150.0}, {"x": 400.0, "y": 150.0}]}]
-    })).unwrap();
+    }))
+    .unwrap();
     (project, diagram)
 }
 
@@ -49,13 +59,25 @@ fn malformed_identity_owner_and_context_fail_without_changing_semantics() {
     let original = serde_json::to_value(&project).unwrap();
     let mut invalid = diagram.clone();
     invalid.id = "invalid".into();
-    assert!(validate_structural_diagrams(&project, &[invalid]).unwrap_err().contains("invalid diagram id"));
+    assert!(
+        validate_structural_diagrams(&project, &[invalid])
+            .unwrap_err()
+            .contains("invalid diagram id")
+    );
     let mut invalid = diagram.clone();
     invalid.owner_id = invalid.nodes[0].element_id.clone();
-    assert!(validate_structural_diagrams(&project, &[invalid]).unwrap_err().contains("owner"));
+    assert!(
+        validate_structural_diagrams(&project, &[invalid])
+            .unwrap_err()
+            .contains("owner")
+    );
     let mut invalid = diagram.clone();
     invalid.family = "parametric".into();
-    assert!(validate_structural_diagrams(&project, &[invalid]).unwrap_err().contains("requires a semantic context"));
+    assert!(
+        validate_structural_diagrams(&project, &[invalid])
+            .unwrap_err()
+            .contains("requires a semantic context")
+    );
     let mut invalid = diagram;
     invalid.semantic_context_id = Some("30000000-0000-0000-0000-000000000001".into());
     assert!(validate_structural_diagrams(&project, &[invalid]).is_err());
@@ -65,17 +87,33 @@ fn malformed_identity_owner_and_context_fail_without_changing_semantics() {
 #[test]
 fn duplicate_presentations_missing_endpoints_and_reversed_semantic_ends_fail() {
     let (project, diagram) = fixture();
-    assert!(validate_structural_diagrams(&project, &[diagram.clone(), diagram.clone()]).unwrap_err().contains("duplicate diagram"));
+    assert!(
+        validate_structural_diagrams(&project, &[diagram.clone(), diagram.clone()])
+            .unwrap_err()
+            .contains("duplicate diagram")
+    );
     let mut invalid = diagram.clone();
     invalid.nodes[1].id = invalid.nodes[0].id.clone();
-    assert!(validate_structural_diagrams(&project, &[invalid]).unwrap_err().contains("duplicate diagram node"));
+    assert!(
+        validate_structural_diagrams(&project, &[invalid])
+            .unwrap_err()
+            .contains("duplicate diagram node")
+    );
     let mut invalid = diagram.clone();
     invalid.nodes.pop();
-    assert!(validate_structural_diagrams(&project, &[invalid]).unwrap_err().contains("target node not found"));
+    assert!(
+        validate_structural_diagrams(&project, &[invalid])
+            .unwrap_err()
+            .contains("target node not found")
+    );
     let mut invalid = diagram;
     let edge = &mut invalid.edges[0];
     std::mem::swap(&mut edge.source_node_id, &mut edge.target_node_id);
-    assert!(validate_structural_diagrams(&project, &[invalid]).unwrap_err().contains("endpoints do not match"));
+    assert!(
+        validate_structural_diagrams(&project, &[invalid])
+            .unwrap_err()
+            .contains("endpoints do not match")
+    );
 }
 
 #[test]
@@ -83,5 +121,9 @@ fn package_validation_remains_part_of_shared_authority() {
     let (project, mut diagram) = fixture();
     diagram.family = "package".into();
     // Blocks are packageable, but Generalization is not a Package Diagram edge.
-    assert!(validate_structural_diagrams(&project, &[diagram]).unwrap_err().contains("not valid on a Package Diagram"));
+    assert!(
+        validate_structural_diagrams(&project, &[diagram])
+            .unwrap_err()
+            .contains("not valid on a Package Diagram")
+    );
 }

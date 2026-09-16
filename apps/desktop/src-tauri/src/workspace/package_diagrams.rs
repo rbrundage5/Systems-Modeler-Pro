@@ -1,11 +1,10 @@
 //! Rust-authoritative Package Diagram semantics and presentations.
 
 use super::*;
-use systems_modeler_core::structural_presentation::{
-    dependency_endpoints, package_presentable, package_relationship_kind,
-    package_relationship_name,
-};
 pub(super) use systems_modeler_core::structural_presentation::validate_package_diagram;
+use systems_modeler_core::structural_presentation::{
+    dependency_endpoints, package_presentable, package_relationship_kind, package_relationship_name,
+};
 use systems_modeler_core::{ElementKind, Project, RelationshipKind, VisibilityKind};
 
 const PACKAGE_MIN_WIDTH: f64 = 120.0;
@@ -589,11 +588,6 @@ pub fn update_package_relationship(
 #[cfg(test)]
 mod tests {
     use super::*;
-use systems_modeler_core::structural_presentation::{
-    dependency_endpoints, package_presentable, package_relationship_kind,
-    package_relationship_name,
-};
-pub(super) use systems_modeler_core::structural_presentation::validate_package_diagram;
 
     fn node(id: &str, element_id: ElementId, x: f64, y: f64) -> DiagramNode {
         DiagramNode {
