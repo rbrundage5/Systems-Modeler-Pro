@@ -6,7 +6,11 @@ use systems_modeler_persistence::collaboration::{
 };
 use uuid::Uuid;
 
-fn creation(kind: BddElementKind, owner: systems_modeler_core::ElementId, revision: i64) -> EditRequest {
+fn creation(
+    kind: BddElementKind,
+    owner: systems_modeler_core::ElementId,
+    revision: i64,
+) -> EditRequest {
     EditRequest {
         operation_id: Uuid::new_v4(),
         expected_revision: revision,
@@ -35,9 +39,15 @@ fn supported_bdd_classifiers_use_core_ownership_preserve_identity_and_reverse_af
         .unwrap();
     let cases = [
         (BddElementKind::Block, ElementKind::Block),
-        (BddElementKind::AssociationBlock, ElementKind::AssociationBlock),
+        (
+            BddElementKind::AssociationBlock,
+            ElementKind::AssociationBlock,
+        ),
         (BddElementKind::InterfaceBlock, ElementKind::InterfaceBlock),
-        (BddElementKind::ConstraintBlock, ElementKind::ConstraintBlock),
+        (
+            BddElementKind::ConstraintBlock,
+            ElementKind::ConstraintBlock,
+        ),
         (BddElementKind::ValueType, ElementKind::ValueType),
         (BddElementKind::DataType, ElementKind::DataType),
         (BddElementKind::PrimitiveType, ElementKind::PrimitiveType),
@@ -77,7 +87,8 @@ fn supported_bdd_classifiers_use_core_ownership_preserve_identity_and_reverse_af
     let request = final_request.unwrap();
     let receipt = final_receipt.unwrap();
     let invalid_owner = receipt.element; // A UseCase cannot own a Block.
-    let before = serde_json::to_value(database.shared_snapshot(project.id, actor).unwrap()).unwrap();
+    let before =
+        serde_json::to_value(database.shared_snapshot(project.id, actor).unwrap()).unwrap();
     assert!(
         database
             .commit_shared_edit(
@@ -99,7 +110,10 @@ fn supported_bdd_classifiers_use_core_ownership_preserve_identity_and_reverse_af
         serde_json::to_value(database.shared_snapshot(project.id, actor).unwrap()).unwrap(),
         before
     );
-    assert_eq!(database.shared_history(project.id, actor).unwrap().len(), 16);
+    assert_eq!(
+        database.shared_history(project.id, actor).unwrap().len(),
+        16
+    );
     drop(database);
     let database = ProjectDatabase::open(&path).unwrap();
     assert_eq!(

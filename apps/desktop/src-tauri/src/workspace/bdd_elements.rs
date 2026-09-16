@@ -550,9 +550,12 @@ pub fn create_bdd_element(
     if kind == ElementKind::Requirement {
         return create_element(kind, owner_id, name, state);
     }
-    use systems_modeler_core::structural_presentation::creation::{BddElementKind, CreateBddElement};
+    use systems_modeler_core::structural_presentation::creation::{
+        BddElementKind, CreateBddElement,
+    };
     let command = CreateBddElement {
-        kind: BddElementKind::from_model_kind(&kind).ok_or("unsupported BDD classifier creation")?,
+        kind: BddElementKind::from_model_kind(&kind)
+            .ok_or("unsupported BDD classifier creation")?,
         owner: parse_element_id(&owner_id)?,
         name,
     };

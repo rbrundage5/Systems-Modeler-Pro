@@ -1017,7 +1017,9 @@ fn two_clients_author_requirements_and_verify_without_losing_stale_edits() {
 
 #[test]
 fn two_clients_create_and_present_shared_interface_blocks_through_native_semantics() {
-    use systems_modeler_core::structural_presentation::creation::{BddElementKind, CreateBddElement};
+    use systems_modeler_core::structural_presentation::creation::{
+        BddElementKind, CreateBddElement,
+    };
     tauri::async_runtime::block_on(async {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("shared-interface.sqlite");
