@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use systems_modeler_core::ProjectId;
+use systems_modeler_core::{ModelError, ProjectId};
 use systems_modeler_persistence::{
     ProjectDatabase,
     collaboration::{
@@ -203,8 +203,23 @@ fn failure(error: CollaborationError) -> (u16, Value) {
             json!({"error":"revision_conflict","expected":expected,"current":current}),
         ),
         CollaborationError::OperationIdReused => (409, json!({"error":"operation_id_reused"})),
+        CollaborationError::Model(ModelError::EmptyRequirementId(_)) => (
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"requirement_id_empty"}),
+        ),
+        CollaborationError::Model(ModelError::DuplicateRequirementId(_)) => (
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"requirement_id_duplicate"}),
+        ),
+        CollaborationError::Model(ModelError::CopiedRequirementIsReadOnly(_)) => (
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"copied_requirement_read_only"}),
+        ),
+        CollaborationError::InvalidName => (
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"name_invalid"}),
+        ),
         CollaborationError::Model(_)
-        | CollaborationError::InvalidName
         | CollaborationError::DiagramNotFound
         | CollaborationError::InvalidDiagram(_)
         | CollaborationError::InvalidRelationship(_) => {

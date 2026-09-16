@@ -118,6 +118,54 @@ fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
     Ok(())
 }
 
+const GENERIC_EDIT_REJECTION: &str = "The server rejected this shared edit. Check the selected owner, element or relationship endpoints, diagram, and geometry.";
+
+async fn edit_rejection_message(mut response: reqwest::Response) -> &'static str {
+    // Decode only bounded, known diagnostics. Never display arbitrary server text
+    // that could contain internal paths, credentials, or unrelated response data.
+    const MAX_DIAGNOSTIC: usize = 1024;
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_DIAGNOSTIC as u64)
+    {
+        return GENERIC_EDIT_REJECTION;
+    }
+    let mut bytes = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if bytes.len().saturating_add(chunk.len()) > MAX_DIAGNOSTIC {
+                    return GENERIC_EDIT_REJECTION;
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(_) => return GENERIC_EDIT_REJECTION,
+        }
+    }
+    let Ok(body) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return GENERIC_EDIT_REJECTION;
+    };
+    if body["error"] != "invalid_model_edit" {
+        return GENERIC_EDIT_REJECTION;
+    }
+    match body["diagnostic"].as_str() {
+        Some("requirement_id_empty") => {
+            "Requirement ID cannot be blank. Enter an ID and retry the edit after refreshing."
+        }
+        Some("requirement_id_duplicate") => {
+            "That Requirement ID already exists in this project. Choose a unique ID after refreshing, or load the existing requirement to edit it."
+        }
+        Some("copied_requirement_read_only") => {
+            "This requirement is a Copy. Edit the supplier requirement to change its text; the copy follows that supplier."
+        }
+        Some("name_invalid") => {
+            "Name must contain 1 to 1024 bytes of nonblank text. Correct the name and retry the edit after refreshing."
+        }
+        _ => GENERIC_EDIT_REJECTION,
+    }
+}
+
 impl Session {
     async fn connect(server: &str, token: String) -> Result<Self, String> {
         if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -216,6 +264,9 @@ impl Session {
             (true, "Connection failed. Check the server and certificate. If an edit was sent, use Retry pending edit to recover its result.".into())
         })?;
         let status = response.status().as_u16();
+        if status == 422 {
+            return Err((false, edit_rejection_message(response).await.into()));
+        }
         if status != 200 {
             let message = match status {
                 401 => "Authentication failed. Reconnect with a valid access token.",
@@ -226,8 +277,8 @@ impl Session {
                 409 => {
                     "Project changed or operation conflicts. Refresh, review the latest model, and submit your intended edit again."
                 }
-                422 => {
-                    "The server rejected this shared edit. Check the selected owner, element or relationship endpoints, diagram, and geometry."
+                413 => {
+                    "This shared edit exceeds the server's 16 KiB request limit, including JSON encoding. Shorten the text and refresh before resubmitting."
                 }
                 _ => {
                     "The server could not complete the request. Retry a pending edit before making another change."
@@ -536,6 +587,65 @@ mod transport_tests {
             pending: None,
             needs_refresh: false,
         }
+    }
+
+    #[test]
+    fn semantic_diagnostics_explain_rejection_without_replaying_a_definite_failure() {
+        tauri::async_runtime::block_on(async {
+            for (diagnostic, expected) in [
+                ("requirement_id_empty", "cannot be blank"),
+                ("requirement_id_duplicate", "already exists"),
+                ("copied_requirement_read_only", "supplier requirement"),
+                ("name_invalid", "1024 bytes"),
+            ] {
+                let body = serde_json::json!({
+                    "error": "invalid_model_edit", "diagnostic": diagnostic,
+                    "message": "INTERNAL-DATA-MUST-NOT-BE-DISPLAYED"
+                })
+                .to_string();
+                let (base, server) = mock(vec![(422, body)]);
+                let project = Project::new("Shared");
+                let request = EditRequest {
+                    operation_id: Uuid::new_v4(),
+                    expected_revision: 0,
+                    edit: SharedEdit::CreateBlock {
+                        owner: project.root_id,
+                        name: "Example".into(),
+                    },
+                };
+                let mut client = session(base, project, request);
+                let message = client.submit_pending().await.unwrap_err();
+                assert!(message.contains(expected), "{message}");
+                assert!(!message.contains("INTERNAL-DATA"));
+                assert!(client.pending.is_none());
+                assert!(client.needs_refresh);
+                assert_eq!(client.snapshot.as_ref().unwrap().revision, 0);
+                assert_eq!(server.join().unwrap().len(), 1);
+            }
+        });
+    }
+
+    #[test]
+    fn malformed_unknown_and_oversized_diagnostics_use_the_safe_fallback() {
+        tauri::async_runtime::block_on(async {
+            for body in [
+                "not json".into(),
+                "{\"error\":\"invalid_model_edit\",\"diagnostic\":\"unknown\"}".into(),
+                "{\"error\":\"storage_failure\",\"diagnostic\":\"requirement_id_duplicate\"}"
+                    .into(),
+                "x".repeat(1025),
+            ] {
+                let (base, server) = mock(vec![(422, body)]);
+                let client = blank_session(base, "a".repeat(64));
+                let error = client
+                    .request::<serde_json::Value>(Method::POST, "v1/test", None)
+                    .await
+                    .unwrap_err();
+                assert!(!error.0);
+                assert_eq!(error.1, GENERIC_EDIT_REJECTION);
+                assert_eq!(server.join().unwrap().len(), 1);
+            }
+        });
     }
 
     async fn connect_test_session(mut session: Session, project: ProjectId) -> Session {
