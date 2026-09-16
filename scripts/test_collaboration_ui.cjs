@@ -48,6 +48,7 @@ async function fixture() {
     'project', 'element', 'relationship-source', 'relationship-target', 'relationship-owner',
     'relationship', 'bdd-owner', 'bdd-diagram', 'bdd-element', 'bdd-relationship', 'bdd-edge',
     'requirement-owner', 'requirement-target',
+    'history',
   ]);
   const find = selector => {
     if (!controls.has(selector)) {
@@ -148,6 +149,37 @@ function requirementDraft(ui) {
   ui.requirementEdit.elements.text.value = 'Respond within 50 ms.\nPreserve this second line.';
   ui.requirementEdit.listeners.input();
 }
+
+test('history reversal submits the selected operation with the visible revision', async () => {
+  const ui = await fixture();
+  ui.setHandler(async command => command === 'collaboration_history'
+    ? { operations: [{ operation_id: 'own-change', revision: 5, summary: 'Rename element', can_undo: true }] }
+    : structuredClone(ui.view));
+  await ui.find('[data-history-refresh]').onclick();
+  assert.equal(ui.find('[data-history-reverse]').disabled, false);
+  await ui.find('[data-history-reverse]').onclick();
+  const sent = ui.calls.find(call => call.command === 'collaboration_edit');
+  assert.equal(sent.payload.expectedRevision, 7);
+  assert.equal(sent.payload.edit.UndoOperation.operation, 'own-change');
+});
+
+test('history reversal respects viewer permission and retains unsaved drafts', async () => {
+  const ui = await fixture();
+  ui.setHandler(async command => command === 'collaboration_history'
+    ? { operations: [{ operation_id: 'own-change', revision: 5, summary: 'Update Requirement', can_undo: true }] }
+    : structuredClone(ui.view));
+  await ui.find('[data-history-refresh]').onclick();
+  requirementDraft(ui);
+  await ui.find('[data-history-reverse]').onclick();
+  assert.match(ui.find('[data-message]').textContent, /Save or clear your draft/);
+  assert.match(ui.requirementEdit.elements.text.value, /Respond within 50 ms/);
+  ui.find('[data-requirement-reset]').onclick();
+  ui.view.projects[0].role = 'viewer';
+  await ui.find('[data-refresh]').onclick();
+  assert.equal(ui.find('[data-history-reverse]').disabled, true);
+  await ui.find('[data-history-reverse]').onclick();
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+});
 
 test('reconnect restores a pending requirement draft and retries without a new edit', async () => {
   const ui = await fixture();

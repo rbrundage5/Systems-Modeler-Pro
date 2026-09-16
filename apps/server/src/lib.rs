@@ -201,6 +201,12 @@ impl Service {
         let Ok(database) = self.database.lock() else {
             return (503, json!({"error":"unavailable"}));
         };
+        if method == "GET" && segments.len() == 5 && segments[4] == "history" {
+            return match database.shared_history(project, credential.actor) {
+                Ok(history) => (200, json!({"operations": history})),
+                Err(error) => failure(error),
+            };
+        }
         if method == "GET" && segments.len() == 4 {
             return match database.shared_snapshot(project, credential.actor) {
                 Ok((model, diagrams, revision)) => (
@@ -237,6 +243,14 @@ fn failure(error: CollaborationError) -> (u16, Value) {
             json!({"error":"revision_conflict","expected":expected,"current":current}),
         ),
         CollaborationError::OperationIdReused => (409, json!({"error":"operation_id_reused"})),
+        CollaborationError::UndoConflict => (
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"undo_conflict"}),
+        ),
+        CollaborationError::UndoUnavailable => (
+            422,
+            json!({"error":"invalid_model_edit","diagnostic":"undo_unavailable"}),
+        ),
         CollaborationError::Model(ModelError::EmptyRequirementId(_)) => (
             422,
             json!({"error":"invalid_model_edit","diagnostic":"requirement_id_empty"}),

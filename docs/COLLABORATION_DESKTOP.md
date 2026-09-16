@@ -70,6 +70,14 @@ until expiry. Disconnect/project switch attempts immediate departure. See
 
 ## Qualification and limits
 
+Use **Load my change history** to inspect your account's most recent 50 shared
+operations. **Reverse selected change** creates a new revision using a server-held
+inverse. Affected records must still match; later edits or dependencies can reject
+the reversal without changing anyone's work. Unrelated changes are preserved.
+Reversing the reversal restores a change under the same checks. Older operations
+without recorded inverses are unavailable. Save or clear local drafts first.
+See [the shared reversal contract](C20_COLLABORATIVE_UNDO.md).
+
 Local checks: frontend syntax, Rust authority regression gate, and diff hygiene.
 Rust compilation, focused transport tests, full native CI, and UI acceptance must
 be recorded against the final PR head. Cargo is unavailable in the authoring
@@ -89,7 +97,7 @@ create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 
 Specialized Association/Connector/ItemFlow/BindingConnector and import operations,
 other diagram families, standard-workspace integration, complete element
-authoring/configuration, collaborative undo, project administration, and
+authoring/configuration, project administration, and
 production HTTPS deployment remain subsequent work. Submitted pending edits are
 recorded in a separate application-data SQLite outbox before transmission. After
 restart, reconnect to the same server with credentials for the same authenticated

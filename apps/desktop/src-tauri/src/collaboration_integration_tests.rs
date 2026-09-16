@@ -68,6 +68,114 @@ fn named(session: &Session, name: &str) -> ElementId {
 }
 
 #[test]
+fn two_clients_reverse_only_their_own_changes_and_preserve_unrelated_work() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut alice = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        alice
+            .attach_outbox(&directory.path().join("alice-outbox.sqlite"))
+            .await
+            .unwrap();
+        let mut bob = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        alice.open(project.id).await.unwrap();
+        alice
+            .edit(0, block(project.root_id, "Alice component"))
+            .await
+            .unwrap();
+        let history: SharedHistory = alice
+            .request(
+                Method::GET,
+                &format!("v1/projects/{}/history", project.id),
+                None,
+            )
+            .await
+            .unwrap();
+        let original = history.operations[0].operation_id;
+        bob.open(project.id).await.unwrap();
+        bob.edit(1, block(project.root_id, "Bob component"))
+            .await
+            .unwrap();
+        alice.open(project.id).await.unwrap();
+        alice
+            .edit(
+                2,
+                SharedEdit::UndoOperation {
+                    operation: original,
+                },
+            )
+            .await
+            .unwrap();
+        bob.open(project.id).await.unwrap();
+        let model = &bob.snapshot.as_ref().unwrap().project;
+        assert!(
+            model
+                .elements
+                .values()
+                .any(|element| element.name == "Bob component")
+        );
+        assert!(
+            !model
+                .elements
+                .values()
+                .any(|element| element.name == "Alice component")
+        );
+        assert!(
+            bob.edit(
+                3,
+                SharedEdit::UndoOperation {
+                    operation: original
+                }
+            )
+            .await
+            .unwrap_err()
+            .contains("Access denied")
+        );
+        let history: SharedHistory = alice
+            .request(
+                Method::GET,
+                &format!("v1/projects/{}/history", project.id),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(history.operations.len(), 2);
+        assert!(!history.operations[1].can_undo);
+        alice
+            .edit(
+                3,
+                SharedEdit::UndoOperation {
+                    operation: history.operations[0].operation_id,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            alice
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .project
+                .elements
+                .values()
+                .any(|element| element.name == "Alice component")
+        );
+        assert!(
+            alice
+                .outbox
+                .as_ref()
+                .unwrap()
+                .load(alice.base.as_str(), alice.actor)
+                .unwrap()
+                .is_none()
+        );
+        task.abort();
+    });
+}
+
+#[test]
 fn editor_and_viewer_presence_converges_over_http_without_mutating_the_project() {
     tauri::async_runtime::block_on(async {
         let directory = tempfile::tempdir().unwrap();
