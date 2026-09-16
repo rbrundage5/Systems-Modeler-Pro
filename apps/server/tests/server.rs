@@ -102,6 +102,35 @@ fn authenticated_edits_retries_conflicts_and_viewer_reads() {
 }
 
 #[test]
+fn requirement_api_rejects_duplicate_ids_stale_edits_and_viewer_mutation() {
+    let (service, project, editor, viewer) = fixture();
+    let path = format!("/v1/projects/{}", project.id);
+    let edits = format!("{path}/operations");
+    let create = json!({
+        "operation_id": Uuid::new_v4(), "expected_revision": 0,
+        "edit": {"CreateRequirement": {
+            "owner": project.root_id, "name": "Response", "requirement_id": "REQ-1",
+            "text": "Respond within 50 ms.\nMeasured at the interface."
+        }}
+    });
+    let body = serde_json::to_vec(&create).unwrap();
+    assert_eq!(service.dispatch("POST", &edits, Some(&viewer), &body).0, 403);
+    let receipt = service.dispatch("POST", &edits, Some(&editor), &body);
+    assert_eq!(receipt.0, 200);
+    assert_eq!(service.dispatch("POST", &edits, Some(&editor), &body), receipt);
+    let before = service.dispatch("GET", &path, Some(&viewer), &[]);
+    let mut duplicate = create.clone();
+    duplicate["operation_id"] = json!(Uuid::new_v4());
+    duplicate["expected_revision"] = json!(1);
+    assert_eq!(service.dispatch("POST", &edits, Some(&editor), &serde_json::to_vec(&duplicate).unwrap()).0, 422);
+    assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
+    let mut stale = duplicate;
+    stale["expected_revision"] = json!(0);
+    assert_eq!(service.dispatch("POST", &edits, Some(&editor), &serde_json::to_vec(&stale).unwrap()).0, 409);
+    assert_eq!(service.dispatch("GET", &path, Some(&viewer), &[]), before);
+}
+
+#[test]
 fn malformed_oversized_and_forged_identity_requests_are_rejected() {
     let (service, project, editor, _) = fixture();
     let path = format!("/v1/projects/{}/operations", project.id);

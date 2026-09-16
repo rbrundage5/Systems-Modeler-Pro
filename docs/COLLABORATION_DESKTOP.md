@@ -32,6 +32,26 @@ to remote state by this increment.
 6. Disconnect clears the in-memory session. Closing the window retains it until
    application exit. Tokens are never written to project files or local storage.
 
+### Shared requirements and verification
+
+The Requirements form creates a Requirement with its name, ID and multiline text.
+Load an existing Requirement to inspect and update it. The saved version remains
+visible above the draft. Create Test Case in Repository edits, then use the existing
+relationship controls to connect TestCase → Requirement with Verify and
+Block → Requirement with Satisfy. Updates preserve semantic identity and these links.
+
+Drafts preserve their original revision through Refresh. After a conflict, inspect
+the saved text and explicitly choose **Keep draft after reviewing latest revision**
+before resubmitting, or clear the draft. Polling pauses during composition; project
+switching/disconnect require saving or clearing. An uncertain network result must
+use Retry pending edit. If an edit was accepted but snapshot refresh failed, refresh
+and inspect the saved state before deciding whether another edit is needed.
+
+Matching clients and servers must advertise `shared-requirements-v1`. Validation,
+Copy protection, transaction/retry behavior and test scope are recorded in
+[the bounded workflow contract](C20_SHARED_REQUIREMENTS.md). A dedicated shared
+Requirement diagram and nested Requirement ownership are not introduced here.
+
 HTTPS certificate validation stays enabled, redirects are disabled, and the client
 bypasses environment proxy discovery. An administrator-provided direct HTTPS origin
 is required; deployments requiring an explicit outbound proxy are not supported yet.
