@@ -526,3 +526,122 @@ fn two_clients_converge_on_server_routed_bdd_relationship_presentations() {
         let _ = task.await;
     });
 }
+
+#[test]
+fn two_clients_author_requirements_and_verify_without_losing_stale_edits() {
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared-requirements.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut first = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        let mut second = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        first.open(project.id).await.unwrap();
+        first
+            .edit(
+                0,
+                SharedEdit::CreateRequirement {
+                    owner: project.root_id,
+                    name: "Response".into(),
+                    requirement_id: "REQ-1".into(),
+                    text: "Respond within 50 ms.".into(),
+                },
+            )
+            .await
+            .unwrap();
+        second.open(project.id).await.unwrap();
+        let requirement = named(&second, "Response");
+        second
+            .edit(
+                1,
+                SharedEdit::CreateTestCase {
+                    owner: project.root_id,
+                    name: "Timing test".into(),
+                },
+            )
+            .await
+            .unwrap();
+        first.open(project.id).await.unwrap();
+        first
+            .edit(2, block(project.root_id, "Controller"))
+            .await
+            .unwrap();
+        let test_case = named(&first, "Timing test");
+        let controller = named(&first, "Controller");
+        for (revision, kind, source) in [
+            (3, SharedRelationshipKind::Verify, test_case),
+            (4, SharedRelationshipKind::Satisfy, controller),
+        ] {
+            first
+                .edit(
+                    revision,
+                    SharedEdit::CreateRelationship {
+                        kind,
+                        source,
+                        target: requirement,
+                        owner: project.root_id,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        second.open(project.id).await.unwrap();
+        let revised = SharedEdit::UpdateRequirement {
+            element: requirement,
+            name: "Response budget".into(),
+            requirement_id: "REQ-1A".into(),
+            text: "Respond within 40 ms.\nMeasured at the interface.".into(),
+        };
+        first.edit(5, revised).await.unwrap();
+        assert!(
+            second
+                .edit(
+                    5,
+                    SharedEdit::UpdateRequirement {
+                        element: requirement,
+                        name: "Stale response".into(),
+                        requirement_id: "REQ-1".into(),
+                        text: "Stale text must not overwrite the committed revision.".into(),
+                    }
+                )
+                .await
+                .is_err()
+        );
+        assert!(second.needs_refresh);
+        second.open(project.id).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&first.snapshot).unwrap(),
+            serde_json::to_value(&second.snapshot).unwrap()
+        );
+        let snapshot = second.snapshot.as_ref().unwrap();
+        assert_eq!(snapshot.revision, 6);
+        assert_eq!(
+            snapshot
+                .project
+                .element(requirement)
+                .unwrap()
+                .requirement_id
+                .as_deref(),
+            Some("REQ-1A")
+        );
+        assert_eq!(snapshot.project.relationships.len(), 2);
+        assert!(
+            snapshot
+                .project
+                .relationships
+                .values()
+                .all(|relationship| relationship.target_id == requirement)
+        );
+        task.abort();
+        let _ = task.await;
+        let (url, restarted) = start(&path, credentials(project.id)).await;
+        let mut reopened = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        reopened.open(project.id).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&first.snapshot).unwrap(),
+            serde_json::to_value(&reopened.snapshot).unwrap()
+        );
+        restarted.abort();
+        let _ = restarted.await;
+    });
+}

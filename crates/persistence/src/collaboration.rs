@@ -17,6 +17,7 @@ pub const COLLABORATION_CAPABILITIES: &[&str] = &[
     "shared-bdd",
     "simple-relationships",
     "server-routed-bdd-relationships",
+    "shared-requirements-v1",
 ];
 
 const MIN_BDD_NODE_WIDTH: f64 = 48.0;
@@ -122,6 +123,22 @@ pub enum SharedEdit {
     },
     RenameElement {
         element: ElementId,
+        name: String,
+    },
+    CreateRequirement {
+        owner: ElementId,
+        name: String,
+        requirement_id: String,
+        text: String,
+    },
+    UpdateRequirement {
+        element: ElementId,
+        name: String,
+        requirement_id: String,
+        text: String,
+    },
+    CreateTestCase {
+        owner: ElementId,
         name: String,
     },
     CreateRelationship {
@@ -652,6 +669,9 @@ impl ProjectDatabase {
             SharedEdit::CreateBlock { name, .. }
             | SharedEdit::CreatePackage { name, .. }
             | SharedEdit::RenameElement { name, .. }
+            | SharedEdit::CreateRequirement { name, .. }
+            | SharedEdit::UpdateRequirement { name, .. }
+            | SharedEdit::CreateTestCase { name, .. }
             | SharedEdit::CreateBddDiagram { name, .. }
             | SharedEdit::RenameBddDiagram { name, .. } => validate_name(name)?,
             SharedEdit::DeleteBddDiagram { .. }
@@ -680,6 +700,30 @@ impl ProjectDatabase {
                 semantic_changed = true;
                 model.rename_element(*element, name)?;
                 *element
+            }
+            SharedEdit::CreateRequirement {
+                owner,
+                name,
+                requirement_id,
+                text,
+            } => {
+                semantic_changed = true;
+                model.create_requirement(name, requirement_id, text, *owner)?
+            }
+            SharedEdit::UpdateRequirement {
+                element,
+                name,
+                requirement_id,
+                text,
+            } => {
+                semantic_changed = true;
+                model.update_requirement(*element, requirement_id, text)?;
+                model.rename_element(*element, name)?;
+                *element
+            }
+            SharedEdit::CreateTestCase { owner, name } => {
+                semantic_changed = true;
+                model.create_element(ElementKind::TestCase, name, *owner)?
             }
             SharedEdit::CreateRelationship {
                 kind,
