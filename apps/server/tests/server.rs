@@ -92,22 +92,43 @@ fn presence_uses_authenticated_identity_and_never_changes_model_revision() {
     let joined = service.dispatch("POST", &endpoint, Some(&editor), &body);
     assert_eq!(joined.0, 200);
     assert_eq!(joined.1["participants"][0]["role"], "editor");
-    let identity = service.dispatch("GET", "/v1/capabilities", Some(&editor), &[]).1["actor"].clone();
+    let identity = service
+        .dispatch("GET", "/v1/capabilities", Some(&editor), &[])
+        .1["actor"]
+        .clone();
     assert_eq!(joined.1["participants"][0]["actor"], identity);
     let attempted_delete = service.dispatch("DELETE", &endpoint, Some(&viewer), &body);
-    assert_eq!(attempted_delete.1["participants"].as_array().unwrap().len(), 1);
-    let viewer_body = serde_json::to_vec(&json!({"session":Uuid::new_v4(),"name":"Reviewer"})).unwrap();
+    assert_eq!(
+        attempted_delete.1["participants"].as_array().unwrap().len(),
+        1
+    );
+    let viewer_body =
+        serde_json::to_vec(&json!({"session":Uuid::new_v4(),"name":"Reviewer"})).unwrap();
     let joined = service.dispatch("POST", &endpoint, Some(&viewer), &viewer_body);
     assert_eq!(joined.0, 200);
     assert_eq!(joined.1["participants"].as_array().unwrap().len(), 2);
-    assert!(joined.1["participants"].as_array().unwrap().iter().any(|entry| entry["role"] == "viewer"));
-    let spoof = serde_json::to_vec(&json!({"session":session,"name":"Spoof","actor":Uuid::new_v4()})).unwrap();
-    assert_eq!(service.dispatch("POST", &endpoint, Some(&editor), &spoof).0, 400);
+    assert!(
+        joined.1["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["role"] == "viewer")
+    );
+    let spoof =
+        serde_json::to_vec(&json!({"session":session,"name":"Spoof","actor":Uuid::new_v4()}))
+            .unwrap();
+    assert_eq!(
+        service.dispatch("POST", &endpoint, Some(&editor), &spoof).0,
+        400
+    );
     let other = format!("/v1/projects/{}/presence", Uuid::new_v4());
     assert_eq!(service.dispatch("GET", &other, Some(&viewer), &[]).0, 403);
     let left = service.dispatch("DELETE", &endpoint, Some(&editor), &body);
     assert_eq!(left.1["participants"].as_array().unwrap().len(), 1);
-    assert_eq!(service.dispatch("GET", &snapshot, Some(&editor), &[]), before);
+    assert_eq!(
+        service.dispatch("GET", &snapshot, Some(&editor), &[]),
+        before
+    );
 }
 
 #[test]

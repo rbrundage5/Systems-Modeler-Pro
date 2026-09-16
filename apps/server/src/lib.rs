@@ -182,9 +182,15 @@ impl Service {
                     return (400, json!({"error":"invalid_presence"}));
                 };
                 if method == "DELETE" {
-                    return (200, json!(presence.leave(project, credential.actor, request.session, now)));
+                    return (
+                        200,
+                        json!(presence.leave(project, credential.actor, request.session, now)),
+                    );
                 }
-                let role = match grant.role { Role::Viewer => "viewer", Role::Editor => "editor" };
+                let role = match grant.role {
+                    Role::Viewer => "viewer",
+                    Role::Editor => "editor",
+                };
                 return match presence.heartbeat(project, credential.actor, role, request, now) {
                     Ok(view) => (200, json!(view)),
                     Err(status) => (status, json!({"error":"presence_rejected"})),

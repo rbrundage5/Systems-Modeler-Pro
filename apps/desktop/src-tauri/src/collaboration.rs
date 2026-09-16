@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{path::Path, time::Duration};
 use systems_modeler_core::{Project, ProjectId};
 use systems_modeler_persistence::collaboration::{
-    COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, SharedBddDiagram,
-    PresenceRequest, ProjectPresence, SharedEdit,
+    COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, PresenceRequest,
+    ProjectPresence, SharedBddDiagram, SharedEdit,
 };
 use systems_modeler_persistence::collaboration_outbox::{CollaborationOutbox, PendingSharedEdit};
 use tauri::Manager;
@@ -324,16 +324,33 @@ impl Session {
         self.send(request).await
     }
 
-    async fn presence_request(&self, project: ProjectId, method: Method) -> Result<ProjectPresence, String> {
-        let url = self.base.join(&format!("v1/projects/{project}/presence"))
+    async fn presence_request(
+        &self,
+        project: ProjectId,
+        method: Method,
+    ) -> Result<ProjectPresence, String> {
+        let url = self
+            .base
+            .join(&format!("v1/projects/{project}/presence"))
             .map_err(|_| "Invalid presence endpoint.")?;
-        let request = self.client.request(method, url).bearer_auth(&self.token).json(&PresenceRequest {
-            session: self.presence_session, name: self.display_name.clone(),
-        });
-        self.send(request).await.map_err(|_| "Participant status is unavailable; model edits and pending recovery are unchanged.".into())
+        let request = self
+            .client
+            .request(method, url)
+            .bearer_auth(&self.token)
+            .json(&PresenceRequest {
+                session: self.presence_session,
+                name: self.display_name.clone(),
+            });
+        self.send(request).await.map_err(|_| {
+            "Participant status is unavailable; model edits and pending recovery are unchanged."
+                .into()
+        })
     }
 
-    async fn send<T: DeserializeOwned>(&self, request: reqwest::RequestBuilder) -> Result<T, (bool, String)> {
+    async fn send<T: DeserializeOwned>(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, (bool, String)> {
         let mut response = request.send().await.map_err(|_| {
             (true, "Connection failed. Check the server and certificate. If an edit was sent, use Retry pending edit to recover its result.".into())
         })?;
@@ -451,7 +468,11 @@ pub async fn collaboration_connect(
     }
     let mut session = Session::connect(&server, token).await?;
     let name = display_name.as_deref().unwrap_or("Collaborator").trim();
-    if name.is_empty() || name.len() > 256 || name.chars().count() > 64 || name.chars().any(char::is_control) {
+    if name.is_empty()
+        || name.len() > 256
+        || name.chars().count() > 64
+        || name.chars().any(char::is_control)
+    {
         return Err("Enter a display name of 1 to 64 characters without line breaks.".into());
     }
     session.display_name = name.into();
@@ -513,7 +534,9 @@ pub async fn collaboration_disconnect(
     }
     if let Some(session) = guard.as_ref() {
         if let Some(snapshot) = session.snapshot.as_ref() {
-            let _ = session.presence_request(snapshot.project.id, Method::DELETE).await;
+            let _ = session
+                .presence_request(snapshot.project.id, Method::DELETE)
+                .await;
         }
     }
     *guard = None;
@@ -521,10 +544,17 @@ pub async fn collaboration_disconnect(
 }
 
 #[tauri::command]
-pub async fn collaboration_presence(state: tauri::State<'_, CollaborationState>) -> Result<ProjectPresence, String> {
+pub async fn collaboration_presence(
+    state: tauri::State<'_, CollaborationState>,
+) -> Result<ProjectPresence, String> {
     let guard = state.0.lock().await;
     let session = guard.as_ref().ok_or("Connect to a server first.")?;
-    let project = session.snapshot.as_ref().ok_or("Open a shared project first.")?.project.id;
+    let project = session
+        .snapshot
+        .as_ref()
+        .ok_or("Open a shared project first.")?
+        .project
+        .id;
     session.presence_request(project, Method::POST).await
 }
 
