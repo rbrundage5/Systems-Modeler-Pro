@@ -1,6 +1,11 @@
 //! Rust-authoritative Package Diagram semantics and presentations.
 
 use super::*;
+use systems_modeler_core::structural_presentation::{
+    dependency_endpoints, package_presentable, package_relationship_kind,
+    package_relationship_name,
+};
+pub(super) use systems_modeler_core::structural_presentation::validate_package_diagram;
 use systems_modeler_core::{ElementKind, Project, RelationshipKind, VisibilityKind};
 
 const PACKAGE_MIN_WIDTH: f64 = 120.0;
@@ -70,28 +75,6 @@ fn package_node_kind(kind: &ElementKind) -> bool {
     )
 }
 
-fn package_presentable(element: &systems_modeler_core::Element) -> bool {
-    element.is_packageable() || element.kind == ElementKind::Comment
-}
-
-fn package_relationship_kind(kind: &RelationshipKind) -> bool {
-    matches!(
-        kind,
-        RelationshipKind::PackageImport
-            | RelationshipKind::ElementImport
-            | RelationshipKind::Dependency
-    )
-}
-
-fn package_relationship_name(kind: &RelationshipKind) -> &'static str {
-    match kind {
-        RelationshipKind::PackageImport => "PackageImport",
-        RelationshipKind::ElementImport => "ElementImport",
-        RelationshipKind::Dependency => "Dependency",
-        _ => "Unsupported",
-    }
-}
-
 fn package_element_kind(value: &str) -> Result<ElementKind, String> {
     match value {
         "Package" => Ok(ElementKind::Package),
@@ -142,32 +125,6 @@ fn node_for_element<'a>(
         .iter()
         .find(|node| node.element_id == element_id)
         .ok_or_else(|| "relationship endpoint must be presented on the Package Diagram".into())
-}
-
-fn dependency_endpoints(
-    project: &Project,
-    source_id: ElementId,
-    target_id: ElementId,
-) -> Result<(), String> {
-    let source = project
-        .element(source_id)
-        .map_err(|error| error.to_string())?;
-    let target = project
-        .element(target_id)
-        .map_err(|error| error.to_string())?;
-    if !source.is_packageable() || !target.is_packageable() {
-        return Err(format!(
-            "Package-level Dependency requires packageable semantic endpoints; received '{}' ({:?}) -> '{}' ({:?})",
-            source.name, source.kind, target.name, target.kind
-        ));
-    }
-    if source_id == target_id {
-        return Err(format!(
-            "Dependency cannot connect '{}' to itself",
-            source.name
-        ));
-    }
-    Ok(())
 }
 
 fn semantic_duplicate(
@@ -264,114 +221,6 @@ fn delete_relationship_candidate(
         diagram
             .edges
             .retain(|edge| edge.relationship_id != relationship_id.to_string());
-    }
-    Ok(())
-}
-
-pub(super) fn validate_package_diagram(
-    project: &Project,
-    diagram: &BddDiagram,
-) -> Result<(), String> {
-    if diagram.family != "package" {
-        return Err("target diagram is not a Package Diagram".into());
-    }
-    let owner = project
-        .element(parse_element_id(&diagram.owner_id)?)
-        .map_err(|error| error.to_string())?;
-    if !matches!(owner.kind, ElementKind::Model | ElementKind::Package) {
-        return Err(format!(
-            "Package Diagram owner '{}' must be a Model or Package",
-            owner.name
-        ));
-    }
-
-    let mut presentation_ids = HashSet::new();
-    for node in &diagram.nodes {
-        if !presentation_ids.insert(&node.id) {
-            return Err(format!("duplicate Package presentation id: {}", node.id));
-        }
-        let element = project
-            .element(parse_element_id(&node.element_id)?)
-            .map_err(|error| error.to_string())?;
-        if !package_presentable(element) {
-            return Err(format!(
-                "'{}' ({:?}) cannot be presented on a Package Diagram",
-                element.name, element.kind
-            ));
-        }
-        if !node.x.is_finite()
-            || !node.y.is_finite()
-            || !node.width.is_finite()
-            || !node.height.is_finite()
-            || node.x < 0.0
-            || node.y < 42.0
-            || node.width < PACKAGE_MIN_WIDTH
-            || node.height < PACKAGE_MIN_HEIGHT
-        {
-            return Err(format!(
-                "invalid Package presentation geometry for '{}'",
-                element.name
-            ));
-        }
-    }
-
-    for edge in &diagram.edges {
-        if !presentation_ids.insert(&edge.id) {
-            return Err(format!(
-                "duplicate Package relationship presentation id: {}",
-                edge.id
-            ));
-        }
-        let relationship = project
-            .relationship(parse_relationship_id(&edge.relationship_id)?)
-            .map_err(|error| error.to_string())?;
-        if !package_relationship_kind(&relationship.kind) {
-            return Err(format!(
-                "{} is not valid on a Package Diagram",
-                relationship_display_kind(relationship)
-            ));
-        }
-        let source = diagram
-            .nodes
-            .iter()
-            .find(|node| node.id == edge.source_node_id)
-            .ok_or("Package relationship presentation references a missing source presentation")?;
-        let target = diagram
-            .nodes
-            .iter()
-            .find(|node| node.id == edge.target_node_id)
-            .ok_or("Package relationship presentation references a missing target presentation")?;
-        if source.element_id != relationship.source_id.to_string()
-            || target.element_id != relationship.target_id.to_string()
-        {
-            let semantic_source = project
-                .element(relationship.source_id)
-                .map_err(|error| error.to_string())?;
-            let semantic_target = project
-                .element(relationship.target_id)
-                .map_err(|error| error.to_string())?;
-            return Err(format!(
-                "{} presentation endpoints do not match its Rust semantic endpoints '{} -> {}'",
-                package_relationship_name(&relationship.kind),
-                semantic_source.name,
-                semantic_target.name,
-            ));
-        }
-        if relationship.kind == RelationshipKind::Dependency {
-            dependency_endpoints(project, relationship.source_id, relationship.target_id)?;
-        }
-        if edge.points.len() < 2
-            || edge
-                .points
-                .iter()
-                .any(|point| !point.x.is_finite() || !point.y.is_finite())
-            || edge.label_anchor.is_none()
-        {
-            return Err(format!(
-                "{} presentation has invalid route or label geometry",
-                package_relationship_name(&relationship.kind)
-            ));
-        }
     }
     Ok(())
 }
@@ -740,6 +589,11 @@ pub fn update_package_relationship(
 #[cfg(test)]
 mod tests {
     use super::*;
+use systems_modeler_core::structural_presentation::{
+    dependency_endpoints, package_presentable, package_relationship_kind,
+    package_relationship_name,
+};
+pub(super) use systems_modeler_core::structural_presentation::validate_package_diagram;
 
     fn node(id: &str, element_id: ElementId, x: f64, y: f64) -> DiagramNode {
         DiagramNode {
