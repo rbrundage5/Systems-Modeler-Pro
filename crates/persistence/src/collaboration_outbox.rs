@@ -63,7 +63,8 @@ impl CollaborationOutbox {
                 project: serde_json::from_str(&project)?,
                 request: serde_json::from_str(&request)?,
             })
-        }).transpose()
+        })
+        .transpose()
     }
 
     pub fn reserve(

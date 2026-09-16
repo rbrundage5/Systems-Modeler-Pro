@@ -71,7 +71,13 @@ fn authenticated_capabilities_define_the_client_server_contract() {
     assert!(!actor.is_nil());
     let other = service.dispatch("GET", "/v1/capabilities", Some(&viewer), &[]);
     assert_ne!(response.1["actor"], other.1["actor"]);
-    assert!(service.dispatch("GET", "/v1/capabilities", None, &[]).1.get("actor").is_none());
+    assert!(
+        service
+            .dispatch("GET", "/v1/capabilities", None, &[])
+            .1
+            .get("actor")
+            .is_none()
+    );
 }
 
 #[test]

@@ -4,13 +4,13 @@
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{path::Path, time::Duration};
-use tauri::Manager;
 use systems_modeler_core::{Project, ProjectId};
 use systems_modeler_persistence::collaboration::{
     COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, SharedBddDiagram,
     SharedEdit,
 };
 use systems_modeler_persistence::collaboration_outbox::{CollaborationOutbox, PendingSharedEdit};
+use tauri::Manager;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -111,7 +111,8 @@ fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
                 .any(|available| available.as_str() == *required)
         })
         .collect();
-    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() || info.actor.is_nil() {
+    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() || info.actor.is_nil()
+    {
         let missing = if missing.is_empty() {
             "none".to_string()
         } else {
@@ -209,13 +210,17 @@ impl Session {
     async fn attach_outbox(&mut self, path: &Path) -> Result<(), String> {
         let outbox = CollaborationOutbox::open(path)
             .map_err(|_| "Could not open edit recovery storage. No shared edit was sent.")?;
-        let pending = outbox.load(self.base.as_str(), self.actor)
-            .map_err(|_| "Could not read the saved pending edit. Recovery storage was preserved.")?;
+        let pending = outbox.load(self.base.as_str(), self.actor).map_err(
+            |_| "Could not read the saved pending edit. Recovery storage was preserved.",
+        )?;
         if let Some(pending) = pending {
-            if pending.request.expected_revision < 0 || pending.request.expected_revision == i64::MAX
+            if pending.request.expected_revision < 0
+                || pending.request.expected_revision == i64::MAX
                 || pending.request.operation_id.is_nil()
             {
-                return Err("The saved pending edit is invalid. Recovery storage was preserved.".into());
+                return Err(
+                    "The saved pending edit is invalid. Recovery storage was preserved.".into(),
+                );
             }
             self.open(pending.project).await.map_err(|_| {
                 "A pending edit is saved for this account. Restore access to its project and reconnect to recover it."
@@ -423,11 +428,14 @@ pub async fn collaboration_connect(
         return Err("Resolve the pending edit before reconnecting.".into());
     }
     let mut session = Session::connect(&server, token).await?;
-    let directory = app.path().app_data_dir()
+    let directory = app
+        .path()
+        .app_data_dir()
         .map_err(|_| "Could not locate edit recovery storage.")?;
-    std::fs::create_dir_all(&directory)
-        .map_err(|_| "Could not create edit recovery storage.")?;
-    session.attach_outbox(&directory.join("collaboration-outbox.sqlite")).await?;
+    std::fs::create_dir_all(&directory).map_err(|_| "Could not create edit recovery storage.")?;
+    session
+        .attach_outbox(&directory.join("collaboration-outbox.sqlite"))
+        .await?;
     let view = session.view();
     *state = Some(session);
     Ok(view)
