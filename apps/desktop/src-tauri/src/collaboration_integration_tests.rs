@@ -1014,3 +1014,72 @@ fn two_clients_author_requirements_and_verify_without_losing_stale_edits() {
         let _ = restarted.await;
     });
 }
+
+#[test]
+fn two_clients_create_and_present_shared_interface_blocks_through_native_semantics() {
+    use systems_modeler_core::structural_presentation::creation::{
+        BddElementKind, CreateBddElement,
+    };
+    tauri::async_runtime::block_on(async {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared-interface.sqlite");
+        let project = seed(&path);
+        let (url, task) = start(&path, credentials(project.id)).await;
+        let mut alice = Session::connect(&url, "a".repeat(64)).await.unwrap();
+        let mut bob = Session::connect(&url, "b".repeat(64)).await.unwrap();
+        alice.open(project.id).await.unwrap();
+        bob.open(project.id).await.unwrap();
+        let command = SharedEdit::CreateBddElement(CreateBddElement {
+            kind: BddElementKind::InterfaceBlock,
+            owner: project.root_id,
+            name: "Control interface".into(),
+        });
+        alice.edit(0, command.clone()).await.unwrap();
+        assert!(bob.edit(0, command).await.is_err());
+        assert!(bob.needs_refresh);
+        bob.open(project.id).await.unwrap();
+        let element = named(&bob, "Control interface");
+        assert_eq!(
+            bob.snapshot
+                .as_ref()
+                .unwrap()
+                .project
+                .element(element)
+                .unwrap()
+                .kind,
+            systems_modeler_core::ElementKind::InterfaceBlock
+        );
+        let diagram = DiagramId::new();
+        bob.edit(
+            1,
+            SharedEdit::CreateBddDiagram {
+                diagram,
+                owner: project.root_id,
+                name: "Interfaces".into(),
+            },
+        )
+        .await
+        .unwrap();
+        bob.edit(
+            2,
+            SharedEdit::PlaceBddElement {
+                diagram,
+                node: Uuid::new_v4(),
+                element,
+            },
+        )
+        .await
+        .unwrap();
+        alice.open(project.id).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&alice.snapshot).unwrap(),
+            serde_json::to_value(&bob.snapshot).unwrap()
+        );
+        assert_eq!(
+            alice.snapshot.as_ref().unwrap().diagrams[0].nodes[0].element,
+            element
+        );
+        task.abort();
+        let _ = task.await;
+    });
+}
