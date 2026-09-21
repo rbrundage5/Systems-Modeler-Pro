@@ -2501,7 +2501,9 @@ mod tests {
     }
 
     fn port_paste_snapshot() -> EditingSnapshot {
-        let (project, diagram) = super::super::ibd_geometry::tests::fixture();
+        let (project, mut diagram) = super::super::ibd_geometry::tests::fixture();
+        diagram.properties[0].ports[0].x += diagram.properties[0].width;
+        super::super::ibd_geometry::reroute_connected(&mut diagram, &["internal".into()]).unwrap();
         EditingSnapshot {
             project, diagrams: Vec::new(), ibd_diagrams: vec![diagram],
             behavior: Default::default(), behavior_diagrams: Vec::new(),
@@ -2535,7 +2537,7 @@ mod tests {
             assert_ne!(copy.ports[0].id, original.properties[0].ports[0].id);
             assert_eq!(copy.ports[0].element_id, original_port.to_string());
             assert_eq!(copy.ports[0].property_path, vec![copy.element_id.clone()]);
-            assert_eq!((copy.ports[0].x, copy.ports[0].y), (copy.x, 210.0 + PASTE_OFFSET));
+            assert_eq!((copy.ports[0].x, copy.ports[0].y), (copy.x + copy.width, 210.0 + PASTE_OFFSET));
             let edge = &diagram.connectors[1];
             assert_eq!(edge.target_presentation_id, copy.ports[0].id);
             let relation = snapshot.project.relationship(parse_relationship_id(&edge.relationship_id).unwrap()).unwrap();
@@ -2707,7 +2709,10 @@ mod tests {
     #[test]
     fn ibd_paste_parent_and_port_preserves_one_child_and_connector_mapping() {
         for reverse in [false, true] {
-            let (project, diagram) = super::super::ibd_geometry::tests::fixture();
+            let (project, mut diagram) = super::super::ibd_geometry::tests::fixture();
+            // Use an exposed right port; overlapping placement is qualified separately.
+            diagram.properties[0].ports[0].x += diagram.properties[0].width;
+            super::super::ibd_geometry::reroute_connected(&mut diagram, &["internal".into()]).unwrap();
             let id = diagram.id.clone();
             let mut snapshot = EditingSnapshot {
                 project,
@@ -2735,7 +2740,7 @@ mod tests {
             assert_eq!(copy.ports.len(), 1);
             assert_ne!(copy.ports[0].id, "internal");
             assert_eq!(copy.ports[0].element_id, diagram.properties[0].ports[0].element_id);
-            assert_eq!(copy.ports[0].x, copy.x);
+            assert_eq!(copy.ports[0].x, copy.x + copy.width);
             assert_eq!(copy.ports[0].y, 210.0 + PASTE_OFFSET);
             assert_eq!(diagram.connectors[1].target_presentation_id, copy.ports[0].id);
             assert_eq!(diagram.connectors[1].source_presentation_id, "external");
