@@ -433,12 +433,14 @@ mod specification_tests {
                 Multiplicity::ONE,
             )
             .unwrap();
-        let diagram = ibd::IbdDiagram {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: "System internals".into(),
-            context_block_id: property.owner_id.unwrap().to_string(),
-            owner_id: model.root_id.to_string(),
-            properties: vec![ibd::IbdPropertyPresentation {
+        // Deserialize the legacy presentation shape so optional schema additions
+        // do not couple this semantic rollback regression to another PR.
+        let diagram: ibd::IbdDiagram = serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "name": "System internals",
+            "context_block_id": property.owner_id.unwrap().to_string(),
+            "owner_id": model.root_id.to_string(),
+            "properties": vec![ibd::IbdPropertyPresentation {
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: feature.to_string(),
                 property_path: vec![feature.to_string()],
@@ -455,9 +457,10 @@ mod specification_tests {
                     size: 12.0,
                 }],
             }],
-            boundary_ports: vec![],
-            connectors: vec![],
-        };
+            "boundary_ports": [],
+            "connectors": [],
+        }))
+        .unwrap();
         ibd::validate_ibd_diagrams(model, std::slice::from_ref(&diagram)).unwrap();
         drop(project);
         *workspace.ibd_diagrams.lock().unwrap() = vec![diagram];
