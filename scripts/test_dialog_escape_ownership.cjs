@@ -227,3 +227,5 @@ test('a frame click or sub-threshold movement does not adopt legacy geometry or 
   assert.equal(ui.calls.includes('set_diagram_frame_preference'), false);
   assert.equal(ui.window.smpState.snapshot.ibd_diagrams[0].context_frame, null);
 });
+
+require('./test_standard_editing_clipboard.cjs');

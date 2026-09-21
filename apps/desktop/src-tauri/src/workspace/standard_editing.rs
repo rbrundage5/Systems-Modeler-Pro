@@ -814,6 +814,7 @@ fn paste_clipboard(
     snapshot: &mut EditingSnapshot,
     target_diagram_id: &str,
     payload: &ClipboardPayload,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
 ) -> Result<Vec<WorkspaceSelection>, String> {
     let target_family = family_for(target_diagram_id, snapshot)?;
     let mut selections = Vec::new();
@@ -952,6 +953,14 @@ fn paste_clipboard(
                 .iter_mut()
                 .find(|diagram| diagram.id == target_diagram_id)
                 .ok_or("IBD not found")?;
+            if diagram.context_frame.is_none()
+                && payload.items.iter().any(|item| matches!(item, ClipboardItem::IbdPort { parent: None, .. }))
+            {
+                super::ibd_geometry::apply_context_frame(
+                    diagram,
+                    visible_frame.cloned().ok_or("the visible IBD context frame is required to paste a boundary port")?,
+                )?;
+            }
             let mut presentation_map = HashMap::new();
             for item in &payload.items {
                 if let ClipboardItem::IbdProperty { property } = item {
@@ -1001,6 +1010,9 @@ fn paste_clipboard(
                     } else {
                         diagram.boundary_ports.push(copy.clone());
                     }
+                    super::ibd_geometry::apply_port(
+                        diagram, &copy.id, copy.x, copy.y, copy.size, visible_frame,
+                    )?;
                     selections.push(WorkspaceSelection {
                         kind: "IbdPort".into(),
                         id: copy.id,
@@ -2362,6 +2374,7 @@ pub fn copy_selection(
 
 pub fn paste_selection(
     diagram_id: String,
+    frame_preference: Option<shared_workspace::DiagramFramePreference>,
     selections: Vec<WorkspaceSelection>,
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, ActivityWorkspaceState>,
@@ -2375,11 +2388,22 @@ pub fn paste_selection(
         .map_err(|_| "editing clipboard lock poisoned")?
         .clone()
         .ok_or("clipboard is empty")?;
-    let mut snapshot = EditingSnapshot::capture(&workspace, &activity)?;
-    let new_selections = paste_clipboard(&mut snapshot, &diagram_id, &payload)?;
+    paste_clipboard_states(&workspace, &activity, &history, &diagram_id, &payload, frame_preference.as_ref())
+}
+
+fn paste_clipboard_states(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    history: &HistoryState,
+    diagram_id: &str,
+    payload: &ClipboardPayload,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<StandardEditingResult, String> {
+    let mut snapshot = EditingSnapshot::capture(workspace, activity)?;
+    let new_selections = paste_clipboard(&mut snapshot, diagram_id, payload, visible_frame)?;
     snapshot.validate()?;
-    history::checkpoint_states(&workspace, &activity, &history)?;
-    snapshot.commit(&workspace, &activity)?;
+    history::checkpoint_states(workspace, activity, history)?;
+    snapshot.commit(workspace, activity)?;
     Ok(StandardEditingResult {
         changed: new_selections.len(),
         selections: new_selections,
@@ -2460,6 +2484,103 @@ mod tests {
         WorkspaceSelection { kind: "Presentation".into(), id: id.into() }
     }
 
+    fn port_paste_snapshot() -> EditingSnapshot {
+        let (project, diagram) = super::super::ibd_geometry::tests::fixture();
+        EditingSnapshot {
+            project, diagrams: Vec::new(), ibd_diagrams: vec![diagram],
+            behavior: Default::default(), behavior_diagrams: Vec::new(),
+            activity: Default::default(), activity_diagrams: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn ibd_paste_individual_ports_remain_attached_on_all_four_sides() {
+        for boundary in [false, true] {
+            for side in 0..4 {
+                let mut snapshot = port_paste_snapshot();
+                let diagram = &mut snapshot.ibd_diagrams[0];
+                let id = diagram.id.clone();
+                let (left, top, width, height) = if boundary {
+                    let frame = diagram.context_frame.as_ref().unwrap();
+                    (frame.x, frame.y, frame.width, frame.height)
+                } else { (200.0, 160.0, 180.0, 100.0) };
+                let port = if boundary { &mut diagram.boundary_ports[0] } else { &mut diagram.properties[0].ports[0] };
+                let (x, y) = match side {
+                    0 => (left, top + height / 2.0),
+                    1 => (left + width, top + height / 2.0),
+                    2 => (left + width / 2.0, top),
+                    _ => (left + width / 2.0, top + height),
+                };
+                port.x = x;
+                port.y = y;
+                let source_id = port.id.clone();
+                let element_id = port.element_id.clone();
+                let payload = collect_clipboard(&snapshot, &id, &[ibd_selection(&source_id)]).unwrap();
+                let result = paste_clipboard(&mut snapshot, &id, &payload, None).unwrap();
+                let diagram = &snapshot.ibd_diagrams[0];
+                let copy = if boundary { &diagram.boundary_ports[1] } else { &diagram.properties[0].ports[1] };
+                assert_ne!(copy.id, source_id);
+                assert_eq!(copy.id, result[0].id);
+                assert_eq!(copy.element_id, element_id);
+                match side {
+                    0 | 1 => assert_eq!(copy.x, x),
+                    _ => assert_eq!(copy.y, y),
+                }
+                snapshot.validate().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn ibd_paste_legacy_frame_is_atomic_and_undoable() {
+        let mut snapshot = port_paste_snapshot();
+        snapshot.ibd_diagrams[0].context_frame = None;
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("external")]).unwrap();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        snapshot.commit(&workspace, &activity).unwrap();
+        let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert!(paste_clipboard_states(&workspace, &activity, &history, &id, &payload, None).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        let mut frame = super::super::ibd_geometry::default_context_frame();
+        frame.x = 80.0;
+        paste_clipboard_states(&workspace, &activity, &history, &id, &payload, Some(&frame)).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        let after = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert_eq!(workspace.ibd_diagrams.lock().unwrap()[0].boundary_ports[1].x, 80.0);
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        frame.width = -1.0;
+        assert!(paste_clipboard_states(&workspace, &activity, &history, &id, &payload, Some(&frame)).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), after);
+    }
+
+    #[test]
+    fn ibd_paste_to_another_diagram_requires_context_and_parent() {
+        let mut snapshot = port_paste_snapshot();
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("internal")]).unwrap();
+        let mut target = snapshot.ibd_diagrams[0].clone();
+        target.id = uuid::Uuid::new_v4().to_string();
+        target.connectors.clear();
+        target.properties[0].x += 500.0;
+        let target_id = target.id.clone();
+        snapshot.ibd_diagrams.push(target);
+        paste_clipboard(&mut snapshot, &target_id, &payload, None).unwrap();
+        assert_eq!(snapshot.ibd_diagrams[1].properties[0].ports[1].x, 700.0);
+        snapshot.ibd_diagrams[1].properties.clear();
+        let before = serde_json::to_value(&snapshot.ibd_diagrams).unwrap();
+        assert!(paste_clipboard(&mut snapshot, &target_id, &payload, None).is_err());
+        assert_eq!(serde_json::to_value(&snapshot.ibd_diagrams).unwrap(), before);
+        snapshot.ibd_diagrams[1].context_block_id = snapshot.project.root_id.to_string();
+        assert!(paste_clipboard(&mut snapshot, &target_id, &payload, None).unwrap_err().contains("same Block context"));
+    }
+
     #[test]
     fn ibd_paste_parent_and_port_preserves_one_child_and_connector_mapping() {
         for reverse in [false, true] {
@@ -2482,7 +2603,7 @@ mod tests {
             }
             selected.push(WorkspaceSelection { kind: "IbdConnector".into(), id: "connector".into() });
             let payload = collect_clipboard(&snapshot, &id, &selected).unwrap();
-            let pasted = paste_clipboard(&mut snapshot, &id, &payload).unwrap();
+            let pasted = paste_clipboard(&mut snapshot, &id, &payload, None).unwrap();
             assert_eq!(pasted.len(), 2);
             let diagram = &snapshot.ibd_diagrams[0];
             assert_eq!(diagram.properties.len(), 2);
