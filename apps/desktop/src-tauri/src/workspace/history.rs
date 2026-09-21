@@ -183,36 +183,30 @@ pub(super) fn apply_element_specification(
     element_id: systems_modeler_core::ElementId,
     edit: &systems_modeler_core::ElementSpecificationEdit,
 ) -> Result<bool, String> {
-    let mut project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?;
+    apply_structural_specification(workspace, activity, history, |current, diagrams| {
+        Ok((current.stage_element_specification(element_id, edit)?, diagrams.to_vec()))
+    })
+}
+
+/// Shared structural specification transaction, including affected IBD views.
+pub(super) fn apply_structural_specification(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    edit: impl FnOnce(&Project, &[ibd::IbdDiagram]) -> Result<(Project, Vec<ibd::IbdDiagram>), String>,
+) -> Result<bool, String> {
+    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
     let current = project.as_ref().ok_or("no project open")?;
-    let candidate = current.stage_element_specification(element_id, edit)?;
-    if serde_json::to_value(
-        current
-            .element(element_id)
-            .map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?
-        == serde_json::to_value(
-            candidate
-                .element(element_id)
-                .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?
+    let diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut ibd_diagrams = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let (candidate, candidate_ibds) = edit(current, &ibd_diagrams)?;
+    if serde_json::to_value(current).map_err(|error| error.to_string())?
+        == serde_json::to_value(&candidate).map_err(|error| error.to_string())?
+        && serde_json::to_value(&*ibd_diagrams).map_err(|error| error.to_string())?
+            == serde_json::to_value(&candidate_ibds).map_err(|error| error.to_string())?
     {
         return Ok(false);
     }
-
-    let diagrams = workspace
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")?;
-    let ibd_diagrams = workspace
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")?;
     let behavior = workspace
         .behavior
         .lock()
@@ -230,7 +224,7 @@ pub(super) fn apply_element_specification(
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
     super::validate_loaded_diagrams(&candidate, &diagrams)?;
-    super::ibd::validate_ibd_diagrams(&candidate, &ibd_diagrams)?;
+    super::ibd::validate_ibd_diagrams(&candidate, &candidate_ibds)?;
     super::behavior_workspace::validate_behavior_workspace(
         &candidate,
         &behavior,
@@ -264,6 +258,7 @@ pub(super) fn apply_element_specification(
     }
     redo.clear();
     *project = Some(candidate);
+    *ibd_diagrams = candidate_ibds;
     Ok(true)
 }
 

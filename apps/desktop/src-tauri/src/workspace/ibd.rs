@@ -83,7 +83,7 @@ fn port_rect(value: &IbdPortPresentation) -> RouteRect {
     }
 }
 
-fn ibd_end_for_presentation(
+pub(super) fn ibd_end_for_presentation(
     diagram: &IbdDiagram,
     presentation_id: &str,
 ) -> Result<(ConnectorEnd, RouteRect), String> {

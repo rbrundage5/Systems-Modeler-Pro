@@ -8,6 +8,7 @@ mod workspace {
     mod activity_mutation;
     mod activity_workspace;
     mod bdd_elements;
+    mod connector_editing;
     mod behavior_completion;
     mod behavior_creation;
     mod behavior_workspace;
@@ -85,6 +86,7 @@ mod workspace {
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
         resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
     };
+    pub use connector_editing::{ibd_connector_specification, update_ibd_connector_specification};
     pub use feature_editing::{
         element_type_choices, update_bdd_feature_semantics, update_element_specification,
     };
@@ -198,6 +200,7 @@ mod workspace {
 }
 
 use serde::Serialize;
+use workspace::{ibd_connector_specification, update_ibd_connector_specification};
 use workspace::{
     ActivityExecutionState, ActivityWorkspaceState, HistoryState, SequenceExecutionState,
     SharedWorkspaceState, StandardEditingState, StateMachineExecutionState, WorkspaceState,
@@ -821,6 +824,8 @@ fn main() {
             update_bdd_feature_semantics,
             element_type_choices,
             update_element_specification,
+            ibd_connector_specification,
+            update_ibd_connector_specification,
             update_bdd_presentation_geometry,
             rename_element,
             rename_active_diagram_header,

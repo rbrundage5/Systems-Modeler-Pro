@@ -72,6 +72,50 @@ pub struct ItemFlow {
 }
 
 impl Project {
+    /// Stage one connector edit and preserve its dependent ItemFlow directions.
+    pub fn stage_connector_specification(
+        &self,
+        id: RelationshipId,
+        name: &str,
+        connector: Connector,
+    ) -> Result<Project, String> {
+        let original = self.relationship(id).map_err(|error| error.to_string())?;
+        let old = original.connector.as_ref().ok_or("relationship is not a Connector")?;
+        if original.kind != crate::RelationshipKind::Connector || old.context_id != connector.context_id {
+            return Err("connector edits must retain their existing Block context".into());
+        }
+        self.validate_connector(&connector).map_err(|error| error.to_string())?;
+        let mut candidate = self.clone();
+        let relationship = candidate.relationships.get_mut(&id).ok_or("Connector not found")?;
+        relationship.name = name.trim().to_owned();
+        relationship.source_id = connector.source.port_id.unwrap_or(connector.source.role_id);
+        relationship.target_id = connector.target.port_id.unwrap_or(connector.target.role_id);
+        relationship.connector = Some(connector.clone());
+        for relationship in candidate.relationships.values_mut() {
+            let Some(flow) = &mut relationship.item_flow else { continue; };
+            if flow.connector_id != id { continue; }
+            let forward = flow.source == old.source && flow.target == old.target;
+            let reverse = flow.source == old.target && flow.target == old.source;
+            if !forward && !reverse {
+                return Err("dependent ItemFlow does not match the original connector ends".into());
+            }
+            // Reversing the connector's presentation order does not reverse flow.
+            if !((flow.source == connector.source && flow.target == connector.target)
+                || (flow.source == connector.target && flow.target == connector.source))
+            {
+                (flow.source, flow.target) = if forward {
+                    (connector.source.clone(), connector.target.clone())
+                } else {
+                    (connector.target.clone(), connector.source.clone())
+                };
+            }
+            relationship.source_id = flow.source.port_id.unwrap_or(flow.source.role_id);
+            relationship.target_id = flow.target.port_id.unwrap_or(flow.target.role_id);
+        }
+        candidate.validate().map_err(|error| error.to_string())?;
+        Ok(candidate)
+    }
+
     /// Resolve the classifier reached by a connector role path. Every property
     /// in the path must be a PartProperty or ReferenceProperty whose type is a
     /// Block-like structured classifier. The path is evaluated from the IBD
