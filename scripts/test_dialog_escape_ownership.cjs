@@ -231,3 +231,4 @@ test('a frame click or sub-threshold movement does not adopt legacy geometry or 
 require('./test_standard_editing_clipboard.cjs');
 require('./test_connector_properties.cjs');
 require('./test_item_flow_notation.cjs');
+require('./test_item_flow_properties.cjs');

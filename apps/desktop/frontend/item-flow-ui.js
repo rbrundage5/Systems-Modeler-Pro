@@ -173,6 +173,7 @@
 
   const baseRenderPropertiesItemFlow = renderProperties;
   renderProperties = function renderPropertiesWithItemFlows() {
+    window.smpItemFlowProperties?.deactivate();
     baseRenderPropertiesItemFlow();
     const diagram = selectedIbd();
     if (!diagram || !state.selectedRelationshipId) return;
@@ -180,7 +181,8 @@
       (relationship) => relationship.id === state.selectedRelationshipId && relationship.kind === 'Connector',
     );
     if (!selected) return;
-    const flows = (state.itemFlowNotation || []).filter((flow) => flow.connector_id === selected.id);
+    const project = state.snapshot.project;
+    const flows = project.relationships.filter(relationship => relationship.item_flow?.connector_id === selected.id);
     const panel = $('properties');
     if (!panel) return;
 
@@ -203,12 +205,12 @@
 
     const section = document.createElement('div');
     section.className = 'item-flow-properties';
-    section.innerHTML = `<div class="property-heading">Item Flows</div>${
-      flows.length
-        ? flows.map((flow) => `<div class="item-flow-property-row">${escapeHtml((flow.conveyed_item_names || []).join(', ') || 'conveyed item')}</div>`).join('')
-        : '<div class="muted">No Item Flow on this Connector.</div>'
-    }`;
     panel.appendChild(section);
+    window.smpItemFlowProperties.render({ container: section, projectId: project.root_id, connector: selected.connector,
+      diagramId: diagram.id, connectorId: selected.id, flows, invoke: requireInvoke(), refresh,
+      isCurrent: () => selectedIbd()?.id === diagram.id && state.selectedRelationshipId === selected.id
+        && state.snapshot.project.root_id === project.root_id,
+    });
   };
 
   loadNotation()
