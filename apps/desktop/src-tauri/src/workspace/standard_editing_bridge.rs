@@ -201,7 +201,13 @@ pub fn paste_selection(
 ) -> Result<StandardEditingResult, String> {
     let selections = active_selections(shared)?;
     standard_editing::paste_selection(
-        diagram_id, frame_preference, selections, workspace, activity, history, editing,
+        diagram_id,
+        frame_preference,
+        selections,
+        workspace,
+        activity,
+        history,
+        editing,
     )
 }
 
