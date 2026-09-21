@@ -6,7 +6,9 @@ pub fn element_type_choices(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<Vec<systems_modeler_core::ElementTypeChoice>, String> {
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
-    project.as_ref().ok_or("no project open")?
+    project
+        .as_ref()
+        .ok_or("no project open")?
         .element_type_choices(parse_element_id(&element_id)?)
 }
 
@@ -18,7 +20,13 @@ pub fn update_element_specification(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<bool, String> {
-    history::apply_element_specification(&state, &activity, &history, parse_element_id(&element_id)?, &edit)
+    history::apply_element_specification(
+        &state,
+        &activity,
+        &history,
+        parse_element_id(&element_id)?,
+        &edit,
+    )
 }
 
 fn parse_aggregation(value: &str) -> Result<AggregationKind, String> {
