@@ -5,6 +5,7 @@ contract is useful evidence, but is not a current whole-product completeness cla
 
 | Need | Read |
 | --- | --- |
+| Pre-package findings and current editing candidates | [21 September 2026 engineering review](PREPACKAGE_AUDIT_2026_09_21.md) |
 | Step 5 scope and acceptance | [Planning package](STEP5_SCOPE_AND_ACCEPTANCE.md) and [coverage checklist](STEP5_AUDIT_COVERAGE.md) |
 | Collaboration implementation and acceptance | [Desktop workflow](COLLABORATION_DESKTOP.md), [server setup](COLLABORATION_SERVER.md), [storage foundation](COLLABORATION.md) |
 | Product overview | [Root README](../README.md) |
