@@ -31,10 +31,12 @@ pub struct DiagramFramePreference {
 }
 
 impl DiagramFramePreference {
-    fn validate(&self) -> Result<(), String> {
+    pub(super) fn validate(&self) -> Result<(), String> {
         if ![self.x, self.y, self.width, self.height]
             .iter()
             .all(|value| value.is_finite())
+            || self.x.abs() > 100_000.0
+            || self.y.abs() > 100_000.0
             || self.width < 320.0
             || self.height < 240.0
             || self.width > 100_000.0
@@ -803,9 +805,16 @@ pub fn set_viewport_preference(
 #[tauri::command]
 pub fn get_diagram_frame_preference(
     app: tauri::AppHandle,
+    workspace: tauri::State<'_, super::WorkspaceState>,
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
 ) -> Result<Option<DiagramFramePreference>, String> {
+    if let Some(frame) = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?
+        .iter().find(|diagram| diagram.id == diagram_id)
+        .and_then(|diagram| diagram.context_frame.clone())
+    {
+        return Ok(Some(frame));
+    }
     ensure_preferences_loaded(&app, &state)?;
     Ok(state
         .frames
@@ -818,15 +827,25 @@ pub fn get_diagram_frame_preference(
 #[tauri::command]
 pub fn set_diagram_frame_preference(
     app: tauri::AppHandle,
+    workspace: tauri::State<'_, super::WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
     preference: DiagramFramePreference,
 ) -> Result<(), String> {
-    ensure_preferences_loaded(&app, &state)?;
     if uuid::Uuid::parse_str(&diagram_id).is_err() {
         return Err("diagram frame id is invalid".into());
     }
     preference.validate()?;
+    let is_ibd = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?
+        .iter().any(|diagram| diagram.id == diagram_id);
+    if is_ibd {
+        return super::history::edit_ibd_geometry(&workspace, &activity, &history, &diagram_id, |diagram| {
+            super::ibd_geometry::apply_context_frame(diagram, preference)
+        });
+    }
+    ensure_preferences_loaded(&app, &state)?;
     state
         .frames
         .lock()

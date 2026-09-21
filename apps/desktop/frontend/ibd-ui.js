@@ -5,7 +5,7 @@ function selectedIbd() {
 function ibdElement(project, id) { return project.elements.find((e) => e.id === id); }
 
 function propertyLabel(project, element) { return featureNotation(project, element); }
-function outerFramePoint(port) { const frame=window.smpRendererHost?.frameGeometry?.(); if(!frame)return{x:port.x,y:port.y}; const legacy={left:54,top:70,right:1072,bottom:732},distances=[[Math.abs(port.x-legacy.left),'left'],[Math.abs(port.x-legacy.right),'right'],[Math.abs(port.y-legacy.top),'top'],[Math.abs(port.y-legacy.bottom),'bottom']],side=distances.sort((a,b)=>a[0]-b[0])[0][1]; return side==='left'?{x:frame.x,y:port.y}:side==='right'?{x:frame.x+frame.width,y:port.y}:side==='top'?{x:port.x,y:frame.y}:{x:port.x,y:frame.y+frame.height}; }
+function outerFramePoint(port, diagram = selectedIbd()) { if(diagram?.context_frame)return{x:port.x,y:port.y}; const frame=window.smpRendererHost?.frameGeometry?.(); if(!frame)return{x:port.x,y:port.y}; const legacy={left:54,top:70,right:1072,bottom:732},distances=[[Math.abs(port.x-legacy.left),'left'],[Math.abs(port.x-legacy.right),'right'],[Math.abs(port.y-legacy.top),'top'],[Math.abs(port.y-legacy.bottom),'bottom']],side=distances.sort((a,b)=>a[0]-b[0])[0][1]; return side==='left'?{x:frame.x,y:port.y}:side==='right'?{x:frame.x+frame.width,y:port.y}:side==='top'?{x:port.x,y:frame.y}:{x:port.x,y:frame.y+frame.height}; }
 
 function connectorHelp(kind, sourceChosen = false) {
   if (kind === 'Assembly') {
@@ -130,7 +130,7 @@ function renderIbdConnectorLayer(frame, diagram, project) {
     const relationship = relationships.get(edge.relationship_id);
     if (!relationship || !edge.points?.length) continue;
     const polyline = document.createElementNS(SVG_NS, 'polyline');
-    const source=diagram.boundary_ports.find((port)=>port.id===edge.source_presentation_id),target=diagram.boundary_ports.find((port)=>port.id===edge.target_presentation_id),points=edge.points.map((point)=>({...point})); if(source)points[0]=outerFramePoint(source);if(target)points[points.length-1]=outerFramePoint(target);polyline.setAttribute('points',points.map((p) => `${p.x},${p.y}`).join(' '));
+    const source=diagram.boundary_ports.find((port)=>port.id===edge.source_presentation_id),target=diagram.boundary_ports.find((port)=>port.id===edge.target_presentation_id),points=edge.points.map((point)=>({...point})); if(!diagram.context_frame){if(source)points[0]=outerFramePoint(source,diagram);if(target)points[points.length-1]=outerFramePoint(target,diagram);}polyline.setAttribute('points',points.map((p) => `${p.x},${p.y}`).join(' '));
     polyline.setAttribute('fill', 'none');
     polyline.classList.add('ibd-connector');
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
@@ -167,7 +167,7 @@ function renderIbdPort(frame, diagram, port, project, boundary = false) {
   node.dataset.presentationId = port.id;
   if (state.selectedElementId === element.id) node.classList.add('selected');
   if (state.pendingRelationship?.sourcePresentationId === port.id) node.classList.add('connector-source');
-  const point=boundary?outerFramePoint(port):port; node.style.left = `${point.x - port.size / 2}px`;
+  const point=boundary?outerFramePoint(port,diagram):port; node.style.left = `${point.x - port.size / 2}px`;
   node.style.top = `${point.y - port.size / 2}px`;
   node.style.width = `${port.size}px`;
   node.style.height = `${port.size}px`;

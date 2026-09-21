@@ -72,6 +72,50 @@ pub(super) fn capture_states(
     })
 }
 
+/// Stage one IBD presentation edit and publish geometry plus one history entry.
+/// Acquire every fallible lock before changing either authored state or history.
+pub(super) fn edit_ibd_geometry(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    diagram_id: &str,
+    edit: impl FnOnce(&mut ibd::IbdDiagram) -> Result<(), String>,
+) -> Result<(), String> {
+    let project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut ibd_diagrams = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let index = ibd_diagrams.iter().position(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
+    let mut staged = ibd_diagrams[index].clone();
+    edit(&mut staged)?;
+    if serde_json::to_value(&staged).map_err(|error| error.to_string())?
+        == serde_json::to_value(&ibd_diagrams[index]).map_err(|error| error.to_string())?
+    {
+        return Ok(());
+    }
+    let behavior = workspace.behavior.lock().map_err(|_| "behavior lock poisoned")?;
+    let behavior_diagrams = workspace.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?;
+    let activity_repository = activity.repository.lock().map_err(|_| "Activity repository lock poisoned")?;
+    let activity_diagrams = activity.diagrams.lock().map_err(|_| "Activity diagram lock poisoned")?;
+    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+    undo.push(HistorySnapshot {
+        project: project.clone(),
+        diagrams: diagrams.clone(),
+        ibd_diagrams: ibd_diagrams.clone(),
+        behavior: behavior.clone(),
+        behavior_diagrams: behavior_diagrams.clone(),
+        activity_repository: activity_repository.clone(),
+        activity_diagrams: activity_diagrams.clone(),
+    });
+    if undo.len() > HISTORY_LIMIT {
+        undo.remove(0);
+    }
+    redo.clear();
+    ibd_diagrams[index] = staged;
+    Ok(())
+}
+
 pub(super) fn checkpoint_states(
     workspace: &WorkspaceState,
     activity: &activity_workspace::ActivityWorkspaceState,

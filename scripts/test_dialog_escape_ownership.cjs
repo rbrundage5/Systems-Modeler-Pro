@@ -154,3 +154,5 @@ test('Escape outside dialogs retains workspace cancellation behavior without aut
   assert.equal(event.defaultPrevented, true);
   assert.equal(event.immediateStopped, true);
 });
+
+require('./test_ibd_port_gesture.cjs');

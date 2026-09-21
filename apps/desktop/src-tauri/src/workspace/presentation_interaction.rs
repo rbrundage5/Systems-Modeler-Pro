@@ -63,61 +63,17 @@ fn apply_ibd_property_geometry(
     y: f64,
     width: f64,
     height: f64,
-) {
-    let old_left = property.x;
-    let old_right = property.x + property.width;
-    let old_top = property.y;
-    let old_bottom = property.y + property.height;
-    let old_width = property.width.max(1.0);
-    let old_height = property.height.max(1.0);
-    let anchors: Vec<_> = property
-        .ports
-        .iter()
-        .map(|port| {
-            let distances = [
-                (port.x - old_left).abs(),
-                (port.x - old_right).abs(),
-                (port.y - old_top).abs(),
-                (port.y - old_bottom).abs(),
-            ];
-            let side = distances
-                .iter()
-                .enumerate()
-                .min_by(|a, b| a.1.total_cmp(b.1))
-                .map(|(index, _)| index)
-                .unwrap_or(0);
-            let fraction = match side {
-                0 | 1 => ((port.y - old_top) / old_height).clamp(0.0, 1.0),
-                _ => ((port.x - old_left) / old_width).clamp(0.0, 1.0),
-            };
-            (side, fraction)
-        })
-        .collect();
-
+) -> Result<(), String> {
+    let old = super::ibd_geometry::property_rect(property);
+    let new = super::routing::RouteRect { x, y, width, height };
+    for port in &mut property.ports {
+        super::ibd_geometry::reanchor_port(port, old, new)?;
+    }
     property.x = x;
     property.y = y;
     property.width = width;
     property.height = height;
-    for (port, (side, fraction)) in property.ports.iter_mut().zip(anchors) {
-        match side {
-            0 => {
-                port.x = x;
-                port.y = y + height * fraction;
-            }
-            1 => {
-                port.x = x + width;
-                port.y = y + height * fraction;
-            }
-            2 => {
-                port.x = x + width * fraction;
-                port.y = y;
-            }
-            _ => {
-                port.x = x + width * fraction;
-                port.y = y + height;
-            }
-        }
-    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)] // Shared geometry primitive mirrors the named IPC fields.
@@ -205,62 +161,34 @@ pub fn update_ibd_property_geometry(
     history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
-    let mut diagrams = state
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")?
-        .clone();
-    let diagram = diagrams
-        .iter_mut()
-        .find(|diagram| diagram.id == diagram_id)
-        .ok_or("IBD not found")?;
-    let affected_ids = {
-        let property = diagram
-            .properties
-            .iter_mut()
+    history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
+        let property = diagram.properties.iter_mut()
             .find(|property| property.id == presentation_id)
             .ok_or("IBD property presentation not found")?;
-        apply_ibd_property_geometry(property, x, y, width, height);
+        if property.x == x && property.y == y && property.width == width && property.height == height {
+            return Ok(());
+        }
+        apply_ibd_property_geometry(property, x, y, width, height)?;
         let mut ids = vec![property.id.clone()];
         ids.extend(property.ports.iter().map(|port| port.id.clone()));
-        ids
-    };
+        super::ibd_geometry::reroute_connected(diagram, &ids)
+    })
+}
 
-    let endpoints: Vec<_> = diagram
-        .connectors
-        .iter()
-        .filter(|edge| {
-            affected_ids
-                .iter()
-                .any(|id| id == &edge.source_presentation_id || id == &edge.target_presentation_id)
-        })
-        .map(|edge| {
-            (
-                edge.id.clone(),
-                edge.source_presentation_id.clone(),
-                edge.target_presentation_id.clone(),
-            )
-        })
-        .collect();
-    let routes = endpoints
-        .into_iter()
-        .map(|(edge_id, source, target)| {
-            Ok((edge_id, ibd::route_ibd_edge(diagram, &source, &target)?))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    for (edge_id, points) in routes {
-        if let Some(edge) = diagram
-            .connectors
-            .iter_mut()
-            .find(|edge| edge.id == edge_id)
-        {
-            edge.points = points;
-        }
-    }
-
-    history::checkpoint_states(&state, &activity, &history)?;
-    *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = diagrams;
-    Ok(())
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
+pub fn preview_ibd_port_geometry(
+    diagram_id: String,
+    presentation_id: String,
+    x: f64,
+    y: f64,
+    size: f64,
+    frame_preference: Option<super::shared_workspace::DiagramFramePreference>,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<ibd::IbdPortPresentation, String> {
+    let diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let diagram = diagrams.iter().find(|diagram| diagram.id == diagram_id).ok_or("IBD not found")?;
+    super::ibd_geometry::preview_port(diagram, &presentation_id, x, y, size, frame_preference.as_ref())
 }
 
 #[tauri::command]
@@ -271,149 +199,14 @@ pub fn update_ibd_port_geometry(
     x: f64,
     y: f64,
     size: f64,
+    frame_preference: Option<super::shared_workspace::DiagramFramePreference>,
     state: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
-    if !x.is_finite() || !y.is_finite() || !size.is_finite() || size < 10.0 {
-        return Err("port presentation geometry is invalid".into());
-    }
-    let mut diagrams = state
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")?
-        .clone();
-    let diagram = diagrams
-        .iter_mut()
-        .find(|diagram| diagram.id == diagram_id)
-        .ok_or("IBD not found")?;
-    let mut found = false;
-    for property in &mut diagram.properties {
-        if let Some(port) = property
-            .ports
-            .iter_mut()
-            .find(|port| port.id == presentation_id)
-        {
-            let left = property.x;
-            let right = property.x + property.width;
-            let top = property.y;
-            let bottom = property.y + property.height;
-            let distances = [
-                (x - left).abs(),
-                (x - right).abs(),
-                (y - top).abs(),
-                (y - bottom).abs(),
-            ];
-            let edge = distances
-                .iter()
-                .enumerate()
-                .min_by(|a, b| a.1.total_cmp(b.1))
-                .map(|(index, _)| index)
-                .unwrap_or(0);
-            match edge {
-                0 => {
-                    port.x = left;
-                    port.y = y.clamp(top, bottom);
-                }
-                1 => {
-                    port.x = right;
-                    port.y = y.clamp(top, bottom);
-                }
-                2 => {
-                    port.x = x.clamp(left, right);
-                    port.y = top;
-                }
-                _ => {
-                    port.x = x.clamp(left, right);
-                    port.y = bottom;
-                }
-            }
-            port.size = size;
-            found = true;
-            break;
-        }
-    }
-    if !found
-        && let Some(port) = diagram
-            .boundary_ports
-            .iter_mut()
-            .find(|port| port.id == presentation_id)
-    {
-        let left = 0.0;
-        let right = 1800.0;
-        let top = 42.0;
-        let bottom = 1100.0;
-        let distances = [
-            (x - left).abs(),
-            (x - right).abs(),
-            (y - top).abs(),
-            (y - bottom).abs(),
-        ];
-        let edge = distances
-            .iter()
-            .enumerate()
-            .min_by(|a, b| a.1.total_cmp(b.1))
-            .map(|(index, _)| index)
-            .unwrap_or(0);
-        match edge {
-            0 => {
-                port.x = left;
-                port.y = y.clamp(top, bottom);
-            }
-            1 => {
-                port.x = right;
-                port.y = y.clamp(top, bottom);
-            }
-            2 => {
-                port.x = x.clamp(left, right);
-                port.y = top;
-            }
-            _ => {
-                port.x = x.clamp(left, right);
-                port.y = bottom;
-            }
-        }
-        port.size = size;
-        found = true;
-    }
-    if !found {
-        return Err("IBD port presentation not found".into());
-    }
-
-    let endpoints: Vec<_> = diagram
-        .connectors
-        .iter()
-        .filter(|edge| {
-            edge.source_presentation_id == presentation_id
-                || edge.target_presentation_id == presentation_id
-        })
-        .map(|edge| {
-            (
-                edge.id.clone(),
-                edge.source_presentation_id.clone(),
-                edge.target_presentation_id.clone(),
-            )
-        })
-        .collect();
-    let routes = endpoints
-        .into_iter()
-        .map(|(edge_id, source, target)| {
-            Ok((edge_id, ibd::route_ibd_edge(diagram, &source, &target)?))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    for (edge_id, points) in routes {
-        if let Some(edge) = diagram
-            .connectors
-            .iter_mut()
-            .find(|edge| edge.id == edge_id)
-        {
-            edge.points = points;
-        }
-    }
-
-    history::checkpoint_states(&state, &activity, &history)?;
-    *state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")? = diagrams;
-    Ok(())
+    history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
+        super::ibd_geometry::apply_port(diagram, &presentation_id, x, y, size, frame_preference.as_ref())
+    })
 }
 
 #[tauri::command]
@@ -764,7 +557,7 @@ mod shared_resize_tests {
             ],
         };
 
-        apply_ibd_property_geometry(&mut property, 300.0, 250.0, 400.0, 200.0);
+        apply_ibd_property_geometry(&mut property, 300.0, 250.0, 400.0, 200.0).unwrap();
         assert_eq!((property.ports[0].x, property.ports[0].y), (300.0, 300.0));
         assert_eq!((property.ports[1].x, property.ports[1].y), (700.0, 400.0));
         assert_eq!((property.ports[2].x, property.ports[2].y), (400.0, 250.0));

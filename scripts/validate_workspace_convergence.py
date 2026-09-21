@@ -37,7 +37,9 @@ assert "get_diagram_frame_preference" in workspace and "set_diagram_frame_prefer
 assert "validFrame(storedFrame)?storedFrame:null" in workspace
 assert "await renderer()?.refresh?.()" in workspace and "command.label} failed" in workspace
 assert "state.context.family.id === 'state-machine'" not in workspace
-assert "setTimeout(()=>persistDiagramFrame(diagramId,preference)" in workspace
+assert "await persistDiagramFrame(diagramId, { ...state.frame })" in workspace
+assert "const cancelled = event?.type !== 'pointerup'" in workspace
+assert "if (!cancelled)" in workspace and "synchronizeFrame()" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
 assert "canvas.scrollLeft=state.panning.left-dx" in workspace
 assert "panX:canvas.scrollLeft,panY:canvas.scrollTop" in workspace
@@ -114,9 +116,11 @@ assert '.canvas .activity-svg{background:transparent!important}' in styles
 assert '.canvas .ibd-frame::after{display:none!important}' in styles
 assert 'overflow:visible!important' in styles
 assert 'data-family="activity"' in styles and "workspace-header').dataset.family" in workspace
-assert 'frameGeometry:() => state.frame' in workspace and 'outerFramePoint' in ibd_ui
+assert 'frameGeometry:visibleFrame' in workspace and 'outerFramePoint' in ibd_ui
+assert 'if(diagram?.context_frame)return{x:port.x,y:port.y}' in ibd_ui
 assert "filter(|frame| frame.manually_sized)" in shared_workspace
-assert 'if(source)points[0]=outerFramePoint(source)' in ibd_ui
+assert 'if(!diagram.context_frame)' in ibd_ui
+assert 'if(source)points[0]=outerFramePoint(source,diagram)' in ibd_ui
 assert 'storedRoute?.label_anchor||' in behavior_ui
 assert 'label_anchor' in behavior_ui and 'presentation.label_anchor' in activity_ui
 assert 'container-type:inline-size' in styles and 'font-size:clamp(' in styles

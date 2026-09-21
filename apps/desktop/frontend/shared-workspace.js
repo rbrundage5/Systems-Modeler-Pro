@@ -7,7 +7,7 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const renderers = new Map();
   const commands = new Map();
-  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, space: false, suppressPanClick:false }; const validFrame = (value) => value && ['x','y','width','height'].every((key) => Number.isFinite(value[key]));
+  const state = { context: null, viewport: null, frame: null, frameElement: null, surface: null, spacer: null, panning: null, frameDrag: null, frameSaving: false, legacyFrame: null, authoredFrameUsed: false, space: false, suppressPanClick:false }; const validFrame = (value) => value && ['x','y','width','height'].every((key) => Number.isFinite(value[key]));
 
   function notify(message, level = 'info') {
     window.smpDialogs?.notify(message, level);
@@ -25,14 +25,14 @@
   function renderer() { return state.context ? renderers.get(state.context.family.id) : null; }
   async function activate(input) {
     if (!invoke || !input?.diagramId) return null;
-    await persistViewport(); clearTimeout(framePersistTimer);
+    await persistViewport();
     const activated = await invoke('activate_diagram', {
       diagramId: input.diagramId, familyId: input.familyId, name: input.name, modelElementName:input.modelElementName||input.name,
       semanticContextId: input.semanticContextId || '',
     });
     state.context = activated.context; interaction = activated.interaction; applyCommands(activated.commands);
     state.viewport = await invoke('get_viewport_preference', { diagramId: input.diagramId });
-    const storedFrame=await invoke('get_diagram_frame_preference',{diagramId:input.diagramId}); Object.assign(state,{frame:validFrame(storedFrame)?storedFrame:null});
+    const storedFrame=await invoke('get_diagram_frame_preference',{diagramId:input.diagramId}); Object.assign(state,{frame:validFrame(storedFrame)?storedFrame:null,legacyFrame:null,authoredFrameUsed:false});
     updateHeader();
     queueMicrotask(mountSurface);
     return state.context;
@@ -59,13 +59,33 @@
     mountDiagramFrame(); applyViewport();
   }
 
+  function authoredFrame() { return renderer()?.frameGeometry?.() || null; }
+  function synchronizeFrame() {
+    if (state.frameDrag || state.frameSaving) return;
+    const authored = authoredFrame();
+    if (authored) {
+      if (!state.authoredFrameUsed) Object.assign(state, { legacyFrame: state.frame && { ...state.frame } });
+      Object.assign(state, { frame: authored, authoredFrameUsed: true });
+    } else if (state.authoredFrameUsed) {
+      Object.assign(state, { frame: state.legacyFrame || automaticFrame(), authoredFrameUsed: false });
+    }
+  }
+  function visibleFrame() {
+    if (state.frameDrag || state.frameSaving) return state.frame && { ...state.frame };
+    const geometry = authoredFrame() || (state.authoredFrameUsed ? state.legacyFrame : state.frame);
+    return geometry && { ...geometry };
+  }
+
   function automaticFrame() { const bounds=contentBounds(), padding=42; return { x:Math.max(0,bounds.x-padding), y:Math.max(0,bounds.y-padding), width:Math.max(320,bounds.width+padding*2), height:Math.max(240,bounds.height+padding*2), manuallySized:false }; }
 
-  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.dataset.diagramId=state.context.diagramId; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label" tabindex="0" title="Double-click or press Enter to edit diagram names"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; const label=frame.querySelector('.sysml-frame-label');label.querySelector('span').textContent=state.context.frameLabel;label.ondblclick=()=>void editFrameHeader();label.onkeydown=(event)=>{if(event.key==='Enter'||event.key==='F2'){event.preventDefault();void editFrameHeader();}};state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:validFrame(state.frame)?state.frame:automaticFrame()}); applyDiagramFrame(); }
+  function mountDiagramFrame() { if(!state.spacer||!state.context)return; state.frameElement?.remove(); const frame=document.createElement('section'); frame.className='sysml-diagram-frame'; frame.dataset.diagramId=state.context.diagramId; frame.setAttribute('aria-label',state.context.frameLabel); frame.innerHTML=`<header class="sysml-frame-label" tabindex="0" title="Double-click or press Enter to edit diagram names"><span></span></header><button type="button" class="sysml-frame-resize" aria-label="Resize diagram frame" title="Drag to resize diagram frame"></button>`; const label=frame.querySelector('.sysml-frame-label');label.querySelector('span').textContent=state.context.frameLabel;label.ondblclick=()=>void editFrameHeader();label.onkeydown=(event)=>{if(event.key==='Enter'||event.key==='F2'){event.preventDefault();void editFrameHeader();}};state.spacer.insertBefore(frame,state.surface); Object.assign(state,{frameElement:frame,frame:validFrame(state.frame)?state.frame:automaticFrame()}); synchronizeFrame(); applyDiagramFrame(); }
   async function editFrameHeader(){if(!invoke||!state.context)return;const result=await window.smpDialogs?.edit({title:'Edit SysML diagram header',description:'The diagram kind and model-element type are controlled by the SysML family.',fields:[{id:'modelElementName',label:`${state.context.family.frameModelElementType} name`,value:state.context.modelElementName,required:true},{id:'diagramName',label:'Diagram name',value:state.context.name,required:true}],confirmLabel:'Apply'});if(!result)return;const context=await invoke('rename_active_diagram_header',{diagramId:state.context.diagramId,modelElementName:result.values.modelElementName,diagramName:result.values.diagramName});Object.assign(state,{context});mountDiagramFrame();await renderer()?.refresh?.();notify('Diagram header updated.','info');}
   function applyDiagramFrame() { const frame=state.frameElement,geometry=state.frame; if(frame&&geometry)Object.assign(frame.style,{left:`${geometry.x}px`,top:`${geometry.y}px`,width:`${geometry.width}px`,height:`${geometry.height}px`}); }
-  let framePersistTimer; function persistDiagramFrame(diagramId=state.context?.diagramId,preference=state.frame) { if(!invoke||!diagramId||!validFrame(preference))return Promise.resolve(); clearTimeout(framePersistTimer); return invoke('set_diagram_frame_preference',{diagramId,preference}).catch((error)=>notify(String(error),'error')); }
-  function scheduleFramePersistence() { clearTimeout(framePersistTimer); const diagramId=state.context?.diagramId,preference=state.frame?{...state.frame}:null; framePersistTimer=setTimeout(()=>persistDiagramFrame(diagramId,preference),120); }
+  async function persistDiagramFrame(diagramId=state.context?.diagramId,preference=state.frame) {
+    if (!invoke || !diagramId || !validFrame(preference)) return false;
+    try { await invoke('set_diagram_frame_preference', { diagramId, preference }); return true; }
+    catch (error) { notify(String(error), 'error'); return false; }
+  }
 
   function contentBounds() {
     const supplied=renderer()?.contentBounds?.();
@@ -77,6 +97,7 @@
     if(!state.viewport)return; mountSurfaceIfNeeded(); const root=state.surface,spacer=state.spacer;
     if (!root || !spacer) return;
     const bounds=contentBounds(),view=state.viewport;
+    synchronizeFrame(); applyDiagramFrame();
     if (state.frame&&!state.frame.manuallySized) { Object.assign(state,{frame:automaticFrame()}); applyDiagramFrame(); }
     const transform=`scale(${view.zoom})`; root.style.transform=transform;if(state.frameElement){state.frameElement.style.transform=transform;state.frameElement.style.transformOrigin='0 0';}
     const frameRight=state.frame?state.frame.x+state.frame.width:bounds.x+bounds.width, frameBottom=state.frame?state.frame.y+state.frame.height:bounds.y+bounds.height;
@@ -289,7 +310,35 @@
     if (!state.panning || state.panning.pointerId !== event.pointerId) return;
     const dx=event.clientX-state.panning.x,dy=event.clientY-state.panning.y;canvas.scrollLeft=state.panning.left-dx;canvas.scrollTop=state.panning.top-dy;state.panning.moved||=Math.hypot(dx,dy)>3;
   });
-  function finishPan(event) { if(state.frameDrag?.pointerId===event?.pointerId){Object.assign(state,{frameDrag:null});state.frameElement?.classList.remove('is-moving','is-resizing');scheduleFramePersistence();applyViewport();void renderer()?.refresh?.();return;} if(!state.panning||(event?.pointerId!==undefined&&state.panning.pointerId!==event.pointerId))return;Object.assign(state.viewport,{panX:canvas.scrollLeft,panY:canvas.scrollTop});Object.assign(state,{suppressPanClick:state.panning.moved,panning:null});canvas.classList.remove('is-panning');scheduleViewportPersistence(); }
+  async function finishPan(event) {
+    if (state.frameDrag && (event?.pointerId === undefined || state.frameDrag.pointerId === event.pointerId)) {
+      const drag = state.frameDrag;
+      const diagramId = state.context?.diagramId;
+      const cancelled = event?.type !== 'pointerup';
+      Object.assign(state, { frameDrag: null, frame: cancelled ? drag.start : state.frame });
+      state.frameElement?.classList.remove('is-moving', 'is-resizing');
+      applyDiagramFrame();
+      if (!cancelled) {
+        // IBD frames own port attachment. Await the Rust history transaction
+        // before refreshing, so an old snapshot cannot undo the visible edit.
+        Object.assign(state, { frameSaving: true });
+        try {
+          const saved = await persistDiagramFrame(diagramId, { ...state.frame });
+          if (state.context?.diagramId === diagramId) {
+            if (!saved) Object.assign(state, { frame: drag.start });
+            await renderer()?.refresh?.();
+          }
+        } finally { Object.assign(state, { frameSaving: false }); }
+      }
+      applyViewport();
+      return;
+    }
+    if (!state.panning || (event?.pointerId !== undefined && state.panning.pointerId !== event.pointerId)) return;
+    Object.assign(state.viewport, {panX:canvas.scrollLeft,panY:canvas.scrollTop});
+    Object.assign(state, {suppressPanClick:state.panning.moved,panning:null});
+    canvas.classList.remove('is-panning');
+    scheduleViewportPersistence();
+  }
   canvas.addEventListener('pointerup', finishPan); canvas.addEventListener('pointercancel', finishPan);canvas.addEventListener('lostpointercapture',finishPan);window.addEventListener('blur',()=>{state.space=false;canvas.classList.remove('space-pan');finishPan();});
   canvas.addEventListener('click',(event)=>{if(!state.suppressPanClick)return;Object.assign(state,{suppressPanClick:false});event.preventDefault();event.stopImmediatePropagation();},true);
   canvas.addEventListener('wheel', (event) => { if (!event.ctrlKey) return; event.preventDefault(); void setZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX, event.clientY, true); }, { passive:false });
@@ -412,9 +461,12 @@
     adapter.renderCanvas();
     return true;
   }
-  window.smpRendererHost = Object.freeze({ registerRenderer, registerSelectionRenderer, renderFamilyCanvas, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:() => state.frame&&{...state.frame} });
+  window.smpRendererHost = Object.freeze({ registerRenderer, registerSelectionRenderer, renderFamilyCanvas, activate, execute, clearSelection, cancelEverything, publishInteraction, togglePanel, context:() => state.context, contentBounds, frameGeometry:visibleFrame });
   registerRenderer('bdd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
-  registerRenderer('ibd', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
+  registerRenderer('ibd', {
+    ...selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']),
+    frameGeometry: () => window.smpState?.snapshot?.ibd_diagrams?.find(diagram => diagram.id === state.context?.diagramId)?.context_frame,
+  });
   registerRenderer('requirement', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));
   registerRenderer('use-case', selectionAdapter(['selectedElementId','selectedRelationshipId','selectedUseCaseSubjectBoundaryId'], ['paletteTool','pendingRelationship']));
   registerRenderer('parametric', selectionAdapter(['selectedElementId','selectedRelationshipId'], ['paletteTool','pendingRelationship']));

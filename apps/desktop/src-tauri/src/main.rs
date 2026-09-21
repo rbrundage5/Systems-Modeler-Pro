@@ -16,6 +16,7 @@ mod workspace {
     mod feature_editing;
     mod history;
     mod ibd;
+    mod ibd_geometry;
     mod item_flow_notation;
     mod layout;
     mod model_script;
@@ -119,7 +120,7 @@ mod workspace {
     };
     pub use portable_interchange::{export_portable_project_json, import_portable_project_json};
     pub use presentation_interaction::{
-        update_activity_presentation_geometry, update_bdd_presentation_geometry,
+        preview_ibd_port_geometry, update_activity_presentation_geometry, update_bdd_presentation_geometry,
         update_ibd_port_geometry, update_ibd_property_geometry, update_state_presentation_geometry,
     };
     pub use presentation_theme::{
@@ -238,7 +239,7 @@ use workspace::{
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
-    preview_activity_execution_runtime, preview_model_script, preview_reqif_import,
+    preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script, preview_reqif_import,
     preview_sequence_execution_runtime, preview_spreadsheet_import,
     preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
     preview_xmi_import, queue_state_machine_signal, reconnect_activity_edge,
@@ -823,6 +824,7 @@ fn main() {
             populate_ibd_from_context,
             add_nested_port_to_ibd,
             update_ibd_property_geometry,
+            preview_ibd_port_geometry,
             update_ibd_port_geometry,
             create_ibd_connector,
             add_item_flow_to_connector,

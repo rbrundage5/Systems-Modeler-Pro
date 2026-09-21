@@ -12,6 +12,8 @@ interaction_rs = read(
     "apps/desktop/src-tauri/src/workspace/presentation_interaction.rs"
 )
 behavior_rs = read("apps/desktop/src-tauri/src/workspace/behavior_workspace.rs")
+ibd_geometry_rs = read("apps/desktop/src-tauri/src/workspace/ibd_geometry.rs")
+ibd_rs = read("apps/desktop/src-tauri/src/workspace/ibd.rs")
 history_rs = read("apps/desktop/src-tauri/src/workspace/history.rs")
 frontend = read("apps/desktop/frontend/diagram-interaction.js")
 app_frontend = read("apps/desktop/frontend/app.js")
@@ -144,17 +146,21 @@ assert ".onpointerup" not in activity_geometry
 assert "reroute_connected_bdd_edges" in interaction_rs, "BDD geometry must reroute incident edges without making unrelated routes block editing"
 assert "validate_loaded_diagrams(project, diagrams)" not in interaction_rs, "Presentation-only BDD geometry must not be blocked by unrelated diagram validation"
 assert "apply_ibd_property_geometry" in interaction_rs, "IBD property geometry must keep nested ports attached"
-assert "affected_ids" in interaction_rs, "IBD property movement must reroute only incident connectors"
-assert ".filter(|edge|" in interaction_rs and "edge.source_presentation_id == presentation_id" in interaction_rs
+assert "affected_ids" in ibd_geometry_rs, "IBD property movement must reroute only incident connectors"
+assert "routing_diagram.connectors.retain(|edge|" in ibd_geometry_rs
+assert "id == &edge.source_presentation_id || id == &edge.target_presentation_id" in ibd_geometry_rs
 assert "ibd_nested_ports_follow_shared_property_move_and_resize_geometry" in interaction_rs
-assert "route_ibd_edge" in interaction_rs, "IBD rerouting is not integrated"
+assert "ibd::routed_ibd_connectors" in ibd_geometry_rs and "ibd_geometry::reroute_connected" in interaction_rs, "IBD rerouting is not integrated"
 assert "orthogonal_route" in interaction_rs, "Activity rerouting is not integrated"
 assert "edge.source_node_id == presentation_id || edge.target_node_id == presentation_id" in interaction_rs
 assert "reroute_incident_state_transitions" in interaction_rs
 assert "reroute_incident_state_transitions" in behavior_rs
 assert "reroute_incident_sequence_messages" in behavior_rs
 assert "history::checkpoint_states(&state, &activity, &history)?;" in behavior_rs
-assert "port.y = y.clamp" in interaction_rs, "IBD ports are not boundary constrained"
+assert "y.clamp(rect.y + margin, rect.y + rect.height - margin)" in ibd_geometry_rs, "IBD ports are not boundary constrained"
+assert "preview_ibd_port_geometry" in frontend and "config.constrain" in frontend
+assert "history::edit_ibd_geometry" in interaction_rs and "pub context_frame:" in ibd_rs
+assert "frame_port_history_and_native_round_trip_are_atomic" in ibd_geometry_rs
 sequence_resize = behavior_rs.split("pub fn resize_sequence_lifeline_timeline", 1)[1].split(
     "pub fn add_sequence_message", 1
 )[0]
