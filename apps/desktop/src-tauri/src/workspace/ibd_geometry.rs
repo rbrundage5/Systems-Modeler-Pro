@@ -105,6 +105,51 @@ fn project_port(
     Ok(result)
 }
 
+/// Offset a newly copied port along its owner's boundary without changing side.
+pub(super) fn offset_copied_port(
+    diagram: &mut IbdDiagram,
+    presentation_id: &str,
+    dx: f64,
+    dy: f64,
+) -> Result<(), String> {
+    let (port, rect) = if let Some(property) = diagram
+        .properties
+        .iter()
+        .find(|property| property.ports.iter().any(|port| port.id == presentation_id))
+    {
+        (
+            property
+                .ports
+                .iter()
+                .find(|port| port.id == presentation_id)
+                .ok_or("copied port not found")?,
+            property_rect(property),
+        )
+    } else {
+        (
+            diagram
+                .boundary_ports
+                .iter()
+                .find(|port| port.id == presentation_id)
+                .ok_or("copied port not found")?,
+            frame_rect(diagram.context_frame.as_ref().ok_or("IBD frame is required")?),
+        )
+    };
+    validate_port(rect, port.x + dx, port.y + dy, port.size)?;
+    let side = nearest_side(rect, port.x, port.y, port.size);
+    let point = side_point(rect, side, port.x + dx, port.y + dy, port.size);
+    let port = diagram
+        .properties
+        .iter_mut()
+        .flat_map(|property| &mut property.ports)
+        .chain(&mut diagram.boundary_ports)
+        .find(|port| port.id == presentation_id)
+        .ok_or("copied port not found")?;
+    port.x = point.x;
+    port.y = point.y;
+    Ok(())
+}
+
 pub(super) fn reanchor_port(
     port: &mut IbdPortPresentation,
     old: RouteRect,
