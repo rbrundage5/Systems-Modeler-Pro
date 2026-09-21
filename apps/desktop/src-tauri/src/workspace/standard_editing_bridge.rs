@@ -255,6 +255,13 @@ pub fn move_active_selection(
 ) -> Result<StandardEditingResult, String> {
     let selections = active_selections(shared)?;
     standard_editing::move_active_selection(
-        diagram_id, selections, dx, dy, frame_preference, workspace, activity, history,
+        diagram_id,
+        selections,
+        dx,
+        dy,
+        frame_preference,
+        workspace,
+        activity,
+        history,
     )
 }
