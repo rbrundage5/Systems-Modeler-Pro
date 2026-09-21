@@ -258,7 +258,7 @@ pub(super) fn apply_port(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::{
         WorkspaceState, activity_workspace::ActivityWorkspaceState, history, portable_interchange,
     };
@@ -268,7 +268,7 @@ mod tests {
     };
     use systems_modeler_persistence::ProjectDatabase;
 
-    fn fixture() -> (Project, IbdDiagram) {
+    pub(in crate::workspace) fn fixture() -> (Project, IbdDiagram) {
         let mut project = Project::new("Port boundaries");
         let system = project
             .create_element(ElementKind::Block, "System", project.root_id)

@@ -241,11 +241,13 @@ pub fn delete_active_selection(
     standard_editing::delete_active_selection(diagram_id, selections, workspace, activity, history)
 }
 
+#[allow(clippy::too_many_arguments)] // Stable named-field geometry IPC contract.
 #[tauri::command]
 pub fn move_active_selection(
     diagram_id: String,
     dx: f64,
     dy: f64,
+    frame_preference: Option<super::shared_workspace::DiagramFramePreference>,
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
@@ -253,6 +255,6 @@ pub fn move_active_selection(
 ) -> Result<StandardEditingResult, String> {
     let selections = active_selections(shared)?;
     standard_editing::move_active_selection(
-        diagram_id, selections, dx, dy, workspace, activity, history,
+        diagram_id, selections, dx, dy, frame_preference, workspace, activity, history,
     )
 }
