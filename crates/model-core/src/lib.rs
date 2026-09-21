@@ -1,5 +1,8 @@
 include!("model.rs");
 
+pub mod element_specification;
+pub use element_specification::{ElementSpecificationEdit, ElementTypeChoice};
+
 // Keep Activity topology validation as an explicit one-branch-per-node-kind table.
 // Collapsing guarded node cases makes the UML/SysML control-node rules less auditable.
 #[allow(clippy::collapsible_match)]

@@ -84,7 +84,9 @@ mod workspace {
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
         resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
     };
-    pub use feature_editing::update_bdd_feature_semantics;
+    pub use feature_editing::{
+        element_type_choices, update_bdd_feature_semantics, update_element_specification,
+    };
     pub use history::{
         HistoryState, history_checkpoint, history_redo, history_reset, history_undo,
     };
@@ -227,7 +229,7 @@ use workspace::{
     delete_package_relationship, delete_repository_diagram, delete_use_case_relationship,
     diagram_command_manifest, diagram_family_registry, discard_staged_reqif,
     discard_staged_spreadsheet, discard_staged_xmi, duplicate_selection,
-    evaluate_parametric_diagram, export_portable_project_json, export_reqif,
+    element_type_choices, evaluate_parametric_diagram, export_portable_project_json, export_reqif,
     export_spreadsheet_workbook, export_xmi, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
@@ -263,7 +265,8 @@ use workspace::{
     update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
     update_constraint_parameter_presentation, update_execution_specification,
-    update_extend_specification, update_ibd_port_geometry, update_ibd_property_geometry,
+    update_element_specification, update_extend_specification, update_ibd_port_geometry,
+    update_ibd_property_geometry,
     update_package_element, update_package_relationship, update_parametric_constraint_property,
     update_parametric_presentation_geometry, update_parametric_value_property,
     update_quantity_kind_details, update_requirement, update_sequence_message,
@@ -815,6 +818,8 @@ fn main() {
             create_bdd_feature,
             update_bdd_element_details,
             update_bdd_feature_semantics,
+            element_type_choices,
+            update_element_specification,
             update_bdd_presentation_geometry,
             rename_element,
             rename_active_diagram_header,
