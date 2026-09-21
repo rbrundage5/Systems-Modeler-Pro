@@ -301,12 +301,12 @@
     return true;
   }
   canvas.addEventListener('pointerdown', (event) => {
-    const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){if(!authoredFrame())Object.assign(state,{legacyFrame:{...state.frame}});event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
+    const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){if(!authoredFrame())Object.assign(state,{legacyFrame:{...state.frame}});event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing,moved:false}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
     if (startPan(event)) return;
     if (event.target === canvas || event.target === state.spacer) clearSelection();
   }, true);
   canvas.addEventListener('pointermove', (event) => {
-    if(state.frameDrag?.pointerId===event.pointerId){const dx=(event.clientX-state.frameDrag.x)/(state.viewport?.zoom||1),dy=(event.clientY-state.frameDrag.y)/(state.viewport?.zoom||1);Object.assign(state,{frame:state.frameDrag.resizing?{...state.frameDrag.start,width:Math.max(320,state.frameDrag.start.width+dx),height:Math.max(240,state.frameDrag.start.height+dy),manuallySized:true}:{...state.frameDrag.start,x:Math.max(0,state.frameDrag.start.x+dx),y:Math.max(0,state.frameDrag.start.y+dy),manuallySized:true}});applyDiagramFrame();return;}
+    if(state.frameDrag?.pointerId===event.pointerId){if(!state.frameDrag.moved&&Math.hypot(event.clientX-state.frameDrag.x,event.clientY-state.frameDrag.y)<3)return;state.frameDrag.moved=true;const dx=(event.clientX-state.frameDrag.x)/(state.viewport?.zoom||1),dy=(event.clientY-state.frameDrag.y)/(state.viewport?.zoom||1);Object.assign(state,{frame:state.frameDrag.resizing?{...state.frameDrag.start,width:Math.max(320,state.frameDrag.start.width+dx),height:Math.max(240,state.frameDrag.start.height+dy),manuallySized:true}:{...state.frameDrag.start,x:Math.max(0,state.frameDrag.start.x+dx),y:Math.max(0,state.frameDrag.start.y+dy),manuallySized:true}});applyDiagramFrame();return;}
     if (!state.panning || state.panning.pointerId !== event.pointerId) return;
     const dx=event.clientX-state.panning.x,dy=event.clientY-state.panning.y;canvas.scrollLeft=state.panning.left-dx;canvas.scrollTop=state.panning.top-dy;state.panning.moved||=Math.hypot(dx,dy)>3;
   });
@@ -318,7 +318,7 @@
       Object.assign(state, { frameDrag: null, frame: cancelled ? drag.start : state.frame });
       state.frameElement?.classList.remove('is-moving', 'is-resizing');
       applyDiagramFrame();
-      if (!cancelled) {
+      if (!cancelled && drag.moved) {
         // IBD frames own port attachment. Await the Rust history transaction
         // before refreshing, so an old snapshot cannot undo the visible edit.
         Object.assign(state, { frameSaving: true });

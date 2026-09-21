@@ -84,3 +84,10 @@ Combined qualification: PR108 is stacked on PR107 so all candidates are checked
 together while each PR keeps one leaf diff. The shared regression entry point
 conflict retains every test. The combined Node suite passes 31 tests (including
 four context-frame commit/cancel/undo/rejection regressions). No PR is merged.
+
+Qualification update: port head `8a27f8f43406f64f2900216a2f4b6f2af2c5064f`
+passed all native CI jobs (run 35615732982), including 199 desktop tests. All six
+new Rust tests passed, including SQLite and portable round trips and rollback.
+The later combined candidate adds frame gesture tests; the current local combined
+Node suite passes 32 tests, including a no-movement frame-click regression. Final
+combined CI and independent/native visual review remain required.

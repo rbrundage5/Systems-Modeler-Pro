@@ -216,3 +216,14 @@ test('rejected IBD frame resize restores the original boundary', async () => {
 });
 // Keep the Properties/history regressions in the existing frontend CI entry point.
 require('./test_element_specification.cjs');
+
+
+test('a frame click or sub-threshold movement does not adopt legacy geometry or create history', async () => {
+  const frame = { x: 54, y: 70, width: 1018, height: 662, manuallySized: true };
+  const ui = await fixture({ family: 'ibd', frame, legacy: true });
+  await frameEvent(ui, 'pointerdown', 10, 20);
+  await frameEvent(ui, 'pointermove', 11, 21);
+  await frameEvent(ui, 'pointerup', 11, 21);
+  assert.equal(ui.calls.includes('set_diagram_frame_preference'), false);
+  assert.equal(ui.window.smpState.snapshot.ibd_diagrams[0].context_frame, null);
+});

@@ -39,7 +39,7 @@ assert "await renderer()?.refresh?.()" in workspace and "command.label} failed" 
 assert "state.context.family.id === 'state-machine'" not in workspace
 assert "await persistDiagramFrame(diagramId, { ...state.frame })" in workspace
 assert "const cancelled = event?.type !== 'pointerup'" in workspace
-assert "if (!cancelled)" in workspace and "synchronizeFrame()" in workspace
+assert "if (!cancelled && drag.moved)" in workspace and "synchronizeFrame()" in workspace
 assert "event.stopImmediatePropagation(); canvas.setPointerCapture" in workspace
 assert "canvas.scrollLeft=state.panning.left-dx" in workspace
 assert "panX:canvas.scrollLeft,panY:canvas.scrollTop" in workspace
