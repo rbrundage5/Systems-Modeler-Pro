@@ -1,7 +1,7 @@
 # Pre-package engineering review — 21 September 2026
 
 **Disposition: not ready to describe as a complete CATIA/Cameo replacement.**
-Three concrete editing fixes are prepared as draft PRs. Broader code and source
+Four concrete editing fixes are prepared as draft PRs. Broader code and source
 review identifies additional authoring, execution, interchange and qualification
 work. No application package is released by this review.
 
@@ -26,7 +26,7 @@ genuine vendor project/XMI fixture is present in the repository evidence reviewe
 
 ## Prepared changes
 
-Review order is **107 → 108 → 109**. PR108 is based on PR107 and PR109 on PR108,
+Review order is **107 → 108 → 109 → 111**. Each PR is based on its predecessor,
 so the combined candidate receives CI while each PR retains its own leaf diff.
 Retarget each dependent PR to main after its predecessor is reviewed and merged.
 The shared regression-entry conflict was resolved without dropping tests.
@@ -59,6 +59,12 @@ integration validators pass. Static checks are structural guards, not visual tes
 Final integrated-head CI is recorded in the PRs; earlier success does not substitute
 for that gate. PR107 final head `2038552d6544b5b0ad7c4cdf2d91d4bdc741b7de`
 also passed every native CI job in run 35616250437. No Rust compiler or installed browser binary is available locally.
+
+Final geometry stack: PR108 head `975ee323bf440269cfe85d043d3f08bba1b2b9a2`
+passed all CI in run 35616500069. PR109 head
+`1e35a8aaaa47c0f534120e5e0f52bf8c042960e0` passed all CI in run 35617108299,
+including the combined 32-test frontend entry point. PR111 is the separate
+selection-command follow-up; its latest qualification is recorded in that PR.
 
 ## Wider workflow review
 
@@ -105,13 +111,19 @@ frame explicitly when needed. Missing/incompatible owners must reject atomically
 
 ### C16.06.02 — the selection-move command can detach ports
 
-**Code-confirmed defect; high priority.** In
-`workspace/standard_editing.rs::move_selection_items`, an IBD property is clamped
+**Code-confirmed defect; candidate [PR111](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/111) prepared.** In
+the baseline `workspace/standard_editing.rs::move_selection_items`, an IBD property is clamped
 to the canvas but its ports receive the unclamped delta. For example, property and
 left port at x=200 moved by dx=-300 produce property x=0 and port x=-100. Selecting
 both a property and one of its ports can translate the port twice. Individual port
 selection receives an unconstrained translation. The command also reroutes every
 connector and replaces points without updating attached label anchors.
+
+PR111 reuses the Rust boundary and atomic history helpers, processes parents before
+children, and reroutes only affected connectors with labels. Four added Rust tests
+cover the failure and no-op paths as well as attachment. It adds an optional
+`framePreference` command field for legacy context ports. CI and independent review
+must qualify its final head; the clipboard finding remains separate.
 
 The command is registered through `standard_editing_bridge`; no general arrow-key
 binding was found in the inspected frontend. Therefore the code defect is confirmed,
@@ -177,7 +189,7 @@ WebView gestures, touch and visual appearance have not been exercised here.
 
 ## Release acceptance still required
 
-1. Review and integrate the three leaf PRs; require all CI checks on the final heads.
+1. Review and integrate the four leaf PRs; require all CI checks on the final heads.
 2. Close or explicitly disposition the open editing findings above. Do not label
    general editing complete while those alternate paths remain inconsistent.
 3. On an installed desktop, exercise create/reuse/rename/retype and connected
