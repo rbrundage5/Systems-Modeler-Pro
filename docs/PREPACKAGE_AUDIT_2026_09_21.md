@@ -36,35 +36,32 @@ The shared regression-entry conflict was resolved without dropping tests.
 | C18.03.01 | [PR107](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/107) | Apply structural name, documentation, type, default, multiplicity and supported feature flags in one Rust transaction; compatible types are searchable by qualified name/identity; rejected edits retain drafts; one undo step | This changes a typed element's classifier reference, not arbitrary metaclass conversion. Requirement/TestCase and specialized behavior editors remain distinct. |
 | C16.06.01 | [PR108](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/108) | Cancelled HTML symbol movement/resize restores original geometry across seven renderer families without discarding a Properties draft | Native pointer capture, touch, high-DPI and visual behavior still need installed-desktop acceptance. |
 | C04.03.01 | [PR109](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/109) | One Rust boundary projection for context/nested port preview and commit; square port resize; coalesced preview; connected routes and labels update together; context frame participates in authored save/history; proportional attachment on owner move/resize | Legacy diagrams adopt the visible frame on their first actual context-boundary edit. Clipboard and the separate selection-move command are not closed by this leaf. Live connector preview and dense port packing remain unqualified. |
+| C16.06.02 | [PR111](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/111) | Selection moves process parents before ports, use actual clamped movement, project independent ports, update connected routes and labels, and commit through atomic history | Corrects the registered command; no general arrow-key binding or new group-drag UI is introduced. Clipboard remains a separate finding. Native selection UX and independent review remain open. |
 
-PR107 standalone head `7f177038d42c64085179f6bdbfb7145e308db57c` passed all
-native CI jobs in run 35613445846: **229 non-desktop tests, 196 desktop tests**,
-format/lint, Linux compilation and existing frontend/integration gates. A subsequent
-fixture-only change permits optional presentation metadata when combined with PR109.
+| Candidate | Published head | Native CI run | Result |
+| --- | --- | --- | --- |
+| PR107 | `2038552d6544b5b0ad7c4cdf2d91d4bdc741b7de` | [35616250437](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35616250437) | All three jobs passed |
+| PR108 | `975ee323bf440269cfe85d043d3f08bba1b2b9a2` | [35616500069](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35616500069) | All three jobs passed |
+| PR109 | `1e35a8aaaa47c0f534120e5e0f52bf8c042960e0` | [35617108299](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35617108299) | All three jobs passed |
+| PR111 | `55e6a635c06f0bd42f168f96194c713f73c40c90` | [35619809423](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35619809423) | All three jobs passed |
 
-PR108 standalone head `cd5ef99e50cb738b5377ccc6effbe2a0b8f0f976` passed all
-native CI jobs in run 35612994914. Its gesture fixture demonstrates eight failures
-on the original code and ten passes with restoration applied.
+The combined candidate through PR111 passes **229 non-desktop tests, 206 desktop tests and
+32 Node regressions**, plus format/lint, Linux compilation and existing integration
+gates, with no failures or ignored tests. PR109's six Rust port-geometry tests cover four-side projection, preview/commit
+and route-label consistency, frame/legacy attachment, atomic history/native/portable
+round trip, invalid edits/routing failure, and unrelated stale routes. The frontend
+suite includes five frame cases: pointercancel, lost capture, delayed commit plus
+legacy undo, rejected commit, and stationary/sub-threshold clicks. PR108's original
+gesture fixture reproduced eight failures before restoration and ten passes after.
 
-PR109 head `8a27f8f43406f64f2900216a2f4b6f2af2c5064f` passed all native CI jobs
-in run 35615732982, including **199 desktop tests**. All six new Rust tests passed:
-four-side projection; preview/commit and route-label consistency; frame/legacy
-attachment; atomic history/native/portable round trip; invalid edits/routing failure;
-and independence from unrelated stale routes.
-
-The later combined frontend candidate passes **32 Node regressions**, including
-five frame cases: pointercancel, lost capture, delayed commit plus legacy undo,
-rejected commit, and stationary/sub-threshold clicks. All 21 existing static
-integration validators pass. Static checks are structural guards, not visual tests.
-Final integrated-head CI is recorded in the PRs; earlier success does not substitute
-for that gate. PR107 final head `2038552d6544b5b0ad7c4cdf2d91d4bdc741b7de`
-also passed every native CI job in run 35616250437. No Rust compiler or installed browser binary is available locally.
-
-Final geometry stack: PR108 head `975ee323bf440269cfe85d043d3f08bba1b2b9a2`
-passed all CI in run 35616500069. PR109 head
-`1e35a8aaaa47c0f534120e5e0f52bf8c042960e0` passed all CI in run 35617108299,
-including the combined 32-test frontend entry point. PR111 is the separate
-selection-command follow-up; its latest qualification is recorded in that PR.
+All 21 local static integration validators pass. Static checks are structural
+guards, not visual tests. No Rust compiler or installed browser binary is available
+locally; Rust compilation and execution use the existing CI. PR111's earlier run
+passed core/Linux and 205 of 206 Windows tests; its rollback test broke the wrong
+endpoint and therefore exercised an unrelated stale route. The corrected fixture
+preserves connection to the moved port, with no production or assertion relaxation.
+All four selection regressions passed on the final head, including rollback,
+no-op redo preservation and legacy-frame requirements.
 
 ## Wider workflow review
 
@@ -77,7 +74,7 @@ end-to-end qualification.
 | Area | Evidence inspected or exercised | Current conclusion |
 | --- | --- | --- |
 | BDD and typed features | `element_specification`, feature editor, `bdd_conformance`, `pr8_bdd`, `pr43_ports`, `pr46_operation_parameter_reception`; PR107 transaction tests | Stronger atomic editing candidate; retype rejection protects existing IBD/binding references. No all-properties or full metamodel certification. |
-| IBD and interfaces | `ibd.rs`, `ibd_geometry`, current IBD palette/Properties renderer, `pr11_ibd`, `pr43_ports`, `pr45_item_flow` | Direct port geometry addressed; connector specification, selection movement and port clipboard gaps remain below. |
+| IBD and interfaces | `ibd.rs`, `ibd_geometry`, current IBD palette/Properties renderer, `pr11_ibd`, `pr43_ports`, `pr45_item_flow` | Direct port geometry addressed; selection-command follow-up prepared. Connector specification and port clipboard gaps remain below. |
 | Requirements and traceability | Existing requirement editor, `pr21_requirements`, `pr42_allocation`, native traceability persistence tests | Existing authored semantics and round trips have automated evidence. Coverage/suspect/impact dashboards and a complete stakeholder workflow are not qualified here. |
 | Use Case | `pr24_use_cases`; subject-boundary/actor notation and shared movement tests | Existing semantics and saved notation have automated evidence. Native context menus, editing, and dense layouts need visual acceptance. |
 | Package/repository | `pr22_repository_editing`, `pr26b_package_diagrams`, package persistence and drill-down contracts | Identity/reparenting/navigation foundations have regression coverage. Discoverability and full keyboard navigation are not established by those checks. |
@@ -103,11 +100,24 @@ It does not project the copy onto that owner's boundary. Copying a left-edge por
 therefore produces an interior port; a copied property with its entire port set is
 a different path and must remain valid.
 
+The separate `duplicate_selection_items` IBD path also offsets an individual port
+without boundary projection. Duplicating a property clones its port presentations
+without regenerating their IDs, translating their coordinates, or updating their
+property paths. In a diagram retaining the source property, the repeated port IDs
+hit `validate_ibd_diagrams`' duplicate-ID rejection. This is a source-confirmed
+duplicate-path finding; no native UI reproduction is claimed. Repair presentation
+paste and semantic Duplicate as separately reviewable increments, preserving their
+different identity rules.
+
 Acceptance: copy/paste one nested or context port on every side; preserve semantic
 identity for presentation paste; show the copied symbol on the correct owner; test
 cross-diagram context compatibility, cancellation, duplicate semantics, undo and
 native/portable round trip. Reuse PR109's Rust projection. Pass the visible legacy
 frame explicitly when needed. Missing/incompatible owners must reject atomically.
+For Duplicate, require new semantic identities only where requested, fresh
+presentation IDs, correctly remapped property paths, attached geometry and
+connectors targeting the duplicated occurrences. Include parent-plus-port selections
+in both orders and late validation failure without partial semantic creation.
 
 ### C16.06.02 — the selection-move command can detach ports
 
@@ -122,8 +132,9 @@ connector and replaces points without updating attached label anchors.
 PR111 reuses the Rust boundary and atomic history helpers, processes parents before
 children, and reroutes only affected connectors with labels. Four added Rust tests
 cover the failure and no-op paths as well as attachment. It adds an optional
-`framePreference` command field for legacy context ports. CI and independent review
-must qualify its final head; the clipboard finding remains separate.
+`framePreference` command field for legacy context ports. Final-head CI passed in
+run `35619809423`; independent review and native acceptance remain open. The
+clipboard finding remains separate.
 
 The command is registered through `standard_editing_bridge`; no general arrow-key
 binding was found in the inspected frontend. Therefore the code defect is confirmed,
