@@ -98,8 +98,8 @@ mod workspace {
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
-    pub use item_flow_notation::ibd_item_flow_notation;
     pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
+    pub use item_flow_notation::ibd_item_flow_notation;
     pub use model_script::{apply_model_script, preview_model_script};
     pub use package_diagrams::{
         create_package_diagram, create_package_element, create_package_relationship,
@@ -239,8 +239,7 @@ use workspace::{
     export_spreadsheet_workbook, export_xmi, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
     history_reset, history_undo, ibd_item_flow_notation, ibd_item_flow_specification,
-    update_ibd_item_flow_specification, import_portable_project_json,
-    initialize_activity_execution, initialize_sequence_execution,
+    import_portable_project_json, initialize_activity_execution, initialize_sequence_execution,
     initialize_state_machine_execution, load_activity_workspace, move_active_selection,
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
     new_project, open_project_file, open_project_file_complete, paste_selection,
@@ -272,16 +271,17 @@ use workspace::{
     update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
     update_constraint_parameter_presentation, update_element_specification,
-    update_execution_specification, update_extend_specification, update_ibd_port_geometry,
-    update_ibd_property_geometry, update_package_element, update_package_relationship,
-    update_parametric_constraint_property, update_parametric_presentation_geometry,
-    update_parametric_value_property, update_quantity_kind_details, update_requirement,
-    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
-    update_state_invariant, update_state_presentation_geometry, update_state_transition,
-    update_unit_details, update_use_case_actor_notation, update_use_case_diagram_subject,
-    update_use_case_specification, update_use_case_subject_boundary_geometry,
-    update_value_type_details, workspace_interaction_snapshot, workspace_snapshot,
-    workspace_snapshot_complete, zoom_diagram_viewport,
+    update_execution_specification, update_extend_specification,
+    update_ibd_item_flow_specification, update_ibd_port_geometry, update_ibd_property_geometry,
+    update_package_element, update_package_relationship, update_parametric_constraint_property,
+    update_parametric_presentation_geometry, update_parametric_value_property,
+    update_quantity_kind_details, update_requirement, update_sequence_message,
+    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
+    update_state_presentation_geometry, update_state_transition, update_unit_details,
+    update_use_case_actor_notation, update_use_case_diagram_subject, update_use_case_specification,
+    update_use_case_subject_boundary_geometry, update_value_type_details,
+    workspace_interaction_snapshot, workspace_snapshot, workspace_snapshot_complete,
+    zoom_diagram_viewport,
 };
 use workspace::{
     ParametricExecutionState, clear_parametric_executions, configure_parametric_execution_runtime,
