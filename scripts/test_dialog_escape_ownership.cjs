@@ -5,6 +5,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
+// Shared presentation cancellation must also preserve workspace/model state.
+require('./test_cancelled_presentation_gesture.cjs');
+
 class ClassList {
   constructor(owner) { this.owner = owner; this.values = new Set(); }
   add(...names) { names.forEach(name => this.values.add(name)); }
