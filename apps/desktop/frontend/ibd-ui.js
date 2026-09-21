@@ -400,13 +400,18 @@ window.smpRouteSelectedIbd = routeSelectedIbd;
 const baseRenderPropertiesPr11 = renderProperties;
 renderProperties = function renderPropertiesPr11() {
   const ibd = selectedIbd();
-  if (!ibd) return baseRenderPropertiesPr11();
+  if (!ibd) { window.smpConnectorProperties?.deactivate(); return baseRenderPropertiesPr11(); }
   const project = state.snapshot.project;
   const relationship = project.relationships.find((r) => r.id === state.selectedRelationshipId);
   if (relationship?.kind === 'Connector') {
-    $('properties').innerHTML = `<div class="property-heading">Connector</div><div class="property-help">Selected Connector. Use Item Flow in the IBD palette to add a conveyed classifier.</div><label>Stable ID<input value="${escapeAttr(relationship.external_id)}" disabled></label><button id="route-ibd-selection" class="primary">Route IBD</button>`;
-    $('route-ibd-selection').onclick = routeSelectedIbd;
+    window.smpConnectorProperties.render({
+      container: $('properties'), projectId: project.root_id, diagram: ibd, relationship,
+      invoke: requireInvoke(), refresh, route: routeSelectedIbd,
+      isCurrent: () => selectedIbd()?.id === ibd.id && state.selectedRelationshipId === relationship.id
+        && state.snapshot.project.root_id === project.root_id,
+    });
     return;
   }
+  window.smpConnectorProperties?.deactivate();
   baseRenderPropertiesPr11();
 };
