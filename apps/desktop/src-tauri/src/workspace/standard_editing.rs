@@ -810,6 +810,57 @@ fn remove_presentations(
     Ok(changed)
 }
 
+// Keep a copied group together while preventing its attached endpoints from
+// landing inside existing parts. Geometry and bounds remain Rust-owned.
+fn ibd_copy_offset(diagram: &ibd::IbdDiagram, payload: &ClipboardPayload) -> Result<(f64, f64), String> {
+    let sources: Vec<_> = payload.items.iter().filter_map(|item| match item {
+        ClipboardItem::IbdProperty { property } => Some(property),
+        _ => None,
+    }).collect();
+    if sources.is_empty() { return Ok((PASTE_OFFSET, PASTE_OFFSET)); }
+    let valid = |p: &ibd::IbdPropertyPresentation| {
+        [p.x, p.y, p.width, p.height].iter().all(|v| v.is_finite() && v.abs() <= 100_000.0)
+            && p.width > 0.0 && p.height > 0.0
+    };
+    if !sources.iter().all(|p| valid(p)) || !diagram.properties.iter().all(valid) {
+        return Err("IBD copy requires finite, positive part geometry".into());
+    }
+    let gap = 2.0 * routing::ROUTE_CLEARANCE + PASTE_OFFSET;
+    let min_x = sources.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+    let min_y = sources.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+    let max_x = sources.iter().map(|p| p.x + p.width).fold(f64::NEG_INFINITY, f64::max);
+    let max_y = sources.iter().map(|p| p.y + p.height).fold(f64::NEG_INFINITY, f64::max);
+    let frame = diagram.context_frame.as_ref();
+    if let Some(frame) = frame { frame.validate()?; }
+    let start_x = frame.map_or(PASTE_OFFSET, |f| PASTE_OFFSET.max(f.x + gap - min_x));
+    let start_y = frame.map_or(PASTE_OFFSET, |f| PASTE_OFFSET.max(f.y + gap - min_y));
+    let below = diagram.properties.iter().map(|p| p.y + p.height + gap - min_y).fold(start_y, f64::max);
+    for dy in [start_y, below] {
+        let mut dx = start_x;
+        // Each step clears at least one source/obstacle pair to its right.
+        for _ in 0..=sources.len().saturating_mul(diagram.properties.len()) {
+            if min_x + dx < 0.0 || min_y + dy < 0.0 || max_x + dx > 100_000.0 || max_y + dy > 100_000.0
+                || frame.is_some_and(|f| max_x + dx + gap > f.x + f.width || max_y + dy + gap > f.y + f.height)
+            { break; }
+            let mut next = dx;
+            for source in &sources {
+                for obstacle in &diagram.properties {
+                    if source.x + dx < obstacle.x + obstacle.width + gap
+                        && source.x + source.width + dx + gap > obstacle.x
+                        && source.y + dy < obstacle.y + obstacle.height + gap
+                        && source.y + source.height + dy + gap > obstacle.y
+                    {
+                        next = next.max(obstacle.x + obstacle.width + gap - source.x);
+                    }
+                }
+            }
+            if next == dx { return Ok((dx, dy)); }
+            dx = next;
+        }
+    }
+    Err("no clear IBD copy placement fits; enlarge the context frame or make room for the copied parts".into())
+}
+
 fn paste_clipboard(
     snapshot: &mut EditingSnapshot,
     target_diagram_id: &str,
@@ -961,20 +1012,21 @@ fn paste_clipboard(
                     visible_frame.cloned().ok_or("the visible IBD context frame is required to paste a boundary port")?,
                 )?;
             }
+            let (part_dx, part_dy) = ibd_copy_offset(diagram, payload)?;
             let mut presentation_map = HashMap::new();
             for item in &payload.items {
                 if let ClipboardItem::IbdProperty { property } = item {
                     let mut copy = property.clone();
                     let old_property = copy.id.clone();
                     copy.id = uuid::Uuid::new_v4().to_string();
-                    copy.x += PASTE_OFFSET;
-                    copy.y += PASTE_OFFSET;
+                    copy.x += part_dx;
+                    copy.y += part_dy;
                     presentation_map.insert(old_property, copy.id.clone());
                     for port in &mut copy.ports {
                         let old_port = port.id.clone();
                         port.id = uuid::Uuid::new_v4().to_string();
-                        port.x += PASTE_OFFSET;
-                        port.y += PASTE_OFFSET;
+                        port.x += part_dx;
+                        port.y += part_dy;
                         presentation_map.insert(old_port, port.id.clone());
                     }
                     selections.push(WorkspaceSelection {
@@ -1954,6 +2006,7 @@ fn duplicate_selection_items(
                 .iter()
                 .position(|diagram| diagram.id == diagram_id)
                 .ok_or("IBD not found")?;
+            let (part_dx, part_dy) = ibd_copy_offset(&snapshot.ibd_diagrams[diagram_index], payload)?;
             let mut element_map = HashMap::new();
             let mut presentation_map = HashMap::new();
             // Resolve all selected part identities first, independent of selection
@@ -1977,14 +2030,14 @@ fn duplicate_selection_items(
                             *step = new.to_string();
                         }
                     }
-                    presentation.x += PASTE_OFFSET;
-                    presentation.y += PASTE_OFFSET;
+                    presentation.x += part_dx;
+                    presentation.y += part_dy;
                     for port in &mut presentation.ports {
                         let old_port_id = port.id.clone();
                         port.id = uuid::Uuid::new_v4().to_string();
                         port.property_path = presentation.property_path.clone();
-                        port.x += PASTE_OFFSET;
-                        port.y += PASTE_OFFSET;
+                        port.x += part_dx;
+                        port.y += part_dy;
                         presentation_map.insert(old_port_id, port.id.clone());
                     }
                     presentation_map.insert(property.id.clone(), presentation.id.clone());
@@ -2509,6 +2562,68 @@ mod tests {
             behavior: Default::default(), behavior_diagrams: Vec::new(),
             activity: Default::default(), activity_diagrams: Vec::new(),
         }
+    }
+
+    #[test]
+    fn ibd_copy_and_duplicate_left_port_parts_find_clear_connected_placements() {
+        for duplicate in [false, true] {
+            let mut snapshot = port_paste_snapshot();
+            let diagram = &mut snapshot.ibd_diagrams[0];
+            diagram.properties[0].ports[0].x = diagram.properties[0].x;
+            super::super::ibd_geometry::reroute_connected(diagram, &["internal".into()]).unwrap();
+            let id = diagram.id.clone();
+            let original = diagram.properties[0].clone();
+            let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part"), ibd_selection("internal"), ibd_selection("connector")]).unwrap();
+            for _ in 0..2 {
+                if duplicate { duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap(); }
+                else { paste_clipboard(&mut snapshot, &id, &payload, None).unwrap(); }
+                snapshot.validate().unwrap();
+                let diagram = &snapshot.ibd_diagrams[0];
+                let copied = diagram.properties.last().unwrap();
+                assert!(copied.x >= original.x + original.width + 2.0 * routing::ROUTE_CLEARANCE);
+                assert_eq!(copied.ports[0].x, copied.x);
+                for other in &diagram.properties[..diagram.properties.len() - 1] {
+                    assert!(copied.x >= other.x + other.width || copied.y >= other.y + other.height
+                        || copied.x + copied.width <= other.x || copied.y + copied.height <= other.y);
+                }
+                let edge = diagram.connectors.last().unwrap();
+                assert_eq!(edge.target_presentation_id, copied.ports[0].id);
+                let rect = super::super::ibd_geometry::property_rect(&original);
+                assert!(edge.points.windows(2).all(|pair| !systems_modeler_core::routing::segment_intersects_rect(pair[0], pair[1], rect)));
+            }
+        }
+    }
+
+    #[test]
+    fn ibd_copy_group_keeps_one_translation_and_rejects_a_crowded_frame_atomically() {
+        let mut snapshot = port_paste_snapshot();
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let mut second = snapshot.ibd_diagrams[0].properties[0].clone();
+        second.id = "second".into();
+        second.y += 180.0;
+        second.ports[0].id = "second-port".into();
+        second.ports[0].y += 180.0;
+        snapshot.ibd_diagrams[0].properties.push(second);
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part"), ibd_selection("second")]).unwrap();
+        paste_clipboard(&mut snapshot, &id, &payload, None).unwrap();
+        let properties = &snapshot.ibd_diagrams[0].properties;
+        assert_eq!(properties[2].x - properties[0].x, properties[3].x - properties[1].x);
+        assert_eq!(properties[2].y - properties[0].y, properties[3].y - properties[1].y);
+        let mut snapshot = port_paste_snapshot();
+        let frame = snapshot.ibd_diagrams[0].context_frame.as_mut().unwrap();
+        frame.width = 400.0;
+        frame.height = 220.0;
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part")]).unwrap();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        snapshot.commit(&workspace, &activity).unwrap();
+        let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert!(paste_clipboard_states(&workspace, &activity, &history, &id, &payload, None).unwrap_err().contains("enlarge"));
+        assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &[ibd_selection("part")], None).is_err());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        assert_eq!(history::undo_len(&history), 0);
     }
 
     #[test]
