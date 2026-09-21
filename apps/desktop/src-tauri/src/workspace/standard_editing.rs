@@ -977,6 +977,12 @@ fn paste_clipboard(
             }
             for item in &payload.items {
                 if let ClipboardItem::IbdPort { port, parent } = item {
+                    // A copied property already includes its ports. Preserve that
+                    // mapping for connector endpoints instead of creating a second
+                    // port on the original property presentation.
+                    if presentation_map.contains_key(&port.id) {
+                        continue;
+                    }
                     let mut copy = port.clone();
                     let old_id = copy.id.clone();
                     copy.id = uuid::Uuid::new_v4().to_string();
@@ -2452,6 +2458,46 @@ mod tests {
 
     fn ibd_selection(id: &str) -> WorkspaceSelection {
         WorkspaceSelection { kind: "Presentation".into(), id: id.into() }
+    }
+
+    #[test]
+    fn ibd_paste_parent_and_port_preserves_one_child_and_connector_mapping() {
+        for reverse in [false, true] {
+            let (project, diagram) = super::super::ibd_geometry::tests::fixture();
+            let id = diagram.id.clone();
+            let mut snapshot = EditingSnapshot {
+                project,
+                diagrams: Vec::new(),
+                ibd_diagrams: vec![diagram],
+                behavior: Default::default(),
+                behavior_diagrams: Vec::new(),
+                activity: Default::default(),
+                activity_diagrams: Vec::new(),
+            };
+            let semantics = serde_json::to_value(&snapshot.project).unwrap();
+            let original_port = serde_json::to_value(&snapshot.ibd_diagrams[0].properties[0].ports).unwrap();
+            let mut selected = vec![ibd_selection("part"), ibd_selection("internal")];
+            if reverse {
+                selected.reverse();
+            }
+            selected.push(WorkspaceSelection { kind: "IbdConnector".into(), id: "connector".into() });
+            let payload = collect_clipboard(&snapshot, &id, &selected).unwrap();
+            let pasted = paste_clipboard(&mut snapshot, &id, &payload).unwrap();
+            assert_eq!(pasted.len(), 2);
+            let diagram = &snapshot.ibd_diagrams[0];
+            assert_eq!(diagram.properties.len(), 2);
+            assert_eq!(serde_json::to_value(&diagram.properties[0].ports).unwrap(), original_port);
+            let copy = &diagram.properties[1];
+            assert_eq!(copy.ports.len(), 1);
+            assert_ne!(copy.ports[0].id, "internal");
+            assert_eq!(copy.ports[0].element_id, diagram.properties[0].ports[0].element_id);
+            assert_eq!(copy.ports[0].x, copy.x);
+            assert_eq!(copy.ports[0].y, 210.0 + PASTE_OFFSET);
+            assert_eq!(diagram.connectors[1].target_presentation_id, copy.ports[0].id);
+            assert_eq!(diagram.connectors[1].source_presentation_id, "external");
+            assert_eq!(serde_json::to_value(&snapshot.project).unwrap(), semantics);
+            snapshot.validate().unwrap();
+        }
     }
 
     #[test]
