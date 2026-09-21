@@ -1952,6 +1952,15 @@ fn duplicate_selection_items(
                 .iter()
                 .position(|diagram| diagram.id == diagram_id)
                 .ok_or("IBD not found")?;
+            // Adopt legacy boundary geometry before inserting copies, so the
+            // adoption reroute sees only the original, valid presentation set.
+            let diagram = &mut snapshot.ibd_diagrams[diagram_index];
+            if diagram.context_frame.is_none()
+                && payload.items.iter().any(|item| matches!(item, ClipboardItem::IbdPort { parent: None, .. }))
+            {
+                super::ibd_geometry::apply_context_frame(diagram,
+                    visible_frame.cloned().ok_or("the visible IBD context frame is required to duplicate a boundary port")?)?;
+            }
             let mut element_map = HashMap::new();
             let mut presentation_map = HashMap::new();
             // Resolve all selected part identities first, independent of selection
@@ -2010,10 +2019,6 @@ fn duplicate_selection_items(
                     diagram.properties.iter_mut().find(|property| property.id == parent_id)
                         .ok_or("nested port parent presentation not found")?.ports.push(presentation.clone());
                 } else {
-                    if diagram.context_frame.is_none() {
-                        super::ibd_geometry::apply_context_frame(diagram,
-                            visible_frame.cloned().ok_or("the visible IBD context frame is required to duplicate a boundary port")?)?;
-                    }
                     diagram.boundary_ports.push(presentation.clone());
                 }
                 super::ibd_geometry::offset_copied_port(diagram, &presentation.id, PASTE_OFFSET, PASTE_OFFSET)?;
