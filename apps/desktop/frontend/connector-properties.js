@@ -6,8 +6,10 @@
   function render(options) {
     const { container, projectId, diagram, relationship, invoke, refresh, isCurrent, route } = options;
     const key = `${projectId}:${diagram.id}:${relationship.id}`;
+    const saved = JSON.stringify([relationship, diagram]);
+    if (active?.key === key && active.saved !== saved && !active.dirty && !active.busy) active = null;
     if (active?.key !== key) active = {
-      key, edit: { name: relationship.name || '', kind: relationship.connector.kind },
+      key, saved, dirty: false, edit: { name: relationship.name || '', kind: relationship.connector.kind },
       ready: false, busy: false, error: '', request: null,
     };
     const draft = active;
@@ -30,6 +32,7 @@
     name.value = draft.edit.name;
     kind.value = draft.edit.kind;
     const capture = () => {
+      draft.dirty = true;
       draft.edit.name = name.value;
       draft.edit.kind = kind.value;
       if (draft.ready) {

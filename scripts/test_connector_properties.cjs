@@ -29,10 +29,10 @@ function fixture({ load, apply } = {}) {
   };
   const window = {};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/connector-properties.js'), 'utf8'), { window, document });
-  function render(id = 'connector') {
+  function render(id = 'connector', saved = {}) {
     selected = id;
     window.smpConnectorProperties.render({ container, projectId: 'project', diagram: { id: 'diagram' },
-      relationship: { id, name: id === 'connector' ? 'original' : 'different', connector: { kind: 'Delegation' } },
+      relationship: { id, name: id === 'connector' ? 'original' : 'different', connector: { kind: 'Delegation' }, ...saved },
       isCurrent: () => selected === id,
       invoke: async (command, args) => {
         calls.push({ command, args: JSON.parse(JSON.stringify(args)) });
@@ -89,4 +89,21 @@ test('endpoint loading failure keeps Apply disabled and Reload Saved retries', a
   assert.equal(ui.field('apply').disabled, true); assert.equal(ui.field('error').textContent, 'Read failed');
   fail = false; ui.field('reload').onclick(); await flush();
   assert.equal(ui.field('apply').disabled, false); assert.equal(ui.field('target').value, 'internal');
+});
+
+test('saved connector changes refresh a clean form after undo', async () => {
+  let saved = specification;
+  const ui = fixture({ load: () => saved }); await flush();
+  saved = { ...specification, name: 'Restored', kind: 'Assembly', target_presentation_id: 'second' };
+  ui.render('connector', { name: 'Restored', connector: { kind: 'Assembly' } }); await flush();
+  assert.equal(ui.field('name').value, 'Restored'); assert.equal(ui.field('kind').value, 'Assembly');
+  assert.equal(ui.field('target').value, 'second');
+  assert.equal(ui.calls.filter(call => call.command === 'ibd_connector_specification').length, 2);
+});
+
+test('a connector refresh retains an unsaved user draft', async () => {
+  const ui = fixture(); await flush();
+  ui.field('name').value = 'My draft'; ui.field('name').oninput();
+  ui.render('connector', { name: 'Server rename' }); await flush();
+  assert.equal(ui.field('name').value, 'My draft');
 });
