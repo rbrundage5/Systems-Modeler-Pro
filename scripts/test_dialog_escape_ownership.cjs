@@ -151,3 +151,6 @@ test('Escape outside dialogs retains workspace cancellation behavior without aut
   assert.equal(event.defaultPrevented, true);
   assert.equal(event.immediateStopped, true);
 });
+
+// Keep the Properties/history regressions in the existing frontend CI entry point.
+require('./test_element_specification.cjs');
