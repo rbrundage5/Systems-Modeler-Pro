@@ -2510,7 +2510,9 @@ mod tests {
         assert_eq!(history::undo_len(&history), 0);
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
         assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), moved);
-        workspace.ibd_diagrams.lock().unwrap()[0].connectors[0].target_presentation_id = "missing".into();
+        // Keep the moved internal port connected; break its opposite endpoint so
+        // this exercises a routing failure rather than an unrelated stale route.
+        workspace.ibd_diagrams.lock().unwrap()[0].connectors[0].source_presentation_id = "missing".into();
         let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
         assert!(apply(30.0, 20.0).is_err());
         assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);

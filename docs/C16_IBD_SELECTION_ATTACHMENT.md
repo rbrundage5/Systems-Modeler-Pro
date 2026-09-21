@@ -30,6 +30,12 @@ redo; missing frame/invalid delta/routing failure leaves authored state/history
 unchanged. Preserve all other families' command path. Tests must call the production
 move/history helpers. Native multi-selection UX and independent review remain open.
 
-Verification: implementation in progress; Rust tests will execute in CI because the
-local toolchain is unavailable. The command is registered, but no general frontend
-arrow-key binding is claimed.
+Verification: all 21 local static validators passed. CI run `35618429353` passed
+the core and Linux desktop jobs; Windows compiled and passed 205 of 206 tests.
+Its one failure exposed an incorrect rollback fixture: it removed the moved port's
+connector endpoint, making the stale connector unrelated to the move. The fixture
+now breaks the opposite endpoint while preserving the moved port's connection, so
+the existing assertion exercises an actual routing failure. No production behavior
+or assertion was relaxed. The corrected head must pass the full CI run; final
+qualification evidence is recorded on PR111. The local Rust toolchain is unavailable.
+The command is registered, but no general frontend arrow-key binding is claimed.
