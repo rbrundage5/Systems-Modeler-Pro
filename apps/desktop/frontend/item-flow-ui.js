@@ -25,11 +25,13 @@
     localStorage.setItem(LABEL_VISIBILITY_KEY, JSON.stringify(preferences));
   }
 
-  function mergeItemFlows(serverFlows) {
-    const merged = new Map();
-    for (const flow of state.itemFlowNotation || []) merged.set(flow.relationship_id, flow);
-    for (const flow of serverFlows || []) merged.set(flow.relationship_id, flow);
-    state.itemFlowNotation = [...merged.values()];
+  let notationRequest = 0;
+  async function loadNotation(version = ++notationRequest) {
+    const projectId = state.snapshot?.project?.id;
+    const flows = await baseRequireInvokeItemFlow()('ibd_item_flow_notation');
+    if (version !== notationRequest || projectId !== state.snapshot?.project?.id) return;
+    state.itemFlowNotation = flows;
+    if (selectedIbd()) render();
   }
 
   function conveyedNamesFromIds(ids) {
@@ -57,8 +59,7 @@
     }
   }
 
-  // Intercept only Item Flow creation so successful Rust creation is visible
-  // immediately. The authoritative Rust query below subsequently reconciles it.
+  // Creation feedback is separate from the authoritative notation read.
   const baseRequireInvokeItemFlow = requireInvoke;
   requireInvoke = function requireInvokeWithItemFlowFeedback() {
     const invokeFn = baseRequireInvokeItemFlow();
@@ -66,12 +67,6 @@
       const result = await invokeFn(command, args);
       if (command === 'add_item_flow_to_connector') {
         const names = conveyedNamesFromIds(args.conveyedItemIds);
-        mergeItemFlows([{
-          relationship_id: result,
-          connector_id: args.relationshipId,
-          conveyed_item_ids: [...(args.conveyedItemIds || [])],
-          conveyed_item_names: names,
-        }]);
         state.lastItemFlowMessage = `Item Flow created: ${names.join(', ') || 'conveyed item'} on selected Connector`;
       }
       return result;
@@ -80,14 +75,15 @@
 
   const baseRefreshItemFlow = refresh;
   refresh = async function refreshWithItemFlowNotation() {
+    const version = ++notationRequest;
+    state.itemFlowNotation = [];
     await baseRefreshItemFlow();
+    if (version !== notationRequest) return;
     try {
-      const serverFlows = await baseRequireInvokeItemFlow()('ibd_item_flow_notation');
-      mergeItemFlows(serverFlows);
+      await loadNotation(version);
     } catch (error) {
       console.error('Unable to load Item Flow notation data', error);
     }
-    if (selectedIbd()) render();
   };
 
   const baseRenderStatusItemFlow = renderStatus;
@@ -116,8 +112,7 @@
     const flowsByConnector = new Map();
     const seenFlowKeys = new Set();
     for (const flow of state.itemFlowNotation || []) {
-      const conveyedKey = [...(flow.conveyed_item_ids || [])].map(String).sort().join(',');
-      const key = `${flow.connector_id}|${conveyedKey}`;
+      const key = flow.relationship_id;
       if (seenFlowKeys.has(key)) continue;
       seenFlowKeys.add(key);
       if (!flowsByConnector.has(flow.connector_id)) flowsByConnector.set(flow.connector_id, []);
@@ -147,8 +142,9 @@
         const tipY = centerY + py * lane;
         const arrowLength = 14;
         const arrowHalfWidth = 7;
-        const baseX = tipX - ux * arrowLength;
-        const baseY = tipY - uy * arrowLength;
+        const direction = flow.direction === 'Reverse' ? -1 : 1;
+        const baseX = tipX - direction * ux * arrowLength;
+        const baseY = tipY - direction * uy * arrowLength;
 
         const arrow = document.createElementNS(SVG_NS, 'polygon');
         arrow.classList.add('ibd-item-flow-arrow');
@@ -156,7 +152,8 @@
           'points',
           `${tipX},${tipY} ${baseX + px * arrowHalfWidth},${baseY + py * arrowHalfWidth} ${baseX - px * arrowHalfWidth},${baseY - py * arrowHalfWidth}`,
         );
-        arrow.setAttribute('aria-label', 'Item Flow direction');
+        arrow.setAttribute('data-relationship-id', flow.relationship_id);
+        arrow.setAttribute('aria-label', `Item Flow: ${flow.direction === 'Reverse' ? 'target to source' : 'source to target'}`);
         const title = document.createElementNS(SVG_NS, 'title');
         title.textContent = `Item Flow: ${(flow.conveyed_item_names || []).join(', ') || 'conveyed item'}`;
         arrow.appendChild(title);
@@ -214,10 +211,6 @@
     panel.appendChild(section);
   };
 
-  baseRequireInvokeItemFlow()('ibd_item_flow_notation')
-    .then((flows) => {
-      mergeItemFlows(flows);
-      if (selectedIbd()) render();
-    })
+  loadNotation()
     .catch((error) => console.error('Unable to initialize Item Flow notation', error));
 })();
