@@ -18,6 +18,7 @@ mod workspace {
     mod history;
     mod ibd;
     mod ibd_geometry;
+    mod item_flow_editing;
     mod item_flow_notation;
     mod layout;
     mod model_script;
@@ -98,6 +99,7 @@ mod workspace {
         populate_ibd_from_context, route_ibd,
     };
     pub use item_flow_notation::ibd_item_flow_notation;
+    pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
     pub use model_script::{apply_model_script, preview_model_script};
     pub use package_diagrams::{
         create_package_diagram, create_package_element, create_package_relationship,
@@ -236,7 +238,8 @@ use workspace::{
     evaluate_parametric_diagram, export_portable_project_json, export_reqif,
     export_spreadsheet_workbook, export_xmi, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
-    history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
+    history_reset, history_undo, ibd_item_flow_notation, ibd_item_flow_specification,
+    update_ibd_item_flow_specification, import_portable_project_json,
     initialize_activity_execution, initialize_sequence_execution,
     initialize_state_machine_execution, load_activity_workspace, move_active_selection,
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
@@ -839,6 +842,8 @@ fn main() {
             create_ibd_connector,
             add_item_flow_to_connector,
             ibd_item_flow_notation,
+            ibd_item_flow_specification,
+            update_ibd_item_flow_specification,
             route_ibd,
             route_diagram_geometry,
             route_behavior_diagram,

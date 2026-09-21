@@ -72,6 +72,29 @@ pub struct ItemFlow {
 }
 
 impl Project {
+    /// Stage an existing ItemFlow edit without changing its identity or connector.
+    pub fn stage_item_flow_specification(
+        &self,
+        id: RelationshipId,
+        name: &str,
+        flow: ItemFlow,
+    ) -> Result<Project, String> {
+        let original = self.relationship(id).map_err(|error| error.to_string())?;
+        let old = original.item_flow.as_ref().ok_or("relationship is not an ItemFlow")?;
+        if original.kind != crate::RelationshipKind::ItemFlow || old.connector_id != flow.connector_id {
+            return Err("ItemFlow edits must retain their existing Connector".into());
+        }
+        self.validate_item_flow(&flow).map_err(|error| error.to_string())?;
+        let mut candidate = self.clone();
+        let relationship = candidate.relationships.get_mut(&id).ok_or("ItemFlow not found")?;
+        relationship.name = name.trim().to_owned();
+        relationship.source_id = flow.source.port_id.unwrap_or(flow.source.role_id);
+        relationship.target_id = flow.target.port_id.unwrap_or(flow.target.role_id);
+        relationship.item_flow = Some(flow);
+        candidate.validate().map_err(|error| error.to_string())?;
+        Ok(candidate)
+    }
+
     /// Stage one connector edit and preserve its dependent ItemFlow directions.
     pub fn stage_connector_specification(
         &self,
