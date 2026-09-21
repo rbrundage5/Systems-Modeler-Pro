@@ -65,7 +65,12 @@ fn apply_ibd_property_geometry(
     height: f64,
 ) -> Result<(), String> {
     let old = super::ibd_geometry::property_rect(property);
-    let new = super::routing::RouteRect { x, y, width, height };
+    let new = super::routing::RouteRect {
+        x,
+        y,
+        width,
+        height,
+    };
     for port in &mut property.ports {
         super::ibd_geometry::reanchor_port(port, old, new)?;
     }
@@ -162,10 +167,16 @@ pub fn update_ibd_property_geometry(
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
     history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
-        let property = diagram.properties.iter_mut()
+        let property = diagram
+            .properties
+            .iter_mut()
             .find(|property| property.id == presentation_id)
             .ok_or("IBD property presentation not found")?;
-        if property.x == x && property.y == y && property.width == width && property.height == height {
+        if property.x == x
+            && property.y == y
+            && property.width == width
+            && property.height == height
+        {
             return Ok(());
         }
         apply_ibd_property_geometry(property, x, y, width, height)?;
@@ -187,8 +198,18 @@ pub fn preview_ibd_port_geometry(
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<ibd::IbdPortPresentation, String> {
     let diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
-    let diagram = diagrams.iter().find(|diagram| diagram.id == diagram_id).ok_or("IBD not found")?;
-    super::ibd_geometry::preview_port(diagram, &presentation_id, x, y, size, frame_preference.as_ref())
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
+    super::ibd_geometry::preview_port(
+        diagram,
+        &presentation_id,
+        x,
+        y,
+        size,
+        frame_preference.as_ref(),
+    )
 }
 
 #[tauri::command]
@@ -205,7 +226,14 @@ pub fn update_ibd_port_geometry(
     history: tauri::State<'_, HistoryState>,
 ) -> Result<(), String> {
     history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
-        super::ibd_geometry::apply_port(diagram, &presentation_id, x, y, size, frame_preference.as_ref())
+        super::ibd_geometry::apply_port(
+            diagram,
+            &presentation_id,
+            x,
+            y,
+            size,
+            frame_preference.as_ref(),
+        )
     })
 }
 

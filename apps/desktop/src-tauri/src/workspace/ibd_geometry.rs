@@ -1,8 +1,8 @@
 //! Authored IBD boundaries and the read-only geometry used during a port gesture.
+use super::DiagramPoint;
 use super::ibd::{self, IbdDiagram, IbdPortPresentation, IbdPropertyPresentation};
 use super::routing::RouteRect;
 use super::shared_workspace::DiagramFramePreference;
-use super::DiagramPoint;
 
 pub(super) fn default_context_frame() -> DiagramFramePreference {
     DiagramFramePreference {
@@ -49,10 +49,22 @@ fn side_point(rect: RouteRect, side: usize, x: f64, y: f64, size: f64) -> Diagra
     let along_x = x.clamp(rect.x + margin, rect.x + rect.width - margin);
     let along_y = y.clamp(rect.y + margin, rect.y + rect.height - margin);
     match side {
-        0 => DiagramPoint { x: rect.x, y: along_y },
-        1 => DiagramPoint { x: rect.x + rect.width, y: along_y },
-        2 => DiagramPoint { x: along_x, y: rect.y },
-        _ => DiagramPoint { x: along_x, y: rect.y + rect.height },
+        0 => DiagramPoint {
+            x: rect.x,
+            y: along_y,
+        },
+        1 => DiagramPoint {
+            x: rect.x + rect.width,
+            y: along_y,
+        },
+        2 => DiagramPoint {
+            x: along_x,
+            y: rect.y,
+        },
+        _ => DiagramPoint {
+            x: along_x,
+            y: rect.y + rect.height,
+        },
     }
 }
 
@@ -121,12 +133,16 @@ pub(super) fn reroute_connected(
 ) -> Result<(), String> {
     let mut routing_diagram = diagram.clone();
     routing_diagram.connectors.retain(|edge| {
-        affected_ids.iter().any(|id| {
-            id == &edge.source_presentation_id || id == &edge.target_presentation_id
-        })
+        affected_ids
+            .iter()
+            .any(|id| id == &edge.source_presentation_id || id == &edge.target_presentation_id)
     });
     for routed in ibd::routed_ibd_connectors(&routing_diagram, None)? {
-        if let Some(edge) = diagram.connectors.iter_mut().find(|edge| edge.id == routed.id) {
+        if let Some(edge) = diagram
+            .connectors
+            .iter_mut()
+            .find(|edge| edge.id == routed.id)
+        {
             *edge = routed;
         }
     }
@@ -157,14 +173,20 @@ pub(super) fn apply_context_frame(
                 (port.y - legacy.y).abs(),
                 (port.y - legacy.y - legacy.height).abs(),
             ];
-            let side = (0..4).min_by(|a, b| distances[*a].total_cmp(&distances[*b])).unwrap_or(0);
+            let side = (0..4)
+                .min_by(|a, b| distances[*a].total_cmp(&distances[*b]))
+                .unwrap_or(0);
             let point = side_point(new, side, port.x, port.y, port.size);
             port.x = point.x;
             port.y = point.y;
         }
     }
     diagram.context_frame = Some(frame);
-    let ids = diagram.boundary_ports.iter().map(|port| port.id.clone()).collect::<Vec<_>>();
+    let ids = diagram
+        .boundary_ports
+        .iter()
+        .map(|port| port.id.clone())
+        .collect::<Vec<_>>();
     reroute_connected(diagram, &ids)
 }
 
@@ -177,13 +199,23 @@ pub(super) fn preview_port(
     visible_frame: Option<&DiagramFramePreference>,
 ) -> Result<IbdPortPresentation, String> {
     for property in &diagram.properties {
-        if let Some(port) = property.ports.iter().find(|port| port.id == presentation_id) {
+        if let Some(port) = property
+            .ports
+            .iter()
+            .find(|port| port.id == presentation_id)
+        {
             return project_port(port, property_rect(property), x, y, size);
         }
     }
-    let port = diagram.boundary_ports.iter().find(|port| port.id == presentation_id)
+    let port = diagram
+        .boundary_ports
+        .iter()
+        .find(|port| port.id == presentation_id)
         .ok_or("IBD port presentation not found")?;
-    let frame = diagram.context_frame.as_ref().or(visible_frame)
+    let frame = diagram
+        .context_frame
+        .as_ref()
+        .or(visible_frame)
         .ok_or("the visible IBD context frame is required for this legacy diagram")?;
     frame.validate()?;
     project_port(port, frame_rect(frame), x, y, size)
@@ -201,11 +233,20 @@ pub(super) fn apply_port(
     // authored starting side. All mutation occurs on the history helper's clone.
     let projected = preview_port(diagram, presentation_id, x, y, size, visible_frame)?;
     if diagram.context_frame.is_none()
-        && diagram.boundary_ports.iter().any(|port| port.id == presentation_id)
+        && diagram
+            .boundary_ports
+            .iter()
+            .any(|port| port.id == presentation_id)
     {
-        apply_context_frame(diagram, visible_frame.cloned().ok_or("IBD frame is required")?)?;
+        apply_context_frame(
+            diagram,
+            visible_frame.cloned().ok_or("IBD frame is required")?,
+        )?;
     }
-    let port = diagram.properties.iter_mut().flat_map(|property| &mut property.ports)
+    let port = diagram
+        .properties
+        .iter_mut()
+        .flat_map(|property| &mut property.ports)
         .chain(&mut diagram.boundary_ports)
         .find(|port| port.id == presentation_id)
         .ok_or("IBD port presentation not found")?;
@@ -218,25 +259,61 @@ pub(super) fn apply_port(
 
 #[cfg(test)]
 mod tests {
+    use super::super::{
+        WorkspaceState, activity_workspace::ActivityWorkspaceState, history, portable_interchange,
+    };
     use super::*;
-    use super::super::{WorkspaceState, activity_workspace::ActivityWorkspaceState, history, portable_interchange};
-    use systems_modeler_core::{Connector, ConnectorEnd, ConnectorKind, ElementKind, Multiplicity, Project};
+    use systems_modeler_core::{
+        Connector, ConnectorEnd, ConnectorKind, ElementKind, Multiplicity, Project,
+    };
     use systems_modeler_persistence::ProjectDatabase;
 
     fn fixture() -> (Project, IbdDiagram) {
         let mut project = Project::new("Port boundaries");
-        let system = project.create_element(ElementKind::Block, "System", project.root_id).unwrap();
-        let component = project.create_element(ElementKind::Block, "Unit", project.root_id).unwrap();
-        let interface = project.create_element(ElementKind::InterfaceBlock, "Contract", project.root_id).unwrap();
-        let part = project.create_typed_feature(ElementKind::PartProperty, "unit", system, component, Multiplicity::ONE).unwrap();
-        let external = project.create_typed_feature(ElementKind::ProxyPort, "external", system, interface, Multiplicity::ONE).unwrap();
-        let internal = project.create_typed_feature(ElementKind::ProxyPort, "internal", component, interface, Multiplicity::ONE).unwrap();
-        let relationship = project.create_connector(Connector {
-            context_id: system,
-            kind: ConnectorKind::Delegation,
-            source: ConnectorEnd::boundary(external),
-            target: ConnectorEnd::nested_port(vec![part], internal),
-        }).unwrap();
+        let system = project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        let component = project
+            .create_element(ElementKind::Block, "Unit", project.root_id)
+            .unwrap();
+        let interface = project
+            .create_element(ElementKind::InterfaceBlock, "Contract", project.root_id)
+            .unwrap();
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "unit",
+                system,
+                component,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let external = project
+            .create_typed_feature(
+                ElementKind::ProxyPort,
+                "external",
+                system,
+                interface,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let internal = project
+            .create_typed_feature(
+                ElementKind::ProxyPort,
+                "internal",
+                component,
+                interface,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let relationship = project
+            .create_connector(Connector {
+                context_id: system,
+                kind: ConnectorKind::Delegation,
+                source: ConnectorEnd::boundary(external),
+                target: ConnectorEnd::nested_port(vec![part], internal),
+            })
+            .unwrap();
         let mut diagram = IbdDiagram {
             id: uuid::Uuid::new_v4().to_string(),
             name: "System internals".into(),
@@ -247,20 +324,34 @@ mod tests {
                 id: "part".into(),
                 element_id: part.to_string(),
                 property_path: vec![part.to_string()],
-                x: 200.0, y: 160.0, width: 180.0, height: 100.0,
+                x: 200.0,
+                y: 160.0,
+                width: 180.0,
+                height: 100.0,
                 ports: vec![IbdPortPresentation {
-                    id: "internal".into(), element_id: internal.to_string(),
-                    property_path: vec![part.to_string()], x: 200.0, y: 210.0, size: 16.0,
+                    id: "internal".into(),
+                    element_id: internal.to_string(),
+                    property_path: vec![part.to_string()],
+                    x: 200.0,
+                    y: 210.0,
+                    size: 16.0,
                 }],
             }],
             boundary_ports: vec![IbdPortPresentation {
-                id: "external".into(), element_id: external.to_string(),
-                property_path: Vec::new(), x: 54.0, y: 170.0, size: 16.0,
+                id: "external".into(),
+                element_id: external.to_string(),
+                property_path: Vec::new(),
+                x: 54.0,
+                y: 170.0,
+                size: 16.0,
             }],
             connectors: vec![ibd::IbdConnectorPresentation {
-                id: "connector".into(), relationship_id: relationship.to_string(),
-                source_presentation_id: "external".into(), target_presentation_id: "internal".into(),
-                points: Vec::new(), label_anchor: None,
+                id: "connector".into(),
+                relationship_id: relationship.to_string(),
+                source_presentation_id: "external".into(),
+                target_presentation_id: "internal".into(),
+                points: Vec::new(),
+                label_anchor: None,
             }],
         };
         reroute_connected(&mut diagram, &["external".into()]).unwrap();
@@ -296,7 +387,10 @@ mod tests {
         }
         let corner = preview_port(&diagram, "external", -100.0, -100.0, 20.0, None).unwrap();
         assert!(corner.x >= 54.0 && corner.y >= 70.0);
-        assert!(corner.x >= 64.0 || corner.y >= 80.0, "port must clear the corner");
+        assert!(
+            corner.x >= 64.0 || corner.y >= 80.0,
+            "port must clear the corner"
+        );
         assert_eq!(value(&diagram), before);
     }
 
@@ -306,12 +400,29 @@ mod tests {
         let before = diagram.clone();
         let preview = preview_port(&diagram, "external", 1400.0, 400.0, 24.0, None).unwrap();
         apply_port(&mut diagram, "external", 1400.0, 400.0, 24.0, None).unwrap();
-        assert_eq!(serde_json::to_value(&diagram.boundary_ports[0]).unwrap(), serde_json::to_value(preview).unwrap());
-        assert_eq!(diagram.boundary_ports[0].element_id, before.boundary_ports[0].element_id);
-        assert_eq!(diagram.connectors[0].relationship_id, before.connectors[0].relationship_id);
+        assert_eq!(
+            serde_json::to_value(&diagram.boundary_ports[0]).unwrap(),
+            serde_json::to_value(preview).unwrap()
+        );
+        assert_eq!(
+            diagram.boundary_ports[0].element_id,
+            before.boundary_ports[0].element_id
+        );
+        assert_eq!(
+            diagram.connectors[0].relationship_id,
+            before.connectors[0].relationship_id
+        );
         assert_ne!(diagram.connectors[0].points, before.connectors[0].points);
-        assert_ne!(diagram.connectors[0].label_anchor, before.connectors[0].label_anchor);
-        assert!(diagram.connectors[0].points.windows(2).all(|pair| pair[0].x == pair[1].x || pair[0].y == pair[1].y));
+        assert_ne!(
+            diagram.connectors[0].label_anchor,
+            before.connectors[0].label_anchor
+        );
+        assert!(
+            diagram.connectors[0]
+                .points
+                .windows(2)
+                .all(|pair| pair[0].x == pair[1].x || pair[0].y == pair[1].y)
+        );
         ibd::validate_ibd_diagrams(&project, &[diagram]).unwrap();
     }
 
@@ -319,17 +430,32 @@ mod tests {
     fn frame_resize_preserves_side_and_fraction_and_legacy_files_adopt_once() {
         let (_, mut diagram) = fixture();
         let nested_before = serde_json::to_value(&diagram.properties).unwrap();
-        let frame = DiagramFramePreference { x: 74.0, y: 90.0, width: 1200.0, height: 1324.0, manually_sized: true };
+        let frame = DiagramFramePreference {
+            x: 74.0,
+            y: 90.0,
+            width: 1200.0,
+            height: 1324.0,
+            manually_sized: true,
+        };
         apply_context_frame(&mut diagram, frame.clone()).unwrap();
-        assert_eq!((diagram.boundary_ports[0].x, diagram.boundary_ports[0].y), (74.0, 290.0));
-        assert_eq!(serde_json::to_value(&diagram.properties).unwrap(), nested_before);
+        assert_eq!(
+            (diagram.boundary_ports[0].x, diagram.boundary_ports[0].y),
+            (74.0, 290.0)
+        );
+        assert_eq!(
+            serde_json::to_value(&diagram.properties).unwrap(),
+            nested_before
+        );
         let mut legacy_json = value(&diagram);
         legacy_json.as_object_mut().unwrap().remove("context_frame");
         let mut legacy: IbdDiagram = serde_json::from_value(legacy_json).unwrap();
         assert!(legacy.context_frame.is_none());
         legacy.boundary_ports[0].x = 55.0;
         apply_context_frame(&mut legacy, frame.clone()).unwrap();
-        assert_eq!((legacy.boundary_ports[0].x, legacy.boundary_ports[0].y), (74.0, 290.0));
+        assert_eq!(
+            (legacy.boundary_ports[0].x, legacy.boundary_ports[0].y),
+            (74.0, 290.0)
+        );
         let adopted = value(&legacy);
         apply_context_frame(&mut legacy, frame).unwrap();
         assert_eq!(value(&legacy), adopted);
@@ -346,8 +472,18 @@ mod tests {
         *workspace.project.lock().unwrap() = Some(project.clone());
         *workspace.ibd_diagrams.lock().unwrap() = vec![diagram];
         history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| {
-            apply_context_frame(diagram, DiagramFramePreference { x: 74.0, y: 90.0, width: 1200.0, height: 1324.0, manually_sized: true })
-        }).unwrap();
+            apply_context_frame(
+                diagram,
+                DiagramFramePreference {
+                    x: 74.0,
+                    y: 90.0,
+                    width: 1200.0,
+                    height: 1324.0,
+                    manually_sized: true,
+                },
+            )
+        })
+        .unwrap();
         assert_eq!(history::undo_len(&history), 1);
         let saved = workspace.ibd_diagrams.lock().unwrap().clone();
         let folder = tempfile::tempdir().unwrap();
@@ -363,16 +499,40 @@ mod tests {
         assert_eq!(value(&reopened[0]), value(&saved[0]));
         let portable = portable_interchange::export_from_states(&workspace, &activity).unwrap();
         let imported = WorkspaceState::default();
-        portable_interchange::import_into_states(&portable, &imported, &ActivityWorkspaceState::default()).unwrap();
-        assert_eq!(value(&imported.ibd_diagrams.lock().unwrap()[0]), value(&saved[0]));
+        portable_interchange::import_into_states(
+            &portable,
+            &imported,
+            &ActivityWorkspaceState::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            value(&imported.ibd_diagrams.lock().unwrap()[0]),
+            value(&saved[0])
+        );
         assert!(history::undo_states(&workspace, &activity, &history).unwrap());
         assert_eq!(value(&workspace.ibd_diagrams.lock().unwrap()[0]), before);
         // A no-op and a rejected resize must both preserve the available redo.
-        history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| apply_port(diagram, "external", 54.0, 170.0, 16.0, None)).unwrap();
-        assert!(history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| apply_port(diagram, "external", f64::NAN, 170.0, 16.0, None)).is_err());
+        history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| {
+            apply_port(diagram, "external", 54.0, 170.0, 16.0, None)
+        })
+        .unwrap();
+        assert!(
+            history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| apply_port(
+                diagram,
+                "external",
+                f64::NAN,
+                170.0,
+                16.0,
+                None
+            ))
+            .is_err()
+        );
         assert_eq!(history::undo_len(&history), 0);
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(value(&workspace.ibd_diagrams.lock().unwrap()[0]), value(&saved[0]));
+        assert_eq!(
+            value(&workspace.ibd_diagrams.lock().unwrap()[0]),
+            value(&saved[0])
+        );
     }
 
     #[test]
@@ -389,7 +549,12 @@ mod tests {
         *workspace.ibd_diagrams.lock().unwrap() = vec![diagram];
         let activity = ActivityWorkspaceState::default();
         let history = history::HistoryState::default();
-        assert!(history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| apply_port(diagram, "external", 1072.0, 400.0, 16.0, None)).is_err());
+        assert!(
+            history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| apply_port(
+                diagram, "external", 1072.0, 400.0, 16.0, None
+            ))
+            .is_err()
+        );
         assert_eq!(value(&workspace.ibd_diagrams.lock().unwrap()[0]), before);
         assert_eq!(history::undo_len(&history), 0);
     }
@@ -403,6 +568,9 @@ mod tests {
         unrelated.target_presentation_id = "another-missing".into();
         diagram.connectors.push(unrelated.clone());
         apply_port(&mut diagram, "external", 1072.0, 400.0, 16.0, None).unwrap();
-        assert_eq!(serde_json::to_value(&diagram.connectors[1]).unwrap(), serde_json::to_value(unrelated).unwrap());
+        assert_eq!(
+            serde_json::to_value(&diagram.connectors[1]).unwrap(),
+            serde_json::to_value(unrelated).unwrap()
+        );
     }
 }

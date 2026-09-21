@@ -809,8 +809,12 @@ pub fn get_diagram_frame_preference(
     state: tauri::State<'_, SharedWorkspaceState>,
     diagram_id: String,
 ) -> Result<Option<DiagramFramePreference>, String> {
-    if let Some(frame) = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?
-        .iter().find(|diagram| diagram.id == diagram_id)
+    if let Some(frame) = workspace
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")?
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
         .and_then(|diagram| diagram.context_frame.clone())
     {
         return Ok(Some(frame));
@@ -838,12 +842,20 @@ pub fn set_diagram_frame_preference(
         return Err("diagram frame id is invalid".into());
     }
     preference.validate()?;
-    let is_ibd = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?
-        .iter().any(|diagram| diagram.id == diagram_id);
+    let is_ibd = workspace
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")?
+        .iter()
+        .any(|diagram| diagram.id == diagram_id);
     if is_ibd {
-        return super::history::edit_ibd_geometry(&workspace, &activity, &history, &diagram_id, |diagram| {
-            super::ibd_geometry::apply_context_frame(diagram, preference)
-        });
+        return super::history::edit_ibd_geometry(
+            &workspace,
+            &activity,
+            &history,
+            &diagram_id,
+            |diagram| super::ibd_geometry::apply_context_frame(diagram, preference),
+        );
     }
     ensure_preferences_loaded(&app, &state)?;
     state

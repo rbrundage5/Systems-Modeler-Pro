@@ -471,9 +471,13 @@ pub fn populate_ibd_from_context(
                     element_id: feature.id.to_string(),
                     property_path: Vec::new(),
                     x: diagram.context_frame.as_ref().map_or(55.0, |frame| frame.x),
-                    y: diagram.context_frame.as_ref().map_or(100.0 + diagram.boundary_ports.len() as f64 * 70.0, |frame| {
-                        (frame.y + 50.0 + diagram.boundary_ports.len() as f64 * 70.0).min(frame.y + frame.height - 8.0)
-                    }),
+                    y: diagram.context_frame.as_ref().map_or(
+                        100.0 + diagram.boundary_ports.len() as f64 * 70.0,
+                        |frame| {
+                            (frame.y + 50.0 + diagram.boundary_ports.len() as f64 * 70.0)
+                                .min(frame.y + frame.height - 8.0)
+                        },
+                    ),
                     size: 16.0,
                 });
             }
