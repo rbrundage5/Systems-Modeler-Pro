@@ -29,11 +29,15 @@ pub struct ConnectorSpecification {
 }
 
 fn endpoint_ids(diagram: &IbdDiagram) -> Vec<String> {
-    diagram.boundary_ports.iter().map(|port| port.id.clone())
+    diagram
+        .boundary_ports
+        .iter()
+        .map(|port| port.id.clone())
         .chain(diagram.properties.iter().flat_map(|property| {
             std::iter::once(property.id.clone())
                 .chain(property.ports.iter().map(|port| port.id.clone()))
-        })).collect()
+        }))
+        .collect()
 }
 
 fn specification(
@@ -41,25 +45,51 @@ fn specification(
     diagram: &IbdDiagram,
     relationship_id: RelationshipId,
 ) -> Result<ConnectorSpecification, String> {
-    let relationship = project.relationship(relationship_id).map_err(|error| error.to_string())?;
-    let connector = relationship.connector.as_ref().ok_or("relationship is not a Connector")?;
+    let relationship = project
+        .relationship(relationship_id)
+        .map_err(|error| error.to_string())?;
+    let connector = relationship
+        .connector
+        .as_ref()
+        .ok_or("relationship is not a Connector")?;
     if connector.context_id != parse_element_id(&diagram.context_block_id)? {
         return Err("connector does not belong to the active IBD context".into());
     }
-    let edge = diagram.connectors.iter().find(|edge| edge.relationship_id == relationship_id.to_string())
+    let edge = diagram
+        .connectors
+        .iter()
+        .find(|edge| edge.relationship_id == relationship_id.to_string())
         .ok_or("connector must be presented on the active IBD")?;
     let mut endpoints = Vec::new();
     for presentation_id in endpoint_ids(diagram) {
         let (end, _) = ibd::ibd_end_for_presentation(diagram, &presentation_id)?;
-        project.validate_connector_end(connector.context_id, &end).map_err(|error| error.to_string())?;
+        project
+            .validate_connector_end(connector.context_id, &end)
+            .map_err(|error| error.to_string())?;
         let terminal = end.port_id.unwrap_or(end.role_id);
-        let path = end.property_path.iter().map(|id| {
-            project.element(*id).map(|element| element.name.clone()).map_err(|error| error.to_string())
-        }).collect::<Result<Vec<_>, _>>()?.join(" / ");
-        let qualified = project.qualified_name(terminal).map_err(|error| error.to_string())?;
-        let label = if path.is_empty() { format!("Boundary: {qualified} [{presentation_id}]") }
-            else { format!("{path}: {qualified} [{presentation_id}]") };
-        endpoints.push(ConnectorEndpointChoice { presentation_id, label });
+        let path = end
+            .property_path
+            .iter()
+            .map(|id| {
+                project
+                    .element(*id)
+                    .map(|element| element.name.clone())
+                    .map_err(|error| error.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" / ");
+        let qualified = project
+            .qualified_name(terminal)
+            .map_err(|error| error.to_string())?;
+        let label = if path.is_empty() {
+            format!("Boundary: {qualified} [{presentation_id}]")
+        } else {
+            format!("{path}: {qualified} [{presentation_id}]")
+        };
+        endpoints.push(ConnectorEndpointChoice {
+            presentation_id,
+            label,
+        });
     }
     Ok(ConnectorSpecification {
         name: relationship.name.clone(),
@@ -76,13 +106,30 @@ pub fn ibd_connector_specification(
     relationship_id: String,
     workspace: tauri::State<'_, WorkspaceState>,
 ) -> Result<ConnectorSpecification, String> {
-    let project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
-    let diagrams = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
-    let diagram = diagrams.iter().find(|diagram| diagram.id == diagram_id).ok_or("IBD not found")?;
-    specification(project.as_ref().ok_or("no project open")?, diagram, parse_relationship_id(&relationship_id)?)
+    let project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
+    let diagrams = workspace
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
+    specification(
+        project.as_ref().ok_or("no project open")?,
+        diagram,
+        parse_relationship_id(&relationship_id)?,
+    )
 }
 
-fn presented_endpoint(diagram: &IbdDiagram, previous: &str, end: &ConnectorEnd) -> Result<String, String> {
+fn presented_endpoint(
+    diagram: &IbdDiagram,
+    previous: &str,
+    end: &ConnectorEnd,
+) -> Result<String, String> {
     if ibd::ibd_end_for_presentation(diagram, previous).is_ok_and(|(current, _)| current == *end) {
         return Ok(previous.to_owned());
     }
@@ -98,7 +145,10 @@ fn stage_specification(
     relationship_id: RelationshipId,
     edit: &ConnectorSpecificationEdit,
 ) -> Result<(Project, Vec<IbdDiagram>), String> {
-    let diagram = diagrams.iter().find(|diagram| diagram.id == diagram_id).ok_or("IBD not found")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
     specification(project, diagram, relationship_id)?;
     let (source, _) = ibd::ibd_end_for_presentation(diagram, &edit.source_presentation_id)?;
     let (target, _) = ibd::ibd_end_for_presentation(diagram, &edit.target_presentation_id)?;
@@ -108,15 +158,22 @@ fn stage_specification(
         source,
         target,
     };
-    let candidate = project.stage_connector_specification(relationship_id, &edit.name, connector.clone())?;
+    let candidate =
+        project.stage_connector_specification(relationship_id, &edit.name, connector.clone())?;
     let mut staged = diagrams.to_vec();
     for diagram in &mut staged {
         for index in 0..diagram.connectors.len() {
             let edge = &diagram.connectors[index];
-            if edge.relationship_id != relationship_id.to_string() { continue; }
-            let source = presented_endpoint(diagram, &edge.source_presentation_id, &connector.source)?;
-            let target = presented_endpoint(diagram, &edge.target_presentation_id, &connector.target)?;
-            if source == edge.source_presentation_id && target == edge.target_presentation_id { continue; }
+            if edge.relationship_id != relationship_id.to_string() {
+                continue;
+            }
+            let source =
+                presented_endpoint(diagram, &edge.source_presentation_id, &connector.source)?;
+            let target =
+                presented_endpoint(diagram, &edge.target_presentation_id, &connector.target)?;
+            if source == edge.source_presentation_id && target == edge.target_presentation_id {
+                continue;
+            }
             let points = ibd::route_ibd_edge(diagram, &source, &target)?;
             let edge = &mut diagram.connectors[index];
             edge.source_presentation_id = source;
@@ -152,8 +209,19 @@ mod tests {
     fn fixture() -> (Project, Vec<IbdDiagram>, RelationshipId) {
         let (mut project, mut diagram) = super::super::ibd_geometry::tests::fixture();
         let original = &diagram.properties[0];
-        let source = project.element(parse_element_id(&original.element_id).unwrap()).unwrap().clone();
-        let part = project.create_typed_feature(ElementKind::PartProperty, "second", source.owner_id.unwrap(), source.type_id.unwrap(), Multiplicity::ONE).unwrap();
+        let source = project
+            .element(parse_element_id(&original.element_id).unwrap())
+            .unwrap()
+            .clone();
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "second",
+                source.owner_id.unwrap(),
+                source.type_id.unwrap(),
+                Multiplicity::ONE,
+            )
+            .unwrap();
         let mut copy = original.clone();
         copy.id = "second-part".into();
         copy.element_id = part.to_string();
@@ -164,17 +232,37 @@ mod tests {
         copy.ports[0].x = 600.0;
         diagram.properties.push(copy);
         let id = parse_relationship_id(&diagram.connectors[0].relationship_id).unwrap();
-        let connector = project.relationship(id).unwrap().connector.as_ref().unwrap().clone();
-        for (source, target) in [(connector.source.clone(), connector.target.clone()), (connector.target, connector.source)] {
-            project.create_item_flow(ItemFlow { connector_id: id, source, target, conveyed_item_ids: vec![source_type(&project, &diagram)] }).unwrap();
+        let connector = project
+            .relationship(id)
+            .unwrap()
+            .connector
+            .as_ref()
+            .unwrap()
+            .clone();
+        for (source, target) in [
+            (connector.source.clone(), connector.target.clone()),
+            (connector.target, connector.source),
+        ] {
+            project
+                .create_item_flow(ItemFlow {
+                    connector_id: id,
+                    source,
+                    target,
+                    conveyed_item_ids: vec![source_type(&project, &diagram)],
+                })
+                .unwrap();
         }
         let mut other = diagram.clone();
         other.id = uuid::Uuid::new_v4().to_string();
         for property in &mut other.properties {
             property.id.push_str("-other");
-            for port in &mut property.ports { port.id.push_str("-other"); }
+            for port in &mut property.ports {
+                port.id.push_str("-other");
+            }
         }
-        for port in &mut other.boundary_ports { port.id.push_str("-other"); }
+        for port in &mut other.boundary_ports {
+            port.id.push_str("-other");
+        }
         for edge in &mut other.connectors {
             edge.id.push_str("-other");
             edge.source_presentation_id.push_str("-other");
@@ -184,33 +272,58 @@ mod tests {
     }
 
     fn source_type(project: &Project, diagram: &IbdDiagram) -> ElementId {
-        project.element(parse_element_id(&diagram.properties[0].element_id).unwrap()).unwrap().type_id.unwrap()
+        project
+            .element(parse_element_id(&diagram.properties[0].element_id).unwrap())
+            .unwrap()
+            .type_id
+            .unwrap()
     }
 
     fn edit() -> ConnectorSpecificationEdit {
-        ConnectorSpecificationEdit { name: "Data interface".into(), kind: ConnectorKind::Delegation,
-            source_presentation_id: "external".into(), target_presentation_id: "second-port".into() }
+        ConnectorSpecificationEdit {
+            name: "Data interface".into(),
+            kind: ConnectorKind::Delegation,
+            source_presentation_id: "external".into(),
+            target_presentation_id: "second-port".into(),
+        }
     }
 
     #[test]
     fn connector_specification_rewires_all_views_and_preserves_identity_and_flows() {
         let (project, diagrams, id) = fixture();
         let view = specification(&project, &diagrams[0], id).unwrap();
-        assert!(view.endpoints.iter().any(|choice| choice.presentation_id == "second-port" && choice.label.contains("second")));
-        let (candidate, result) = stage_specification(&project, &diagrams, &diagrams[0].id, id, &edit()).unwrap();
+        assert!(view.endpoints.iter().any(
+            |choice| choice.presentation_id == "second-port" && choice.label.contains("second")
+        ));
+        let (candidate, result) =
+            stage_specification(&project, &diagrams, &diagrams[0].id, id, &edit()).unwrap();
         assert_eq!(candidate.relationship(id).unwrap().name, "Data interface");
-        assert_eq!(candidate.relationship(id).unwrap().external_id, project.relationship(id).unwrap().external_id);
+        assert_eq!(
+            candidate.relationship(id).unwrap().external_id,
+            project.relationship(id).unwrap().external_id
+        );
         for (index, diagram) in result.iter().enumerate() {
             assert_eq!(diagram.connectors[0].id, diagrams[index].connectors[0].id);
-            assert!(diagram.connectors[0].target_presentation_id.starts_with("second-port"));
+            assert!(
+                diagram.connectors[0]
+                    .target_presentation_id
+                    .starts_with("second-port")
+            );
         }
         for relationship in candidate.relationships.values() {
             if let Some(flow) = &relationship.item_flow {
-                assert!(flow.source.property_path == vec![parse_element_id(&diagrams[0].properties[1].element_id).unwrap()]
-                    || flow.target.property_path == vec![parse_element_id(&diagrams[0].properties[1].element_id).unwrap()]);
+                assert!(
+                    flow.source.property_path
+                        == vec![parse_element_id(&diagrams[0].properties[1].element_id).unwrap()]
+                        || flow.target.property_path
+                            == vec![
+                                parse_element_id(&diagrams[0].properties[1].element_id).unwrap()
+                            ]
+                );
             }
         }
-        let decoded: Project = serde_json::from_value(serde_json::to_value(&candidate).unwrap()).unwrap();
+        let decoded: Project =
+            serde_json::from_value(serde_json::to_value(&candidate).unwrap()).unwrap();
         ibd::validate_ibd_diagrams(&decoded, &result).unwrap();
     }
 
@@ -219,10 +332,15 @@ mod tests {
         let (project, diagrams, id) = fixture();
         let mut connector = project.relationship(id).unwrap().connector.clone().unwrap();
         std::mem::swap(&mut connector.source, &mut connector.target);
-        let candidate = project.stage_connector_specification(id, "Reversed display order", connector).unwrap();
+        let candidate = project
+            .stage_connector_specification(id, "Reversed display order", connector)
+            .unwrap();
         for (key, relationship) in &project.relationships {
             if relationship.item_flow.is_some() {
-                assert_eq!(serde_json::to_value(&relationship.item_flow).unwrap(), serde_json::to_value(&candidate.relationship(*key).unwrap().item_flow).unwrap());
+                assert_eq!(
+                    serde_json::to_value(&relationship.item_flow).unwrap(),
+                    serde_json::to_value(&candidate.relationship(*key).unwrap().item_flow).unwrap()
+                );
             }
         }
         let mut invalid = edit();
@@ -230,7 +348,11 @@ mod tests {
         assert!(stage_specification(&project, &diagrams, &diagrams[0].id, id, &invalid).is_err());
         let mut missing = diagrams.clone();
         missing[1].properties.pop();
-        assert!(stage_specification(&project, &missing, &diagrams[0].id, id, &edit()).unwrap_err().contains("must present"));
+        assert!(
+            stage_specification(&project, &missing, &diagrams[0].id, id, &edit())
+                .unwrap_err()
+                .contains("must present")
+        );
     }
 
     #[test]
@@ -243,22 +365,36 @@ mod tests {
         *workspace.project.lock().unwrap() = Some(project);
         *workspace.ibd_diagrams.lock().unwrap() = diagrams;
         let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
-        let apply = |edit: &ConnectorSpecificationEdit| history::apply_structural_specification(&workspace, &activity, &history, |project, diagrams| {
-            stage_specification(project, diagrams, &diagram_id, id, edit)
-        });
+        let apply = |edit: &ConnectorSpecificationEdit| {
+            history::apply_structural_specification(
+                &workspace,
+                &activity,
+                &history,
+                |project, diagrams| stage_specification(project, diagrams, &diagram_id, id, edit),
+            )
+        };
         assert!(apply(&edit()).unwrap());
         assert_eq!(history::undo_len(&history), 1);
         assert!(!apply(&edit()).unwrap());
         assert_eq!(history::undo_len(&history), 1);
         let after = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
         assert!(history::undo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
         let mut invalid = edit();
         invalid.kind = ConnectorKind::Assembly;
         assert!(apply(&invalid).is_err());
         assert_eq!(history::undo_len(&history), 0);
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), after);
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            after
+        );
     }
 }

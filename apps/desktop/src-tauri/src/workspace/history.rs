@@ -184,7 +184,10 @@ pub(super) fn apply_element_specification(
     edit: &systems_modeler_core::ElementSpecificationEdit,
 ) -> Result<bool, String> {
     apply_structural_specification(workspace, activity, history, |current, diagrams| {
-        Ok((current.stage_element_specification(element_id, edit)?, diagrams.to_vec()))
+        Ok((
+            current.stage_element_specification(element_id, edit)?,
+            diagrams.to_vec(),
+        ))
     })
 }
 
@@ -195,10 +198,19 @@ pub(super) fn apply_structural_specification(
     history: &HistoryState,
     edit: impl FnOnce(&Project, &[ibd::IbdDiagram]) -> Result<(Project, Vec<ibd::IbdDiagram>), String>,
 ) -> Result<bool, String> {
-    let mut project = workspace.project.lock().map_err(|_| "project lock poisoned")?;
+    let mut project = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
     let current = project.as_ref().ok_or("no project open")?;
-    let diagrams = workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let mut ibd_diagrams = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let diagrams = workspace
+        .diagrams
+        .lock()
+        .map_err(|_| "diagram lock poisoned")?;
+    let mut ibd_diagrams = workspace
+        .ibd_diagrams
+        .lock()
+        .map_err(|_| "IBD lock poisoned")?;
     let (candidate, candidate_ibds) = edit(current, &ibd_diagrams)?;
     if serde_json::to_value(current).map_err(|error| error.to_string())?
         == serde_json::to_value(&candidate).map_err(|error| error.to_string())?

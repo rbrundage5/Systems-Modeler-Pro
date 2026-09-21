@@ -132,7 +132,12 @@ pub(super) fn offset_copied_port(
                 .iter()
                 .find(|port| port.id == presentation_id)
                 .ok_or("copied port not found")?,
-            frame_rect(diagram.context_frame.as_ref().ok_or("IBD frame is required")?),
+            frame_rect(
+                diagram
+                    .context_frame
+                    .as_ref()
+                    .ok_or("IBD frame is required")?,
+            ),
         )
     };
     validate_port(rect, port.x + dx, port.y + dy, port.size)?;

@@ -8,12 +8,12 @@ mod workspace {
     mod activity_mutation;
     mod activity_workspace;
     mod bdd_elements;
-    mod connector_editing;
     mod behavior_completion;
     mod behavior_creation;
     mod behavior_workspace;
     #[allow(dead_code)]
     mod bulk_model;
+    mod connector_editing;
     mod feature_editing;
     mod history;
     mod ibd;
@@ -200,7 +200,6 @@ mod workspace {
 }
 
 use serde::Serialize;
-use workspace::{ibd_connector_specification, update_ibd_connector_specification};
 use workspace::{
     ActivityExecutionState, ActivityWorkspaceState, HistoryState, SequenceExecutionState,
     SharedWorkspaceState, StandardEditingState, StateMachineExecutionState, WorkspaceState,
@@ -288,6 +287,7 @@ use workspace::{
     preview_parametric_execution_runtime, reset_parametric_execution, run_parametric_execution,
     step_parametric_execution, terminate_parametric_execution,
 };
+use workspace::{ibd_connector_specification, update_ibd_connector_specification};
 
 #[derive(Serialize)]
 struct EngineStatus {
