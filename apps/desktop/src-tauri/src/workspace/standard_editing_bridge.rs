@@ -222,7 +222,12 @@ pub fn duplicate_selection(
 ) -> Result<StandardEditingResult, String> {
     let selections = active_selections(shared)?;
     standard_editing::duplicate_selection(
-        diagram_id, frame_preference, selections, workspace, activity, history,
+        diagram_id,
+        frame_preference,
+        selections,
+        workspace,
+        activity,
+        history,
     )
 }
 
