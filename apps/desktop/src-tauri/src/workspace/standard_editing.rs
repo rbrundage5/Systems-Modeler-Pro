@@ -1796,6 +1796,7 @@ fn duplicate_selection_items(
     snapshot: &mut EditingSnapshot,
     diagram_id: &str,
     payload: &ClipboardPayload,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
 ) -> Result<Vec<WorkspaceSelection>, String> {
     let family = family_for(diagram_id, snapshot)?;
     if family != payload.family {
@@ -1953,71 +1954,75 @@ fn duplicate_selection_items(
                 .iter()
                 .position(|diagram| diagram.id == diagram_id)
                 .ok_or("IBD not found")?;
-            let source_diagram = snapshot.ibd_diagrams[diagram_index].clone();
             let mut element_map = HashMap::new();
             let mut presentation_map = HashMap::new();
+            // Resolve all selected part identities first, independent of selection
+            // order and without eagerly creating unused semantic copies.
             for item in &payload.items {
-                match item {
-                    ClipboardItem::IbdProperty { property } => {
-                        let old = parse_element_id(&property.element_id)?;
-                        let new = *element_map
-                            .entry(old)
-                            .or_insert(duplicate_element(&mut snapshot.project, old)?);
-                        let mut presentation = property.clone();
-                        let old_id = presentation.id.clone();
-                        presentation.id = uuid::Uuid::new_v4().to_string();
-                        presentation.element_id = new.to_string();
-                        if let Some(last) = presentation.property_path.last_mut()
-                            && *last == old.to_string()
-                        {
-                            *last = new.to_string();
-                        }
-                        presentation.x += PASTE_OFFSET;
-                        presentation.y += PASTE_OFFSET;
-                        presentation_map.insert(old_id, presentation.id.clone());
-                        selections.push(WorkspaceSelection {
-                            kind: "IbdProperty".into(),
-                            id: presentation.id.clone(),
-                        });
-                        snapshot.ibd_diagrams[diagram_index]
-                            .properties
-                            .push(presentation);
+                if let ClipboardItem::IbdProperty { property } = item {
+                    let old = parse_element_id(&property.element_id)?;
+                    if let std::collections::hash_map::Entry::Vacant(entry) = element_map.entry(old) {
+                        entry.insert(duplicate_element(&mut snapshot.project, old)?);
                     }
-                    ClipboardItem::IbdPort { port, parent } => {
-                        let old = parse_element_id(&port.element_id)?;
-                        let new = *element_map
-                            .entry(old)
-                            .or_insert(duplicate_element(&mut snapshot.project, old)?);
-                        let mut presentation = port.clone();
-                        presentation.id = uuid::Uuid::new_v4().to_string();
-                        presentation.element_id = new.to_string();
-                        presentation.x += PASTE_OFFSET;
-                        presentation.y += PASTE_OFFSET;
-                        if let Some(parent) = parent {
-                            let parent_id = find_ibd_presentation(
-                                &snapshot.ibd_diagrams[diagram_index],
-                                parent,
-                            )
-                            .ok_or("nested port parent presentation not found")?;
-                            snapshot.ibd_diagrams[diagram_index]
-                                .properties
-                                .iter_mut()
-                                .find(|property| property.id == parent_id)
-                                .ok_or("nested port parent presentation not found")?
-                                .ports
-                                .push(presentation.clone());
-                        } else {
-                            snapshot.ibd_diagrams[diagram_index]
-                                .boundary_ports
-                                .push(presentation.clone());
-                        }
-                        selections.push(WorkspaceSelection {
-                            kind: "IbdPort".into(),
-                            id: presentation.id,
-                        });
-                    }
-                    _ => {}
                 }
+            }
+            for item in &payload.items {
+                if let ClipboardItem::IbdProperty { property } = item {
+                    let old = parse_element_id(&property.element_id)?;
+                    let mut presentation = property.clone();
+                    presentation.id = uuid::Uuid::new_v4().to_string();
+                    presentation.element_id = element_map[&old].to_string();
+                    for step in &mut presentation.property_path {
+                        if let Some(new) = element_map.get(&parse_element_id(step)?) {
+                            *step = new.to_string();
+                        }
+                    }
+                    presentation.x += PASTE_OFFSET;
+                    presentation.y += PASTE_OFFSET;
+                    for port in &mut presentation.ports {
+                        let old_port_id = port.id.clone();
+                        port.id = uuid::Uuid::new_v4().to_string();
+                        port.property_path = presentation.property_path.clone();
+                        port.x += PASTE_OFFSET;
+                        port.y += PASTE_OFFSET;
+                        presentation_map.insert(old_port_id, port.id.clone());
+                    }
+                    presentation_map.insert(property.id.clone(), presentation.id.clone());
+                    selections.push(WorkspaceSelection { kind: "IbdProperty".into(), id: presentation.id.clone() });
+                    snapshot.ibd_diagrams[diagram_index].properties.push(presentation);
+                }
+            }
+            for item in &payload.items {
+                let ClipboardItem::IbdPort { port, parent } = item else { continue; };
+                // A selected parent's child is an occurrence of its type's port,
+                // not a request to add a new feature to that shared classifier.
+                if presentation_map.contains_key(&port.id) { continue; }
+                let old = parse_element_id(&port.element_id)?;
+                let new = match element_map.entry(old) {
+                    std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                    std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(duplicate_element(&mut snapshot.project, old)?),
+                };
+                let mut presentation = port.clone();
+                presentation.id = uuid::Uuid::new_v4().to_string();
+                presentation.element_id = new.to_string();
+                presentation.x += PASTE_OFFSET;
+                presentation.y += PASTE_OFFSET;
+                let diagram = &mut snapshot.ibd_diagrams[diagram_index];
+                if let Some(parent) = parent {
+                    let parent_id = find_ibd_presentation(diagram, parent)
+                        .ok_or("nested port parent presentation not found")?;
+                    diagram.properties.iter_mut().find(|property| property.id == parent_id)
+                        .ok_or("nested port parent presentation not found")?.ports.push(presentation.clone());
+                } else {
+                    if diagram.context_frame.is_none() {
+                        super::ibd_geometry::apply_context_frame(diagram,
+                            visible_frame.cloned().ok_or("the visible IBD context frame is required to duplicate a boundary port")?)?;
+                    }
+                    diagram.boundary_ports.push(presentation.clone());
+                }
+                super::ibd_geometry::apply_port(diagram, &presentation.id, presentation.x, presentation.y, presentation.size, visible_frame)?;
+                presentation_map.insert(port.id.clone(), presentation.id.clone());
+                selections.push(WorkspaceSelection { kind: "IbdPort".into(), id: presentation.id });
             }
             let mut relationship_map = HashMap::new();
             for item in &payload.items {
@@ -2067,7 +2072,6 @@ fn duplicate_selection_items(
                     id,
                 });
             }
-            let _ = source_diagram;
         }
         EditingFamily::StateMachine | EditingFamily::Sequence => {
             duplicate_behavior_items(snapshot, diagram_id, &payload.items, &mut selections)?;
@@ -2412,17 +2416,29 @@ fn paste_clipboard_states(
 
 pub fn duplicate_selection(
     diagram_id: String,
+    frame_preference: Option<shared_workspace::DiagramFramePreference>,
     selections: Vec<WorkspaceSelection>,
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
 ) -> Result<StandardEditingResult, String> {
-    let mut snapshot = EditingSnapshot::capture(&workspace, &activity)?;
-    let payload = collect_clipboard(&snapshot, &diagram_id, &selections)?;
-    let new_selections = duplicate_selection_items(&mut snapshot, &diagram_id, &payload)?;
+    duplicate_selection_states(&workspace, &activity, &history, &diagram_id, &selections, frame_preference.as_ref())
+}
+
+fn duplicate_selection_states(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    history: &HistoryState,
+    diagram_id: &str,
+    selections: &[WorkspaceSelection],
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<StandardEditingResult, String> {
+    let mut snapshot = EditingSnapshot::capture(workspace, activity)?;
+    let payload = collect_clipboard(&snapshot, diagram_id, selections)?;
+    let new_selections = duplicate_selection_items(&mut snapshot, diagram_id, &payload, visible_frame)?;
     snapshot.validate()?;
-    history::checkpoint_states(&workspace, &activity, &history)?;
-    snapshot.commit(&workspace, &activity)?;
+    history::checkpoint_states(workspace, activity, history)?;
+    snapshot.commit(workspace, activity)?;
     Ok(StandardEditingResult {
         changed: new_selections.len(),
         selections: new_selections,
@@ -2491,6 +2507,113 @@ mod tests {
             behavior: Default::default(), behavior_diagrams: Vec::new(),
             activity: Default::default(), activity_diagrams: Vec::new(),
         }
+    }
+
+    #[test]
+    fn ibd_duplicate_connected_part_preserves_type_ports_and_remaps_paths() {
+        for reverse in [false, true] {
+            let mut snapshot = port_paste_snapshot();
+            let original = snapshot.ibd_diagrams[0].clone();
+            let id = original.id.clone();
+            let count = snapshot.project.elements.len();
+            let original_port = parse_element_id(&original.properties[0].ports[0].element_id).unwrap();
+            let mut selected = vec![ibd_selection("part"), ibd_selection("internal")];
+            if reverse { selected.reverse(); }
+            selected.push(ibd_selection("connector"));
+            let payload = collect_clipboard(&snapshot, &id, &selected).unwrap();
+            let result = duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap();
+            snapshot.validate().unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(snapshot.project.elements.len(), count + 1, "only the part is a new semantic element");
+            let diagram = &snapshot.ibd_diagrams[0];
+            let copy = &diagram.properties[1];
+            let copy_id = parse_element_id(&copy.element_id).unwrap();
+            assert_ne!(copy.element_id, original.properties[0].element_id);
+            assert_eq!(snapshot.project.element(copy_id).unwrap().type_id,
+                snapshot.project.element(parse_element_id(&original.properties[0].element_id).unwrap()).unwrap().type_id);
+            assert_eq!(copy.ports.len(), 1);
+            assert_ne!(copy.ports[0].id, original.properties[0].ports[0].id);
+            assert_eq!(copy.ports[0].element_id, original_port.to_string());
+            assert_eq!(copy.ports[0].property_path, vec![copy.element_id.clone()]);
+            assert_eq!((copy.ports[0].x, copy.ports[0].y), (copy.x, 210.0 + PASTE_OFFSET));
+            let edge = &diagram.connectors[1];
+            assert_eq!(edge.target_presentation_id, copy.ports[0].id);
+            let relation = snapshot.project.relationship(parse_relationship_id(&edge.relationship_id).unwrap()).unwrap();
+            let connector = relation.connector.as_ref().unwrap();
+            assert_eq!(connector.target.property_path, vec![copy_id]);
+            assert_eq!(connector.target.port_id, Some(original_port));
+            assert_eq!(serde_json::to_value(&diagram.properties[0]).unwrap(), serde_json::to_value(&original.properties[0]).unwrap());
+            let decoded: Vec<ibd::IbdDiagram> = serde_json::from_value(serde_json::to_value(&snapshot.ibd_diagrams).unwrap()).unwrap();
+            ibd::validate_ibd_diagrams(&snapshot.project, &decoded).unwrap();
+        }
+    }
+
+    #[test]
+    fn ibd_duplicate_repeated_property_presentations_create_one_semantic_copy() {
+        let mut snapshot = port_paste_snapshot();
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let mut second = snapshot.ibd_diagrams[0].properties[0].clone();
+        second.id = "second-part".into();
+        second.ports[0].id = "second-port".into();
+        snapshot.ibd_diagrams[0].properties.push(second);
+        let count = snapshot.project.elements.len();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part"), ibd_selection("second-part")]).unwrap();
+        duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap();
+        snapshot.validate().unwrap();
+        assert_eq!(snapshot.project.elements.len(), count + 1);
+        let properties = &snapshot.ibd_diagrams[0].properties;
+        assert_eq!(properties[2].element_id, properties[3].element_id);
+        assert_ne!(properties[2].ports[0].id, properties[3].ports[0].id);
+    }
+
+    #[test]
+    fn ibd_duplicate_individual_port_creates_typed_feature_and_maps_connector() {
+        for boundary in [false, true] {
+            let mut snapshot = port_paste_snapshot();
+            let id = snapshot.ibd_diagrams[0].id.clone();
+            let port_id = if boundary { "external" } else { "internal" };
+            let original = if boundary { snapshot.ibd_diagrams[0].boundary_ports[0].clone() }
+                else { snapshot.ibd_diagrams[0].properties[0].ports[0].clone() };
+            let payload = collect_clipboard(&snapshot, &id, &[ibd_selection(port_id), ibd_selection("connector")]).unwrap();
+            let result = duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap();
+            snapshot.validate().unwrap();
+            let diagram = &snapshot.ibd_diagrams[0];
+            let port = if boundary { &diagram.boundary_ports[1] } else { &diagram.properties[0].ports[1] };
+            let copied = snapshot.project.element(parse_element_id(&port.element_id).unwrap()).unwrap();
+            let source = snapshot.project.element(parse_element_id(&original.element_id).unwrap()).unwrap();
+            assert_ne!(copied.id, source.id);
+            assert_eq!(copied.type_id, source.type_id);
+            assert_eq!(copied.owner_id, source.owner_id);
+            assert_eq!(port.x, original.x);
+            assert_eq!(result[0].id, port.id);
+            let edge = &diagram.connectors[1];
+            assert_eq!(if boundary { &edge.source_presentation_id } else { &edge.target_presentation_id }, &port.id);
+        }
+    }
+
+    #[test]
+    fn ibd_duplicate_rejection_preserves_semantics_history_and_redo() {
+        let mut snapshot = port_paste_snapshot();
+        snapshot.ibd_diagrams[0].context_frame = None;
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        snapshot.commit(&workspace, &activity).unwrap();
+        let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        let selected = vec![ibd_selection("part"), ibd_selection("external"), ibd_selection("connector")];
+        assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &selected, None).is_err());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(history::undo_len(&history), 0);
+        let frame = super::super::ibd_geometry::default_context_frame();
+        duplicate_selection_states(&workspace, &activity, &history, &id, &selected, Some(&frame)).unwrap();
+        let after = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &selected, None).is_err());
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), after);
     }
 
     #[test]

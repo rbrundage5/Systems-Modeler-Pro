@@ -309,7 +309,7 @@
     try {
       await window.smpRendererHost?.publishInteraction?.();
       const args = { diagramId: activeDiagramId() };
-      if (commandId === 'paste' && activeFamilyId() === 'ibd') {
+      if ((commandId === 'paste' || commandId === 'duplicate') && activeFamilyId() === 'ibd') {
         args.framePreference = window.smpRendererHost?.frameGeometry?.() || null;
       }
       const result = await requireInvoke()(adapter, args);

@@ -56,3 +56,12 @@ test('rejected paste retains selection and reports the Rust diagnostic', async (
   assert.equal(ui.refreshes(), 0);
   assert.deepEqual(ui.errors, ['Port parent is missing']);
 });
+
+
+test('IBD Duplicate supplies the visible frame and keeps the dedicated command', async () => {
+  const ui = clipboardFixture('ibd');
+  ui.window.smpStandardEditing.setSelections([{ kind: 'IbdPort', id: 'original' }]);
+  assert.equal(await ui.window.smpStandardEditing.run('duplicate'), true);
+  assert.equal(ui.calls[0].command, 'duplicate_selection');
+  assert.deepEqual(ui.calls[0].args.framePreference, ui.frame);
+});

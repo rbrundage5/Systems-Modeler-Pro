@@ -214,13 +214,16 @@ pub fn paste_selection(
 #[tauri::command]
 pub fn duplicate_selection(
     diagram_id: String,
+    frame_preference: Option<super::shared_workspace::DiagramFramePreference>,
     workspace: tauri::State<'_, WorkspaceState>,
     activity: tauri::State<'_, ActivityWorkspaceState>,
     history: tauri::State<'_, HistoryState>,
     shared: tauri::State<'_, SharedWorkspaceState>,
 ) -> Result<StandardEditingResult, String> {
     let selections = active_selections(shared)?;
-    standard_editing::duplicate_selection(diagram_id, selections, workspace, activity, history)
+    standard_editing::duplicate_selection(
+        diagram_id, frame_preference, selections, workspace, activity, history,
+    )
 }
 
 #[tauri::command]
