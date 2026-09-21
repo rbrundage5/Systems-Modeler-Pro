@@ -1,5 +1,34 @@
 use super::*;
 
+#[tauri::command]
+pub fn element_type_choices(
+    element_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<Vec<systems_modeler_core::ElementTypeChoice>, String> {
+    let project = state.project.lock().map_err(|_| "project lock poisoned")?;
+    project
+        .as_ref()
+        .ok_or("no project open")?
+        .element_type_choices(parse_element_id(&element_id)?)
+}
+
+#[tauri::command]
+pub fn update_element_specification(
+    element_id: String,
+    edit: systems_modeler_core::ElementSpecificationEdit,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, history::HistoryState>,
+) -> Result<bool, String> {
+    history::apply_element_specification(
+        &state,
+        &activity,
+        &history,
+        parse_element_id(&element_id)?,
+        &edit,
+    )
+}
+
 fn parse_aggregation(value: &str) -> Result<AggregationKind, String> {
     match value {
         "none" => Ok(AggregationKind::None),
