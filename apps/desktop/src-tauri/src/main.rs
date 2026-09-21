@@ -85,7 +85,9 @@ mod workspace {
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
         resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
     };
-    pub use feature_editing::update_bdd_feature_semantics;
+    pub use feature_editing::{
+        element_type_choices, update_bdd_feature_semantics, update_element_specification,
+    };
     pub use history::{
         HistoryState, history_checkpoint, history_redo, history_reset, history_undo,
     };
@@ -228,7 +230,7 @@ use workspace::{
     delete_bdd_relationship, delete_behavior_item, delete_binding_connector, delete_model_element,
     delete_package_relationship, delete_repository_diagram, delete_use_case_relationship,
     diagram_command_manifest, diagram_family_registry, discard_staged_reqif,
-    discard_staged_spreadsheet, discard_staged_xmi, duplicate_selection,
+    discard_staged_spreadsheet, discard_staged_xmi, duplicate_selection, element_type_choices,
     evaluate_parametric_diagram, export_portable_project_json, export_reqif,
     export_spreadsheet_workbook, export_xmi, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
@@ -264,17 +266,17 @@ use workspace::{
     update_activity_presentation_geometry, update_actor_details, update_association_end,
     update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
-    update_constraint_parameter_presentation, update_execution_specification,
-    update_extend_specification, update_ibd_port_geometry, update_ibd_property_geometry,
-    update_package_element, update_package_relationship, update_parametric_constraint_property,
-    update_parametric_presentation_geometry, update_parametric_value_property,
-    update_quantity_kind_details, update_requirement, update_sequence_message,
-    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
-    update_state_presentation_geometry, update_state_transition, update_unit_details,
-    update_use_case_actor_notation, update_use_case_diagram_subject, update_use_case_specification,
-    update_use_case_subject_boundary_geometry, update_value_type_details,
-    workspace_interaction_snapshot, workspace_snapshot, workspace_snapshot_complete,
-    zoom_diagram_viewport,
+    update_constraint_parameter_presentation, update_element_specification,
+    update_execution_specification, update_extend_specification, update_ibd_port_geometry,
+    update_ibd_property_geometry, update_package_element, update_package_relationship,
+    update_parametric_constraint_property, update_parametric_presentation_geometry,
+    update_parametric_value_property, update_quantity_kind_details, update_requirement,
+    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
+    update_state_invariant, update_state_presentation_geometry, update_state_transition,
+    update_unit_details, update_use_case_actor_notation, update_use_case_diagram_subject,
+    update_use_case_specification, update_use_case_subject_boundary_geometry,
+    update_value_type_details, workspace_interaction_snapshot, workspace_snapshot,
+    workspace_snapshot_complete, zoom_diagram_viewport,
 };
 use workspace::{
     ParametricExecutionState, clear_parametric_executions, configure_parametric_execution_runtime,
@@ -817,6 +819,8 @@ fn main() {
             create_bdd_feature,
             update_bdd_element_details,
             update_bdd_feature_semantics,
+            element_type_choices,
+            update_element_specification,
             update_bdd_presentation_geometry,
             rename_element,
             rename_active_diagram_header,

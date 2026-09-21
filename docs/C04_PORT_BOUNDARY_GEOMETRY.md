@@ -79,3 +79,8 @@ entry point (10 gesture, 2 dialog, 6 port). All 21 static integration validators
 pass after their geometry-location checks were updated. JavaScript syntax and
 `git diff --check` pass. Six Rust regression tests are added but not yet executed.
 CI results and native manual acceptance are pending.
+
+Combined qualification: PR108 is stacked on PR107 so all candidates are checked
+together while each PR keeps one leaf diff. The shared regression entry point
+conflict retains every test. The combined Node suite passes 31 tests (including
+four context-frame commit/cancel/undo/rejection regressions). No PR is merged.

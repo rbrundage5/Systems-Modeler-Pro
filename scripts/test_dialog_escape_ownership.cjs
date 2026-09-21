@@ -214,3 +214,5 @@ test('rejected IBD frame resize restores the original boundary', async () => {
   assert.deepEqual({ ...ui.window.smpRendererHost.frameGeometry() }, frame);
   assert.equal(ui.calls.filter(command => command === 'set_diagram_frame_preference').length, 1);
 });
+// Keep the Properties/history regressions in the existing frontend CI entry point.
+require('./test_element_specification.cjs');
