@@ -995,8 +995,6 @@ fn paste_clipboard(
                     let mut copy = port.clone();
                     let old_id = copy.id.clone();
                     copy.id = uuid::Uuid::new_v4().to_string();
-                    copy.x += PASTE_OFFSET;
-                    copy.y += PASTE_OFFSET;
                     presentation_map.insert(old_id, copy.id.clone());
                     if let Some(parent) = parent {
                         let parent_id = find_ibd_presentation(diagram, parent)
@@ -1010,8 +1008,8 @@ fn paste_clipboard(
                     } else {
                         diagram.boundary_ports.push(copy.clone());
                     }
-                    super::ibd_geometry::apply_port(
-                        diagram, &copy.id, copy.x, copy.y, copy.size, visible_frame,
+                    super::ibd_geometry::offset_copied_port(
+                        diagram, &copy.id, PASTE_OFFSET, PASTE_OFFSET,
                     )?;
                     selections.push(WorkspaceSelection {
                         kind: "IbdPort".into(),
@@ -2005,8 +2003,6 @@ fn duplicate_selection_items(
                 let mut presentation = port.clone();
                 presentation.id = uuid::Uuid::new_v4().to_string();
                 presentation.element_id = new.to_string();
-                presentation.x += PASTE_OFFSET;
-                presentation.y += PASTE_OFFSET;
                 let diagram = &mut snapshot.ibd_diagrams[diagram_index];
                 if let Some(parent) = parent {
                     let parent_id = find_ibd_presentation(diagram, parent)
@@ -2020,7 +2016,7 @@ fn duplicate_selection_items(
                     }
                     diagram.boundary_ports.push(presentation.clone());
                 }
-                super::ibd_geometry::apply_port(diagram, &presentation.id, presentation.x, presentation.y, presentation.size, visible_frame)?;
+                super::ibd_geometry::offset_copied_port(diagram, &presentation.id, PASTE_OFFSET, PASTE_OFFSET)?;
                 presentation_map.insert(port.id.clone(), presentation.id.clone());
                 selections.push(WorkspaceSelection { kind: "IbdPort".into(), id: presentation.id });
             }
