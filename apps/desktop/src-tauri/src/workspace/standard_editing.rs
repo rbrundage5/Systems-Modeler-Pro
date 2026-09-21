@@ -2004,7 +2004,16 @@ fn duplicate_selection_items(
                 .iter()
                 .position(|diagram| diagram.id == diagram_id)
                 .ok_or("IBD not found")?;
-            let (part_dx, part_dy) = ibd_copy_offset(&snapshot.ibd_diagrams[diagram_index], payload)?;
+            // Adopt legacy boundary geometry before inserting copies, so the
+            // adoption reroute sees only the original, valid presentation set.
+            let diagram = &mut snapshot.ibd_diagrams[diagram_index];
+            if diagram.context_frame.is_none()
+                && payload.items.iter().any(|item| matches!(item, ClipboardItem::IbdPort { parent: None, .. }))
+            {
+                super::ibd_geometry::apply_context_frame(diagram,
+                    visible_frame.cloned().ok_or("the visible IBD context frame is required to duplicate a boundary port")?)?;
+            }
+            let (part_dx, part_dy) = ibd_copy_offset(diagram, payload)?;
             let mut element_map = HashMap::new();
             let mut presentation_map = HashMap::new();
             // Resolve all selected part identities first, independent of selection
@@ -2063,10 +2072,6 @@ fn duplicate_selection_items(
                     diagram.properties.iter_mut().find(|property| property.id == parent_id)
                         .ok_or("nested port parent presentation not found")?.ports.push(presentation.clone());
                 } else {
-                    if diagram.context_frame.is_none() {
-                        super::ibd_geometry::apply_context_frame(diagram,
-                            visible_frame.cloned().ok_or("the visible IBD context frame is required to duplicate a boundary port")?)?;
-                    }
                     diagram.boundary_ports.push(presentation.clone());
                 }
                 super::ibd_geometry::offset_copied_port(diagram, &presentation.id, PASTE_OFFSET, PASTE_OFFSET)?;
@@ -2608,7 +2613,7 @@ mod tests {
         let mut snapshot = port_paste_snapshot();
         let frame = snapshot.ibd_diagrams[0].context_frame.as_mut().unwrap();
         frame.width = 400.0;
-        frame.height = 220.0;
+        frame.height = 240.0;
         let id = snapshot.ibd_diagrams[0].id.clone();
         let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part")]).unwrap();
         let workspace = WorkspaceState::default();
@@ -2616,7 +2621,8 @@ mod tests {
         let history = HistoryState::default();
         snapshot.commit(&workspace, &activity).unwrap();
         let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
-        assert!(paste_clipboard_states(&workspace, &activity, &history, &id, &payload, None).unwrap_err().contains("enlarge"));
+        let error = paste_clipboard_states(&workspace, &activity, &history, &id, &payload, None).unwrap_err();
+        assert!(error.contains("enlarge"), "expected a valid but crowded frame: {error}");
         assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &[ibd_selection("part")], None).is_err());
         assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
         assert_eq!(history::undo_len(&history), 0);
