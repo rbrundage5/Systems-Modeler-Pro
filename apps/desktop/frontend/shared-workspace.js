@@ -64,7 +64,7 @@
     if (state.frameDrag || state.frameSaving) return;
     const authored = authoredFrame();
     if (authored) {
-      if (!state.authoredFrameUsed) Object.assign(state, { legacyFrame: state.frame && { ...state.frame } });
+      if (!state.authoredFrameUsed && !state.legacyFrame) Object.assign(state, { legacyFrame: state.frame && { ...state.frame } });
       Object.assign(state, { frame: authored, authoredFrameUsed: true });
     } else if (state.authoredFrameUsed) {
       Object.assign(state, { frame: state.legacyFrame || automaticFrame(), authoredFrameUsed: false });
@@ -301,7 +301,7 @@
     return true;
   }
   canvas.addEventListener('pointerdown', (event) => {
-    const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
+    const frameControl=event.target.closest?.('.sysml-frame-label,.sysml-frame-resize'); if(frameControl&&state.frame){if(!authoredFrame())Object.assign(state,{legacyFrame:{...state.frame}});event.preventDefault();event.stopPropagation();const resizing=frameControl.classList.contains('sysml-frame-resize');Object.assign(state,{frameDrag:{pointerId:event.pointerId,x:event.clientX,y:event.clientY,start:{...state.frame},resizing}});frameControl.setPointerCapture(event.pointerId);state.frameElement.classList.add(resizing?'is-resizing':'is-moving');return;}
     if (startPan(event)) return;
     if (event.target === canvas || event.target === state.spacer) clearSelection();
   }, true);
