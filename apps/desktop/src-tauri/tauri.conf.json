@@ -20,11 +20,29 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'none'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost https://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'",
+        "frame-ancestors": "'none'",
+        "form-action": "'none'",
+        "worker-src": "'none'"
+      }
     }
   },
   "plugins": {
-    "updater": { "pubkey": "", "windows": { "installMode": "passive" } }
+    "updater": {
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   },
   "bundle": {
     "active": true,
