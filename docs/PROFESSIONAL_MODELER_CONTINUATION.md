@@ -55,9 +55,9 @@ Refresh these statuses from GitHub before acting; this table is a checkpoint.
 | Relationship validation scale | PR140 merged. Debug CI workload: 10,000 relationships 4.47s to 0.07s; 100,000 relationships 0.64s. |
 | Typed unit-reference validation | PR142 merged. Debug CI workload: 9,001 elements 1.12s to 0.09s; 90,001 elements 0.88s. |
 | Imported inheritance cycles | PR143 merged. Native cycle/diamond/deep-chain validation; 20,000 inheritance levels tested. |
-| Atomic history transitions | PR144: acquire all seven authored fields represented by HistorySnapshot and both history stacks before publication. Failure injection and ownership-moving undo/redo tests. Verify current native CI. |
-| Inherited-feature query | PR145: indexed iterative traversal, unique ancestor features, deterministic results and a 20,000-level query regression. Verify current native CI. |
-| Connected IBD port preview | PR146: Rust-routed attached connectors and labels during port gestures; cancellation and stale-response protection. Native and rendered acceptance are distinct. |
+| Atomic history transitions | PR144, `3f3d5bb`: acquire all seven authored fields represented by HistorySnapshot and both history stacks before publication. Busy authored state rejects without holding partial locks; failure/contention and ownership-moving undo/redo regressions. Verify current native CI. |
+| Inherited-feature query | PR145, `582c066`: indexed iterative traversal, unique ancestor features, deterministic results and a 20,000-level query regression. All three native-foundation jobs passed (run 35770898479); four new query tests passed in 0.19s total. Current callers are tests/API consumers, not the structural runtime/UI. |
+| Connected IBD port preview | PR146, `90dce35`: Rust-routed attached connectors, names and ItemFlow adornments during port gestures; cancellation, hidden labels and stale-response protection. All 57 local frontend integration tests pass, including 20 gesture tests. Native and installed/rendered acceptance are distinct. |
 
 These timings include fixture construction, debug validation and destruction on
 GitHub-hosted runners. They are not latency distributions, release benchmarks,
@@ -71,6 +71,7 @@ case. Revalidate findings against current main; do not duplicate merged fixes.
 
 | Priority / coverage | Next concrete outcome | Required acceptance |
 | --- | --- | --- |
+| P0 C02: concurrent authoring locks | Normalize the existing repository/presentation lock inversions in separate Activity, Behavior and structural-command leaves. PR144 rejects busy history operations but does not repair every existing command. | A held presentation guard cannot deadlock Save/history or another native command; rejected/contended operations publish nothing, and retry succeeds. Use bounded concurrency regressions rather than timing-only assertions or an unbounded stress test. |
 | P0 C02: session replacement | Native New/Open must retire previous runtime/history only when the complete replacement commits. Inspect complete Open, all execution managers and the overwritten frontend Open wrappers. | Failed staging or any required lock leaves authored state, runtime and history intact; successful replacement cannot undo into or execute the previous project. |
 | P0 C02: dirty revisions | Native session/revision tracking and coherent Save/Discard/Cancel for destructive session transitions. | Concurrent edits cannot be marked saved by an earlier save; Cancel preserves everything; failed Save keeps dirty state and the current file identity. |
 | P1 C21: history memory | Measure retained memory for a large project plus repeated IBD geometry edits; introduce a smaller geometry history representation after atomic history is integrated. | Interleaved geometry/semantic edits undo and redo correctly, failed edits preserve stacks, redo invalidation is correct, and memory growth is measured. Do not disable undo to meet a budget. |
@@ -89,6 +90,16 @@ containment/navigation, discoverable family-specific authoring tools, a clear
 diagram canvas, a coherent specification editor and contextual diagnostics/runtime
 inspection. Start with representative layouts and implement their entire
 interaction journey. A color change does not satisfy this workstream.
+
+The lock audit identified Activity node/edge creation, Activity editing and
+route/layout paths acquiring diagrams before the Activity repository, while
+complete Save and structural history acquire the repository first. Behavior
+editing and shared header rename contain analogous inverse acquisitions. Confirm
+guard lifetimes in each function before changing it: some chained reads clone
+their result and already release the first guard. Do not treat a textual order
+scan as proof that every match deadlocks. Activity edge creation/reconnection
+also warrant a separate late-routing-failure rollback check before declaring
+their mutation workflow atomic.
 
 ## Evidence and continuation record
 
