@@ -130,22 +130,33 @@ pub fn update_requirement(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
+    apply_requirement_update(&workspace, &activity, &history, &details).map(|_| ())
+}
+
+fn apply_requirement_update(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+    details: &RequirementUpdateRequest,
+) -> Result<bool, String> {
     let element_id = parse_element_id(&details.element_id)?;
-    checkpoint(&workspace, &activity, &history)?;
-    let mut project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?;
-    let project = project.as_mut().ok_or("no project open")?;
-    project
-        .update_requirement(element_id, details.requirement_id, details.text)
-        .map_err(|error| error.to_string())?;
-    let requirement = project
-        .element_mut(element_id)
-        .map_err(|error| error.to_string())?;
-    requirement.name = details.name;
-    requirement.documentation = details.documentation;
-    Ok(())
+    history::apply_structural_specification(workspace, activity, history, |project, diagrams| {
+        let mut candidate = project.clone();
+        candidate
+            .update_requirement(
+                element_id,
+                details.requirement_id.clone(),
+                details.text.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+        let requirement = candidate
+            .element_mut(element_id)
+            .map_err(|error| error.to_string())?;
+        requirement.name = details.name.clone();
+        requirement.documentation = details.documentation.clone();
+        candidate.validate().map_err(|error| error.to_string())?;
+        Ok((candidate, diagrams.to_vec()))
+    })
 }
 
 #[tauri::command]
@@ -374,4 +385,92 @@ pub fn create_traceability_relationship(
         label_anchor: None,
     });
     Ok(relationship_id.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requirement_edit_is_one_transaction_with_transitive_copy_undo_and_redo() {
+        let mut project = Project::new("Requirement transaction");
+        let owner = project.root_id;
+        let master = project.create_requirement("Master", "R1", "Old", owner).unwrap();
+        let copy = project.create_requirement("Copy", "R2", "Old", owner).unwrap();
+        let leaf = project.create_requirement("Leaf", "R3", "Old", owner).unwrap();
+        project
+            .create_relationship(RelationshipKind::Copy, copy, master, Some(owner))
+            .unwrap();
+        project
+            .create_relationship(RelationshipKind::Copy, leaf, copy, Some(owner))
+            .unwrap();
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        *workspace.project.lock().unwrap() = Some(project);
+        let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        let diagrams_before = serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap();
+        let mut details = RequirementUpdateRequest {
+            element_id: master.to_string(),
+            name: "Revised master".into(),
+            requirement_id: "R1-REV".into(),
+            text: "Revised text".into(),
+            documentation: "Rationale".into(),
+        };
+        let apply = |details: &RequirementUpdateRequest| {
+            apply_requirement_update(&workspace, &activity, &history, details)
+        };
+        assert!(apply(&details).unwrap());
+        assert!(!apply(&details).unwrap());
+        assert_eq!(history::undo_len(&history), 1);
+        {
+            let guard = workspace.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            for id in [master, copy, leaf] {
+                assert_eq!(
+                    project.element(id).unwrap().requirement_text.as_deref(),
+                    Some("Revised text")
+                );
+            }
+            let master = project.element(master).unwrap();
+            assert_eq!(master.name, "Revised master");
+            assert_eq!(master.requirement_id.as_deref(), Some("R1-REV"));
+            assert_eq!(master.documentation, "Rationale");
+        }
+        let after = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        // Both duplicate identity and read-only Copy rejection preserve pending redo.
+        details.requirement_id = "R2".into();
+        assert!(apply(&details).is_err());
+        details.element_id = copy.to_string();
+        assert!(apply(&details).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), after);
+        assert_eq!(
+            serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+            diagrams_before
+        );
+    }
+
+    #[test]
+    fn invalid_requirement_request_does_not_checkpoint_an_empty_workspace() {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        let mut details = RequirementUpdateRequest {
+            element_id: "invalid".into(),
+            name: "Name".into(),
+            requirement_id: "R1".into(),
+            text: "Text".into(),
+            documentation: String::new(),
+        };
+        assert!(apply_requirement_update(&workspace, &activity, &history, &details).is_err());
+        details.element_id = systems_modeler_core::ElementId::new().to_string();
+        assert!(apply_requirement_update(&workspace, &activity, &history, &details).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(workspace.project.lock().unwrap().is_none());
+    }
 }
