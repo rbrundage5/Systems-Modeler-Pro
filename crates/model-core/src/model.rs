@@ -406,6 +406,10 @@ pub enum ModelError {
     InvalidProjectRootKind { id: ElementId, kind: ElementKind },
     #[error("project root Model cannot have an owner: {0}")]
     ProjectRootHasOwner(ElementId),
+    #[error("non-root project element has no owner: {0}")]
+    UnownedProjectElement(ElementId),
+    #[error("project ownership contains a cycle through element: {0}")]
+    CyclicProjectOwnership(ElementId),
     #[error("relationship not found: {0}")]
     RelationshipNotFound(RelationshipId),
     #[error("owner is invalid for this element: {0}")]
@@ -1390,6 +1394,27 @@ impl Project {
         Ok(())
     }
 
+    fn validate_ownership_tree(&self) -> Result<(), ModelError> {
+        // Each element must reach the designated root. Memoize completed paths
+        // so deeply nested projects take linear work without recursive calls.
+        let mut rooted = HashSet::from([self.root_id]);
+        for start in self.elements.keys().copied() {
+            let mut path = HashSet::new();
+            let mut current = start;
+            while !rooted.contains(&current) {
+                if !path.insert(current) {
+                    return Err(ModelError::CyclicProjectOwnership(current));
+                }
+                current = self
+                    .element(current)?
+                    .owner_id
+                    .ok_or(ModelError::UnownedProjectElement(current))?;
+            }
+            rooted.extend(path);
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), ModelError> {
         let root = self
             .elements
@@ -1404,6 +1429,7 @@ impl Project {
         if root.owner_id.is_some() {
             return Err(ModelError::ProjectRootHasOwner(root.id));
         }
+        self.validate_ownership_tree()?;
         let mut external_ids = HashSet::new();
         let mut requirement_ids = HashSet::new();
         for element in self.elements.values() {
