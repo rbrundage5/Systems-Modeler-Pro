@@ -334,13 +334,21 @@ pub(super) fn preview_connected_port(
         context_frame: diagram.context_frame.clone(),
         properties: diagram.properties.clone(),
         boundary_ports: diagram.boundary_ports.clone(),
-        connectors: diagram.connectors.iter().filter(|edge| {
-            edge.source_presentation_id == presentation_id
-                || edge.target_presentation_id == presentation_id
-        }).cloned().collect(),
+        connectors: diagram
+            .connectors
+            .iter()
+            .filter(|edge| {
+                edge.source_presentation_id == presentation_id
+                    || edge.target_presentation_id == presentation_id
+            })
+            .cloned()
+            .collect(),
     };
     apply_port(&mut staged, presentation_id, x, y, size, visible_frame)?;
-    Ok(IbdPortGeometryPreview { port, connectors: staged.connectors })
+    Ok(IbdPortGeometryPreview {
+        port,
+        connectors: staged.connectors,
+    })
 }
 
 #[cfg(test)]
@@ -517,10 +525,14 @@ pub(super) mod tests {
         for port_id in ["external", "internal"] {
             let (_, diagram) = fixture();
             let before = value(&diagram);
-            let preview = preview_connected_port(&diagram, port_id, 1400.0, 400.0, 24.0, None).unwrap();
+            let preview =
+                preview_connected_port(&diagram, port_id, 1400.0, 400.0, 24.0, None).unwrap();
             let mut committed = diagram.clone();
             apply_port(&mut committed, port_id, 1400.0, 400.0, 24.0, None).unwrap();
-            assert_eq!(serde_json::to_value(&preview.connectors).unwrap(), serde_json::to_value(&committed.connectors).unwrap());
+            assert_eq!(
+                serde_json::to_value(&preview.connectors).unwrap(),
+                serde_json::to_value(&committed.connectors).unwrap()
+            );
             assert_eq!(value(&diagram), before);
             let wire = serde_json::to_value(preview).unwrap();
             assert!(wire.get("x").is_some() && wire.get("size").is_some());
@@ -537,7 +549,8 @@ pub(super) mod tests {
         unrelated.target_presentation_id = "missing-target".into();
         diagram.connectors.push(unrelated);
         let before = value(&diagram);
-        let preview = preview_connected_port(&diagram, "external", 1072.0, 400.0, 16.0, None).unwrap();
+        let preview =
+            preview_connected_port(&diagram, "external", 1072.0, 400.0, 16.0, None).unwrap();
         assert_eq!(preview.connectors.len(), 1);
         assert_ne!(preview.connectors[0].id, "unrelated");
         assert!(preview_connected_port(&diagram, "external", f64::NAN, 170.0, 16.0, None).is_err());
