@@ -839,32 +839,315 @@ pub fn create_bdd_relationship_complete(
     Ok(relationship_id.to_string())
 }
 
+struct CompleteWorkspaceRef<'a> {
+    project: &'a Project,
+    diagrams: &'a [BddDiagram],
+    ibd_diagrams: &'a [ibd::IbdDiagram],
+    behavior: &'a BehaviorRepository,
+    behavior_diagrams: &'a [behavior_workspace::BehaviorDiagram],
+    activity_repository: &'a systems_modeler_core::ActivityRepository,
+    activity_diagrams: &'a [activity_workspace::ActivityDiagram],
+    reqif_exchange: &'a reqif_interchange::ReqifExchangeState,
+}
+
+fn prepare_complete_project_metadata(
+    workspace: CompleteWorkspaceRef<'_>,
+) -> Result<Vec<(&'static str, String)>, String> {
+    let CompleteWorkspaceRef {
+        project,
+        diagrams,
+        ibd_diagrams,
+        behavior,
+        behavior_diagrams,
+        activity_repository,
+        activity_diagrams,
+        reqif_exchange,
+    } = workspace;
+    project
+        .validate()
+        .map_err(|error| format!("project validation failed: {error}"))?;
+    validate_loaded_diagrams(project, diagrams)?;
+    ibd::validate_ibd_diagrams(project, ibd_diagrams)?;
+    behavior_workspace::validate_behavior_workspace(project, behavior, behavior_diagrams)?;
+    activity_repository
+        .validate(project)
+        .map_err(|error| format!("Activity repository validation failed: {error}"))?;
+    activity_workspace::validate_activity_diagrams(activity_repository, activity_diagrams)?;
+
+    Ok(vec![
+        (
+            BDD_METADATA_KEY,
+            serde_json::to_string(diagrams).map_err(|error| error.to_string())?,
+        ),
+        (
+            ibd::IBD_METADATA_KEY,
+            serde_json::to_string(ibd_diagrams).map_err(|error| error.to_string())?,
+        ),
+        (
+            behavior_workspace::BEHAVIOR_METADATA_KEY,
+            serde_json::to_string(behavior).map_err(|error| error.to_string())?,
+        ),
+        (
+            behavior_workspace::BEHAVIOR_DIAGRAM_METADATA_KEY,
+            serde_json::to_string(behavior_diagrams).map_err(|error| error.to_string())?,
+        ),
+        (
+            systems_modeler_persistence::ACTIVITY_METADATA_KEY,
+            serde_json::to_string(activity_repository).map_err(|error| error.to_string())?,
+        ),
+        (
+            activity_workspace::ACTIVITY_DIAGRAM_METADATA_KEY,
+            serde_json::to_string(activity_diagrams).map_err(|error| error.to_string())?,
+        ),
+        (
+            reqif_interchange::REQIF_METADATA_KEY,
+            serde_json::to_string(reqif_exchange).map_err(|error| error.to_string())?,
+        ),
+    ])
+}
+
 #[tauri::command]
 pub fn save_project_file_complete(
     path: String,
     state: tauri::State<'_, WorkspaceState>,
+    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    save_project_file(path, state)
+    let path = normalize_project_path(&path)?;
+    let project = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project.as_ref().ok_or("no project open")?;
+    let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let ibd_diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let behavior = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let behavior_diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let reqif_exchange = state
+        .reqif_exchange
+        .lock()
+        .map_err(|_| "ReqIF exchange lock poisoned")?;
+    let activity_repository = activity_state
+        .repository
+        .lock()
+        .map_err(|_| "Activity repository lock poisoned")?;
+    let activity_diagrams = activity_state
+        .diagrams
+        .lock()
+        .map_err(|_| "Activity diagram lock poisoned")?;
+
+    // Prepare and validate the complete authored snapshot before opening a
+    // database transaction. No file or current-path state changes on failure.
+    let metadata = prepare_complete_project_metadata(CompleteWorkspaceRef {
+        project,
+        diagrams: &diagrams,
+        ibd_diagrams: &ibd_diagrams,
+        behavior: &behavior,
+        behavior_diagrams: &behavior_diagrams,
+        activity_repository: &activity_repository,
+        activity_diagrams: &activity_diagrams,
+        reqif_exchange: &reqif_exchange,
+    })?;
+    let metadata_refs = metadata
+        .iter()
+        .map(|(key, payload)| (*key, payload.as_str()))
+        .collect::<Vec<_>>();
+    let mut database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
+    database
+        .save_project_with_metadata(project, &metadata_refs)
+        .map_err(|error| error.to_string())?;
+
+    let saved_path = path.to_string_lossy().into_owned();
+    *state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
+    Ok(saved_path)
 }
 
 #[tauri::command]
 pub fn save_current_project_complete(
     state: tauri::State<'_, WorkspaceState>,
+    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    save_current_project(state)
+    let path = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?
+        .clone()
+        .ok_or("project has not been saved yet; use Save As")?;
+    save_project_file_complete(path, state, activity_state)
 }
 
 #[tauri::command]
 pub fn open_project_file_complete(
     path: String,
     state: tauri::State<'_, WorkspaceState>,
+    activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    open_project_file(path, state)
+    let path = normalize_project_path(&path)?;
+    if !path.exists() {
+        return Err(format!("project file does not exist: {}", path.display()));
+    }
+    let database = ProjectDatabase::open(&path).map_err(|error| error.to_string())?;
+
+    // Load and validate every repository before acquiring publication locks.
+    let loaded = load_complete_project(&database)?;
+    let CompleteProjectLoad {
+        project,
+        diagrams,
+        ibd_diagrams,
+        behavior,
+        behavior_diagrams,
+        reqif_exchange,
+        activity_repository,
+        activity_diagrams,
+    } = loaded;
+    let opened_path = path.to_string_lossy().into_owned();
+
+    // Acquire every guard before changing the first field. Poisoned-lock
+    // failures cannot publish a mixture of old and new repositories.
+    let mut current_project = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let mut current_diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
+    let mut current_ibd = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    let mut current_behavior = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let mut current_behavior_diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let mut current_reqif = state
+        .reqif_exchange
+        .lock()
+        .map_err(|_| "ReqIF exchange lock poisoned")?;
+    let mut current_activity = activity_state
+        .repository
+        .lock()
+        .map_err(|_| "Activity repository lock poisoned")?;
+    let mut current_activity_diagrams = activity_state
+        .diagrams
+        .lock()
+        .map_err(|_| "Activity diagram lock poisoned")?;
+    let mut current_file = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?;
+
+    *current_project = Some(project);
+    *current_diagrams = diagrams;
+    *current_ibd = ibd_diagrams;
+    *current_behavior = behavior;
+    *current_behavior_diagrams = behavior_diagrams;
+    *current_reqif = reqif_exchange;
+    *current_activity = activity_repository;
+    *current_activity_diagrams = activity_diagrams;
+    *current_file = Some(opened_path.clone());
+    Ok(opened_path)
+}
+
+struct CompleteProjectLoad {
+    project: Project,
+    diagrams: Vec<BddDiagram>,
+    ibd_diagrams: Vec<ibd::IbdDiagram>,
+    behavior: BehaviorRepository,
+    behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
+    reqif_exchange: reqif_interchange::ReqifExchangeState,
+    activity_repository: systems_modeler_core::ActivityRepository,
+    activity_diagrams: Vec<activity_workspace::ActivityDiagram>,
+}
+
+fn load_complete_project(database: &ProjectDatabase) -> Result<CompleteProjectLoad, String> {
+    let project = database
+        .load_first_project()
+        .map_err(|error| error.to_string())?;
+    project
+        .validate()
+        .map_err(|error| format!("saved project validation failed: {error}"))?;
+    let diagrams = match database
+        .load_metadata(project.id, BDD_METADATA_KEY)
+        .map_err(|error| error.to_string())?
+    {
+        Some(payload) => serde_json::from_str::<Vec<BddDiagram>>(&payload)
+            .map_err(|error| format!("invalid saved BDD presentation data: {error}"))?,
+        None => Vec::new(),
+    };
+    validate_loaded_diagrams(&project, &diagrams)?;
+    let ibd_diagrams = ibd::load_ibd_metadata(database, &project)?;
+    let (behavior, behavior_diagrams) =
+        behavior_workspace::load_behavior_metadata(database, &project)?;
+    let reqif_exchange = reqif_runtime::load_reqif_metadata(database, &project)?;
+    let (activity_repository, activity_diagrams) =
+        activity_workspace::load_activity_workspace_metadata(database, &project)?;
+    Ok(CompleteProjectLoad {
+        project,
+        diagrams,
+        ibd_diagrams,
+        behavior,
+        behavior_diagrams,
+        reqif_exchange,
+        activity_repository,
+        activity_diagrams,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complete_save_prepares_every_authored_repository_before_commit() {
+        let project = Project::new("Vehicle");
+        let behavior = BehaviorRepository::default();
+        let activity = systems_modeler_core::ActivityRepository::default();
+        let reqif = reqif_interchange::ReqifExchangeState::default();
+        let metadata = prepare_complete_project_metadata(CompleteWorkspaceRef {
+            project: &project,
+            diagrams: &[],
+            ibd_diagrams: &[],
+            behavior: &behavior,
+            behavior_diagrams: &[],
+            activity_repository: &activity,
+            activity_diagrams: &[],
+            reqif_exchange: &reqif,
+        })
+        .unwrap();
+        let keys = metadata.iter().map(|(key, _)| *key).collect::<HashSet<_>>();
+
+        assert_eq!(keys.len(), 7);
+        for key in [
+            BDD_METADATA_KEY,
+            ibd::IBD_METADATA_KEY,
+            behavior_workspace::BEHAVIOR_METADATA_KEY,
+            behavior_workspace::BEHAVIOR_DIAGRAM_METADATA_KEY,
+            systems_modeler_persistence::ACTIVITY_METADATA_KEY,
+            activity_workspace::ACTIVITY_DIAGRAM_METADATA_KEY,
+            reqif_interchange::REQIF_METADATA_KEY,
+        ] {
+            assert!(keys.contains(key), "complete Save omitted {key}");
+        }
+    }
+
+    #[test]
+    fn complete_open_rejects_malformed_activity_before_publication() {
+        let project = Project::new("Candidate");
+        let mut database = ProjectDatabase::open_in_memory().unwrap();
+        database
+            .save_project_with_metadata(
+                &project,
+                &[(
+                    systems_modeler_persistence::ACTIVITY_METADATA_KEY,
+                    "not-json",
+                )],
+            )
+            .unwrap();
+
+        let error = load_complete_project(&database).err().unwrap();
+        assert!(error.contains("expected ident") || error.contains("expected value"));
+    }
 
     #[test]
     fn complete_snapshot_preserves_namespace_endpoint_capabilities() {

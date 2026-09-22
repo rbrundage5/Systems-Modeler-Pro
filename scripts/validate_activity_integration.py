@@ -3,6 +3,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-8")
 workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text(encoding="utf-8")
+complete_workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/bdd_elements.rs").read_text(encoding="utf-8")
 editing_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_editing.rs").read_text(encoding="utf-8")
 mutation_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_mutation.rs").read_text(encoding="utf-8")
 execution_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_execution.rs").read_text(encoding="utf-8")
@@ -117,7 +118,10 @@ assert 'diagramType: \'Activity\'' in frontend, "Activity frontend does not requ
 assert "create_activity_diagram" in frontend, "Activity creation is not forwarded to Rust"
 assert "add_activity_node" in frontend, "Activity node creation is not forwarded to Rust"
 assert "add_activity_edge" in frontend, "Activity flow creation is not forwarded to Rust"
-assert "save_activity_workspace" in frontend and "load_activity_workspace" in frontend, "Activity project lifecycle integration is incomplete"
+assert "load_activity_workspace" in frontend, "Activity project Open integration is incomplete"
+assert "ACTIVITY_METADATA_KEY" in complete_workspace_rs, "Complete native Save omits Activity semantics"
+assert "ACTIVITY_DIAGRAM_METADATA_KEY" in complete_workspace_rs, "Complete native Save omits Activity diagrams"
+assert "save_project_with_metadata" in complete_workspace_rs, "Complete native Save does not use the atomic project transaction"
 assert 'strip_prefix("pin:")' in workspace_rs, "Rust Activity edge command does not accept semantic pin endpoint tokens"
 assert "ActivityEndpoint::Pin" in workspace_rs, "Rust Activity edge command does not persist PinId endpoints"
 assert "ObjectFlow pin direction is invalid" in workspace_rs, "Pin direction validation is missing from ObjectFlow creation"

@@ -9,13 +9,8 @@
   // block otherwise valid model-script imports during native Activity validation.
   const previousNewProject = newProjectButton.onclick;
   newProjectButton.onclick = async (...args) => {
-    const beforeProjectId = state.snapshot?.project?.id ?? null;
-    await previousNewProject?.apply(newProjectButton, args);
-    const afterProjectId = state.snapshot?.project?.id ?? null;
-
-    // Do not clear authored Activity state when New Project was cancelled or
-    // failed. A successful New Project always receives a fresh Project UUID.
-    if (!afterProjectId || afterProjectId === beforeProjectId) return;
+    const result = await previousNewProject?.apply(newProjectButton, args);
+    if (result?.outcome !== 'committed') return result;
 
     await requireInvoke()('reset_activity_workspace');
     await requireInvoke()('clear_activity_executions');
@@ -29,5 +24,6 @@
       activityExecutionRunning: false,
     });
     render();
+    return result;
   };
 })();
