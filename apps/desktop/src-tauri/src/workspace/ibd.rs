@@ -50,6 +50,9 @@ pub struct IbdDiagram {
     pub context_block_id: String,
     /// Model/package owner for repository organization.
     pub owner_id: String,
+    /// Authored context boundary. Absent in legacy files until an explicit edit.
+    #[serde(default)]
+    pub context_frame: Option<super::shared_workspace::DiagramFramePreference>,
     #[serde(default)]
     pub properties: Vec<IbdPropertyPresentation>,
     #[serde(default)]
@@ -80,7 +83,7 @@ fn port_rect(value: &IbdPortPresentation) -> RouteRect {
     }
 }
 
-fn ibd_end_for_presentation(
+pub(super) fn ibd_end_for_presentation(
     diagram: &IbdDiagram,
     presentation_id: &str,
 ) -> Result<(ConnectorEnd, RouteRect), String> {
@@ -231,6 +234,9 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
 
     for diagram in diagrams {
         parse_diagram_id(&diagram.id)?;
+        if let Some(frame) = &diagram.context_frame {
+            frame.validate()?;
+        }
         if !diagram_ids.insert(&diagram.id) {
             return Err(format!("duplicate IBD diagram id: {}", diagram.id));
         }
@@ -402,6 +408,7 @@ pub fn create_ibd(
             name,
             context_block_id,
             owner_id,
+            context_frame: Some(super::ibd_geometry::default_context_frame()),
             properties: Vec::new(),
             boundary_ports: Vec::new(),
             connectors: Vec::new(),
@@ -463,8 +470,14 @@ pub fn populate_ibd_from_context(
                     id: uuid::Uuid::new_v4().to_string(),
                     element_id: feature.id.to_string(),
                     property_path: Vec::new(),
-                    x: 55.0,
-                    y: 100.0 + diagram.boundary_ports.len() as f64 * 70.0,
+                    x: diagram.context_frame.as_ref().map_or(55.0, |frame| frame.x),
+                    y: diagram.context_frame.as_ref().map_or(
+                        100.0 + diagram.boundary_ports.len() as f64 * 70.0,
+                        |frame| {
+                            (frame.y + 50.0 + diagram.boundary_ports.len() as f64 * 70.0)
+                                .min(frame.y + frame.height - 8.0)
+                        },
+                    ),
                     size: 16.0,
                 });
             }
@@ -619,7 +632,7 @@ pub fn route_ibd(
     Ok(())
 }
 
-fn routed_ibd_connectors(
+pub(super) fn routed_ibd_connectors(
     diagram: &IbdDiagram,
     bounds: Option<RouteRect>,
 ) -> Result<Vec<IbdConnectorPresentation>, String> {
@@ -880,6 +893,7 @@ mod tests {
             name: "Dense import regression".into(),
             context_block_id: ElementId::new().to_string(),
             owner_id: ElementId::new().to_string(),
+            context_frame: None,
             properties: vec![
                 property("P1", 100.0, 100.0),
                 property("P2", 340.0, 100.0),

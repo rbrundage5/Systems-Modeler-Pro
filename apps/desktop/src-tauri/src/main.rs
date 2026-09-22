@@ -16,9 +16,12 @@ mod workspace {
     mod behavior_workspace;
     #[allow(dead_code)]
     mod bulk_model;
+    mod connector_editing;
     mod feature_editing;
     mod history;
     mod ibd;
+    mod ibd_geometry;
+    mod item_flow_editing;
     mod item_flow_notation;
     mod layout;
     mod model_script;
@@ -87,6 +90,7 @@ mod workspace {
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
         resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
     };
+    pub use connector_editing::{ibd_connector_specification, update_ibd_connector_specification};
     pub use feature_editing::{
         element_type_choices, update_bdd_feature_semantics, update_element_specification,
     };
@@ -97,6 +101,7 @@ mod workspace {
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
+    pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
     pub use item_flow_notation::ibd_item_flow_notation;
     pub use model_script::{apply_model_script, preview_model_script};
     pub use package_diagrams::{
@@ -124,8 +129,9 @@ mod workspace {
     };
     pub use portable_interchange::{export_portable_project_json, import_portable_project_json};
     pub use presentation_interaction::{
-        update_activity_presentation_geometry, update_bdd_presentation_geometry,
-        update_ibd_port_geometry, update_ibd_property_geometry, update_state_presentation_geometry,
+        preview_ibd_port_geometry, update_activity_presentation_geometry,
+        update_bdd_presentation_geometry, update_ibd_port_geometry, update_ibd_property_geometry,
+        update_state_presentation_geometry,
     };
     pub use presentation_theme::{
         diagram_command_manifest, semantic_presentation_manifest, semantic_presentation_stylesheet,
@@ -235,16 +241,16 @@ use workspace::{
     evaluate_parametric_diagram, export_portable_project_json, export_reqif,
     export_spreadsheet_workbook, export_xmi, fit_diagram_viewport, get_diagram_frame_preference,
     get_panel_preferences, get_viewport_preference, history_checkpoint, history_redo,
-    history_reset, history_undo, ibd_item_flow_notation, import_portable_project_json,
-    initialize_activity_execution, initialize_sequence_execution,
+    history_reset, history_undo, ibd_item_flow_notation, ibd_item_flow_specification,
+    import_portable_project_json, initialize_activity_execution, initialize_sequence_execution,
     initialize_state_machine_execution, load_activity_workspace, move_active_selection,
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
     new_project, open_project_file, open_project_file_complete, paste_selection,
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
-    preview_activity_execution_runtime, preview_model_script, preview_reqif_import,
-    preview_sequence_execution_runtime, preview_spreadsheet_import,
+    preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script,
+    preview_reqif_import, preview_sequence_execution_runtime, preview_spreadsheet_import,
     preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
     preview_xmi_import, queue_state_machine_signal, reconnect_activity_edge,
     reconnect_bdd_relationship, reconnect_binding_connector, reconnect_package_relationship,
@@ -268,16 +274,17 @@ use workspace::{
     update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
     update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
     update_constraint_parameter_presentation, update_element_specification,
-    update_execution_specification, update_extend_specification, update_ibd_port_geometry,
-    update_ibd_property_geometry, update_package_element, update_package_relationship,
-    update_parametric_constraint_property, update_parametric_presentation_geometry,
-    update_parametric_value_property, update_quantity_kind_details, update_requirement,
-    update_sequence_message, update_sequence_message_complete, update_state_behaviors,
-    update_state_invariant, update_state_presentation_geometry, update_state_transition,
-    update_unit_details, update_use_case_actor_notation, update_use_case_diagram_subject,
-    update_use_case_specification, update_use_case_subject_boundary_geometry,
-    update_value_type_details, workspace_interaction_snapshot, workspace_snapshot,
-    workspace_snapshot_complete, zoom_diagram_viewport,
+    update_execution_specification, update_extend_specification,
+    update_ibd_item_flow_specification, update_ibd_port_geometry, update_ibd_property_geometry,
+    update_package_element, update_package_relationship, update_parametric_constraint_property,
+    update_parametric_presentation_geometry, update_parametric_value_property,
+    update_quantity_kind_details, update_requirement, update_sequence_message,
+    update_sequence_message_complete, update_state_behaviors, update_state_invariant,
+    update_state_presentation_geometry, update_state_transition, update_unit_details,
+    update_use_case_actor_notation, update_use_case_diagram_subject, update_use_case_specification,
+    update_use_case_subject_boundary_geometry, update_value_type_details,
+    workspace_interaction_snapshot, workspace_snapshot, workspace_snapshot_complete,
+    zoom_diagram_viewport,
 };
 use workspace::{
     ParametricExecutionState, clear_parametric_executions, configure_parametric_execution_runtime,
@@ -286,6 +293,7 @@ use workspace::{
     preview_parametric_execution_runtime, reset_parametric_execution, run_parametric_execution,
     step_parametric_execution, terminate_parametric_execution,
 };
+use workspace::{ibd_connector_specification, update_ibd_connector_specification};
 
 #[derive(Serialize)]
 struct EngineStatus {
@@ -831,6 +839,8 @@ fn main() {
             update_bdd_feature_semantics,
             element_type_choices,
             update_element_specification,
+            ibd_connector_specification,
+            update_ibd_connector_specification,
             update_bdd_presentation_geometry,
             rename_element,
             rename_active_diagram_header,
@@ -839,10 +849,13 @@ fn main() {
             populate_ibd_from_context,
             add_nested_port_to_ibd,
             update_ibd_property_geometry,
+            preview_ibd_port_geometry,
             update_ibd_port_geometry,
             create_ibd_connector,
             add_item_flow_to_connector,
             ibd_item_flow_notation,
+            ibd_item_flow_specification,
+            update_ibd_item_flow_specification,
             route_ibd,
             route_diagram_geometry,
             route_behavior_diagram,

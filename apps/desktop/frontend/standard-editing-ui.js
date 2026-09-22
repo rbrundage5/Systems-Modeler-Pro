@@ -308,7 +308,11 @@
     if (commandId !== 'paste' && selections().length === 0) return false;
     try {
       await window.smpRendererHost?.publishInteraction?.();
-      const result = await requireInvoke()(adapter, { diagramId: activeDiagramId() });
+      const args = { diagramId: activeDiagramId() };
+      if ((commandId === 'paste' || commandId === 'duplicate') && activeFamilyId() === 'ibd') {
+        args.framePreference = window.smpRendererHost?.frameGeometry?.() || null;
+      }
+      const result = await requireInvoke()(adapter, args);
       if (Array.isArray(result?.selections)) setSelections(result.selections);
       else if (commandId === 'delete') setSelections([]);
       await refreshAll();

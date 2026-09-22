@@ -2952,6 +2952,7 @@ fn create_script_diagram(
                 name: diagram.name.clone(),
                 context_block_id: context.to_string(),
                 owner_id: owner.to_string(),
+                context_frame: None,
                 properties: Vec::new(),
                 boundary_ports: Vec::new(),
                 connectors: Vec::new(),

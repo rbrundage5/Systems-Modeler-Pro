@@ -73,7 +73,8 @@ Example operation body (UUIDs must refer to your project):
 The desktop calls the authenticated capabilities endpoint before project discovery.
 Protocol `1` currently requires revisioned operations, shared BDDs, simple semantic
 relationships, server-routed BDD relationship presentations, shared requirements,
-authenticated actor identity, project presence and actor-scoped reversal. A new client will
+typed BDD element creation, authenticated actor identity, project presence and
+actor-scoped reversal. A new client will
 not open a project through an older or incomplete server; deploy matching desktop
 and server versions instead of attempting an operation with unknown semantics.
 
@@ -84,6 +85,30 @@ must retain the same operation ID and body. HTTP 409 reports revision conflicts;
 resnapshot and resolve explicitly, never blindly overwrite. HTTP 401 means invalid
 credentials; 403 means insufficient access; 422 means semantic rejection. Storage
 errors do not expose internal SQL or filesystem paths.
+
+`shared-bdd-elements-v1` adds `CreateBddElement` with the existing top-level BDD
+element kinds. For example:
+
+```json
+{
+  "operation_id": "NEW_OPERATION_UUID",
+  "expected_revision": 1,
+  "edit": {
+    "CreateBddElement": {
+      "kind": "InterfaceBlock",
+      "owner": "ROOT_ELEMENT_UUID",
+      "name": "Control interface"
+    }
+  }
+}
+```
+
+This uses the same typed Rust creation command and core ownership rules as the
+native BDD editor. Its payload rejects unknown fields and excludes owned features,
+ports and Requirements, which need specialized commands. The original CreateBlock
+and CreateTestCase variants remain valid. Permission, revision, exact retry and
+inverse capture use the same transaction as other shared edits. Supported kinds
+and user workflow are documented in [the desktop guide](COLLABORATION_DESKTOP.md#shared-bdd-element-creation).
 
 Simple semantic relationship creation uses the same endpoint and revision. For
 example, a Block generalizing another Block is submitted as:

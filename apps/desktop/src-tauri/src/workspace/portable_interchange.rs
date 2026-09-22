@@ -602,6 +602,7 @@ pub(super) mod tests {
             name: "Block A Internal".into(),
             context_block_id: block_a.to_string(),
             owner_id: package.to_string(),
+            context_frame: None,
             properties: vec![super::super::ibd::IbdPropertyPresentation {
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: part.to_string(),

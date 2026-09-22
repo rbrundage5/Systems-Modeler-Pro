@@ -18,7 +18,7 @@ to remote state by this increment.
    and connect. The client first verifies the server's authenticated protocol and
    required capabilities; incompatible installations stop with a version remedy
    before project discovery. Choose an authorized project and click **Open project**.
-3. Select an owner/element, choose Create Package, Create Block, or Rename element,
+3. Select an owner/element, choose an available Create operation or Rename element,
    enter a name, and save. The relationship controls create or delete the supported
    source/target/namespace-owned semantic relationships. Viewer credentials cannot
    submit edits.
@@ -31,6 +31,23 @@ to remote state by this increment.
    until that pending operation is resolved.
 6. Disconnect clears the in-memory session. Closing the window retains it until
    application exit. Tokens are never written to project files or local storage.
+
+### Shared BDD element creation
+
+Repository edits can create Blocks, Association Blocks, Interface Blocks,
+Constraint Blocks, Value Types, Data Types, Primitive Types, Enumerations, Signals,
+Units, Quantity Kinds, Instance Specifications, Comments, Test Cases, Actors and
+Use Cases. Choose a valid owner using the same ownership rules as the native
+editor, then place the created element on a shared BDD. New elements retain their
+semantic identity across refresh and reconnect.
+
+This creates the initial element; it does not add all of its specialized property
+editors. Owned features and ports require their specialized creation commands and
+are unavailable through this operation. Requirements retain the ID/text form below.
+Rejected requests retain the selected kind and name. A pending creation recovered
+after restart restores that draft and retries the original operation identity.
+Matching clients and servers require `shared-bdd-elements-v1`; see
+[the typed creation contract](C20_SHARED_BDD_ELEMENTS.md).
 
 ### Shared requirements and verification
 

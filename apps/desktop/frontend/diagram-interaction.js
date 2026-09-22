@@ -194,6 +194,31 @@
     let next = { ...original };
     const resizing = Boolean(handle);
     const owner = handle || node;
+    let previewClosed = false;
+    let previewPending = false;
+    let previewVersion = 0;
+    const showGeometry = (geometry) => {
+      Object.assign(node.style, {
+        left: `${geometry.x}px`, top: `${geometry.y}px`,
+        width: `${geometry.width}px`, height: `${geometry.height}px`,
+      });
+      config.preview?.(geometry);
+    };
+    const requestPreview = async () => {
+      if (previewClosed || previewPending) return;
+      previewPending = true;
+      const version = previewVersion;
+      try {
+        const geometry = await config.constrain({ ...next });
+        if (!previewClosed && version === previewVersion) showGeometry(geometry);
+      } catch (_) {
+        // An invalid preview never replaces the last valid geometry. Commit
+        // reports the Rust diagnostic through the normal command error path.
+      } finally {
+        previewPending = false;
+        if (!previewClosed && version !== previewVersion) void requestPreview();
+      }
+    };
 
     beginPointerGesture(event, {
       owner,
@@ -208,17 +233,20 @@
         if (resizing) {
           next.width = Math.max(config.minWidth, original.width + dx);
           next.height = Math.max(config.minHeight, original.height + dy);
-          node.style.width = `${next.width}px`;
-          node.style.height = `${next.height}px`;
+          if (config.square) next.width = next.height = Math.max(next.width, next.height);
         } else {
-          next.x = Math.max(0, original.x + dx);
-          next.y = Math.max(42, original.y + dy);
-          node.style.left = `${next.x}px`;
-          node.style.top = `${next.y}px`;
+          next.x = config.constrain ? original.x + dx : Math.max(0, original.x + dx);
+          next.y = config.constrain ? original.y + dy : Math.max(42, original.y + dy);
         }
-        config.preview?.(next);
+        if (config.constrain) {
+          previewVersion++;
+          void requestPreview();
+        } else {
+          showGeometry(next);
+        }
       },
       onCancel: () => {
+        previewClosed = true;
         node.classList.remove('smp-dragging');
         suppressGeometryClicks.delete(node);
         // The preview never entered Rust state. Restore it in place so a
@@ -231,6 +259,7 @@
         config.preview?.(original);
       },
       onCommit: async () => {
+        previewClosed = true;
         node.classList.remove('smp-dragging');
         await config.commit(next);
       },
@@ -303,24 +332,33 @@
         ? ports.find((item) => String(item.id) === String(presentationId))
         : null) || ports[index];
       if (!presentation) return;
+      const geometryArgs = (next) => ({
+        diagramId: diagram.id,
+        presentationId: presentation.id,
+        x: next.x + next.width / 2,
+        y: next.y + next.height / 2,
+        size: Math.max(next.width, next.height),
+        framePreference: diagram.context_frame || window.smpRendererHost?.frameGeometry?.() || null,
+      });
       bindHtmlGeometry(node, {
         minWidth: 10,
         minHeight: 10,
+        square: true,
         geometry: () => ({
-          x: presentation.x - presentation.size / 2,
-          y: presentation.y - presentation.size / 2,
+          // Legacy context ports may still be projected by the renderer. Begin
+          // at the visible location; Rust adopts that frame on the first edit.
+          x: Number.parseFloat(node.style.left),
+          y: Number.parseFloat(node.style.top),
           width: presentation.size,
           height: presentation.size,
         }),
         disabled: () => !!state.pendingRelationship || !!state.paletteTool,
         select: () => { state.selectedElementId = presentation.element_id; state.selectedRelationshipId = null; },
-        commit: (next) => commit('update_ibd_port_geometry', {
-          diagramId: diagram.id,
-          presentationId: presentation.id,
-          x: next.x + next.width / 2,
-          y: next.y + next.height / 2,
-          size: Math.max(10, Math.max(next.width, next.height)),
-        }),
+        constrain: async (next) => {
+          const port = await requireInvoke()('preview_ibd_port_geometry', geometryArgs(next));
+          return { x: port.x - port.size / 2, y: port.y - port.size / 2, width: port.size, height: port.size };
+        },
+        commit: (next) => commit('update_ibd_port_geometry', geometryArgs(next)),
       });
     });
   }
