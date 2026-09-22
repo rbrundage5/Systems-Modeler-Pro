@@ -115,6 +115,49 @@ fn copy_relationship_synchronizes_and_protects_slave_text() {
 }
 
 #[test]
+fn copied_requirement_can_renumber_its_local_identifier() {
+    let (mut project, package) = requirement_project();
+    let master = project
+        .create_requirement("Master", "REQ-MASTER", "Authoritative text", package)
+        .unwrap();
+    let copy = project
+        .create_requirement("Copy", "REQ-COPY", "Placeholder", package)
+        .unwrap();
+    project
+        .create_relationship(RelationshipKind::Copy, copy, master, Some(package))
+        .unwrap();
+
+    project
+        .update_requirement(copy, "REQ-LOCAL-42", "Authoritative text")
+        .unwrap();
+    let copy = project.element(copy).unwrap();
+    assert_eq!(copy.requirement_id.as_deref(), Some("REQ-LOCAL-42"));
+    assert_eq!(copy.requirement_text.as_deref(), Some("Authoritative text"));
+}
+
+#[test]
+fn copied_requirement_duplicate_identifier_rejection_is_atomic() {
+    let (mut project, package) = requirement_project();
+    let master = project
+        .create_requirement("Master", "REQ-MASTER", "Authoritative text", package)
+        .unwrap();
+    let copy = project
+        .create_requirement("Copy", "REQ-COPY", "Placeholder", package)
+        .unwrap();
+    project
+        .create_relationship(RelationshipKind::Copy, copy, master, Some(package))
+        .unwrap();
+
+    assert_eq!(
+        project.update_requirement(copy, "REQ-MASTER", "Authoritative text"),
+        Err(ModelError::DuplicateRequirementId("REQ-MASTER".into()))
+    );
+    let copy = project.element(copy).unwrap();
+    assert_eq!(copy.requirement_id.as_deref(), Some("REQ-COPY"));
+    assert_eq!(copy.requirement_text.as_deref(), Some("Authoritative text"));
+}
+
+#[test]
 fn every_requirement_relationship_enforces_endpoints_and_package_ownership() {
     let (mut project, package) = requirement_project();
     let requirement = project

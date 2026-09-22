@@ -400,6 +400,12 @@ pub struct Project {
 pub enum ModelError {
     #[error("element not found: {0}")]
     ElementNotFound(ElementId),
+    #[error("project root element is missing: {0}")]
+    MissingProjectRoot(ElementId),
+    #[error("project root must be a Model element, found {kind:?}: {id}")]
+    InvalidProjectRootKind { id: ElementId, kind: ElementKind },
+    #[error("project root Model cannot have an owner: {0}")]
+    ProjectRootHasOwner(ElementId),
     #[error("relationship not found: {0}")]
     RelationshipNotFound(RelationshipId),
     #[error("owner is invalid for this element: {0}")]
@@ -1096,21 +1102,19 @@ impl Project {
             return Err(ModelError::DuplicateRequirementId(requirement_id));
         }
         let text = text.into();
-        // Copy makes the slave Requirement semantically read-only, but an importer
-        // must be able to reassert the exact state it already authored. Treat an
-        // identical ID/text assignment as an idempotent no-op before enforcing
-        // the read-only boundary. This also permits an ordered transaction to
-        // update the master first (which propagates text to the copy) and then
-        // consume the copy row without manufacturing a false import blocker.
-        let identical = self.element(id).is_ok_and(|current| {
-            current.kind == ElementKind::Requirement
-                && current.requirement_id.as_deref() == Some(requirement_id.as_str())
-                && current.requirement_text.as_deref() == Some(text.as_str())
-        });
-        if !identical && self.relationships.values().any(|relationship| {
+        // SysML Copy constrains the client's copied text, not its local
+        // requirement identifier. Permit renumbering while rejecting any text
+        // divergence from the supplier-propagated value.
+        let copied_client = self.relationships.values().any(|relationship| {
             relationship.kind == RelationshipKind::Copy && relationship.source_id == id
-        }) {
-            return Err(ModelError::CopiedRequirementIsReadOnly(id));
+        });
+        if copied_client {
+            let current = self.element(id)?;
+            if current.kind != ElementKind::Requirement
+                || current.requirement_text.as_deref() != Some(text.as_str())
+            {
+                return Err(ModelError::CopiedRequirementIsReadOnly(id));
+            }
         }
         let copied_clients = self.requirement_copy_updates(id, &text)?;
         {
@@ -1387,6 +1391,19 @@ impl Project {
     }
 
     pub fn validate(&self) -> Result<(), ModelError> {
+        let root = self
+            .elements
+            .get(&self.root_id)
+            .ok_or(ModelError::MissingProjectRoot(self.root_id))?;
+        if root.kind != ElementKind::Model {
+            return Err(ModelError::InvalidProjectRootKind {
+                id: root.id,
+                kind: root.kind.clone(),
+            });
+        }
+        if root.owner_id.is_some() {
+            return Err(ModelError::ProjectRootHasOwner(root.id));
+        }
         let mut external_ids = HashSet::new();
         let mut requirement_ids = HashSet::new();
         for element in self.elements.values() {
