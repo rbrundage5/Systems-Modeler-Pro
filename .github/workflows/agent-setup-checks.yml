@@ -74,3 +74,16 @@ jobs:
           assert "BLOCKED:" in result.stderr
           print("Configuration parses; role ownership is leaf-scoped; model routing is task-driven; professional-tool comparison is bounded; preflight refuses startup. Isolation is NOT qualified.")
           PY
+      - name: Validate diagnostic hook without claiming runtime qualification
+        run: |
+          python3 scripts/test_agent_hook_probe.py
+          python3 - <<'PY'
+          import pathlib, tomllib
+          config = tomllib.loads(pathlib.Path(".codex/config.toml").read_text())
+          assert config["agents"]["enabled"] is False
+          assert config["features"]["hooks"] is True
+          probe = config["hooks"]["PreToolUse"][1]
+          assert probe["matcher"] == "^Bash$"
+          assert probe["hooks"][0]["command"] == "python3 /workspace/Systems-Modeler-Pro/scripts/agent_hook_probe.py"
+          assert probe["hooks"][0]["timeout"] == 5
+          PY

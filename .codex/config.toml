@@ -15,3 +15,15 @@ matcher = "^(spawn_agent|Agent)$"
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = 'python3 /workspace/Systems-Modeler-Pro/scripts/agent_preflight.py'
+
+# S7.02B diagnostic only. Multi-agent tools remain disabled above.
+[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'python3 /workspace/Systems-Modeler-Pro/scripts/agent_hook_probe.py'
+timeout = 5
