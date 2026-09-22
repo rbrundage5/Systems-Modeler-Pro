@@ -218,7 +218,18 @@
         }
         config.preview?.(next);
       },
-      onCancel: () => node.classList.remove('smp-dragging'),
+      onCancel: () => {
+        node.classList.remove('smp-dragging');
+        suppressGeometryClicks.delete(node);
+        // The preview never entered Rust state. Restore it in place so a
+        // cancelled gesture cannot leave a phantom move/resize or erase an
+        // unrelated draft in the Properties panel through a full render.
+        node.style.left = `${original.x}px`;
+        node.style.top = `${original.y}px`;
+        node.style.width = `${original.width}px`;
+        node.style.height = `${original.height}px`;
+        config.preview?.(original);
+      },
       onCommit: async () => {
         node.classList.remove('smp-dragging');
         await config.commit(next);
