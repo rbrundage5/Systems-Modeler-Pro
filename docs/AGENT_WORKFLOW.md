@@ -15,6 +15,16 @@ SHA at dispatch time. A setup baseline is never a product-work baseline.
 6. User merges qualified changes. Resume from recorded checkpoints.
 
 ## Role ownership
+The sequence above governs qualified delegated workers. An already authorized
+primary session may use its own permitted repository-write scope for direct work
+without dispatching those roles. The read-only coordinator role remains read-only;
+direct implementation cannot be called independent review. Use the capability
+contract in [PUBLICATION_AND_EXECUTION_SETUP.md](PUBLICATION_AND_EXECUTION_SETUP.md)
+to distinguish local work, PR publication, merge access and worker qualification.
+Missing one capability does not silently revoke other existing authorization.
+Continue permitted independent leaves while a candidate awaits CI, review or a
+user merge; no automatic merge or unattended continuation is implied.
+
 Coverage ownership is intentionally non-overlapping. A role receives only a leaf
 child check from its rows, never the whole parent row.
 

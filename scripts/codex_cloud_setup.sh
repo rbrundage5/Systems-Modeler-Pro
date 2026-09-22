@@ -12,18 +12,11 @@ if [ "$actual_plan_blob" != "$expected_plan_blob" ]; then
   exit 2
 fi
 git ls-files --error-unmatch Cargo.toml Cargo.lock crates/model-core/Cargo.toml apps/desktop/src-tauri/Cargo.toml > /dev/null
-if git remote | grep -Fxq origin; then
-  case "$(git remote get-url origin)" in
-    https://github.com/rbrundage5/Systems-Modeler-Pro|https://github.com/rbrundage5/Systems-Modeler-Pro.git) ;;
-    *) echo "Unexpected repository origin; stop setup." >&2; exit 2 ;;
-  esac
-else
-  echo "No origin remote: approved tracked baseline and checkout path verified."
-fi
+command -v python3
+python3 scripts/ensure_repository_origin.py
 command -v rustup
 command -v cargo
 command -v node
-command -v python3
 # Core is the first setup checkpoint; desktop dependencies are a separate gate.
 setup_profile="${SMP_SETUP_PROFILE:-core}"
 case "$setup_profile" in core|desktop) ;; *) echo "Use core or desktop profile." >&2; exit 2 ;; esac
