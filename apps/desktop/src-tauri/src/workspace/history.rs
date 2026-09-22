@@ -47,14 +47,13 @@ impl<'a> AuthoredStateGuards<'a> {
         workspace: &'a WorkspaceState,
         activity: &'a activity_workspace::ActivityWorkspaceState,
     ) -> Result<Self, String> {
-        fn acquire<'a, T>(
-            mutex: &'a Mutex<T>,
-            name: &str,
-        ) -> Result<MutexGuard<'a, T>, String> {
+        fn acquire<'a, T>(mutex: &'a Mutex<T>, name: &str) -> Result<MutexGuard<'a, T>, String> {
             mutex.try_lock().map_err(|error| match error {
                 std::sync::TryLockError::Poisoned(_) => format!("{name} lock poisoned"),
                 std::sync::TryLockError::WouldBlock => {
-                    format!("workspace is busy ({name}); retry after the current operation completes")
+                    format!(
+                        "workspace is busy ({name}); retry after the current operation completes"
+                    )
                 }
             })
         }
@@ -516,7 +515,9 @@ mod atomic_history_tests {
                 // blocking implementation fails instead of hanging the suite.
                 drop(held);
                 worker.join().unwrap();
-                let error = received.expect("history waited on a busy workspace").unwrap_err();
+                let error = received
+                    .expect("history waited on a busy workspace")
+                    .unwrap_err();
                 assert!(error.contains("workspace is busy"), "{error}");
                 assert!(activity.repository.try_lock().is_ok());
                 assert!(workspace.project.try_lock().is_ok());
@@ -525,7 +526,9 @@ mod atomic_history_tests {
             assert_eq!(stack_lengths(&history), lengths);
             // Contention is temporary and does not poison a later operation.
             assert!(capture_states(&workspace, &activity).is_ok());
-            assert!(transfer_history(&workspace, &activity, &history, operation != "redo").unwrap());
+            assert!(
+                transfer_history(&workspace, &activity, &history, operation != "redo").unwrap()
+            );
         }
     }
 
