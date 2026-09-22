@@ -47,15 +47,33 @@ impl<'a> AuthoredStateGuards<'a> {
         activity: &'a activity_workspace::ActivityWorkspaceState,
     ) -> Result<Self, String> {
         Ok(Self {
-            project: workspace.project.lock().map_err(|_| "project lock poisoned")?,
-            diagrams: workspace.diagrams.lock().map_err(|_| "diagram lock poisoned")?,
-            ibd_diagrams: workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?,
-            behavior: workspace.behavior.lock().map_err(|_| "behavior lock poisoned")?,
-            behavior_diagrams: workspace.behavior_diagrams.lock()
+            project: workspace
+                .project
+                .lock()
+                .map_err(|_| "project lock poisoned")?,
+            diagrams: workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?,
+            ibd_diagrams: workspace
+                .ibd_diagrams
+                .lock()
+                .map_err(|_| "IBD lock poisoned")?,
+            behavior: workspace
+                .behavior
+                .lock()
+                .map_err(|_| "behavior lock poisoned")?,
+            behavior_diagrams: workspace
+                .behavior_diagrams
+                .lock()
                 .map_err(|_| "behavior diagram lock poisoned")?,
-            activity_repository: activity.repository.lock()
+            activity_repository: activity
+                .repository
+                .lock()
                 .map_err(|_| "Activity repository lock poisoned")?,
-            activity_diagrams: activity.diagrams.lock()
+            activity_diagrams: activity
+                .diagrams
+                .lock()
                 .map_err(|_| "Activity diagram lock poisoned")?,
         })
     }
@@ -80,9 +98,18 @@ impl<'a> AuthoredStateGuards<'a> {
             diagrams: std::mem::replace(&mut *self.diagrams, snapshot.diagrams),
             ibd_diagrams: std::mem::replace(&mut *self.ibd_diagrams, snapshot.ibd_diagrams),
             behavior: std::mem::replace(&mut *self.behavior, snapshot.behavior),
-            behavior_diagrams: std::mem::replace(&mut *self.behavior_diagrams, snapshot.behavior_diagrams),
-            activity_repository: std::mem::replace(&mut *self.activity_repository, snapshot.activity_repository),
-            activity_diagrams: std::mem::replace(&mut *self.activity_diagrams, snapshot.activity_diagrams),
+            behavior_diagrams: std::mem::replace(
+                &mut *self.behavior_diagrams,
+                snapshot.behavior_diagrams,
+            ),
+            activity_repository: std::mem::replace(
+                &mut *self.activity_repository,
+                snapshot.activity_repository,
+            ),
+            activity_diagrams: std::mem::replace(
+                &mut *self.activity_diagrams,
+                snapshot.activity_diagrams,
+            ),
         }
     }
 }
@@ -180,8 +207,14 @@ pub(super) fn commit_snapshot(
     snapshot: HistorySnapshot,
     history: &HistoryState,
 ) -> Result<(), String> {
-    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
-    let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
     undo.push(snapshot);
     if undo.len() > HISTORY_LIMIT {
         undo.remove(0);
@@ -302,8 +335,14 @@ fn transfer_history(
     undoing: bool,
 ) -> Result<bool, String> {
     let mut authored = AuthoredStateGuards::lock(workspace, activity)?;
-    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
-    let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
     let (source, destination) = if undoing {
         (&mut *undo, &mut *redo)
     } else {
@@ -368,8 +407,14 @@ pub fn history_reset(history: tauri::State<'_, HistoryState>) -> Result<(), Stri
 }
 
 fn reset_states(history: &HistoryState) -> Result<(), String> {
-    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
-    let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
     undo.clear();
     redo.clear();
     Ok(())
@@ -381,14 +426,23 @@ mod atomic_history_tests {
 
     fn poison<T: Send>(mutex: &Mutex<T>) {
         std::thread::scope(|scope| {
-            assert!(scope.spawn(|| {
-                let _guard = mutex.lock().unwrap();
-                panic!("injected history lock failure");
-            }).join().is_err());
+            assert!(
+                scope
+                    .spawn(|| {
+                        let _guard = mutex.lock().unwrap();
+                        panic!("injected history lock failure");
+                    })
+                    .join()
+                    .is_err()
+            );
         });
     }
 
-    fn fixture() -> (WorkspaceState, activity_workspace::ActivityWorkspaceState, HistoryState) {
+    fn fixture() -> (
+        WorkspaceState,
+        activity_workspace::ActivityWorkspaceState,
+        HistoryState,
+    ) {
         let workspace = WorkspaceState::default();
         let activity = activity_workspace::ActivityWorkspaceState::default();
         let history = HistoryState::default();
@@ -404,8 +458,16 @@ mod atomic_history_tests {
 
     fn stack_lengths(history: &HistoryState) -> (usize, usize) {
         (
-            history.undo.lock().unwrap_or_else(|error| error.into_inner()).len(),
-            history.redo.lock().unwrap_or_else(|error| error.into_inner()).len(),
+            history
+                .undo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            history
+                .redo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
         )
     }
 
@@ -437,7 +499,11 @@ mod atomic_history_tests {
         undo_states(&workspace, &activity, &history).unwrap();
         checkpoint_states(&workspace, &activity, &history).unwrap();
         // Retain both kinds of history to detect partial clearing/publication.
-        history.redo.lock().unwrap().push(capture_states(&workspace, &activity).unwrap());
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
         let lengths = stack_lengths(&history);
         let before = project_value(&workspace);
         poison(&history.redo);
@@ -452,13 +518,33 @@ mod atomic_history_tests {
     fn successful_undo_redo_moves_state_and_preserves_identity() {
         let (workspace, activity, history) = fixture();
         let after = project_value(&workspace);
-        let allocation = workspace.project.lock().unwrap().as_ref().unwrap().name.as_ptr();
+        let allocation = workspace
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .name
+            .as_ptr();
         assert!(undo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().name, "Before");
+        assert_eq!(
+            workspace.project.lock().unwrap().as_ref().unwrap().name,
+            "Before"
+        );
         assert_eq!(stack_lengths(&history), (0, 1));
         assert!(redo_states(&workspace, &activity, &history).unwrap());
         assert_eq!(project_value(&workspace), after);
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().name.as_ptr(), allocation);
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .name
+                .as_ptr(),
+            allocation
+        );
         assert_eq!(stack_lengths(&history), (1, 0));
         assert!(!redo_states(&workspace, &activity, &history).unwrap());
         reset_states(&history).unwrap();
