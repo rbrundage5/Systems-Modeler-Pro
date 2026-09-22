@@ -660,14 +660,27 @@ async function runCommand(progressMessage, action) {
 }
 async function createProject() {
   const name = prompt('Project name', 'Vehicle Model');
-  if (!name) return;
-  await runCommand('Creating project…', () => requireInvoke()('new_project', { name }));
+  if (!name) return { outcome: 'cancelled' };
+  const previousInteraction = {
+    pendingRelationship: state.pendingRelationship,
+    paletteTool: state.paletteTool,
+  };
+  try {
+    await runCommand('Creating project…', async () => {
+      await requireInvoke()('new_project', { name });
+      return { outcome: 'committed' };
+    });
+  } catch (error) {
+    Object.assign(state, previousInteraction);
+    throw error;
+  }
   Object.assign(state, {
     paletteItems: [], paletteTool: null, selectedElementId: null, selectedPackageId: null,
     selectedDiagramId: null, selectedRelationshipId: null,
     selectedUseCaseSubjectBoundaryId: null, pendingRelationship: null,
   });
   await refresh();
+  return { outcome: 'committed' };
 }
 async function openProject() {
   const suggested = state.snapshot?.current_file || 'Vehicle Model.smproj';
