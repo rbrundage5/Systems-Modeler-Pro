@@ -549,6 +549,8 @@ pub enum ModelError {
     DuplicateRequirementId(String),
     #[error("copied Requirement text is read-only; edit its supplier Requirement: {0}")]
     CopiedRequirementIsReadOnly(ElementId),
+    #[error("Requirement Copy suppliers would have conflicting text; resolve the supplier links before editing: {0}")]
+    ConflictingRequirementCopyText(ElementId),
     #[error("Requirement traceability relationships cannot connect an element to itself")]
     SelfTraceabilityRelationship,
     #[error(
@@ -928,6 +930,11 @@ impl Project {
                 return Err(ModelError::InvalidOwner(owner_id));
             }
         }
+        let copied_clients = if let Some(text) = copied_requirement_text.as_deref() {
+            self.requirement_copy_updates(source_id, text)?
+        } else {
+            Vec::new()
+        };
         let id = RelationshipId::new();
         self.relationships.insert(
             id,
@@ -952,7 +959,9 @@ impl Project {
             },
         );
         if let Some(text) = copied_requirement_text {
-            self.element_mut(source_id)?.requirement_text = Some(text);
+            for client_id in copied_clients {
+                self.elements.get_mut(&client_id).expect("validated Copy client").requirement_text = Some(text.clone());
+            }
         }
         Ok(id)
     }
@@ -1093,18 +1102,17 @@ impl Project {
         // the read-only boundary. This also permits an ordered transaction to
         // update the master first (which propagates text to the copy) and then
         // consume the copy row without manufacturing a false import blocker.
-        if self.element(id).is_ok_and(|current| {
+        let identical = self.element(id).is_ok_and(|current| {
             current.kind == ElementKind::Requirement
                 && current.requirement_id.as_deref() == Some(requirement_id.as_str())
                 && current.requirement_text.as_deref() == Some(text.as_str())
-        }) {
-            return Ok(());
-        }
-        if self.relationships.values().any(|relationship| {
+        });
+        if !identical && self.relationships.values().any(|relationship| {
             relationship.kind == RelationshipKind::Copy && relationship.source_id == id
         }) {
             return Err(ModelError::CopiedRequirementIsReadOnly(id));
         }
+        let copied_clients = self.requirement_copy_updates(id, &text)?;
         {
             let requirement = self.element_mut(id)?;
             if requirement.kind != ElementKind::Requirement {
@@ -1113,14 +1121,38 @@ impl Project {
             requirement.requirement_id = Some(requirement_id);
             requirement.requirement_text = Some(text.clone());
         }
-        let copied_clients: Vec<_> = self.relationships.values()
-            .filter(|relationship| relationship.kind == RelationshipKind::Copy && relationship.target_id == id)
-            .map(|relationship| relationship.source_id)
-            .collect();
         for client_id in copied_clients {
-            self.element_mut(client_id)?.requirement_text = Some(text.clone());
+            self.elements.get_mut(&client_id).expect("validated Copy client").requirement_text = Some(text.clone());
         }
         Ok(())
+    }
+
+    // Compute every affected Copy client and validate before publishing any text.
+    // A visited set bounds traversal even in an imported cyclic graph.
+    fn requirement_copy_updates(&self, root: ElementId, text: &str) -> Result<Vec<ElementId>, ModelError> {
+        let mut clients: HashMap<ElementId, Vec<ElementId>> = HashMap::new();
+        for relationship in self.relationships.values().filter(|r| r.kind == RelationshipKind::Copy) {
+            clients.entry(relationship.target_id).or_default().push(relationship.source_id);
+        }
+        let mut visited = HashSet::new();
+        let mut pending = vec![root];
+        let mut updates = Vec::new();
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) { continue; }
+            if self.element(id)?.kind != ElementKind::Requirement {
+                return Err(ModelError::InvalidOwner(id));
+            }
+            updates.push(id);
+            if let Some(children) = clients.get(&id) { pending.extend(children.iter().copied()); }
+        }
+        for relationship in self.relationships.values().filter(|r| r.kind == RelationshipKind::Copy) {
+            if visited.contains(&relationship.source_id) && !visited.contains(&relationship.target_id)
+                && self.element(relationship.target_id)?.requirement_text.as_deref() != Some(text)
+            {
+                return Err(ModelError::ConflictingRequirementCopyText(relationship.source_id));
+            }
+        }
+        Ok(updates)
     }
 
     pub fn create_connector(&mut self, connector: Connector) -> Result<RelationshipId, ModelError> {
