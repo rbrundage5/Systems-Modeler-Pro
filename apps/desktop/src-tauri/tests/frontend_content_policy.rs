@@ -29,7 +29,11 @@ fn frontend_cannot_load_remote_code_or_send_model_data_over_browser_network_apis
     assert_eq!(csp["img-src"], "'self' data: blob:");
     assert_eq!(csp["font-src"], "'self'");
     // Tauri must still add its required IPC script hashes/nonces at build time.
-    assert!(security.get("dangerousDisableAssetCspModification").is_none());
+    assert!(
+        security
+            .get("dangerousDisableAssetCspModification")
+            .is_none()
+    );
     assert!(security.get("devCsp").is_none());
 }
 
