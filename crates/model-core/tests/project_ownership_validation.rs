@@ -71,7 +71,10 @@ fn whole_project_ownership_rejects_an_unowned_block() {
         .unwrap();
     project.element_mut(id).unwrap().owner_id = None;
 
-    assert_eq!(project.validate(), Err(ModelError::UnownedProjectElement(id)));
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::UnownedProjectElement(id))
+    );
 }
 
 #[test]
@@ -99,7 +102,10 @@ fn whole_project_ownership_rejects_a_missing_owner() {
     let missing = ElementId::new();
     project.element_mut(id).unwrap().owner_id = Some(missing);
 
-    assert_eq!(project.validate(), Err(ModelError::ElementNotFound(missing)));
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ElementNotFound(missing))
+    );
 }
 
 #[test]

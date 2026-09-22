@@ -912,7 +912,14 @@ pub fn save_project_file_complete(
     state: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    let path = normalize_project_path(&path)?;
+    save_complete_workspace(Some(&path), &state, &activity_state)
+}
+
+fn save_complete_workspace(
+    requested_path: Option<&str>,
+    state: &WorkspaceState,
+    activity_state: &activity_workspace::ActivityWorkspaceState,
+) -> Result<String, String> {
     let project = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project.as_ref().ok_or("no project open")?;
     let diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
@@ -937,6 +944,17 @@ pub fn save_project_file_complete(
         .diagrams
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
+    let mut current_file = state
+        .current_file
+        .lock()
+        .map_err(|_| "project path lock poisoned")?;
+    // Select the destination from the same locked session as the authored
+    // snapshot. All fallible session locks must precede any database write.
+    let path = normalize_project_path(
+        requested_path
+            .or(current_file.as_deref())
+            .ok_or("project has not been saved yet; use Save As")?,
+    )?;
 
     // Prepare and validate the complete authored snapshot before opening a
     // database transaction. No file or current-path state changes on failure.
@@ -960,10 +978,7 @@ pub fn save_project_file_complete(
         .map_err(|error| error.to_string())?;
 
     let saved_path = path.to_string_lossy().into_owned();
-    *state
-        .current_file
-        .lock()
-        .map_err(|_| "project path lock poisoned")? = Some(saved_path.clone());
+    *current_file = Some(saved_path.clone());
     Ok(saved_path)
 }
 
@@ -972,13 +987,7 @@ pub fn save_current_project_complete(
     state: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    let path = state
-        .current_file
-        .lock()
-        .map_err(|_| "project path lock poisoned")?
-        .clone()
-        .ok_or("project has not been saved yet; use Save As")?;
-    save_project_file_complete(path, state, activity_state)
+    save_complete_workspace(None, &state, &activity_state)
 }
 
 #[tauri::command]
@@ -1097,6 +1106,162 @@ fn load_complete_project(database: &ProjectDatabase) -> Result<CompleteProjectLo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn save_session_fixture() -> (WorkspaceState, activity_workspace::ActivityWorkspaceState) {
+        let state = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let mut project = Project::new("Authored project");
+        project
+            .create_element(ElementKind::Block, "System", project.root_id)
+            .unwrap();
+        activity
+            .repository
+            .lock()
+            .unwrap()
+            .create_activity(&project, project.root_id, None, "Operate")
+            .unwrap();
+        *state.project.lock().unwrap() = Some(project);
+        (state, activity)
+    }
+
+    #[test]
+    fn complete_save_poisoned_path_preserves_existing_target_and_creates_no_new_file() {
+        let directory = tempfile::tempdir().unwrap();
+        for existing in [false, true] {
+            let (state, activity) = save_session_fixture();
+            let path = directory.path().join(format!("target-{existing}.smproj"));
+            let previous = Project::new("Previous revision");
+            if existing {
+                ProjectDatabase::open(&path)
+                    .unwrap()
+                    .save_project(&previous)
+                    .unwrap();
+            }
+            let before = std::fs::read(&path).ok();
+            let poisoned = std::panic::catch_unwind(|| {
+                let _guard = state.current_file.lock().unwrap();
+                panic!("injected path-lock failure");
+            });
+            assert!(poisoned.is_err());
+
+            let error = save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity)
+                .unwrap_err();
+
+            assert_eq!(error, "project path lock poisoned");
+            assert_eq!(std::fs::read(&path).ok(), before);
+            assert_eq!(path.exists(), existing);
+            assert_eq!(
+                state.project.lock().unwrap().as_ref().unwrap().name,
+                "Authored project"
+            );
+        }
+    }
+
+    #[test]
+    fn complete_save_filesystem_failure_preserves_current_path_and_previous_revision() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = directory.path().join("original.smproj");
+        let (state, activity) = save_session_fixture();
+        let saved =
+            save_complete_workspace(Some(original.to_str().unwrap()), &state, &activity).unwrap();
+        state.project.lock().unwrap().as_mut().unwrap().name = "Unsaved changes".into();
+        let invalid = directory.path().join("missing-parent/target.smproj");
+
+        assert!(
+            save_complete_workspace(Some(invalid.to_str().unwrap()), &state, &activity).is_err()
+        );
+
+        assert_eq!(
+            state.current_file.lock().unwrap().as_deref(),
+            Some(saved.as_str())
+        );
+        assert!(!invalid.exists());
+        assert_eq!(
+            ProjectDatabase::open(&original)
+                .unwrap()
+                .load_first_project()
+                .unwrap()
+                .name,
+            "Authored project"
+        );
+        assert_eq!(
+            state.project.lock().unwrap().as_ref().unwrap().name,
+            "Unsaved changes"
+        );
+    }
+
+    #[test]
+    fn complete_save_current_preserves_identity_and_round_trips_activity_with_core() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("complete.smproj");
+        let (state, activity) = save_session_fixture();
+        let id = state.project.lock().unwrap().as_ref().unwrap().id;
+        let saved =
+            save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity).unwrap();
+        state.project.lock().unwrap().as_mut().unwrap().name = "Updated project".into();
+        activity
+            .repository
+            .lock()
+            .unwrap()
+            .activities
+            .values_mut()
+            .next()
+            .unwrap()
+            .name = "Updated operation".into();
+
+        assert_eq!(
+            save_complete_workspace(None, &state, &activity).unwrap(),
+            saved
+        );
+
+        let database = ProjectDatabase::open(&path).unwrap();
+        let loaded = load_complete_project(&database).unwrap();
+        assert_eq!(loaded.project.id, id);
+        assert_eq!(loaded.project.name, "Updated project");
+        assert_eq!(loaded.project.elements.len(), 2);
+        assert_eq!(loaded.activity_repository.activities.len(), 1);
+        assert_eq!(
+            loaded
+                .activity_repository
+                .activities
+                .values()
+                .next()
+                .unwrap()
+                .name,
+            "Updated operation"
+        );
+        assert_eq!(
+            state.current_file.lock().unwrap().as_deref(),
+            Some(saved.as_str())
+        );
+    }
+
+    #[test]
+    fn complete_save_invalid_activity_preserves_destination_and_session_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("complete.smproj");
+        let (state, activity) = save_session_fixture();
+        let saved =
+            save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        activity
+            .repository
+            .lock()
+            .unwrap()
+            .activities
+            .values_mut()
+            .next()
+            .unwrap()
+            .owner_id = ElementId::new();
+
+        assert!(save_complete_workspace(None, &state, &activity).is_err());
+
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            state.current_file.lock().unwrap().as_deref(),
+            Some(saved.as_str())
+        );
+    }
 
     #[test]
     fn complete_save_prepares_every_authored_repository_before_commit() {
