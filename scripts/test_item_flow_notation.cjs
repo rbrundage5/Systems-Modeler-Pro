@@ -10,27 +10,30 @@ const flow = (id, direction) => ({ relationship_id: id, connector_id: 'connector
 
 function fixture(read) {
   class Node {
-    constructor(tag) { this.tag = tag; this.attributes = {}; this.children = []; this.classList = { add() {} }; }
+    constructor(tag) { this.tag = tag; this.attributes = {}; this.dataset = {}; this.children = []; this.classList = { add() {} }; }
     setAttribute(name, value) { this.attributes[name] = value; }
     appendChild(child) { this.children.push(child); }
-    querySelectorAll() { return []; }
+    querySelectorAll(tag) { return this.children.flatMap(child => [...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]); }
   }
   const svg = new Node('svg');
   const diagram = { id: 'diagram', connectors: [{ relationship_id: 'connector', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }] };
   const state = { snapshot: { project: { id: 'project', elements: [], relationships: [] } } };
   const context = {
-    state, console, SVG_NS: 'svg', localStorage: { getItem: () => null },
+    state, console, window: {}, SVG_NS: 'svg', localStorage: { getItem: () => null },
     document: { createElementNS: (_, tag) => new Node(tag) },
     requireInvoke: () => async command => { assert.equal(command, 'ibd_item_flow_notation'); return read(); },
     refresh: async () => {}, render() {}, renderStatus() {}, renderProperties() {},
     selectedIbd: () => diagram, renderIbdConnectorLayer() {},
+    // Frame projection/connected dragging is covered by the production-renderer
+    // gesture suite; these notation identity tests supply already displayed points.
+    ibdConnectorDisplayPoints: (_, edge) => edge.points,
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/item-flow-ui.js'), 'utf8'), context);
   return { state, context, draw: () => {
     svg.children = [];
     context.renderIbdConnectorLayer({ querySelector: () => svg }, diagram, state.snapshot.project);
-    return svg.children.filter(node => node.tag === 'polygon');
+    return svg.querySelectorAll('polygon');
   } };
 }
 
