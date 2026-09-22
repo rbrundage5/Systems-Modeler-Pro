@@ -176,3 +176,50 @@ fn full_ports_cannot_be_conjugated() {
     );
     assert!(f.project.element(package).is_ok());
 }
+
+#[test]
+fn nested_port_role_must_match_the_final_property_path_step() {
+    let f = fixture();
+    let valid = ConnectorEnd::nested_port(vec![f.left_part], f.left_port);
+    f.project.validate_connector_end(f.system, &valid).unwrap();
+    f.project
+        .validate_connector_end(f.system, &ConnectorEnd::boundary(f.boundary))
+        .unwrap();
+    for role_id in [f.right_part, f.left_port, f.system] {
+        let mut malformed = valid.clone();
+        malformed.role_id = role_id;
+        assert_eq!(
+            f.project.validate_connector_end(f.system, &malformed),
+            Err(ModelError::InvalidConnectorPath(role_id))
+        );
+    }
+}
+
+#[test]
+fn inconsistent_connector_roles_reject_creation_edit_and_reopened_models() {
+    let mut f = fixture();
+    let connector = Connector {
+        context_id: f.system,
+        kind: ConnectorKind::Assembly,
+        source: ConnectorEnd::nested_port(vec![f.left_part], f.left_port),
+        target: ConnectorEnd::nested_port(vec![f.right_part], f.right_port),
+    };
+    let id = f.project.create_connector(connector.clone()).unwrap();
+    let before = serde_json::to_value(&f.project).unwrap();
+    let mut malformed = connector;
+    malformed.source.role_id = f.right_part;
+    assert!(f.project.create_connector(malformed.clone()).is_err());
+    assert!(
+        f.project
+            .stage_connector_specification(id, "Invalid rename", malformed.clone())
+            .is_err()
+    );
+    assert_eq!(serde_json::to_value(&f.project).unwrap(), before);
+    f.project.relationships.get_mut(&id).unwrap().connector = Some(malformed);
+    let reopened: Project =
+        serde_json::from_value(serde_json::to_value(&f.project).unwrap()).unwrap();
+    assert_eq!(
+        reopened.validate(),
+        Err(ModelError::InvalidConnectorPath(f.right_part))
+    );
+}

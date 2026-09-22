@@ -197,8 +197,9 @@ impl Project {
             }
             // Boundary ports have an empty role path and identify themselves as
             // the role; nested ports identify the owning property as the role.
-            if end.property_path.is_empty() && end.role_id != port_id {
-                return Err(ModelError::InvalidConnectorPath(port_id));
+            let expected_role = end.property_path.last().copied().unwrap_or(port_id);
+            if end.role_id != expected_role {
+                return Err(ModelError::InvalidConnectorPath(end.role_id));
             }
         } else {
             let role = self.element(end.role_id)?;
