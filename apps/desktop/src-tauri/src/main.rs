@@ -2,6 +2,7 @@
 
 mod app_updates;
 mod collaboration;
+mod native_access;
 use collaboration::*;
 
 mod workspace {
@@ -637,7 +638,7 @@ fn main() {
         .manage(HistoryState::default())
         .manage(SharedWorkspaceState::default())
         .manage(StandardEditingState::default())
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(native_access::guard(tauri::generate_handler![
             app_updates::check_app_update,
             app_updates::install_app_update,
             app_updates::open_application,
@@ -897,7 +898,7 @@ fn main() {
             update_association_end,
             reconnect_bdd_relationship,
             delete_bdd_relationship
-        ])
+        ]))
         .run(tauri::generate_context!())
         .expect("failed to run Systems Modeler Pro");
 }
