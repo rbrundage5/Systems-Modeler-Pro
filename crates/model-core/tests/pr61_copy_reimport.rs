@@ -164,8 +164,15 @@ fn conflicting_copy_suppliers_reject_creation_and_master_edits_atomically() {
         Err(ModelError::ConflictingRequirementCopyText(copy))
     );
     assert_eq!(serde_json::to_value(&project).unwrap(), before);
-    let text = project.element(master).unwrap().requirement_text.clone().unwrap();
-    project.update_requirement(other, "REQ-OTHER", text).unwrap();
+    let text = project
+        .element(master)
+        .unwrap()
+        .requirement_text
+        .clone()
+        .unwrap();
+    project
+        .update_requirement(other, "REQ-OTHER", text)
+        .unwrap();
     project
         .create_relationship(RelationshipKind::Copy, copy, other, Some(package))
         .unwrap();
