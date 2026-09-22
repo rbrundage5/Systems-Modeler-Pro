@@ -81,7 +81,7 @@ pub enum ElementKind {
     Comment,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RelationshipKind {
     Dependency,
     PackageImport,
@@ -1422,6 +1422,7 @@ impl Project {
                 }
             }
         }
+        let duplicate_endpoints = self.duplicate_relationship_endpoints();
         for relationship in self.relationships.values() {
             if !external_ids.insert(relationship.external_id.clone()) {
                 return Err(ModelError::DuplicateExternalId(
@@ -1444,12 +1445,11 @@ impl Project {
                 ) {
                     return Err(ModelError::InvalidAllocationOwner(owner_id));
                 }
-                if self.relationships.values().any(|candidate| {
-                    candidate.id != relationship.id
-                        && candidate.kind == RelationshipKind::Allocate
-                        && candidate.source_id == relationship.source_id
-                        && candidate.target_id == relationship.target_id
-                }) {
+                if duplicate_endpoints.contains(&(
+                    &relationship.kind,
+                    relationship.source_id,
+                    relationship.target_id,
+                )) {
                     return Err(ModelError::DuplicateAllocationRelationship {
                         source_id: relationship.source_id,
                         target_id: relationship.target_id,
@@ -1471,12 +1471,11 @@ impl Project {
                 {
                     return Err(ModelError::InvalidTraceabilityOwner(owner_id));
                 }
-                if self.relationships.values().any(|candidate| {
-                    candidate.id != relationship.id
-                        && candidate.kind == relationship.kind
-                        && candidate.source_id == relationship.source_id
-                        && candidate.target_id == relationship.target_id
-                }) {
+                if duplicate_endpoints.contains(&(
+                    &relationship.kind,
+                    relationship.source_id,
+                    relationship.target_id,
+                )) {
                     return Err(ModelError::DuplicateTraceabilityRelationship {
                         relationship: relationship.kind.clone(),
                         source_id: relationship.source_id,
@@ -1520,12 +1519,11 @@ impl Project {
                         owner_name: owner,
                     });
                 }
-                if self.relationships.values().any(|candidate| {
-                    candidate.id != relationship.id
-                        && candidate.kind == relationship.kind
-                        && candidate.source_id == relationship.source_id
-                        && candidate.target_id == relationship.target_id
-                }) {
+                if duplicate_endpoints.contains(&(
+                    &relationship.kind,
+                    relationship.source_id,
+                    relationship.target_id,
+                )) {
                     return Err(ModelError::DuplicatePackageRelationship {
                         relationship: relationship.kind.clone(),
                         source_name: source.name.clone(),
@@ -1597,6 +1595,35 @@ impl Project {
         }
         self.profiles.validate(self).map_err(ModelError::Profile)?;
         Ok(())
+    }
+
+    // Rebuild from this validation snapshot so imports and direct repository edits
+    // cannot leave a persistent index stale. Preserve the existing rule that a
+    // duplicate must have a different semantic relationship ID.
+    fn duplicate_relationship_endpoints(
+        &self,
+    ) -> HashSet<(&RelationshipKind, ElementId, ElementId)> {
+        let mut first_ids = HashMap::new();
+        let mut duplicates = HashSet::new();
+        for relationship in self.relationships.values() {
+            if relationship.kind != RelationshipKind::Allocate
+                && !is_traceability_relationship(&relationship.kind)
+                && !is_package_relationship(&relationship.kind)
+                && relationship.kind != RelationshipKind::Dependency
+            {
+                continue;
+            }
+            let key = (
+                &relationship.kind,
+                relationship.source_id,
+                relationship.target_id,
+            );
+            let first_id = first_ids.entry(key).or_insert(relationship.id);
+            if *first_id != relationship.id {
+                duplicates.insert(key);
+            }
+        }
+        duplicates
     }
 
     pub fn inherited_features(
