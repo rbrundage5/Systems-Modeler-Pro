@@ -8,7 +8,7 @@ use systems_modeler_core::{
 };
 use systems_modeler_persistence::{load_activity_repository, save_activity_repository};
 
-const ACTIVITY_DIAGRAM_METADATA_KEY: &str = "activity-diagrams";
+pub(super) const ACTIVITY_DIAGRAM_METADATA_KEY: &str = "activity-diagrams";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivityDiagramNode {

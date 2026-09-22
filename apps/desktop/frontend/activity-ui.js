@@ -389,22 +389,8 @@
     }
   }, true);
 
-  const originalNewProject = $('new-project')?.onclick;
   const originalOpenProject = $('open-project')?.onclick;
-  const originalSaveProject = $('save-project')?.onclick;
-  const originalSaveAs = $('save-project-as')?.onclick;
 
-  if ($('new-project')) $('new-project').onclick = async () => {
-    await originalNewProject?.();
-    if (state.snapshot?.project) {
-      await requireInvoke()('reset_activity_workspace');
-      await requireInvoke()('clear_activity_executions');
-    }
-    state.activitySnapshot = { repository: { activities: {} }, diagrams: [] };
-    state.selectedActivityDiagramId = null;
-    Object.assign(state, { activityExecutionSnapshot: null, activityExecutionRunning: false });
-    render();
-  };
   if ($('open-project')) $('open-project').onclick = async () => {
     await originalOpenProject?.();
     if (state.snapshot?.current_file) {
@@ -415,21 +401,5 @@
       render();
     }
   };
-  async function saveActivityAfterBase() {
-    if (state.snapshot?.current_file) {
-      await requireInvoke()('save_activity_workspace', { path: state.snapshot.current_file });
-      await loadActivitySnapshot();
-      render();
-    }
-  }
-  if ($('save-project')) $('save-project').onclick = async () => {
-    await originalSaveProject?.();
-    await saveActivityAfterBase();
-  };
-  if ($('save-project-as')) $('save-project-as').onclick = async () => {
-    await originalSaveAs?.();
-    await saveActivityAfterBase();
-  };
-
   loadActivitySnapshot().then(render).catch((error) => console.error('Unable to initialize Activity workspace', error));
 })();
