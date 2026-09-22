@@ -1162,12 +1162,14 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let original = directory.path().join("original.smproj");
         let (state, activity) = save_session_fixture();
-        let saved = save_complete_workspace(Some(original.to_str().unwrap()), &state, &activity)
-            .unwrap();
+        let saved =
+            save_complete_workspace(Some(original.to_str().unwrap()), &state, &activity).unwrap();
         state.project.lock().unwrap().as_mut().unwrap().name = "Unsaved changes".into();
         let invalid = directory.path().join("missing-parent/target.smproj");
 
-        assert!(save_complete_workspace(Some(invalid.to_str().unwrap()), &state, &activity).is_err());
+        assert!(
+            save_complete_workspace(Some(invalid.to_str().unwrap()), &state, &activity).is_err()
+        );
 
         assert_eq!(
             state.current_file.lock().unwrap().as_deref(),
@@ -1194,8 +1196,8 @@ mod tests {
         let path = directory.path().join("complete.smproj");
         let (state, activity) = save_session_fixture();
         let id = state.project.lock().unwrap().as_ref().unwrap().id;
-        let saved = save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity)
-            .unwrap();
+        let saved =
+            save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity).unwrap();
         state.project.lock().unwrap().as_mut().unwrap().name = "Updated project".into();
         activity
             .repository
@@ -1239,8 +1241,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("complete.smproj");
         let (state, activity) = save_session_fixture();
-        let saved = save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity)
-            .unwrap();
+        let saved =
+            save_complete_workspace(Some(path.to_str().unwrap()), &state, &activity).unwrap();
         let before = std::fs::read(&path).unwrap();
         activity
             .repository
