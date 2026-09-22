@@ -5,7 +5,9 @@ contract is useful evidence, but is not a current whole-product completeness cla
 
 | Need | Read |
 | --- | --- |
-| Pre-package findings and current editing candidates | [21 September 2026 engineering review](PREPACKAGE_AUDIT_2026_09_21.md) |
+| Current tool, SysML, code quality and improvement review | [22 September 2026 review of integrated main](TOOL_SYSML_REVIEW_2026_09_22.md) |
+| Execution scope, network/file access and unexpected-code audit | [22 September 2026 execution-scope audit](EXECUTION_SCOPE_AUDIT_2026_09_22.md), with obsolete automation cleanup in PR129 |
+| Historical pre-package candidates and their evidence | [21 September 2026 engineering review](PREPACKAGE_AUDIT_2026_09_21.md), predates PR127 integration |
 | Step 5 scope and acceptance | [Planning package](STEP5_SCOPE_AND_ACCEPTANCE.md) and [coverage checklist](STEP5_AUDIT_COVERAGE.md) |
 | Connector typing implementation specification | [C04.09.02 design and dependency leaves](C04_CONNECTOR_TYPING_DESIGN.md), proposed capability |
 | Collaboration implementation and acceptance | [Desktop workflow](COLLABORATION_DESKTOP.md), [server setup](COLLABORATION_SERVER.md), [storage foundation](COLLABORATION.md) |
