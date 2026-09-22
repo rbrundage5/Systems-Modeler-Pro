@@ -55,7 +55,7 @@ test('cancelled Save As issues no core or Activity persistence command', async (
   assert.deepEqual(f.state, before);
 });
 
-test('failed Save As does not write Activity state to the previous file', async () => {
+test('failed complete Save As preserves the previous frontend session', async () => {
   const f = fixture({ promptValue: 'replacement.smproj', rejectSave: true });
   const before = structuredClone(f.state);
   await assert.rejects(f.buttons['save-project-as'].onclick(), /save failed/);
@@ -63,12 +63,9 @@ test('failed Save As does not write Activity state to the previous file', async 
   assert.deepEqual(f.state, before);
 });
 
-test('committed Save As writes Activity state to the selected file', async () => {
+test('committed Save As uses the complete native persistence command once', async () => {
   const f = fixture({ promptValue: 'replacement.smproj' });
   assert.equal((await f.buttons['save-project-as'].onclick()).outcome, 'committed');
-  assert.deepEqual(f.calls.map(call => call.command), [
-    'save_project_file_complete',
-    'save_activity_workspace',
-  ]);
-  assert.equal(f.calls[1].args.path, 'replacement.smproj');
+  assert.deepEqual(f.calls.map(call => call.command), ['save_project_file_complete']);
+  assert.equal(f.calls[0].args.path, 'replacement.smproj');
 });

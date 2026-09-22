@@ -40,7 +40,7 @@ function fixture({ promptValue = null, rejectOpen = false } = {}) {
     refresh: async () => {},
     requireInvoke: () => async (command, args) => {
       calls.push({ command, args });
-      if (command === 'open_project_file') {
+      if (command === 'open_project_file_complete') {
         if (rejectOpen) throw new Error('malformed project');
         state.snapshot = {
           project: { id: 'opened-project', name: 'Opened project' },
@@ -79,7 +79,7 @@ test('failed Open does not reset history or clear frontend session state', async
   const f = fixture({ promptValue: 'broken.smproj', rejectOpen: true });
   const before = structuredClone(f.state);
   await assert.rejects(f.buttons['open-project'].onclick(), /malformed project/);
-  assert.deepEqual(f.calls.map(call => call.command), ['open_project_file']);
+  assert.deepEqual(f.calls.map(call => call.command), ['open_project_file_complete']);
   assert.deepEqual(f.state, before);
 });
 
@@ -87,8 +87,7 @@ test('committed Open resets history after the replacement finishes', async () =>
   const f = fixture({ promptValue: '/models/opened.smproj' });
   assert.equal((await f.buttons['open-project'].onclick()).outcome, 'committed');
   assert.deepEqual(f.calls.map(call => call.command), [
-    'open_project_file',
-    'load_activity_workspace',
+    'open_project_file_complete',
     'activity_snapshot',
     'activity_snapshot',
     'history_reset',

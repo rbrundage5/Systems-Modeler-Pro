@@ -18,7 +18,7 @@
     let missingError = null;
     for (const candidate of projectOpenCandidates(requestedPath.trim())) {
       try {
-        openedPath = await requireInvoke()('open_project_file', { path: candidate });
+        openedPath = await requireInvoke()('open_project_file_complete', { path: candidate });
         break;
       } catch (error) {
         const message = error?.message || String(error);
@@ -44,7 +44,6 @@
       activityPendingFlow: null,
     });
 
-    await requireInvoke()('load_activity_workspace', { path: openedPath });
     state.activitySnapshot = await requireInvoke()('activity_snapshot');
     await refresh();
     state.activitySnapshot = await requireInvoke()('activity_snapshot');

@@ -101,11 +101,40 @@ impl ProjectDatabase {
     }
 
     pub fn save_project(&mut self, project: &Project) -> Result<(), PersistenceError> {
+        self.save_project_with_metadata(project, &[])
+    }
+
+    /// Replaces the authored project and all supplied workspace metadata in one
+    /// SQLite transaction. Callers must prepare and validate every payload
+    /// before entering this method; any database failure rolls back both the
+    /// semantic model and every metadata write.
+    pub fn save_project_with_metadata(
+        &mut self,
+        project: &Project,
+        metadata: &[(&str, &str)],
+    ) -> Result<(), PersistenceError> {
         let tx = self.connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let shared: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM shared_projects WHERE project_id=?1)", [project.id.to_string()], |row| row.get(0))?;
         if shared { return Err(PersistenceError::SharedProject); }
         Self::write_project(&tx, project)?;
+        for (key, payload) in metadata {
+            Self::write_metadata(&tx, project.id, key, payload)?;
+        }
         tx.commit()?;
+        Ok(())
+    }
+
+    fn write_metadata(
+        connection: &Connection,
+        project_id: ProjectId,
+        key: &str,
+        payload: &str,
+    ) -> Result<(), PersistenceError> {
+        connection.execute(
+            "INSERT INTO project_metadata(project_id,key,payload) VALUES(?1,?2,?3)
+             ON CONFLICT(project_id,key) DO UPDATE SET payload=excluded.payload",
+            params![project_id.to_string(), key, payload],
+        )?;
         Ok(())
     }
 
@@ -175,12 +204,7 @@ impl ProjectDatabase {
         key: &str,
         payload: &str,
     ) -> Result<(), PersistenceError> {
-        self.connection.execute(
-            "INSERT INTO project_metadata(project_id,key,payload) VALUES(?1,?2,?3)
-             ON CONFLICT(project_id,key) DO UPDATE SET payload=excluded.payload",
-            params![project_id.to_string(), key, payload],
-        )?;
-        Ok(())
+        Self::write_metadata(&self.connection, project_id, key, payload)
     }
 
     pub fn load_metadata(
@@ -313,6 +337,65 @@ mod tests {
         assert_eq!(
             db.load_metadata(project.id, "bdd-diagrams").unwrap(),
             Some("[{}]".to_owned())
+        );
+    }
+
+    #[test]
+    fn complete_project_save_commits_semantics_and_metadata_together() {
+        let mut project = Project::new("Vehicle");
+        let mut db = ProjectDatabase::open_in_memory().unwrap();
+        db.save_project_with_metadata(
+            &project,
+            &[("bdd-diagrams", "[1]"), ("activity-repository", "{\"activities\":{}}")],
+        )
+        .unwrap();
+
+        project.name = "Vehicle 2".into();
+        db.save_project_with_metadata(
+            &project,
+            &[("bdd-diagrams", "[2]"), ("activity-repository", "{\"activities\":{}}")],
+        )
+        .unwrap();
+
+        assert_eq!(db.load_project(project.id).unwrap().name, "Vehicle 2");
+        assert_eq!(
+            db.load_metadata(project.id, "bdd-diagrams").unwrap().as_deref(),
+            Some("[2]")
+        );
+    }
+
+    #[test]
+    fn complete_project_save_rolls_back_semantics_and_metadata_on_late_failure() {
+        let mut project = Project::new("Original");
+        let mut db = ProjectDatabase::open_in_memory().unwrap();
+        db.save_project_with_metadata(&project, &[("bdd-diagrams", "[1]")])
+            .unwrap();
+        db.connection
+            .execute_batch(
+                "CREATE TRIGGER reject_injected_metadata
+                 BEFORE INSERT ON project_metadata
+                 WHEN NEW.key = 'injected-failure'
+                 BEGIN SELECT RAISE(ABORT, 'injected metadata failure'); END;",
+            )
+            .unwrap();
+
+        project.name = "Must Roll Back".into();
+        let error = db
+            .save_project_with_metadata(
+                &project,
+                &[("bdd-diagrams", "[2]"), ("injected-failure", "boom")],
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("injected metadata failure"));
+
+        assert_eq!(db.load_project(project.id).unwrap().name, "Original");
+        assert_eq!(
+            db.load_metadata(project.id, "bdd-diagrams").unwrap().as_deref(),
+            Some("[1]")
+        );
+        assert_eq!(
+            db.load_metadata(project.id, "injected-failure").unwrap(),
+            None
         );
     }
 }
