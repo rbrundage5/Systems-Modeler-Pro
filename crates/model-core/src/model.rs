@@ -1654,7 +1654,45 @@ impl Project {
                 _ => {}
             }
         }
+        self.validate_generalization_graph()?;
         self.profiles.validate(self).map_err(ModelError::Profile)?;
+        Ok(())
+    }
+
+    // Validate imported/reopened graphs as well as individually authored edges.
+    // Iterative topological traversal handles deep and multiply inherited graphs
+    // without recursive stack growth or a full edge scan for each classifier.
+    fn validate_generalization_graph(&self) -> Result<(), ModelError> {
+        let mut outgoing: HashMap<ElementId, Vec<ElementId>> = HashMap::new();
+        let mut incoming: HashMap<ElementId, usize> = HashMap::new();
+        for relationship in self.relationships.values() {
+            if relationship.kind != RelationshipKind::Generalization {
+                continue;
+            }
+            outgoing.entry(relationship.source_id).or_default().push(relationship.target_id);
+            incoming.entry(relationship.source_id).or_default();
+            *incoming.entry(relationship.target_id).or_default() += 1;
+        }
+        let mut ready: Vec<_> = incoming
+            .iter()
+            .filter_map(|(&id, &count)| (count == 0).then_some(id))
+            .collect();
+        let mut visited = 0;
+        while let Some(id) = ready.pop() {
+            visited += 1;
+            if let Some(targets) = outgoing.get(&id) {
+                for target in targets {
+                    let count = incoming.get_mut(target).expect("indexed generalization target");
+                    *count -= 1;
+                    if *count == 0 {
+                        ready.push(*target);
+                    }
+                }
+            }
+        }
+        if visited != incoming.len() {
+            return Err(ModelError::GeneralizationCycle);
+        }
         Ok(())
     }
 
