@@ -16,8 +16,16 @@ retains executable assets even though no active caller was found.
 
 This candidate deletes the assets; it does not reactivate them, remove supported
 behavior semantics, or replace existing controllers. The source-marker guard
-against loading the old paths remains unchanged. No dependency, workflow, agent
-control, HTML entrypoint or active frontend file is edited.
+against loading the old paths remains unchanged. No dependency, agent control,
+HTML entrypoint or active frontend file is edited.
+
+Companion setup-maintenance scope `C01.EXEC.06-CI`: remove only the deleted
+`behavior-runtime-hardening.js` entry from the explicit syntax-check list in
+`.github/workflows/ci.yml`. CI run `35749063286` reproduced the stale-file failure
+after removal. No job, permission, trigger, active-file check or integration guard
+is removed or relaxed. This maintenance is necessary for the same asset retirement;
+workers remain disabled. The negative case is a syntax error in any retained file:
+the unchanged `node --check` invocation must still fail.
 
 Verification: both entrypoint asset graphs resolve after deletion; all retained
 frontend files are byte-identical to baseline; no executable loader refers to the
