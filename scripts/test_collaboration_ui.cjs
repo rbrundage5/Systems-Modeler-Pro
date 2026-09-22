@@ -522,3 +522,50 @@ test('BDD edge removal and rerouting use stable presentation identity', async ()
   assert.equal(call.payload.expectedRevision, 7);
   assert.equal(call.payload.edit.RouteBddDiagram.diagram, 'bdd');
 });
+
+test('new shared BDD creation choices submit their kind and captured revision', async () => {
+  for (const kind of ['InterfaceBlock', 'AssociationBlock', 'ConstraintBlock', 'ValueType', 'DataType', 'PrimitiveType', 'Enumeration', 'Signal', 'Unit', 'QuantityKind', 'InstanceSpecification', 'Comment', 'Actor', 'UseCase']) {
+    const ui = await fixture();
+    ui.edit.elements.operation.value = `Create${kind}`;
+    ui.edit.elements.name.value = `Shared ${kind}`;
+    ui.edit.onsubmit(event());
+    await flush();
+    const call = ui.calls.find(item => item.command === 'collaboration_edit');
+    assert.equal(call.payload.expectedRevision, 7);
+    assert.equal(call.payload.edit.CreateBddElement.kind, kind);
+    assert.equal(call.payload.edit.CreateBddElement.owner, 'root');
+    assert.equal(call.payload.edit.CreateBddElement.name, `Shared ${kind}`);
+  }
+});
+
+test('rejected shared BDD creation retains kind and name for correction', async () => {
+  const ui = await fixture();
+  ui.edit.elements.operation.value = 'CreateInterfaceBlock';
+  ui.edit.elements.name.value = 'Control interface';
+  ui.setHandler(async command => {
+    if (command === 'collaboration_edit') throw new Error('Invalid owner');
+    return structuredClone(ui.view);
+  });
+  ui.edit.onsubmit(event());
+  await flush();
+  assert.equal(ui.edit.elements.operation.value, 'CreateInterfaceBlock');
+  assert.equal(ui.edit.elements.name.value, 'Control interface');
+});
+
+test('reconnect restores a pending typed BDD creation and retries its original request', async () => {
+  const ui = await fixture();
+  await ui.find('[data-disconnect]').onclick();
+  ui.view.pending = true;
+  ui.view.pending_request = {
+    operation_id: 'retained-operation', expected_revision: 6,
+    edit: { CreateBddElement: { kind: 'InterfaceBlock', owner: 'root', name: 'Recovered interface' } },
+  };
+  ui.find('[data-connect]').onsubmit(event());
+  await flush();
+  assert.equal(ui.edit.elements.operation.value, 'CreateInterfaceBlock');
+  assert.equal(ui.edit.elements.name.value, 'Recovered interface');
+  assert.equal(ui.find('[data-submit]').disabled, true);
+  await ui.find('[data-retry]').onclick();
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_retry').length, 1);
+  assert.equal(ui.calls.filter(call => call.command === 'collaboration_edit').length, 0);
+});

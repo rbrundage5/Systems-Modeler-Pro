@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture(family = 'bdd', scale = 1) {
+function fixture(family = 'bdd', scale = 1, options = {}) {
   const commands = [];
   const previews = [];
   let refreshes = 0;
@@ -37,15 +37,21 @@ function fixture(family = 'bdd', scale = 1) {
     fire(name, event) { for (const listener of [...(this.listeners.get(name) || [])]) { listener(event); if (event.immediateStopped) break; } }
   }
   const canvas = new Node('workspace-renderer-surface'); canvas.offsetWidth = 1000; canvas.offsetHeight = 800;
-  const kind = family === 'ibd' ? 'ibd-property' : family === 'state' ? 'state-vertex' : 'bdd-block';
+  const isIbd = family.startsWith('ibd');
+  const kind = family === 'ibd-port' ? 'ibd-port' : family === 'ibd' ? 'ibd-property' : family === 'state' ? 'state-vertex' : 'bdd-block';
   const node = canvas.appendChild(new Node(kind));
   node.dataset.presentationId = 'presentation'; node.dataset.vertexId = 'vertex';
   Object.assign(node.style, { left: '100px', top: '120px', width: '190px', height: '110px' });
   const original = { id: 'presentation', element_id: 'element', vertex_id: 'vertex', x: 100, y: 120, width: 190, height: 110, ports: [] };
   const diagram = { id: 'diagram', family, nodes: [original], properties: [original], kind: 'StateMachine', state_nodes: [original] };
+  if (family === 'ibd-port') {
+    Object.assign(original, { x: 108, y: 128, size: 16 });
+    Object.assign(node.style, { width: '16px', height: '16px' });
+    Object.assign(diagram, { properties: [], boundary_ports: [original], context_frame: options.frame || null });
+  }
   const state = {
     selectedDiagramId: family === 'state' ? null : 'diagram', selectedBehaviorDiagramId: family === 'state' ? 'diagram' : null,
-    snapshot: { diagrams: family === 'ibd' || family === 'state' ? [] : [diagram], ibd_diagrams: family === 'ibd' ? [diagram] : [] },
+    snapshot: { diagrams: isIbd || family === 'state' ? [] : [diagram], ibd_diagrams: isIbd ? [diagram] : [] },
     behaviorSnapshot: { diagrams: family === 'state' ? [diagram] : [] },
   };
   const document = {
@@ -56,8 +62,8 @@ function fixture(family = 'bdd', scale = 1) {
   const context = {
     state, document, Element: Node, console, CSS: { escape: String },
     MutationObserver: class { observe() {} }, queueMicrotask() {}, getComputedStyle: () => ({ position: 'absolute' }),
-    window: { smpPreviewStateTransitionGeometry: (_, __, geometry) => previews.push({ ...geometry }) },
-    runCommand: async (_, action) => action(), requireInvoke: () => async (command, args) => { commands.push({ command, args }); },
+    window: { smpPreviewStateTransitionGeometry: (_, __, geometry) => previews.push({ ...geometry }), smpRendererHost: { frameGeometry: () => options.frame || null } },
+    runCommand: async (_, action) => action(), requireInvoke: () => async (command, args) => { commands.push({ command, args }); return options.invoke?.(command, args); },
     refresh: async () => { refreshes++; }, render() {}, renderStatus() {},
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/diagram-interaction.js'), 'utf8'), context);
@@ -76,8 +82,10 @@ function fixture(family = 'bdd', scale = 1) {
       end: name => target.fire(name, event(target, 50, 60)),
     };
   }
-  return { node, canvas, commands, original, previews, start, event, get refreshes() { return refreshes; } };
+  return { node, canvas, commands, original, diagram, previews, start, event, get refreshes() { return refreshes; } };
 }
+
+module.exports = { fixture, flush };
 
 for (const family of ['bdd', 'requirement', 'package', 'use-case', 'parametric', 'ibd', 'state']) {
   test(`${family}: cancelled move restores preview and leaves authored state untouched`, async () => {

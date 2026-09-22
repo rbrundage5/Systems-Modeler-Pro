@@ -6,12 +6,15 @@ use serde::{Deserialize, Serialize};
 use systems_modeler_core::{
     DiagramId, ElementId, ElementKind, GeometryPoint, ModelError, ProjectId, RelationshipId,
     RelationshipKind,
-    routing::{DiagramRouteEdge, RouteRect, route_diagram, route_is_clear},
+    routing::{RouteRect, route_is_clear},
 };
 use thiserror::Error;
 use uuid::Uuid;
 
+mod native_bdd;
 mod undo;
+use systems_modeler_core::structural_presentation::creation::CreateBddElement;
+use systems_modeler_core::structural_presentation::geometry::BddGeometryCommand;
 
 pub const COLLABORATION_PROTOCOL_VERSION: u32 = 1;
 pub const COLLABORATION_CAPABILITIES: &[&str] = &[
@@ -20,6 +23,7 @@ pub const COLLABORATION_CAPABILITIES: &[&str] = &[
     "simple-relationships",
     "server-routed-bdd-relationships",
     "shared-requirements-v1",
+    "shared-bdd-elements-v1",
     "authenticated-actor-v1",
     "project-presence-v1",
     "actor-scoped-undo-v1",
@@ -147,6 +151,7 @@ impl SharedRelationshipKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SharedEdit {
+    CreateBddElement(CreateBddElement),
     UndoOperation {
         operation: Uuid,
     },
@@ -406,54 +411,7 @@ fn validate_bdd_edge_geometry(
 }
 
 fn route_shared_bdd(diagram: &mut SharedBddDiagram) -> Result<(), CollaborationError> {
-    let obstacles: Vec<_> = diagram.nodes.iter().map(bdd_node_rect).collect();
-    let requested = diagram
-        .edges
-        .iter()
-        .map(|edge| {
-            let source = diagram
-                .nodes
-                .iter()
-                .find(|node| node.id == edge.source_node)
-                .ok_or(CollaborationError::InvalidDiagram(
-                    "BDD edge source presentation was not found",
-                ))?;
-            let target = diagram
-                .nodes
-                .iter()
-                .find(|node| node.id == edge.target_node)
-                .ok_or(CollaborationError::InvalidDiagram(
-                    "BDD edge target presentation was not found",
-                ))?;
-            Ok(DiagramRouteEdge {
-                id: edge.id.to_string(),
-                source_id: source.id.to_string(),
-                target_id: target.id.to_string(),
-                source: bdd_node_rect(source),
-                target: bdd_node_rect(target),
-            })
-        })
-        .collect::<Result<Vec<_>, CollaborationError>>()?;
-    let routed = route_diagram(&requested, &obstacles).map_err(|_| {
-        CollaborationError::InvalidDiagram(
-            "no obstacle-clear orthogonal BDD relationship route is available",
-        )
-    })?;
-    for route in routed {
-        let routed_id = Uuid::parse_str(&route.id).map_err(|_| {
-            CollaborationError::InvalidDiagram("router returned an invalid BDD edge identity")
-        })?;
-        let edge = diagram
-            .edges
-            .iter_mut()
-            .find(|edge| edge.id == routed_id)
-            .ok_or(CollaborationError::InvalidDiagram(
-                "routed BDD edge presentation was not found",
-            ))?;
-        edge.points = route.points;
-        edge.label_anchor = route.label_anchor;
-    }
-    Ok(())
+    diagram.apply_native_geometry(&BddGeometryCommand::Route)
 }
 
 fn validate_shared_bdd(
@@ -710,6 +668,7 @@ impl ProjectDatabase {
             };
             let summary = match request.edit {
                 SharedEdit::UndoOperation { .. } => "Reverse a shared change",
+                SharedEdit::CreateBddElement(_) => "Create BDD element",
                 SharedEdit::CreateBlock { .. } => "Create Block",
                 SharedEdit::CreatePackage { .. } => "Create Package",
                 SharedEdit::RenameElement { .. } => "Rename element",
@@ -825,6 +784,7 @@ impl ProjectDatabase {
             });
         }
         match &request.edit {
+            SharedEdit::CreateBddElement(command) => validate_name(&command.name)?,
             SharedEdit::CreateBlock { name, .. }
             | SharedEdit::CreatePackage { name, .. }
             | SharedEdit::RenameElement { name, .. }
@@ -850,6 +810,10 @@ impl ProjectDatabase {
         let before_diagrams = Self::load_shared_bdd_diagrams_from(&tx, project)?;
         let mut semantic_changed = false;
         let element = match &request.edit {
+            SharedEdit::CreateBddElement(command) => {
+                semantic_changed = true;
+                command.apply(&mut model)?
+            }
             SharedEdit::UndoOperation { operation } => {
                 Self::reverse_shared_operation(
                     &tx,
@@ -1028,17 +992,19 @@ impl ProjectDatabase {
                 height,
             } => {
                 let mut existing = Self::load_shared_bdd_diagram_from(&tx, project, *diagram)?;
-                let presented = existing
+                let element = existing
                     .nodes
-                    .iter_mut()
+                    .iter()
                     .find(|presented| presented.id == *node)
-                    .ok_or(CollaborationError::InvalidDiagram("BDD node was not found"))?;
-                presented.x = *x;
-                presented.y = *y;
-                presented.width = *width;
-                presented.height = *height;
-                let element = presented.element;
-                route_shared_bdd(&mut existing)?;
+                    .ok_or(CollaborationError::InvalidDiagram("BDD node was not found"))?
+                    .element;
+                existing.apply_native_geometry(&BddGeometryCommand::UpdateNode {
+                    presentation_id: node.to_string(),
+                    x: *x,
+                    y: *y,
+                    width: *width,
+                    height: *height,
+                })?;
                 validate_shared_bdd(&model, &existing)?;
                 Self::save_shared_bdd_diagram_to(&tx, project, &existing)?;
                 element

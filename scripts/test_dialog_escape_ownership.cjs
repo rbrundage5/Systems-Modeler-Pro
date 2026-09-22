@@ -39,6 +39,12 @@ class Element {
   get className() { return [...this.classList.values].join(' '); }
   set innerHTML(value) {
     this.children = [];
+    if (value.includes('sysml-frame-label')) {
+      const header = this.ownerDocument.createElement('header'); header.className = 'sysml-frame-label';
+      header.appendChild(this.ownerDocument.createElement('span')); this.appendChild(header);
+      const handle = this.ownerDocument.createElement('button'); handle.className = 'sysml-frame-resize'; this.appendChild(handle);
+      return;
+    }
     if (!value.includes('application-dialog')) return;
     const dialog = this.ownerDocument.createElement('section'); dialog.className = 'application-dialog'; dialog.setAttribute('role', 'dialog');
     for (const [tag, className, attribute] of [
@@ -69,6 +75,7 @@ class Element {
   reportValidity() { return true; }
   dispatchEvent() { return true; }
   scrollTo() {}
+  setPointerCapture() {}
 }
 
 class EventTarget {
@@ -79,7 +86,7 @@ class EventTarget {
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-async function fixture() {
+async function fixture(options = {}) {
   const document = new EventTarget(); document.elements = new Map();
   document.createElement = tag => new Element(document, tag);
   document.body = document.createElement('body'); document.head = document.createElement('head');
@@ -91,23 +98,30 @@ async function fixture() {
   document.querySelector = selector => document.getElementById(selector);
   document.dispatchEvent = () => true;
   const canvas = document.getElementById('canvas');
+  if (options.frame) {
+    const root = document.createElement('div');
+    root.offsetWidth = root.scrollWidth = 800; root.offsetHeight = root.scrollHeight = 600;
+    canvas.appendChild(root);
+  }
   const window = new EventTarget();
   window.alert = () => {};
   const calls = [];
-  const invoke = async (command) => {
-    calls.push(command);
+  const requests = [];
+  const invoke = async (command, args) => {
+    calls.push(command); requests.push({ command, args });
+    if (command === 'set_diagram_frame_preference') return options.saveFrame?.(args, window);
     if (command === 'diagram_family_registry') return [];
     if (command === 'semantic_presentation_stylesheet') return '';
     if (command === 'active_diagram_command_manifest') return [];
     if (command === 'get_panel_preferences') return { repositoryWidth: 200, elementsWidth: 200, propertiesWidth: 200, repositoryVisible: true, elementsVisible: true, propertiesVisible: true };
-    if (command === 'activate_diagram') return { context: { diagramId: 'diagram', family: { id: 'bdd', displayName: 'BDD', accessibilityName: 'BDD', rendererId: 'bdd' }, name: 'Structure', frameLabel: 'bdd Structure' }, interaction: { revision: 1 }, commands: [] };
+    if (command === 'activate_diagram') return { context: { diagramId: 'diagram', family: { id: options.family || 'bdd', displayName: 'BDD', accessibilityName: 'BDD', rendererId: 'bdd' }, name: 'Structure', frameLabel: 'bdd Structure' }, interaction: { revision: 1 }, commands: [] };
     if (command === 'get_viewport_preference') return { zoom: 1, panX: 0, panY: 0, gridVisible: true };
-    if (command === 'get_diagram_frame_preference') return null;
+    if (command === 'get_diagram_frame_preference') return options.frame || null;
     if (command === 'clear_workspace_interaction') return { revision: 2 };
     return null;
   };
   window.__TAURI__ = { core: { invoke } };
-  window.smpState = { selectedElementId: 'node-1', paletteTool: { id: 'block' } };
+  window.smpState = { selectedElementId: 'node-1', paletteTool: { id: 'block' }, snapshot: { ibd_diagrams: options.family === 'ibd' ? [{id:'diagram', context_frame:options.legacy ? null : options.frame}] : [] } };
   const context = {
     window, document, console, setTimeout, clearTimeout, queueMicrotask,
     MutationObserver: class { observe() {} }, CustomEvent: class {},
@@ -125,7 +139,7 @@ async function fixture() {
     for (const listener of [...(document.listeners.get('keydown') || [])]) { listener(event); if (event.immediateStopped) break; }
     return event;
   }
-  return { window, document, canvas, calls, keydown };
+  return { window, document, canvas, calls, requests, keydown };
 }
 
 test('dialog owns Escape without changing workspace interaction or authored history', async () => {
@@ -155,5 +169,66 @@ test('Escape outside dialogs retains workspace cancellation behavior without aut
   assert.equal(event.immediateStopped, true);
 });
 
+require('./test_ibd_port_gesture.cjs');
+
+async function frameEvent(ui, type, x, y) {
+  const handle = ui.canvas.querySelector('.sysml-frame-resize');
+  const event = { type, target: handle, pointerId: 1, button: 0, clientX: x, clientY: y, preventDefault() {}, stopPropagation() {} };
+  await Promise.all((ui.canvas.listeners.get(type) || []).map(listener => listener(event)));
+}
+
+for (const cancelled of ['pointercancel', 'lostpointercapture']) {
+  test(`IBD frame ${cancelled} restores its starting boundary without saving`, async () => {
+    const frame = { x: 54, y: 70, width: 1018, height: 662, manuallySized: true };
+    const ui = await fixture({ family: 'ibd', frame });
+    await frameEvent(ui, 'pointerdown', 10, 20);
+    await frameEvent(ui, 'pointermove', 110, 120);
+    assert.equal(ui.window.smpRendererHost.frameGeometry().width, 1118);
+    await frameEvent(ui, cancelled, 110, 120);
+    assert.deepEqual({ ...ui.window.smpRendererHost.frameGeometry() }, frame);
+    assert.equal(ui.calls.includes('set_diagram_frame_preference'), false);
+  });
+}
+
+test('IBD frame commit awaits Rust before refreshing and undo restores the legacy frame', async () => {
+  const frame = { x: 54, y: 70, width: 1018, height: 662, manuallySized: true };
+  let release; let saved; let refreshed = false;
+  const ui = await fixture({ family: 'ibd', frame, legacy: true, saveFrame: args => {
+    saved = args.preference; return new Promise(resolve => { release = resolve; });
+  } });
+  ui.window.refresh = async () => { refreshed = true; ui.window.smpState.snapshot.ibd_diagrams[0].context_frame = saved; };
+  await frameEvent(ui, 'pointerdown', 10, 20); await frameEvent(ui, 'pointermove', 110, 120);
+  const finishing = frameEvent(ui, 'pointerup', 110, 120); await flush();
+  assert.equal(refreshed, false); assert.equal(saved.width, 1118);
+  release(); await finishing;
+  assert.equal(refreshed, true); assert.equal(ui.window.smpRendererHost.frameGeometry().width, 1118);
+  ui.window.smpState.snapshot.ibd_diagrams[0].context_frame = null;
+  assert.deepEqual({ ...ui.window.smpRendererHost.frameGeometry() }, frame);
+});
+
+test('rejected IBD frame resize restores the original boundary', async () => {
+  const frame = { x: 54, y: 70, width: 1018, height: 662, manuallySized: true };
+  const ui = await fixture({ family: 'ibd', frame, saveFrame: async () => { throw new Error('route rejected'); } });
+  await frameEvent(ui, 'pointerdown', 10, 20); await frameEvent(ui, 'pointermove', 110, 120);
+  await frameEvent(ui, 'pointerup', 110, 120);
+  assert.deepEqual({ ...ui.window.smpRendererHost.frameGeometry() }, frame);
+  assert.equal(ui.calls.filter(command => command === 'set_diagram_frame_preference').length, 1);
+});
 // Keep the Properties/history regressions in the existing frontend CI entry point.
 require('./test_element_specification.cjs');
+
+
+test('a frame click or sub-threshold movement does not adopt legacy geometry or create history', async () => {
+  const frame = { x: 54, y: 70, width: 1018, height: 662, manuallySized: true };
+  const ui = await fixture({ family: 'ibd', frame, legacy: true });
+  await frameEvent(ui, 'pointerdown', 10, 20);
+  await frameEvent(ui, 'pointermove', 11, 21);
+  await frameEvent(ui, 'pointerup', 11, 21);
+  assert.equal(ui.calls.includes('set_diagram_frame_preference'), false);
+  assert.equal(ui.window.smpState.snapshot.ibd_diagrams[0].context_frame, null);
+});
+
+require('./test_standard_editing_clipboard.cjs');
+require('./test_connector_properties.cjs');
+require('./test_item_flow_notation.cjs');
+require('./test_item_flow_properties.cjs');

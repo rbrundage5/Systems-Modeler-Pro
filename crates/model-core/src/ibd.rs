@@ -72,6 +72,73 @@ pub struct ItemFlow {
 }
 
 impl Project {
+    /// Stage an existing ItemFlow edit without changing its identity or connector.
+    pub fn stage_item_flow_specification(
+        &self,
+        id: RelationshipId,
+        name: &str,
+        flow: ItemFlow,
+    ) -> Result<Project, String> {
+        let original = self.relationship(id).map_err(|error| error.to_string())?;
+        let old = original.item_flow.as_ref().ok_or("relationship is not an ItemFlow")?;
+        if original.kind != crate::RelationshipKind::ItemFlow || old.connector_id != flow.connector_id {
+            return Err("ItemFlow edits must retain their existing Connector".into());
+        }
+        self.validate_item_flow(&flow).map_err(|error| error.to_string())?;
+        let mut candidate = self.clone();
+        let relationship = candidate.relationships.get_mut(&id).ok_or("ItemFlow not found")?;
+        relationship.name = name.trim().to_owned();
+        relationship.source_id = flow.source.port_id.unwrap_or(flow.source.role_id);
+        relationship.target_id = flow.target.port_id.unwrap_or(flow.target.role_id);
+        relationship.item_flow = Some(flow);
+        candidate.validate().map_err(|error| error.to_string())?;
+        Ok(candidate)
+    }
+
+    /// Stage one connector edit and preserve its dependent ItemFlow directions.
+    pub fn stage_connector_specification(
+        &self,
+        id: RelationshipId,
+        name: &str,
+        connector: Connector,
+    ) -> Result<Project, String> {
+        let original = self.relationship(id).map_err(|error| error.to_string())?;
+        let old = original.connector.as_ref().ok_or("relationship is not a Connector")?;
+        if original.kind != crate::RelationshipKind::Connector || old.context_id != connector.context_id {
+            return Err("connector edits must retain their existing Block context".into());
+        }
+        self.validate_connector(&connector).map_err(|error| error.to_string())?;
+        let mut candidate = self.clone();
+        let relationship = candidate.relationships.get_mut(&id).ok_or("Connector not found")?;
+        relationship.name = name.trim().to_owned();
+        relationship.source_id = connector.source.port_id.unwrap_or(connector.source.role_id);
+        relationship.target_id = connector.target.port_id.unwrap_or(connector.target.role_id);
+        relationship.connector = Some(connector.clone());
+        for relationship in candidate.relationships.values_mut() {
+            let Some(flow) = &mut relationship.item_flow else { continue; };
+            if flow.connector_id != id { continue; }
+            let forward = flow.source == old.source && flow.target == old.target;
+            let reverse = flow.source == old.target && flow.target == old.source;
+            if !forward && !reverse {
+                return Err("dependent ItemFlow does not match the original connector ends".into());
+            }
+            // Reversing the connector's presentation order does not reverse flow.
+            if !((flow.source == connector.source && flow.target == connector.target)
+                || (flow.source == connector.target && flow.target == connector.source))
+            {
+                (flow.source, flow.target) = if forward {
+                    (connector.source.clone(), connector.target.clone())
+                } else {
+                    (connector.target.clone(), connector.source.clone())
+                };
+            }
+            relationship.source_id = flow.source.port_id.unwrap_or(flow.source.role_id);
+            relationship.target_id = flow.target.port_id.unwrap_or(flow.target.role_id);
+        }
+        candidate.validate().map_err(|error| error.to_string())?;
+        Ok(candidate)
+    }
+
     /// Resolve the classifier reached by a connector role path. Every property
     /// in the path must be a PartProperty or ReferenceProperty whose type is a
     /// Block-like structured classifier. The path is evaluated from the IBD
@@ -130,8 +197,9 @@ impl Project {
             }
             // Boundary ports have an empty role path and identify themselves as
             // the role; nested ports identify the owning property as the role.
-            if end.property_path.is_empty() && end.role_id != port_id {
-                return Err(ModelError::InvalidConnectorPath(port_id));
+            let expected_role = end.property_path.last().copied().unwrap_or(port_id);
+            if end.role_id != expected_role {
+                return Err(ModelError::InvalidConnectorPath(end.role_id));
             }
         } else {
             let role = self.element(end.role_id)?;
