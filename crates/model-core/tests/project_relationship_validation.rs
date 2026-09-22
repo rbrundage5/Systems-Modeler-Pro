@@ -143,14 +143,20 @@ fn endpoint_and_owner_errors_still_precede_duplicate_diagnostics() {
         relationship.target_id = missing;
         relationship.owner_id = None;
     }
-    assert_eq!(project.validate(), Err(ModelError::ElementNotFound(missing)));
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::ElementNotFound(missing))
+    );
     let target = project
         .create_element(ElementKind::Block, "Replacement", project.root_id)
         .unwrap();
     for relationship in project.relationships.values_mut() {
         relationship.target_id = target;
     }
-    assert_eq!(project.validate(), Err(ModelError::MissingTraceabilityOwner));
+    assert_eq!(
+        project.validate(),
+        Err(ModelError::MissingTraceabilityOwner)
+    );
 }
 
 #[test]
