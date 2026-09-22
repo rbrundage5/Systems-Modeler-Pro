@@ -515,72 +515,8 @@ fn route_relationship(
     })
 }
 
-fn node_route_rect(node: &DiagramNode) -> routing::RouteRect {
-    routing::RouteRect {
-        x: node.x,
-        y: node.y,
-        width: node.width,
-        height: node.height,
-    }
-}
 
-fn diagram_node_route_rect(diagram: &BddDiagram, node: &DiagramNode) -> routing::RouteRect {
-    let mut rect = node_route_rect(node);
-    if diagram.family == "package" {
-        // UML Package notation has a tab above the persisted body rectangle.
-        // Reserve it in the authoritative routing geometry so edges and labels
-        // cannot pass behind the visible tab header.
-        const PACKAGE_TAB_HEIGHT: f64 = 20.0;
-        rect.y -= PACKAGE_TAB_HEIGHT;
-        rect.height += PACKAGE_TAB_HEIGHT;
-    }
-    rect
-}
 
-fn routed_bdd_edges(
-    diagram: &BddDiagram,
-    bounds: Option<routing::RouteRect>,
-) -> Result<Vec<DiagramEdge>, String> {
-    let obstacles: Vec<_> = diagram
-        .nodes
-        .iter()
-        .map(|node| diagram_node_route_rect(diagram, node))
-        .collect();
-    let route_edges = diagram
-        .edges
-        .iter()
-        .map(|edge| {
-            let source = diagram
-                .nodes
-                .iter()
-                .find(|node| node.id == edge.source_node_id)
-                .ok_or("diagram edge source presentation not found")?;
-            let target = diagram
-                .nodes
-                .iter()
-                .find(|node| node.id == edge.target_node_id)
-                .ok_or("diagram edge target presentation not found")?;
-            Ok(routing::DiagramRouteEdge {
-                id: edge.id.clone(),
-                source_id: edge.source_node_id.clone(),
-                target_id: edge.target_node_id.clone(),
-                source: diagram_node_route_rect(diagram, source),
-                target: diagram_node_route_rect(diagram, target),
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let routed = routing::route_diagram_with_bounds(&route_edges, &obstacles, bounds)?;
-    let mut edges = diagram.edges.clone();
-    for route in routed {
-        let edge = edges
-            .iter_mut()
-            .find(|edge| edge.id == route.id)
-            .ok_or("routed diagram edge presentation not found")?;
-        edge.points = route.points;
-        edge.label_anchor = Some(route.label_anchor);
-    }
-    Ok(edges)
-}
 
 fn bdd_presentation_changed(left: &BddDiagram, right: &BddDiagram) -> bool {
     left.nodes.len() != right.nodes.len()
@@ -701,3 +637,7 @@ pub(super) fn layout_bdd_with_bounds(
     }
     Ok(changed)
 }
+
+pub use systems_modeler_core::structural_presentation::geometry::routed_bdd_edges;
+#[cfg(test)]
+use systems_modeler_core::structural_presentation::geometry::diagram_node_route_rect;
