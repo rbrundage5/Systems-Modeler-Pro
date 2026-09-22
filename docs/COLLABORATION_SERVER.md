@@ -51,10 +51,14 @@ are JSON with `Cache-Control: no-store`. POST requires `application/json`.
 
 | Request | Result |
 | --- | --- |
-| GET /v1/capabilities | Protocol version, server package version, and supported collaboration capabilities |
+| GET /v1/capabilities | Protocol version, server package version, authenticated actor ID, and supported collaboration capabilities |
 | GET /v1/projects | IDs and roles available to this credential |
 | GET /v1/projects/ID | Semantic model, shared BDD presentations, and committed revision |
 | POST /v1/projects/ID/operations | PR73 EditRequest; receipt includes revision and element ID |
+| GET /v1/projects/ID/history | Authenticated actor's most recent 50 operations and reversal availability |
+| GET /v1/projects/ID/presence | Active sessions for this authorized project |
+| POST /v1/projects/ID/presence | Heartbeat with session UUID and display name; actor/role come from credentials |
+| DELETE /v1/projects/ID/presence | Remove this actor's session UUID only |
 
 Example operation body (UUIDs must refer to your project):
 
@@ -68,11 +72,13 @@ Example operation body (UUIDs must refer to your project):
 
 The desktop calls the authenticated capabilities endpoint before project discovery.
 Protocol `1` currently requires revisioned operations, shared BDDs, simple semantic
-relationships, and server-routed BDD relationship presentations. A new client will
+relationships, server-routed BDD relationship presentations, shared requirements,
+authenticated actor identity, project presence and actor-scoped reversal. A new client will
 not open a project through an older or incomplete server; deploy matching desktop
 and server versions instead of attempting an operation with unknown semantics.
 
-CreatePackage and RenameElement are also supported. Identity comes exclusively from
+CreatePackage, RenameElement, CreateRequirement, UpdateRequirement and CreateTestCase
+are also supported. Identity comes exclusively from
 credential verification. Unknown top-level request fields are rejected. A retry
 must retain the same operation ID and body. HTTP 409 reports revision conflicts;
 resnapshot and resolve explicitly, never blindly overwrite. HTTP 401 means invalid
@@ -135,11 +141,30 @@ An interrupted response may correspond to a committed operation: retry the exact
 operation ID to recover its receipt. This is a serialized single-process foundation,
 not a high-availability or large-model performance qualification.
 
+## Recovery, presence and change reversal
+
+The desktop durably reserves each submitted request before sending it. Reconnecting
+to the same origin as the same authenticated actor restores an unresolved request;
+retrying its exact identity recovers a previously committed receipt. Token rotation
+must retain the actor UUID to recover that actor's request. Credentials stay in
+memory. Unsubmitted drafts are not yet persisted.
+
+Presence is ephemeral, bounded and project-scoped. Heartbeats do not change model
+revisions; silent sessions expire after 45 seconds. Display names are user-supplied
+labels and do not establish identity. See [presence](C20_PROJECT_PRESENCE.md).
+
+`UndoOperation` with an `operation` UUID reverses an operation by the authenticated
+author. The server records typed inverse deltas atomically with commits and verifies
+current affected records plus semantic/presentation dependencies before reversal.
+Conflicts preserve state and history. Reversal creates a new revision and can itself
+be reversed. Operations predating inverse recording remain visible but unavailable
+for reversal. See [change reversal](C20_COLLABORATIVE_UNDO.md).
+
 ## Remaining work
 
-Presence, change streaming, specialized relationship editing and presentation,
+Change streaming, specialized relationship editing and presentation,
 additional diagram families, complete editing operation coverage, collaborative
-undo, user-facing project administration, token expiry/SSO, and deployed
+editing through the ordinary workspace, user-facing project administration, token expiry/SSO, and deployed
 multi-device acceptance remain open.
 Snapshot fetch supports reconnect at this API level; it does not implement offline
 merge. Existing individual offline desktop workflows remain separate.
