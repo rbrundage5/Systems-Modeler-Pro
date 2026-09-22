@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 mod native_bdd;
 mod undo;
+use systems_modeler_core::structural_presentation::creation::CreateBddElement;
 use systems_modeler_core::structural_presentation::geometry::BddGeometryCommand;
 
 pub const COLLABORATION_PROTOCOL_VERSION: u32 = 1;
@@ -22,6 +23,7 @@ pub const COLLABORATION_CAPABILITIES: &[&str] = &[
     "simple-relationships",
     "server-routed-bdd-relationships",
     "shared-requirements-v1",
+    "shared-bdd-elements-v1",
     "authenticated-actor-v1",
     "project-presence-v1",
     "actor-scoped-undo-v1",
@@ -149,6 +151,7 @@ impl SharedRelationshipKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SharedEdit {
+    CreateBddElement(CreateBddElement),
     UndoOperation {
         operation: Uuid,
     },
@@ -665,6 +668,7 @@ impl ProjectDatabase {
             };
             let summary = match request.edit {
                 SharedEdit::UndoOperation { .. } => "Reverse a shared change",
+                SharedEdit::CreateBddElement(_) => "Create BDD element",
                 SharedEdit::CreateBlock { .. } => "Create Block",
                 SharedEdit::CreatePackage { .. } => "Create Package",
                 SharedEdit::RenameElement { .. } => "Rename element",
@@ -780,6 +784,7 @@ impl ProjectDatabase {
             });
         }
         match &request.edit {
+            SharedEdit::CreateBddElement(command) => validate_name(&command.name)?,
             SharedEdit::CreateBlock { name, .. }
             | SharedEdit::CreatePackage { name, .. }
             | SharedEdit::RenameElement { name, .. }
@@ -805,6 +810,10 @@ impl ProjectDatabase {
         let before_diagrams = Self::load_shared_bdd_diagrams_from(&tx, project)?;
         let mut semantic_changed = false;
         let element = match &request.edit {
+            SharedEdit::CreateBddElement(command) => {
+                semantic_changed = true;
+                command.apply(&mut model)?
+            }
             SharedEdit::UndoOperation { operation } => {
                 Self::reverse_shared_operation(
                     &tx,
