@@ -3,7 +3,7 @@
 Verification refreshed 22 September 2026.
 
 **Disposition: not ready to describe as a complete CATIA/Cameo replacement.**
-Fourteen bounded improvements are prepared as draft PRs. Broader code and source
+Seventeen bounded improvements are prepared as draft PRs. Broader code and source
 review identifies additional authoring, execution, interchange and qualification
 work. No application package is released by this review.
 
@@ -29,7 +29,7 @@ genuine vendor project/XMI fixture is present in the repository evidence reviewe
 ## Prepared changes
 
 Review order is **107 → 108 → 109 → 111 → 112 → 113 → 114 → 115 → 116 →
-117 → 118 → 119 → 120 → 121**. Each PR is based on its predecessor,
+117 → 118 → 119 → 120 → 121 → 122 → 123 (design only) → 124 → 125**. Each PR is based on its predecessor,
 so the combined candidate receives CI while each PR retains its own leaf diff.
 Retarget each dependent PR to main after its predecessor is reviewed and merged.
 The shared regression-entry conflict was resolved without dropping tests.
@@ -251,9 +251,55 @@ routing latency, memory, dense port/label overlap, and high-DPI behavior on name
 hardware and model sizes. Agree budgets before claiming scale readiness. Native
 WebView gestures, touch and visual appearance have not been exercised here.
 
+
+## Additional 22 September findings and candidates
+
+| Candidate | Change | Qualification boundary |
+| --- | --- | --- |
+| [PR122](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/122) | Nested connector ends must identify the owning property at the end of their path; malformed create/edit/load paths reject | Native CI passed on e432beb82a3892597785ece20de5a89c2d882740, run 35733821710; independent review remains open |
+| [PR123](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/123) | Standards-based design for Association typing, ordered end conformance/multiplicity, AssociationBlock identity and lifecycle | Documentation only; does not add connector types |
+| [PR124](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/124) | Copy text propagates through chains and branches; conflicting suppliers and missing descendants reject before mutation | Four new core regressions, existing copied-row reimport tests retained; final CI recorded below |
+| [PR125](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/125) | Complete requirement specification commits once; failed edits preserve redo and model state | Two desktop regressions cover transitive edits, no-op, undo/redo, duplicate ID, read-only text and invalid requests; final CI recorded below |
+
+Final requirement heads: PR124 `860a00d7837fb93ade7a281dd07919578c89f4c8` passed
+[35735375976](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35735375976);
+PR125 `22dc4b261e55cfc1e2d226979492d048fc4bb224` passed
+[35735657295](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35735657295).
+Both passed all core, Windows desktop and Linux jobs. The combined candidate
+passes 235 core/persistence tests, 225 Windows desktop tests and 53 frontend regressions. PR123's documentation
+head also passed CI 35734335365. These checks do not supply independent review or
+installed-desktop visual acceptance.
+
+The first PR124 and PR125 runs failed formatting checks on new regression code.
+Only the reported formatting was corrected; no enforcement or assertion was weakened.
+
+### C05 — remaining traceability and history defects
+
+Source-confirmed on PR125: `reconnect_traceability_relationship` mutates the
+semantic relationship before looking up both endpoint presentations and the edge
+and before routing. A missing presentation or routing error can leave partial
+semantic edits. Its Copy path assigns only direct client text. Creation and
+placement commands also checkpoint before all validation. These are separate
+outstanding leaves; PR124/125 do not close requirement lifecycle completeness.
+
+Next bounded reconnect acceptance: stage semantic endpoints, Copy descendants and
+all affected diagram endpoints/routes together; reject missing presentations,
+invalid Copy suppliers and routing errors without changing model, diagrams or
+undo/redo. Preserve identity and labels, update reused views, and verify
+save/reopen. Historical Copy graph validation follows adapter/lifecycle correction
+so legitimate reimport and reconnect are not broken by an isolated new validator.
+
+PR123 inspected UML 2.5.1 Connector/ConnectorEnd clauses 11.8.10–11.8.11 and SysML
+1.6 clauses 8.3.2.7, 8.3.2.13 and 9.4.5 in the supplied references. It splits
+Association typing into model/validation, safe lifecycle and persistence,
+Properties, AssociationBlock/ParticipantProperty identity, decomposition, and
+runtime/adapters. Existing direct Association deletion has no reference protection;
+a selectable type alone would create dangling references. This remains feature
+work to implement, not a delivered typing capability.
+
 ## Release acceptance still required
 
-1. Review and integrate the fourteen leaf PRs in order; require all CI checks on
+1. Review and integrate the seventeen product leaf PRs in order; require all CI checks on
    the final heads and requalify the actual integrated revision.
 2. Close or explicitly disposition the open editing findings above. Do not label
    general editing complete while those alternate paths remain inconsistent.
