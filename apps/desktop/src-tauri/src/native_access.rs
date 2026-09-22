@@ -39,11 +39,7 @@ const UPDATER_DOCUMENTS: &[&str] = &[
     "https://tauri.localhost/updater.html",
 ];
 
-const UPDATER_COMMANDS: &[&str] = &[
-    "check_app_update",
-    "install_app_update",
-    "open_application",
-];
+const UPDATER_COMMANDS: &[&str] = &["check_app_update", "install_app_update", "open_application"];
 
 pub fn command_allowed(window: &str, document_url: Option<&str>, command: &str) -> bool {
     let Some(document_url) = document_url else {
