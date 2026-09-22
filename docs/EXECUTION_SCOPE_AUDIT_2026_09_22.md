@@ -95,3 +95,52 @@ Executed in the repository checkout:
 Pattern scans are supporting evidence, not formal proof of absence. Dependencies can run code at build/runtime even when their behavior is not visible in the repository. Installed Windows behavior, third-party libraries, service deployment, every HTML sink and the operating system remain outside this source-only verification. The previously documented cancellation/persistence/semantic defects are still real and are not cleared by finding no unrelated payload.
 
 The useful assurance from this audit is specific: **the inspected first-party execution paths are explainable by the SysML tool's intended functions; one obsolete source-writing automation path has a concrete removal candidate; remaining permission and security work is explicitly recorded.**
+
+## Hardening implementation follow-up
+
+The user authorized implementation after this baseline audit. The following
+separate candidates implement bounded controls; none changes the audit baseline
+or constitutes a merged/released or independently approved security guarantee.
+No worker, dependency download, personal-file access or automatic merge was used.
+
+| Finding | Candidate | Implemented control and qualification boundary |
+| --- | --- | --- |
+| EXEC-01 | [PR129](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/129), `c6264b21d5ef9f79f299300b9a042e09a25b17f2` | Deletes the obsolete source-writing bootstrap workflow/helper. All four triggered workflows passed; historical branch copies are not rewritten |
+| EXEC-02 | [PR130](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/130), `60b8397fdaed3fb03197cdc1f0e5d7353df20fae` | Default-deny CSP, bundled scripts, IPC-only browser connections, no frames/forms/objects/workers; keeps required dynamic styles. Adds three policy/asset regressions. Effective installed-webview behavior remains an acceptance gate |
+| EXEC-03a | [PR131](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/131), `97c89990b6ac98484c6a9eff1c54ce0fc6d3eb3a` | Rust checks the native webview label and exact top-level document URL before custom command dispatch. Main and updater command groups are isolated. Four policy regressions cover valid and denied contexts. This is not an iframe-origin attestation or per-file authorization |
+| EXEC-06 | [PR132](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/132), `74c38d96ff5debe972c3f1d48964b5ad2ae6498b` | Deletes three unloaded legacy scripts and the one obsolete syntax-check list entry. All 65 retained frontend files are unchanged; 33 remaining syntax checks and the existing Behavior/Rust-authority validators passed locally |
+
+The PR descriptions record final-head CI results and any remaining gates. An
+installer launch smoke test only establishes that its process stays running; it
+does not establish that CSP permits every diagram renderer or that IPC rejection
+works in a rendered native window. Original CI found formatting issues and the
+obsolete syntax-check filename; those were corrected without weakening policy,
+active-file checks, jobs or permissions.
+
+Required installed-desktop acceptance uses disposable fixtures and canaries:
+
+1. For each supported platform URL, open the main window and signed startup updater;
+   exercise Check/Install/Open, including offline/failure paths. Verify main cannot
+   invoke update operations and updater cannot read/write/import model files.
+2. Author, move/resize, edit properties, undo/redo, save/reopen and import/export
+   representative models in all nine families. Check injected styles, SVG markers,
+   labels, dialogs and generated downloads under the effective CSP.
+3. Attempt inline/event-handler/remote scripts, frames, browser network calls and
+   non-bundled document IPC in the isolated test build. Verify rejection and that
+   model state and synthetic unrelated files are unchanged. Do not use real personal
+   files or live credentials as test targets.
+4. Record the tested commit, installer hash, platform/webview version, effective
+   policy and observed results. Obtain independent review before merging.
+
+The remaining larger work must stay split into dependency-ordered leaves:
+
+| Next leaf | Concrete scope | Acceptance before closure |
+| --- | --- | --- |
+| EXEC-03b | Native file-selection/grant foundation, then migrate project Open/Save in its own leaf | Cancel creates no authority or model/history change; forged/expired grants, wrong access mode and path substitution reject; selected-file Open/Save/reopen works |
+| EXEC-03c | Migrate import/export adapters and temporary-upload ownership after the grant foundation | Each adapter only accesses granted inputs/outputs or its own session staging; failed/repeated discard cannot delete another session's synthetic file |
+| EXEC-04a | Qualify and immutably pin build actions/tools and resolved dependencies in a separate setup-maintenance leaf | Approved source/advisory evidence, unchanged supported builds and recorded release provenance; no claim that lockfile checksums prove absence of malicious dependency code |
+| EXEC-05a | Bound and adversarially test one importer/parser at a time | Oversized/deep/recursive/hostile input rejects within measured budgets, without external resolution, host execution or partial model mutation; valid round trips remain supported |
+
+These open items, rendered acceptance and independent review prevent an absolute
+assurance claim. The earlier data-integrity and SysML findings also remain open;
+the security candidates do not silently close them.
