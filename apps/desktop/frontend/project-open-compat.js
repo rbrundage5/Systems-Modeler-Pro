@@ -12,7 +12,7 @@
   async function openProjectCompat() {
     const suggested = state.snapshot?.current_file || 'Vehicle Model.smproj';
     const requestedPath = prompt('Project file path (.smproj)', suggested);
-    if (!requestedPath) return;
+    if (!requestedPath) return { outcome: 'cancelled' };
 
     let openedPath = null;
     let missingError = null;
@@ -53,6 +53,7 @@
       await selectDiagram(state.snapshot.diagrams[0].id);
     }
     render();
+    return { outcome: 'committed' };
   }
 
   const openButton = $('open-project');

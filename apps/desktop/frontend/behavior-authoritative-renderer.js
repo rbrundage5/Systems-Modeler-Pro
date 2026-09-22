@@ -601,12 +601,14 @@
   const newProjectWithStateMachineExecution = $('new-project')?.onclick;
   const openProjectWithStateMachineExecution = $('open-project')?.onclick;
   if ($('new-project')) $('new-project').onclick = async () => {
-    await newProjectWithStateMachineExecution?.();
+    const result = await newProjectWithStateMachineExecution?.();
+    if (result?.outcome !== 'committed') return result;
     await requireInvoke()('clear_state_machine_executions');
     await requireInvoke()('clear_sequence_executions');
     await requireInvoke()('clear_parametric_executions');
     Object.assign(state, { stateMachineExecutionSnapshot: null, parametricExecutionSnapshot: null });
     refreshStateMachineExecution();
+    return result;
   };
   if ($('open-project')) $('open-project').onclick = async () => {
     await openProjectWithStateMachineExecution?.();

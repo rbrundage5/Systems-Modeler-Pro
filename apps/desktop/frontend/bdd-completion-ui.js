@@ -257,8 +257,9 @@ const renderStructuralProperties = renderProperties; renderProperties = function
 
 async function saveProjectAsComplete() {
   if (!state.snapshot?.project) return alert('Create or open a project first.');
-  const suggested = state.snapshot.current_file || `${state.snapshot.project.name}.smproj`; const path = prompt('Save project as (.smproj)', suggested); if (!path) return;
+  const suggested = state.snapshot.current_file || `${state.snapshot.project.name}.smproj`; const path = prompt('Save project as (.smproj)', suggested); if (!path) return { outcome: 'cancelled' };
   await runCommand('Saving project…', () => requireInvoke()('save_project_file_complete', { path })); await refresh();
+  return { outcome: 'committed' };
 }
 
 async function saveProjectComplete() {

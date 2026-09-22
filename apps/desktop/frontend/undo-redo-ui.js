@@ -31,7 +31,9 @@
   runCommand = async function runCommandWithHistory(label, operation) {
     await checkpointIfNeeded(label);
     const result = await baseRunCommand(label, operation);
-    if (isSessionResetCommand(label)) await requireInvoke()('history_reset');
+    if (isSessionResetCommand(label) && result?.outcome === 'committed') {
+      await requireInvoke()('history_reset');
+    }
     return result;
   };
 
