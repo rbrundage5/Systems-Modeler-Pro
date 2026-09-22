@@ -3,12 +3,14 @@
 //! enter snapshots, local storage, project files, or diagnostics.
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 use systems_modeler_core::{Project, ProjectId};
 use systems_modeler_persistence::collaboration::{
-    COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, SharedBddDiagram,
-    SharedEdit,
+    COLLABORATION_CAPABILITIES, COLLABORATION_PROTOCOL_VERSION, EditRequest, PresenceRequest,
+    ProjectPresence, SharedBddDiagram, SharedEdit, SharedHistoryEntry,
 };
+use systems_modeler_persistence::collaboration_outbox::{CollaborationOutbox, PendingSharedEdit};
+use tauri::Manager;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -25,6 +27,10 @@ struct Session {
     snapshot: Option<Snapshot>,
     pending: Option<EditRequest>,
     needs_refresh: bool,
+    actor: Uuid,
+    outbox: Option<CollaborationOutbox>,
+    presence_session: Uuid,
+    display_name: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -47,6 +53,7 @@ pub struct View {
     snapshot: Option<Snapshot>,
     pending: bool,
     needs_refresh: bool,
+    pending_request: Option<EditRequest>,
 }
 
 #[derive(Deserialize)]
@@ -58,12 +65,19 @@ struct ProjectList {
 struct ProtocolInfo {
     protocol: u32,
     capabilities: Vec<String>,
+    #[serde(default)]
+    actor: Uuid,
 }
 
 #[derive(Deserialize)]
 struct Receipt {
     operation_id: Uuid,
     revision: i64,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SharedHistory {
+    operations: Vec<SharedHistoryEntry>,
 }
 
 fn server_url(value: &str) -> Result<Url, String> {
@@ -104,7 +118,8 @@ fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
                 .any(|available| available.as_str() == *required)
         })
         .collect();
-    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() {
+    if info.protocol != COLLABORATION_PROTOCOL_VERSION || !missing.is_empty() || info.actor.is_nil()
+    {
         let missing = if missing.is_empty() {
             "none".to_string()
         } else {
@@ -116,6 +131,60 @@ fn validate_protocol(info: &ProtocolInfo) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+const GENERIC_EDIT_REJECTION: &str = "The server rejected this shared edit. Check the selected owner, element or relationship endpoints, diagram, and geometry.";
+
+async fn edit_rejection_message(mut response: reqwest::Response) -> &'static str {
+    // Decode only bounded, known diagnostics. Never display arbitrary server text
+    // that could contain internal paths, credentials, or unrelated response data.
+    const MAX_DIAGNOSTIC: usize = 1024;
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_DIAGNOSTIC as u64)
+    {
+        return GENERIC_EDIT_REJECTION;
+    }
+    let mut bytes = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if bytes.len().saturating_add(chunk.len()) > MAX_DIAGNOSTIC {
+                    return GENERIC_EDIT_REJECTION;
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(_) => return GENERIC_EDIT_REJECTION,
+        }
+    }
+    let Ok(body) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return GENERIC_EDIT_REJECTION;
+    };
+    if body["error"] != "invalid_model_edit" {
+        return GENERIC_EDIT_REJECTION;
+    }
+    match body["diagnostic"].as_str() {
+        Some("undo_conflict") => {
+            "This change cannot be reversed because affected records changed or new dependencies exist. Refresh and review the project; other users' work was preserved."
+        }
+        Some("undo_unavailable") => {
+            "This change has already been reversed or has no recorded inverse. Refresh your change history and select another change."
+        }
+        Some("requirement_id_empty") => {
+            "Requirement ID cannot be blank. Enter an ID and retry the edit after refreshing."
+        }
+        Some("requirement_id_duplicate") => {
+            "That Requirement ID already exists in this project. Choose a unique ID after refreshing, or load the existing requirement to edit it."
+        }
+        Some("copied_requirement_read_only") => {
+            "This requirement is a Copy. Edit the supplier requirement to change its text; the copy follows that supplier."
+        }
+        Some("name_invalid") => {
+            "Name must contain 1 to 1024 bytes of nonblank text. Correct the name and retry the edit after refreshing."
+        }
+        _ => GENERIC_EDIT_REJECTION,
+    }
 }
 
 impl Session {
@@ -134,18 +203,58 @@ impl Session {
             snapshot: None,
             pending: None,
             needs_refresh: false,
+            actor: Uuid::nil(),
+            outbox: None,
+            presence_session: Uuid::new_v4(),
+            display_name: "Collaborator".into(),
         };
         let protocol: ProtocolInfo = session
             .request(Method::GET, "v1/capabilities", None)
             .await
             .map_err(|e| e.1)?;
         validate_protocol(&protocol)?;
+        session.actor = protocol.actor;
         let list: ProjectList = session
             .request(Method::GET, "v1/projects", None)
             .await
             .map_err(|e| e.1)?;
         session.projects = list.projects;
         Ok(session)
+    }
+
+    async fn attach_outbox(&mut self, path: &Path) -> Result<(), String> {
+        let outbox = CollaborationOutbox::open(path)
+            .map_err(|_| "Could not open edit recovery storage. No shared edit was sent.")?;
+        let pending = outbox.load(self.base.as_str(), self.actor).map_err(
+            |_| "Could not read the saved pending edit. Recovery storage was preserved.",
+        )?;
+        if let Some(pending) = pending {
+            if pending.request.expected_revision < 0
+                || pending.request.expected_revision == i64::MAX
+                || pending.request.operation_id.is_nil()
+            {
+                return Err(
+                    "The saved pending edit is invalid. Recovery storage was preserved.".into(),
+                );
+            }
+            self.open(pending.project).await.map_err(|_| {
+                "A pending edit is saved for this account. Restore access to its project and reconnect to recover it."
+            })?;
+            self.pending = Some(pending.request);
+        }
+        self.outbox = Some(outbox);
+        Ok(())
+    }
+
+    fn complete_pending(&mut self, project: ProjectId) -> Result<(), String> {
+        if let (Some(outbox), Some(request)) = (&mut self.outbox, &self.pending) {
+            outbox.complete(self.base.as_str(), self.actor, &PendingSharedEdit {
+                project, request: request.clone(),
+            }).map_err(|_| "Could not clear edit recovery storage. Retry the pending edit; its original identity is preserved.")?;
+        }
+        self.pending = None;
+        self.needs_refresh = true;
+        Ok(())
     }
 
     async fn open(&mut self, project: ProjectId) -> Result<(), String> {
@@ -155,7 +264,11 @@ impl Session {
         if !self.projects.iter().any(|g| g.id == project) {
             return Err("Project access denied.".into());
         }
+        let prior = self.snapshot.as_ref().map(|snapshot| snapshot.project.id);
         self.refresh(project).await?;
+        if let Some(prior) = prior.filter(|prior| *prior != project) {
+            let _ = self.presence_request(prior, Method::DELETE).await;
+        }
         Ok(())
     }
 
@@ -180,11 +293,17 @@ impl Session {
         {
             return Err("This project is view-only.".into());
         }
-        self.pending = Some(EditRequest {
+        let request = EditRequest {
             operation_id: Uuid::new_v4(),
             expected_revision,
             edit,
-        });
+        };
+        if let Some(outbox) = &mut self.outbox {
+            outbox.reserve(self.base.as_str(), self.actor, &PendingSharedEdit {
+                project: snapshot.project.id, request: request.clone(),
+            }).map_err(|_| "Could not reserve edit recovery storage. No edit was sent. Reconnect to recover any pending edit from another application instance.")?;
+        }
+        self.pending = Some(request);
         self.submit_pending().await?;
         Ok(())
     }
@@ -195,6 +314,7 @@ impl Session {
             snapshot: self.snapshot.clone(),
             pending: self.pending.is_some(),
             needs_refresh: self.needs_refresh,
+            pending_request: self.pending.clone(),
         }
     }
 
@@ -212,10 +332,43 @@ impl Session {
         if let Some(body) = body {
             request = request.json(body);
         }
+        self.send(request).await
+    }
+
+    async fn presence_request(
+        &self,
+        project: ProjectId,
+        method: Method,
+    ) -> Result<ProjectPresence, String> {
+        let url = self
+            .base
+            .join(&format!("v1/projects/{project}/presence"))
+            .map_err(|_| "Invalid presence endpoint.")?;
+        let request = self
+            .client
+            .request(method, url)
+            .bearer_auth(&self.token)
+            .json(&PresenceRequest {
+                session: self.presence_session,
+                name: self.display_name.clone(),
+            });
+        self.send(request).await.map_err(|_| {
+            "Participant status is unavailable; model edits and pending recovery are unchanged."
+                .into()
+        })
+    }
+
+    async fn send<T: DeserializeOwned>(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, (bool, String)> {
         let mut response = request.send().await.map_err(|_| {
             (true, "Connection failed. Check the server and certificate. If an edit was sent, use Retry pending edit to recover its result.".into())
         })?;
         let status = response.status().as_u16();
+        if status == 422 {
+            return Err((false, edit_rejection_message(response).await.into()));
+        }
         if status != 200 {
             let message = match status {
                 401 => "Authentication failed. Reconnect with a valid access token.",
@@ -226,8 +379,8 @@ impl Session {
                 409 => {
                     "Project changed or operation conflicts. Refresh, review the latest model, and submit your intended edit again."
                 }
-                422 => {
-                    "The server rejected this shared edit. Check the selected owner, element or relationship endpoints, diagram, and geometry."
+                413 => {
+                    "This shared edit exceeds the server's 16 KiB request limit, including JSON encoding. Shorten the text and refresh before resubmitting."
                 }
                 _ => {
                     "The server could not complete the request. Retry a pending edit before making another change."
@@ -293,8 +446,7 @@ impl Session {
                 if receipt.operation_id == request.operation_id
                     && receipt.revision == request.expected_revision + 1 =>
             {
-                self.pending = None;
-                self.needs_refresh = true;
+                self.complete_pending(id)?;
                 // Do not allow another edit against a stale snapshot if this GET fails.
                 self.refresh(id).await.map_err(|_| {
                     "Edit saved. Refresh the project before editing again.".to_string()
@@ -305,8 +457,7 @@ impl Session {
             }
             Err((uncertain, message)) => {
                 if !uncertain {
-                    self.pending = None;
-                    self.needs_refresh = true;
+                    self.complete_pending(id)?;
                 }
                 Err(message)
             }
@@ -316,15 +467,34 @@ impl Session {
 
 #[tauri::command]
 pub async fn collaboration_connect(
+    app: tauri::AppHandle,
     state: tauri::State<'_, CollaborationState>,
     server: String,
     token: String,
+    display_name: Option<String>,
 ) -> Result<View, String> {
     let mut state = state.0.lock().await;
     if state.as_ref().is_some_and(|s| s.pending.is_some()) {
         return Err("Resolve the pending edit before reconnecting.".into());
     }
-    let session = Session::connect(&server, token).await?;
+    let mut session = Session::connect(&server, token).await?;
+    let name = display_name.as_deref().unwrap_or("Collaborator").trim();
+    if name.is_empty()
+        || name.len() > 256
+        || name.chars().count() > 64
+        || name.chars().any(char::is_control)
+    {
+        return Err("Enter a display name of 1 to 64 characters without line breaks.".into());
+    }
+    session.display_name = name.into();
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Could not locate edit recovery storage.")?;
+    std::fs::create_dir_all(&directory).map_err(|_| "Could not create edit recovery storage.")?;
+    session
+        .attach_outbox(&directory.join("collaboration-outbox.sqlite"))
+        .await?;
     let view = session.view();
     *state = Some(session);
     Ok(view)
@@ -373,8 +543,48 @@ pub async fn collaboration_disconnect(
             "Retry the pending edit before disconnecting; its result is not yet known.".into(),
         );
     }
+    if let Some(session) = guard.as_ref()
+        && let Some(snapshot) = session.snapshot.as_ref()
+    {
+        let _ = session
+            .presence_request(snapshot.project.id, Method::DELETE)
+            .await;
+    }
     *guard = None;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn collaboration_presence(
+    state: tauri::State<'_, CollaborationState>,
+) -> Result<ProjectPresence, String> {
+    let guard = state.0.lock().await;
+    let session = guard.as_ref().ok_or("Connect to a server first.")?;
+    let project = session
+        .snapshot
+        .as_ref()
+        .ok_or("Open a shared project first.")?
+        .project
+        .id;
+    session.presence_request(project, Method::POST).await
+}
+
+#[tauri::command]
+pub async fn collaboration_history(
+    state: tauri::State<'_, CollaborationState>,
+) -> Result<SharedHistory, String> {
+    let guard = state.0.lock().await;
+    let session = guard.as_ref().ok_or("Connect to a server first.")?;
+    let project = session
+        .snapshot
+        .as_ref()
+        .ok_or("Open a shared project first.")?
+        .project
+        .id;
+    session
+        .request(Method::GET, &format!("v1/projects/{project}/history"), None)
+        .await
+        .map_err(|error| error.1)
 }
 
 #[cfg(test)]
@@ -414,6 +624,7 @@ mod tests {
             validate_protocol(&ProtocolInfo {
                 protocol: COLLABORATION_PROTOCOL_VERSION,
                 capabilities: capabilities.clone(),
+                actor: Uuid::new_v4(),
             })
             .is_ok()
         );
@@ -421,6 +632,7 @@ mod tests {
             validate_protocol(&ProtocolInfo {
                 protocol: COLLABORATION_PROTOCOL_VERSION + 1,
                 capabilities,
+                actor: Uuid::new_v4(),
             })
             .unwrap_err()
             .contains("required protocol")
@@ -429,6 +641,7 @@ mod tests {
             validate_protocol(&ProtocolInfo {
                 protocol: COLLABORATION_PROTOCOL_VERSION,
                 capabilities: Vec::new(),
+                actor: Uuid::new_v4(),
             })
             .unwrap_err()
             .contains("server-routed-bdd-relationships")
@@ -518,6 +731,10 @@ mod transport_tests {
             }),
             pending: Some(request),
             needs_refresh: false,
+            actor: Uuid::new_v4(),
+            outbox: None,
+            presence_session: Uuid::new_v4(),
+            display_name: "Collaborator".into(),
         }
     }
 
@@ -535,7 +752,70 @@ mod transport_tests {
             snapshot: None,
             pending: None,
             needs_refresh: false,
+            actor: Uuid::new_v4(),
+            outbox: None,
+            presence_session: Uuid::new_v4(),
+            display_name: "Collaborator".into(),
         }
+    }
+
+    #[test]
+    fn semantic_diagnostics_explain_rejection_without_replaying_a_definite_failure() {
+        tauri::async_runtime::block_on(async {
+            for (diagnostic, expected) in [
+                ("requirement_id_empty", "cannot be blank"),
+                ("requirement_id_duplicate", "already exists"),
+                ("copied_requirement_read_only", "supplier requirement"),
+                ("name_invalid", "1024 bytes"),
+            ] {
+                let body = serde_json::json!({
+                    "error": "invalid_model_edit", "diagnostic": diagnostic,
+                    "message": "INTERNAL-DATA-MUST-NOT-BE-DISPLAYED"
+                })
+                .to_string();
+                let (base, server) = mock(vec![(422, body)]);
+                let project = Project::new("Shared");
+                let request = EditRequest {
+                    operation_id: Uuid::new_v4(),
+                    expected_revision: 0,
+                    edit: SharedEdit::CreateBlock {
+                        owner: project.root_id,
+                        name: "Example".into(),
+                    },
+                };
+                let mut client = session(base, project, request);
+                let message = client.submit_pending().await.unwrap_err();
+                assert!(message.contains(expected), "{message}");
+                assert!(!message.contains("INTERNAL-DATA"));
+                assert!(client.pending.is_none());
+                assert!(client.needs_refresh);
+                assert_eq!(client.snapshot.as_ref().unwrap().revision, 0);
+                assert_eq!(server.join().unwrap().len(), 1);
+            }
+        });
+    }
+
+    #[test]
+    fn malformed_unknown_and_oversized_diagnostics_use_the_safe_fallback() {
+        tauri::async_runtime::block_on(async {
+            for body in [
+                "not json".into(),
+                "{\"error\":\"invalid_model_edit\",\"diagnostic\":\"unknown\"}".into(),
+                "{\"error\":\"storage_failure\",\"diagnostic\":\"requirement_id_duplicate\"}"
+                    .into(),
+                "x".repeat(1025),
+            ] {
+                let (base, server) = mock(vec![(422, body)]);
+                let client = blank_session(base, "a".repeat(64));
+                let error = client
+                    .request::<serde_json::Value>(Method::POST, "v1/test", None)
+                    .await
+                    .unwrap_err();
+                assert!(!error.0);
+                assert_eq!(error.1, GENERIC_EDIT_REJECTION);
+                assert_eq!(server.join().unwrap().len(), 1);
+            }
+        });
     }
 
     async fn connect_test_session(mut session: Session, project: ProjectId) -> Session {
@@ -555,6 +835,7 @@ mod transport_tests {
                 "protocol": COLLABORATION_PROTOCOL_VERSION,
                 "server_version": "0.1.0",
                 "capabilities": COLLABORATION_CAPABILITIES,
+                "actor": Uuid::new_v4(),
             })
             .to_string();
             let projects = serde_json::json!({"projects": []}).to_string();
@@ -575,6 +856,7 @@ mod transport_tests {
             let protocol = serde_json::json!({
                 "protocol": COLLABORATION_PROTOCOL_VERSION + 1,
                 "capabilities": COLLABORATION_CAPABILITIES,
+                "actor": Uuid::new_v4(),
             })
             .to_string();
             let (base, server) = mock(vec![(200, protocol)]);

@@ -1,0 +1,139 @@
+name: windows-release
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [native-foundation-ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: Successful native-foundation-ci main push run ID
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: windows-release-${{ (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && 'publication' || github.ref }}
+  # Superseded PR validation can stop; publication must finish or leave a draft.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  release-contract:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Release policy and manifest tests
+        run: python3 -m unittest discover -s scripts -p 'test_desktop_release.py' -v
+
+  signed-package:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate disposable test signing identity
+        shell: pwsh
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/tauri-cli" --no-save --package-lock=false @tauri-apps/cli@2.8.4
+          if ($LASTEXITCODE -ne 0) { throw "CLI install failed" }
+          $keyPath = Join-Path $env:RUNNER_TEMP 'test-updater.key'
+          & "$env:RUNNER_TEMP/tauri-cli/node_modules/.bin/tauri.cmd" signer generate --ci --write-keys $keyPath
+          if ($LASTEXITCODE -ne 0) { throw "Test key generation failed" }
+          "TAURI_SIGNING_PRIVATE_KEY=$keyPath" >> $env:GITHUB_ENV
+          "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=" >> $env:GITHUB_ENV
+          "SMP_UPDATER_PUBLIC_KEY=$((Get-Content "$keyPath.pub" -Raw).Trim())" >> $env:GITHUB_ENV
+      - name: Build, verify signature rejection, install and start
+        shell: pwsh
+        run: ./scripts/build_signed_windows.ps1 -Version '0.2.0'
+      # Disposable-key packages are never uploaded for distribution.
+      - name: Remove disposable test signing identity
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item "$env:RUNNER_TEMP/test-updater.key", "$env:RUNNER_TEMP/test-updater.key.pub" -ErrorAction SilentlyContinue
+
+  plan:
+    if: >-
+      vars.SMP_RELEASES_ENABLED == 'true' &&
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      sha: ${{ steps.plan.outputs.sha }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      run_id: ${{ steps.plan.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id || inputs.native_run_id }}
+        run: python3 scripts/desktop_release.py plan --run-id "$SOURCE_RUN"
+
+  publish:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      checks: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and validate production signed installer
+        shell: pwsh
+        env:
+          SMP_UPDATER_PUBLIC_KEY: ${{ vars.SMP_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: ./scripts/build_signed_windows.ps1 -Version $env:RELEASE_VERSION
+      - name: Publish immutable release after rechecking source and CI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_RUN: ${{ needs.plan.outputs.run_id }}
+        run: |
+          @{ sha=$env:RELEASE_SHA; version=$env:RELEASE_VERSION; tag=$env:RELEASE_TAG; run_id=[long]$env:RELEASE_RUN } |
+            ConvertTo-Json | Set-Content release-plan.json -Encoding utf8
+          python scripts/desktop_release.py publish
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

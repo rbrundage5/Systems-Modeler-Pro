@@ -32,12 +32,51 @@ to remote state by this increment.
 6. Disconnect clears the in-memory session. Closing the window retains it until
    application exit. Tokens are never written to project files or local storage.
 
+### Shared requirements and verification
+
+The Requirements form creates a Requirement with its name, ID and multiline text.
+Load an existing Requirement to inspect and update it. The saved version remains
+visible above the draft. Create Test Case in Repository edits, then use the existing
+relationship controls to connect TestCase → Requirement with Verify and
+Block → Requirement with Satisfy. Updates preserve semantic identity and these links.
+
+Drafts preserve their original revision through Refresh. After a conflict, inspect
+the saved text and explicitly choose **Keep draft after reviewing latest revision**
+before resubmitting, or clear the draft. Polling pauses during composition; project
+switching/disconnect require saving or clearing. An uncertain network result must
+use Retry pending edit. If an edit was accepted but snapshot refresh failed, refresh
+and inspect the saved state before deciding whether another edit is needed.
+
+Matching clients and servers must advertise `shared-requirements-v1`. Validation,
+Copy protection, transaction/retry behavior and test scope are recorded in
+[the bounded workflow contract](C20_SHARED_REQUIREMENTS.md). A dedicated shared
+Requirement diagram and nested Requirement ownership are not introduced here.
+
 HTTPS certificate validation stays enabled, redirects are disabled, and the client
 bypasses environment proxy discovery. An administrator-provided direct HTTPS origin
 is required; deployments requiring an explicit outbound proxy are not supported yet.
 Responses are bounded to 32 MiB and requests time out after 20 seconds.
 
+## Active participants
+
+Enter a display name when connecting. While Shared Projects is open, a separate
+ten-second heartbeat lists active sessions, authenticated account IDs and roles.
+The heartbeat continues during draft composition and does not refresh model state
+or advance its revision. Display names are participant-selected labels. Presence
+does not grant permissions or lock model elements. Silent sessions expire after
+45 seconds; closing the window or losing the network can leave a temporary entry
+until expiry. Disconnect/project switch attempts immediate departure. See
+[the presence contract](C20_PROJECT_PRESENCE.md).
+
 ## Qualification and limits
+
+Use **Load my change history** to inspect your account's most recent 50 shared
+operations. **Reverse selected change** creates a new revision using a server-held
+inverse. Affected records must still match; later edits or dependencies can reject
+the reversal without changing anyone's work. Unrelated changes are preserved.
+Reversing the reversal restores a change under the same checks. Older operations
+without recorded inverses are unavailable. Save or clear local drafts first.
+See [the shared reversal contract](C20_COLLABORATIVE_UNDO.md).
 
 Local checks: frontend syntax, Rust authority regression gate, and diff hygiene.
 Rust compilation, focused transport tests, full native CI, and UI acceptance must
@@ -58,11 +97,15 @@ create/edit/save/reopen workflows. Test the window's keyboard focus and sizing.
 
 Specialized Association/Connector/ItemFlow/BindingConnector and import operations,
 other diagram families, standard-workspace integration, complete element
-authoring/configuration, presence, collaborative undo, project administration, and
-production HTTPS deployment remain subsequent work. Pending retries are memory-only;
-after an application crash, reload the server snapshot and inspect it before
-recreating an unconfirmed edit. There is no automatic offline merge or
-crash-persistent outbox in this increment.
+authoring/configuration, project administration, and
+production HTTPS deployment remain subsequent work. Submitted pending edits are
+recorded in a separate application-data SQLite outbox before transmission. After
+restart, reconnect to the same server with credentials for the same authenticated
+actor and use Retry pending edit. A rotated access token for that same actor can
+recover the operation; another actor cannot. Credentials remain memory-only.
+The original operation ID and revision are retained even if the server already
+committed it. New writes are blocked if recovery storage cannot reserve the edit.
+Unsubmitted drafts are still memory-only; automatic offline merge is not supported.
 
 The simple relationship set is Dependency, Generalization, Realization, Allocate,
 DeriveRequirement, Satisfy, Verify, Refine, Trace, Copy, Include, and Extend. Each
@@ -92,7 +135,7 @@ A rejected repository edit retains its typed name for review and resubmission.
 Pointer gestures are blocked during requests, capture their starting revision,
 and do not commit on a stationary click. Network uncertainty retains exact retry
 identity; a revision conflict requires explicit refresh. Pending retries remain
-memory-only.
+retained across desktop restart by the Rust recovery outbox.
 
 The real-server integration test runs two independent Rust desktop sessions over
 loopback HTTP, covering a stale writer and shared BDD node/relationship presentation

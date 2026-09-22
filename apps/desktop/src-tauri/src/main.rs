@@ -1,3 +1,6 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
+mod app_updates;
 mod collaboration;
 use collaboration::*;
 
@@ -614,6 +617,10 @@ fn diagram_palette(diagram_type: String) -> Result<Vec<DiagramPaletteItem>, Stri
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(app_updates::UpdateState::default())
+        .setup(app_updates::setup)
+        .on_window_event(app_updates::on_window_event)
         .manage(CollaborationState::default())
         .manage(WorkspaceState::default())
         .manage(ActivityWorkspaceState::default())
@@ -625,7 +632,12 @@ fn main() {
         .manage(SharedWorkspaceState::default())
         .manage(StandardEditingState::default())
         .invoke_handler(tauri::generate_handler![
+            app_updates::check_app_update,
+            app_updates::install_app_update,
+            app_updates::open_application,
             collaboration_connect,
+            collaboration_presence,
+            collaboration_history,
             collaboration_open,
             collaboration_edit,
             collaboration_retry,
