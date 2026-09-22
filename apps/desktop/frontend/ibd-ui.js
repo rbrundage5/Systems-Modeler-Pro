@@ -121,10 +121,11 @@ renderRepository = function renderRepositoryPr11() {
 
 function ibdConnectorDisplayPoints(diagram, edge) {
   const points = edge.points.map(point => ({ ...point }));
-  if (!diagram.context_frame && points.length) {
+  if (!points.length) return points;
+  if(!diagram.context_frame) {
     const source = diagram.boundary_ports.find(port => port.id === edge.source_presentation_id);
     const target = diagram.boundary_ports.find(port => port.id === edge.target_presentation_id);
-    if (source) points[0] = outerFramePoint(source, diagram);
+    if(source)points[0]=outerFramePoint(source,diagram);
     if (target) points[points.length - 1] = outerFramePoint(target, diagram);
   }
   return points;
@@ -148,6 +149,7 @@ window.smpPreviewIbdPortConnectors = (diagram, portId, connectors) => {
     label?.setAttribute('x', anchor.x + 5);
     label?.setAttribute('y', anchor.y - 6);
   }
+  window.smpPreviewIbdItemFlows?.(diagram, edges, preview);
 };
 
 function renderIbdConnectorLayer(frame, diagram, project) {

@@ -27,7 +27,15 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
     appendChild(child) { this.children.push(child); child.parentElement = this; return child; }
     setAttribute(name, value) { this.attributes[name] = String(value); }
     getAttribute(name) { return this.attributes[name]; }
-    matches(selector) { return selector.split(',').some(item => this.classes.has(item.trim().slice(1))); }
+    matches(selector) {
+      return selector.split(',').some(item => {
+        const match = /^(?:[\w-]+)?\.([\w-]+)(?:\[data-presentation-id="([^"]+)"\])?$/.exec(item.trim());
+        return match && this.classes.has(match[1]) && (!match[2] || this.dataset.presentationId === match[2]);
+      });
+    }
+    querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); }
     closest(selector) {
       for (let current = this; current; current = current.parentElement) if (current.matches(selector)) return current;
       return null;
@@ -70,7 +78,11 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
     state, document, Element: Node, console, CSS: { escape: String }, SVG_NS: 'http://www.w3.org/2000/svg',
     MutationObserver: class { observe() {} }, queueMicrotask() {}, getComputedStyle: () => ({ position: 'absolute' }),
     window: { smpPreviewStateTransitionGeometry: (_, __, geometry) => previews.push({ ...geometry }), smpRendererHost: { frameGeometry: () => options.frame || null } },
-    runCommand: async (_, action) => action(), requireInvoke: () => async (command, args) => { commands.push({ command, args }); return options.invoke?.(command, args); },
+    runCommand: async (_, action) => action(), requireInvoke: () => async (command, args) => {
+      commands.push({ command, args });
+      return command === 'ibd_item_flow_notation' ? options.itemFlows : options.invoke?.(command, args);
+    },
+    $: id => document.getElementById(id), localStorage: { getItem: () => JSON.stringify(options.labelVisibility || {}) },
     refresh: async () => { refreshes++; }, render() {}, renderStatus() {}, renderContext() {},
     renderDiagramTabs() {}, renderRepository() {}, renderCanvas() {}, renderPalette() {}, renderProperties() {},
   };
@@ -78,6 +90,10 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
   if (options.connectors) {
     diagram.connectors = options.connectors;
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/ibd-ui.js'), 'utf8'), context);
+    if (options.itemFlows) {
+      state.itemFlowNotation = options.itemFlows;
+      vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/item-flow-ui.js'), 'utf8'), context);
+    }
     context.renderIbdConnectorLayer(canvas, diagram, { relationships: options.connectors.map(edge => ({ id: edge.relationship_id, name: 'Link', kind: 'Connector' })) });
   }
   context.window.smpInstallPresentationGeometry();
