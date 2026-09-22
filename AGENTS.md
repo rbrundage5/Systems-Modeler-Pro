@@ -31,6 +31,22 @@ Missing information is a reported gap, not permission to search externally.
 Setup-only edits may be prepared via this repository's GitHub tools without launching
 workers. Do not install hooks on the user's computer or modify global configuration.
 
+## Primary-session work and publication
+Read docs/PUBLICATION_AND_EXECUTION_SETUP.md. Evaluate implementation, branch/PR
+publication, check/review retrieval, merge access and delegated workers separately.
+A missing merge operation or blocked worker dispatch does not prohibit otherwise
+authorized primary-session repository work. Direct work must already be permitted
+by the active session's write scope and user work order; this does not elevate a
+read-only coordinator, enable workers or waive any execution/source restriction.
+Keep independent review outstanding when no independent reviewer is available.
+
+In an approved hosted checkout, scripts/ensure_repository_origin.py can add only
+the approved missing origin. It does not grant authentication or expose host tools.
+Use available connected GitHub publication capabilities where permitted; a
+metadata-only make_pr result is a handoff, not proof of publication or merge.
+Verify real PR/head/check state. Continue the next unblocked bounded task while
+another awaits CI/review/merge; one leaf per PR is not one PR per session.
+
 ## Engineering
 Rust owns semantics, validation, commands, transactions, routing/layout, persistence,
 history and execution. Reuse existing systems. Preserve all nine families' authoring,

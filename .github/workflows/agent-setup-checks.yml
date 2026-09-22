@@ -74,3 +74,5 @@ jobs:
           assert "BLOCKED:" in result.stderr
           print("Configuration parses; role ownership is leaf-scoped; model routing is task-driven; professional-tool comparison is bounded; preflight refuses startup. Isolation is NOT qualified.")
           PY
+      - name: Verify approved repository origin setup without network access
+        run: python3 -m unittest discover -s scripts -p test_repository_origin.py -v

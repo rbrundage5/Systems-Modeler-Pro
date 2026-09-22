@@ -1,7 +1,7 @@
 # Codex Cloud setup checkpoint
 
-PR71 remains draft. Agent execution stays disabled. This update fixes coordinator
-delegation and configures a PreToolUse hook for supported spawn_agent/Agent calls.
+The setup files are tracked on main. Agent execution stays disabled. The candidate
+configuration defines a PreToolUse hook for supported spawn_agent/Agent calls.
 The hook calls the existing fail-closed preflight. Client loading is unverified;
 this is not a general filesystem/network enforcement hook.
 
@@ -11,10 +11,8 @@ Choose Manual setup and enter:
 ```bash
 bash /workspace/Systems-Modeler-Pro/scripts/codex_cloud_setup.sh
 ```
-The file is currently on agent/step6-agent-setup, not main. Only test against that
-branch. If the environment setup tester cannot select that branch, do not run a
-main-based setup that references the missing file: use the full script from the
-PR's Files changed tab in the setup editor, or defer until the file is merged.
+Use the current merged script, or an explicitly selected setup-maintenance branch
+when testing its candidate. Record the actual commit used by the environment.
 No personal computer commands, secrets or global local configuration changes.
 The default core profile skips Ubuntu desktop package installation and fetches
 locked Cargo dependencies during the hosted setup phase. This is dependency
@@ -25,9 +23,17 @@ package sources and does not silently switch mirrors. It does not launch Codex, 
 Setup may require network; agent-phase internet remains off.
 A missing tool, origin mismatch or dependency failure stops the script.
 
+Setup now adds the approved HTTPS origin when absent, after checking the tracked
+baseline. It preserves a valid origin and rejects unexpected effective fetch/push
+URLs. Remote configuration does not supply GitHub authentication. An already
+provisioned task can run `python3 scripts/ensure_repository_origin.py` alone without
+installing dependencies. See [the capability contract](PUBLICATION_AND_EXECUTION_SETUP.md)
+for connected GitHub publication, metadata-only make_pr handoffs, unavailable merge
+operations and permitted direct work when delegated workers remain disabled.
+
 ## Bounded verification procedure
 Use the environment's interactive setup terminal for initial verification, not an
-audit/fix task. On the setup branch, run:
+audit/fix task. On the selected verified setup baseline, run:
 ```bash
 cd /workspace/Systems-Modeler-Pro
 git rev-parse HEAD
