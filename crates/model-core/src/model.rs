@@ -1306,6 +1306,27 @@ impl Project {
     }
 
     pub fn validate_element(&self, id: ElementId) -> Result<(), ModelError> {
+        self.validate_element_with_references(
+            id,
+            |external_id| {
+                self.elements.values().any(|candidate| {
+                    candidate.external_id == external_id && candidate.kind == ElementKind::QuantityKind
+                })
+            },
+            |external_id| {
+                self.elements.values().any(|candidate| {
+                    candidate.external_id == external_id && candidate.kind == ElementKind::Unit
+                })
+            },
+        )
+    }
+
+    fn validate_element_with_references(
+        &self,
+        id: ElementId,
+        quantity_kind_exists: impl Fn(&str) -> bool,
+        unit_exists: impl Fn(&str) -> bool,
+    ) -> Result<(), ModelError> {
         let element = self.element(id)?;
         if let Some(owner_id) = element.owner_id {
             let owner = self.element(owner_id)?;
@@ -1342,19 +1363,14 @@ impl Project {
                 | ElementKind::Unit
         ) {
             if let Some(quantity_kind) = &element.quantity_kind_external_id
-                && !self.elements.values().any(|candidate| {
-                    candidate.external_id == *quantity_kind
-                        && candidate.kind == ElementKind::QuantityKind
-                })
+                && !quantity_kind_exists(quantity_kind)
             {
                 return Err(ModelError::InvalidQuantityKindReference(
                     quantity_kind.clone(),
                 ));
             }
             if let Some(unit) = &element.unit_external_id
-                && !self.elements.values().any(|candidate| {
-                    candidate.external_id == *unit && candidate.kind == ElementKind::Unit
-                })
+                && !unit_exists(unit)
             {
                 return Err(ModelError::InvalidUnitReference(unit.clone()));
             }
@@ -1432,11 +1448,30 @@ impl Project {
         self.validate_ownership_tree()?;
         let mut external_ids = HashSet::new();
         let mut requirement_ids = HashSet::new();
+        // Borrow identities from the current repository. Rebuilding on every full
+        // validation avoids stale lookup state after imports or semantic edits.
+        let mut quantity_kind_ids = HashSet::new();
+        let mut unit_ids = HashSet::new();
+        for element in self.elements.values() {
+            match element.kind {
+                ElementKind::QuantityKind => {
+                    quantity_kind_ids.insert(element.external_id.as_str());
+                }
+                ElementKind::Unit => {
+                    unit_ids.insert(element.external_id.as_str());
+                }
+                _ => {}
+            }
+        }
         for element in self.elements.values() {
             if !external_ids.insert(element.external_id.clone()) {
                 return Err(ModelError::DuplicateExternalId(element.external_id.clone()));
             }
-            self.validate_element(element.id)?;
+            self.validate_element_with_references(
+                element.id,
+                |external_id| quantity_kind_ids.contains(external_id),
+                |external_id| unit_ids.contains(external_id),
+            )?;
             if element.kind == ElementKind::Requirement {
                 let requirement_id = element
                     .requirement_id
