@@ -395,9 +395,15 @@ mod tests {
     fn requirement_edit_is_one_transaction_with_transitive_copy_undo_and_redo() {
         let mut project = Project::new("Requirement transaction");
         let owner = project.root_id;
-        let master = project.create_requirement("Master", "R1", "Old", owner).unwrap();
-        let copy = project.create_requirement("Copy", "R2", "Old", owner).unwrap();
-        let leaf = project.create_requirement("Leaf", "R3", "Old", owner).unwrap();
+        let master = project
+            .create_requirement("Master", "R1", "Old", owner)
+            .unwrap();
+        let copy = project
+            .create_requirement("Copy", "R2", "Old", owner)
+            .unwrap();
+        let leaf = project
+            .create_requirement("Leaf", "R3", "Old", owner)
+            .unwrap();
         project
             .create_relationship(RelationshipKind::Copy, copy, master, Some(owner))
             .unwrap();
@@ -439,16 +445,25 @@ mod tests {
         }
         let after = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
         assert!(history::undo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
         // Both duplicate identity and read-only Copy rejection preserve pending redo.
         details.requirement_id = "R2".into();
         assert!(apply(&details).is_err());
         details.element_id = copy.to_string();
         assert!(apply(&details).is_err());
         assert_eq!(history::undo_len(&history), 0);
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), after);
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            after
+        );
         assert_eq!(
             serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
             diagrams_before
