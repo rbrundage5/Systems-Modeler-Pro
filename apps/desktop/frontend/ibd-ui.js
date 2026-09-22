@@ -119,6 +119,37 @@ renderRepository = function renderRepositoryPr11() {
   }
 };
 
+function ibdConnectorDisplayPoints(diagram, edge) {
+  const points = edge.points.map(point => ({ ...point }));
+  if (!diagram.context_frame && points.length) {
+    const source = diagram.boundary_ports.find(port => port.id === edge.source_presentation_id);
+    const target = diagram.boundary_ports.find(port => port.id === edge.target_presentation_id);
+    if (source) points[0] = outerFramePoint(source, diagram);
+    if (target) points[points.length - 1] = outerFramePoint(target, diagram);
+  }
+  return points;
+}
+
+window.smpPreviewIbdPortConnectors = (diagram, portId, connectors) => {
+  if (state.selectedDiagramId !== diagram.id) return;
+  const preview = Array.isArray(connectors);
+  const edges = preview ? connectors : diagram.connectors.filter(edge =>
+    edge.source_presentation_id === portId || edge.target_presentation_id === portId);
+  for (const edge of edges) {
+    // Preview points/anchors come from Rust. Cancellation uses the original
+    // displayed routes, including the legacy context-frame projection.
+    const points = preview ? edge.points : ibdConnectorDisplayPoints(diagram, edge);
+    if (!points?.length) continue;
+    const id = CSS.escape(String(edge.id));
+    const line = document.querySelector(`#canvas .ibd-connector[data-presentation-id="${id}"]`);
+    line?.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+    const label = document.querySelector(`#canvas .relationship-label[data-presentation-id="${id}"]`);
+    const anchor = edge.label_anchor || points[Math.floor(points.length / 2)];
+    label?.setAttribute('x', anchor.x + 5);
+    label?.setAttribute('y', anchor.y - 6);
+  }
+};
+
 function renderIbdConnectorLayer(frame, diagram, project) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.classList.add('relationship-layer');
@@ -130,7 +161,9 @@ function renderIbdConnectorLayer(frame, diagram, project) {
     const relationship = relationships.get(edge.relationship_id);
     if (!relationship || !edge.points?.length) continue;
     const polyline = document.createElementNS(SVG_NS, 'polyline');
-    const source=diagram.boundary_ports.find((port)=>port.id===edge.source_presentation_id),target=diagram.boundary_ports.find((port)=>port.id===edge.target_presentation_id),points=edge.points.map((point)=>({...point})); if(!diagram.context_frame){if(source)points[0]=outerFramePoint(source,diagram);if(target)points[points.length-1]=outerFramePoint(target,diagram);}polyline.setAttribute('points',points.map((p) => `${p.x},${p.y}`).join(' '));
+    const points = ibdConnectorDisplayPoints(diagram, edge);
+    polyline.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+    polyline.dataset.presentationId = edge.id;
     polyline.setAttribute('fill', 'none');
     polyline.classList.add('ibd-connector');
     if (state.selectedRelationshipId === relationship.id) polyline.classList.add('selected');
@@ -149,6 +182,7 @@ function renderIbdConnectorLayer(frame, diagram, project) {
     if (relationship.name) {
       const text = document.createElementNS(SVG_NS, 'text');
       text.classList.add('relationship-label');
+      text.dataset.presentationId = edge.id;
       text.setAttribute('x', midpoint.x + 5);
       text.setAttribute('y', midpoint.y - 6);
       text.textContent = relationship.name;

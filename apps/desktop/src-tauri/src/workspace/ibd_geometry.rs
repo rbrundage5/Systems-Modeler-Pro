@@ -307,6 +307,42 @@ pub(super) fn apply_port(
     reroute_connected(diagram, &[presentation_id.to_owned()])
 }
 
+#[derive(serde::Serialize)]
+pub struct IbdPortGeometryPreview {
+    // Preserve the existing x/y/size reply fields for older rendering adapters.
+    #[serde(flatten)]
+    pub port: IbdPortPresentation,
+    pub connectors: Vec<ibd::IbdConnectorPresentation>,
+}
+
+pub(super) fn preview_connected_port(
+    diagram: &IbdDiagram,
+    presentation_id: &str,
+    x: f64,
+    y: f64,
+    size: f64,
+    visible_frame: Option<&DiagramFramePreference>,
+) -> Result<IbdPortGeometryPreview, String> {
+    let port = preview_port(diagram, presentation_id, x, y, size, visible_frame)?;
+    // Keep the original obstacles, but route/copy only connectors attached to
+    // this port. Unrelated stale connectors cannot invalidate a drag preview.
+    let mut staged = IbdDiagram {
+        id: diagram.id.clone(),
+        name: diagram.name.clone(),
+        context_block_id: diagram.context_block_id.clone(),
+        owner_id: diagram.owner_id.clone(),
+        context_frame: diagram.context_frame.clone(),
+        properties: diagram.properties.clone(),
+        boundary_ports: diagram.boundary_ports.clone(),
+        connectors: diagram.connectors.iter().filter(|edge| {
+            edge.source_presentation_id == presentation_id
+                || edge.target_presentation_id == presentation_id
+        }).cloned().collect(),
+    };
+    apply_port(&mut staged, presentation_id, x, y, size, visible_frame)?;
+    Ok(IbdPortGeometryPreview { port, connectors: staged.connectors })
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::super::{
@@ -474,6 +510,38 @@ pub(super) mod tests {
                 .all(|pair| pair[0].x == pair[1].x || pair[0].y == pair[1].y)
         );
         ibd::validate_ibd_diagrams(&project, &[diagram]).unwrap();
+    }
+
+    #[test]
+    fn connected_port_preview_matches_committed_routes_and_never_mutates_source() {
+        for port_id in ["external", "internal"] {
+            let (_, diagram) = fixture();
+            let before = value(&diagram);
+            let preview = preview_connected_port(&diagram, port_id, 1400.0, 400.0, 24.0, None).unwrap();
+            let mut committed = diagram.clone();
+            apply_port(&mut committed, port_id, 1400.0, 400.0, 24.0, None).unwrap();
+            assert_eq!(serde_json::to_value(&preview.connectors).unwrap(), serde_json::to_value(&committed.connectors).unwrap());
+            assert_eq!(value(&diagram), before);
+            let wire = serde_json::to_value(preview).unwrap();
+            assert!(wire.get("x").is_some() && wire.get("size").is_some());
+            assert!(wire.get("connectors").unwrap().is_array());
+        }
+    }
+
+    #[test]
+    fn connected_preview_ignores_unrelated_stale_edges_and_rejects_invalid_geometry() {
+        let (_, mut diagram) = fixture();
+        let mut unrelated = diagram.connectors[0].clone();
+        unrelated.id = "unrelated".into();
+        unrelated.source_presentation_id = "missing-source".into();
+        unrelated.target_presentation_id = "missing-target".into();
+        diagram.connectors.push(unrelated);
+        let before = value(&diagram);
+        let preview = preview_connected_port(&diagram, "external", 1072.0, 400.0, 16.0, None).unwrap();
+        assert_eq!(preview.connectors.len(), 1);
+        assert_ne!(preview.connectors[0].id, "unrelated");
+        assert!(preview_connected_port(&diagram, "external", f64::NAN, 170.0, 16.0, None).is_err());
+        assert_eq!(value(&diagram), before);
     }
 
     #[test]

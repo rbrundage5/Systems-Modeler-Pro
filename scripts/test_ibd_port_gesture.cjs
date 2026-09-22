@@ -65,3 +65,33 @@ test('port resizing requests square geometry and invalid preview leaves the last
   assert.equal(ui.node.style.width, '16px'); assert.equal(ui.node.style.height, '16px');
   gesture.end('pointercancel');
 });
+
+test('native connector and label previews follow the port and cancel restores the rendered routes', async () => {
+  const edge = { id: 'edge', relationship_id: 'rel', source_presentation_id: 'presentation', target_presentation_id: 'target',
+    points: [{ x: 54, y: 128 }, { x: 200, y: 128 }], label_anchor: { x: 127, y: 128 } };
+  const projected = { ...edge, points: [{ x: 1072, y: 400 }, { x: 200, y: 400 }], label_anchor: { x: 636, y: 400 } };
+  const ui = fixture('ibd-port', 1, { frame, connectors: [edge], invoke: () => ({ x: 1072, y: 400, size: 16, connectors: [projected] }) });
+  const line = ui.document.querySelector('#canvas .ibd-connector[data-presentation-id="edge"]');
+  const label = ui.document.querySelector('#canvas .relationship-label[data-presentation-id="edge"]');
+  const before = JSON.stringify(ui.diagram);
+  const gesture = ui.start(); gesture.move(500, 400); await flush();
+  assert.equal(line.getAttribute('points'), '1072,400 200,400');
+  assert.equal(label.getAttribute('x'), '641'); assert.equal(label.getAttribute('y'), '394');
+  assert.equal(JSON.stringify(ui.diagram), before, 'preview cannot change authored snapshots');
+  gesture.end('pointercancel');
+  assert.equal(line.getAttribute('points'), '54,128 200,128');
+  assert.equal(label.getAttribute('x'), '132'); assert.equal(label.getAttribute('y'), '122');
+  assert.equal(ui.commands.length, 1); assert.equal(ui.refreshes, 0);
+});
+
+test('an outstanding native route preview cannot repaint after switching diagrams', async () => {
+  const reply = deferred();
+  const edge = { id: 'edge', relationship_id: 'rel', source_presentation_id: 'presentation', target_presentation_id: 'target',
+    points: [{ x: 54, y: 128 }, { x: 200, y: 128 }], label_anchor: null };
+  const ui = fixture('ibd-port', 1, { frame, connectors: [edge], invoke: () => reply.promise });
+  const line = ui.document.querySelector('#canvas .ibd-connector[data-presentation-id="edge"]');
+  const gesture = ui.start(); gesture.move(500, 400); ui.state.selectedDiagramId = 'another';
+  reply.resolve({ x: 1072, y: 400, size: 16, connectors: [{ ...edge, points: [{ x: 1, y: 2 }] }] }); await flush();
+  assert.equal(line.getAttribute('points'), '54,128 200,128');
+  gesture.end('pointercancel');
+});

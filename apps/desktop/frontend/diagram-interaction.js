@@ -356,8 +356,12 @@
         select: () => { state.selectedElementId = presentation.element_id; state.selectedRelationshipId = null; },
         constrain: async (next) => {
           const port = await requireInvoke()('preview_ibd_port_geometry', geometryArgs(next));
-          return { x: port.x - port.size / 2, y: port.y - port.size / 2, width: port.size, height: port.size };
+          return {
+            x: port.x - port.size / 2, y: port.y - port.size / 2,
+            width: port.size, height: port.size, connectorPreview: port.connectors,
+          };
         },
+        preview: (next) => window.smpPreviewIbdPortConnectors?.(diagram, presentation.id, next.connectorPreview),
         commit: (next) => commit('update_ibd_port_geometry', geometryArgs(next)),
       });
     });
