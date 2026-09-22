@@ -29,8 +29,9 @@ impl Default for HistoryState {
     }
 }
 
-// Use the same workspace-to-history lock order as native structural edits.
-// All guards are acquired before publishing any field or consuming a checkpoint.
+// Acquire every authored guard before publishing a field or consuming a checkpoint.
+// Legacy diagram commands do not all use one lock order. Do not wait while holding
+// a partial snapshot: contention rejects this operation and releases its guards.
 struct AuthoredStateGuards<'a> {
     project: MutexGuard<'a, Option<Project>>,
     diagrams: MutexGuard<'a, Vec<BddDiagram>>,
@@ -46,35 +47,25 @@ impl<'a> AuthoredStateGuards<'a> {
         workspace: &'a WorkspaceState,
         activity: &'a activity_workspace::ActivityWorkspaceState,
     ) -> Result<Self, String> {
+        fn acquire<'a, T>(
+            mutex: &'a Mutex<T>,
+            name: &str,
+        ) -> Result<MutexGuard<'a, T>, String> {
+            mutex.try_lock().map_err(|error| match error {
+                std::sync::TryLockError::Poisoned(_) => format!("{name} lock poisoned"),
+                std::sync::TryLockError::WouldBlock => {
+                    format!("workspace is busy ({name}); retry after the current operation completes")
+                }
+            })
+        }
         Ok(Self {
-            project: workspace
-                .project
-                .lock()
-                .map_err(|_| "project lock poisoned")?,
-            diagrams: workspace
-                .diagrams
-                .lock()
-                .map_err(|_| "diagram lock poisoned")?,
-            ibd_diagrams: workspace
-                .ibd_diagrams
-                .lock()
-                .map_err(|_| "IBD lock poisoned")?,
-            behavior: workspace
-                .behavior
-                .lock()
-                .map_err(|_| "behavior lock poisoned")?,
-            behavior_diagrams: workspace
-                .behavior_diagrams
-                .lock()
-                .map_err(|_| "behavior diagram lock poisoned")?,
-            activity_repository: activity
-                .repository
-                .lock()
-                .map_err(|_| "Activity repository lock poisoned")?,
-            activity_diagrams: activity
-                .diagrams
-                .lock()
-                .map_err(|_| "Activity diagram lock poisoned")?,
+            project: acquire(&workspace.project, "project")?,
+            diagrams: acquire(&workspace.diagrams, "diagram")?,
+            ibd_diagrams: acquire(&workspace.ibd_diagrams, "IBD")?,
+            behavior: acquire(&workspace.behavior, "behavior")?,
+            behavior_diagrams: acquire(&workspace.behavior_diagrams, "behavior diagram")?,
+            activity_repository: acquire(&activity.repository, "Activity repository")?,
+            activity_diagrams: acquire(&activity.diagrams, "Activity diagram")?,
         })
     }
 
@@ -490,6 +481,51 @@ mod atomic_history_tests {
                 assert_eq!(project_value(&workspace), before);
                 assert_eq!(stack_lengths(&history), lengths);
             }
+        }
+    }
+
+    #[test]
+    fn busy_workspace_rejects_history_operations_without_waiting_or_consuming_state() {
+        for operation in ["capture", "checkpoint", "undo", "redo"] {
+            let (workspace, activity, history) = fixture();
+            if operation == "redo" {
+                undo_states(&workspace, &activity, &history).unwrap();
+            }
+            let before = project_value(&workspace);
+            let lengths = stack_lengths(&history);
+            std::thread::scope(|scope| {
+                // Model an Activity command holding diagrams before it needs
+                // the repository. History must not retain that repository while
+                // waiting for this guard, or both operations would deadlock.
+                let held = activity.diagrams.lock().unwrap();
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let workspace_ref = &workspace;
+                let activity_ref = &activity;
+                let history_ref = &history;
+                let worker = scope.spawn(move || {
+                    let result = match operation {
+                        "capture" => capture_states(workspace_ref, activity_ref).map(|_| ()),
+                        "checkpoint" => checkpoint_states(workspace_ref, activity_ref, history_ref),
+                        "undo" => undo_states(workspace_ref, activity_ref, history_ref).map(|_| ()),
+                        _ => redo_states(workspace_ref, activity_ref, history_ref).map(|_| ()),
+                    };
+                    sender.send(result).unwrap();
+                });
+                let received = receiver.recv_timeout(std::time::Duration::from_secs(2));
+                // Always release the guard before asserting, so a regressed
+                // blocking implementation fails instead of hanging the suite.
+                drop(held);
+                worker.join().unwrap();
+                let error = received.expect("history waited on a busy workspace").unwrap_err();
+                assert!(error.contains("workspace is busy"), "{error}");
+                assert!(activity.repository.try_lock().is_ok());
+                assert!(workspace.project.try_lock().is_ok());
+            });
+            assert_eq!(project_value(&workspace), before);
+            assert_eq!(stack_lengths(&history), lengths);
+            // Contention is temporary and does not poison a later operation.
+            assert!(capture_states(&workspace, &activity).is_ok());
+            assert!(transfer_history(&workspace, &activity, &history, operation != "redo").unwrap());
         }
     }
 
