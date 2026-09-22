@@ -1,7 +1,9 @@
 # Pre-package engineering review — 21 September 2026
 
+Verification refreshed 22 September 2026.
+
 **Disposition: not ready to describe as a complete CATIA/Cameo replacement.**
-Four concrete editing fixes are prepared as draft PRs. Broader code and source
+Fourteen bounded improvements are prepared as draft PRs. Broader code and source
 review identifies additional authoring, execution, interchange and qualification
 work. No application package is released by this review.
 
@@ -26,7 +28,8 @@ genuine vendor project/XMI fixture is present in the repository evidence reviewe
 
 ## Prepared changes
 
-Review order is **107 → 108 → 109 → 111**. Each PR is based on its predecessor,
+Review order is **107 → 108 → 109 → 111 → 112 → 113 → 114 → 115 → 116 →
+117 → 118 → 119 → 120 → 121**. Each PR is based on its predecessor,
 so the combined candidate receives CI while each PR retains its own leaf diff.
 Retarget each dependent PR to main after its predecessor is reviewed and merged.
 The shared regression-entry conflict was resolved without dropping tests.
@@ -37,6 +40,16 @@ The shared regression-entry conflict was resolved without dropping tests.
 | C16.06.01 | [PR108](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/108) | Cancelled HTML symbol movement/resize restores original geometry across seven renderer families without discarding a Properties draft | Native pointer capture, touch, high-DPI and visual behavior still need installed-desktop acceptance. |
 | C04.03.01 | [PR109](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/109) | One Rust boundary projection for context/nested port preview and commit; square port resize; coalesced preview; connected routes and labels update together; context frame participates in authored save/history; proportional attachment on owner move/resize | Legacy diagrams adopt the visible frame on their first actual context-boundary edit. Clipboard and the separate selection-move command are not closed by this leaf. Live connector preview and dense port packing remain unqualified. |
 | C16.06.02 | [PR111](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/111) | Selection moves process parents before ports, use actual clamped movement, project independent ports, update connected routes and labels, and commit through atomic history | Corrects the registered command; no general arrow-key binding or new group-drag UI is introduced. Clipboard remains a separate finding. Native selection UX and independent review remain open. |
+| C16.08.01 | [PR112](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/112) | Parent-plus-port presentation paste creates one copied child and preserves connector mapping in either selection order | Keeps semantic identity; individual port placement is the following leaf. |
+| C16.08.02 | [PR113](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/113) | Standalone nested/context port paste retains its owner side, clamps along that boundary, and adopts the visible legacy frame atomically | Rejects incompatible contexts/missing owners; dense port packing remains open. |
+| C16.08.03 | [PR114](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/114) | Semantic Duplicate remaps occurrence paths and child presentation IDs; repeated views share one copied semantic property; selected parent/child does not alter the reusable type | Standalone duplicated ports intentionally create a new feature. Legacy frame adoption precedes copy insertion. |
+| C16.08.04 | [PR115](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/115) | Copy/Duplicate places part groups clear of existing parts with one translation; rejects a crowded frame before changing state/history | Bounded placement, not optimal packing or a complete dense routing/layout qualification. |
+| C04.08.01a | [PR116](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/116) | Atomic connector name/kind/endpoints transaction updates every presented view and remaps dependent ItemFlows | Every affected diagram must already present a replacement endpoint; invalid topology/routing rejects atomically. Association typing is separate. |
+| C04.08.01b | [PR117](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/117) | Connector Properties exposes qualified endpoint choices and one Apply with draft/error retention and stale-response guards | Native UI acceptance remains open. |
+| Existing ItemFlow API | [PR118](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/118) | Atomic name, forward/reverse direction and conveyed-classifier editing, with qualified choices and no-op/history handling | Retains realizing connector and relationship identity; does not implement flow execution. |
+| ItemFlow notation | [PR119](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/119) | Arrows follow Rust-derived direction; opposite same-classifier flows remain distinct; authoritative refresh removes deleted/undone flows and rejects stale reads | Visual/high-DPI/native interaction acceptance remains open. |
+| ItemFlow Properties | [PR120](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/120) | Select existing flow identity; edit name, direction and multiple conveyed classifiers through one transaction | Separate creation/deletion commands retain their existing scope; independent review remains open. |
+| C04.08.01c | [PR121](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/121) | Clean connector forms reload saved name/kind/endpoints after undo; unsaved drafts survive rerender | No collaborative conflict-resolution claim. |
 
 | Candidate | Published head | Native CI run | Result |
 | --- | --- | --- | --- |
@@ -44,6 +57,33 @@ The shared regression-entry conflict was resolved without dropping tests.
 | PR108 | `975ee323bf440269cfe85d043d3f08bba1b2b9a2` | [35616500069](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35616500069) | All three jobs passed |
 | PR109 | `1e35a8aaaa47c0f534120e5e0f52bf8c042960e0` | [35617108299](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35617108299) | All three jobs passed |
 | PR111 | `55e6a635c06f0bd42f168f96194c713f73c40c90` | [35619809423](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35619809423) | All three jobs passed |
+| PR112 | `651622f0d3e63a489bc7455547f87d84bcc96562` | [35635498699](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35635498699) | All three jobs passed |
+| PR113 | `1fc7cb04d94e953f98a595b4fa7faa256a1f6903` | [35637207141](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35637207141) | All three jobs passed |
+| PR114 | `1a7bd1f3359725454e4159557d12e775a00ded4a` | [35638562926](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35638562926) | All three jobs passed |
+| PR115 | `07938dc10d46c816523257891aff3e7162d49ead` | [35638566737](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35638566737) | All three jobs passed |
+| PR116 | `9af949da2ff58d7e355ee14f0fbf2508829a2faf` | [35638569181](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35638569181) | All three jobs passed |
+| PR117 | `5e8aa0922660b21d1877971dbf5eaa3692064319` | [35638572341](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35638572341) | All three jobs passed |
+| PR118 | `48e9a17d37dc21fafdb3ef108c4b796b8f736e5f` | [35638578340](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35638578340) | All three jobs passed; 222 desktop tests |
+| PR119 | `2e3f7d7cdde7dc1ddd654c1a7777696b11b4390c` | [35638961742](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35638961742) | All three jobs passed; 223 desktop tests |
+| PR120 | `5431a6b9580acd057ee5c0d518da6a280b369f63` | [35639502344](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35639502344) | All three jobs passed |
+| PR121 | `28bf2bed5c91e2634e16ea1e75ecf5adef1dc459` | [35639637040](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/35639637040) | All three jobs passed |
+
+Local qualification of the combined PR121 tree: **53/53 frontend regression tests**,
+all frontend JavaScript syntax checks, all 21 static integration validators and
+diff hygiene pass. No installed-desktop visual claim is made. All candidates
+remain draft and unmerged; dependency heads and final CI evidence above supersede
+initial "pending CI" notes in the individual implementation work orders.
+The combined core job also passes 229 Rust non-desktop tests with zero failures
+or ignored tests. PR119 passes 223 Windows desktop tests, including the semantic
+ItemFlow direction/identity and invalid-endpoint notation regression.
+
+CI caught and drove additional fixes: near-corner port copies now preserve their
+original side instead of switching to the nearest side; legacy frame adoption
+occurs before inserting duplicated parts so its reroute sees valid original
+geometry. The original left-port copy failure remains covered by PR115. A crowded
+frame fixture was corrected from an invalid 220-pixel height to a valid 240-pixel
+height so it exercises capacity rejection, without relaxing the geometry contract.
+The connector undo-refresh regression failed before PR121 and passes afterward.
 
 The combined candidate through PR111 passes **229 non-desktop tests, 206 desktop tests and
 32 Node regressions**, plus format/lint, Linux compilation and existing integration
@@ -74,7 +114,7 @@ end-to-end qualification.
 | Area | Evidence inspected or exercised | Current conclusion |
 | --- | --- | --- |
 | BDD and typed features | `element_specification`, feature editor, `bdd_conformance`, `pr8_bdd`, `pr43_ports`, `pr46_operation_parameter_reception`; PR107 transaction tests | Stronger atomic editing candidate; retype rejection protects existing IBD/binding references. No all-properties or full metamodel certification. |
-| IBD and interfaces | `ibd.rs`, `ibd_geometry`, current IBD palette/Properties renderer, `pr11_ibd`, `pr43_ports`, `pr45_item_flow` | Direct port geometry addressed; selection-command follow-up prepared. Connector specification and port clipboard gaps remain below. |
+| IBD and interfaces | `ibd.rs`, `ibd_geometry`, current IBD palette/Properties renderer, `pr11_ibd`, `pr43_ports`, `pr45_item_flow`, PR109/111–121 | Port movement/clipboard/duplicate and connector/ItemFlow editing candidates are prepared. Association typing, dense layout and native acceptance remain open. |
 | Requirements and traceability | Existing requirement editor, `pr21_requirements`, `pr42_allocation`, native traceability persistence tests | Existing authored semantics and round trips have automated evidence. Coverage/suspect/impact dashboards and a complete stakeholder workflow are not qualified here. |
 | Use Case | `pr24_use_cases`; subject-boundary/actor notation and shared movement tests | Existing semantics and saved notation have automated evidence. Native context menus, editing, and dense layouts need visual acceptance. |
 | Package/repository | `pr22_repository_editing`, `pr26b_package_diagrams`, package persistence and drill-down contracts | Identity/reparenting/navigation foundations have regression coverage. Discoverability and full keyboard navigation are not established by those checks. |
@@ -93,7 +133,7 @@ coverage parents are audited. Each implementation needs a separate bounded work 
 
 ### C16.08.01 — pasted individual ports can leave their owning boundary
 
-**Code-confirmed defect; high priority.** In
+**Baseline defect; candidates PR112–115 prepared.** In the main-baseline
 `workspace/standard_editing.rs::paste_clipboard`, the `ClipboardItem::IbdPort` path
 adds `PASTE_OFFSET` to both coordinates and appends the copy to its parent or context.
 It does not project the copy onto that owner's boundary. Copying a left-edge port
@@ -119,6 +159,11 @@ presentation IDs, correctly remapped property paths, attached geometry and
 connectors targeting the duplicated occurrences. Include parent-plus-port selections
 in both orders and late validation failure without partial semantic creation.
 
+Candidate evidence now covers those alternate identity/attachment paths, all four
+port sides, connected copy placement, rollback and history. The final-head CI
+table records passing runs. Native installed-desktop acceptance and independent
+review still prevent declaring the whole clipboard workflow release-qualified.
+
 ### C16.06.02 — the selection-move command can detach ports
 
 **Code-confirmed defect; candidate [PR111](https://github.com/rbrundage5/Systems-Modeler-Pro/pull/111) prepared.** In
@@ -134,7 +179,7 @@ children, and reroutes only affected connectors with labels. Four added Rust tes
 cover the failure and no-op paths as well as attachment. It adds an optional
 `framePreference` command field for legacy context ports. Final-head CI passed in
 run `35619809423`; independent review and native acceptance remain open. The
-clipboard finding remains separate.
+clipboard finding is addressed by the separate PR112–115 candidates.
 
 The command is registered through `standard_editing_bridge`; no general arrow-key
 binding was found in the inspected frontend. Therefore the code defect is confirmed,
@@ -148,7 +193,7 @@ workflow increment with focus ownership and repeat/queue acceptance.
 
 ### C04.08.01 — IBD connector specification editing is incomplete
 
-**UI gap confirmed in current source; high priority.** The IBD Properties override
+**Main-baseline UI gap; PR116–121 candidates prepared.** The baseline IBD Properties override
 in `frontend/ibd-ui.js` exposes a stable ID and Route IBD action for a selected
 Connector, with Item Flow creation elsewhere in the palette. It does not provide
 an Apply form for connector name/kind/endpoints or an existing ItemFlow editor.
@@ -159,6 +204,14 @@ endpoint candidates, (2) a draft-preserving form using that API, (3) existing
 ItemFlow direction/conveyed-type editing. Preserve semantic and presentation IDs,
 all dependent diagrams, undo/redo and persistence. Reject incompatible endpoints
 and invalid assembly/delegation topology without partially renaming the relationship.
+
+The delivered candidates implement this split, including flow direction rendering
+and removal of stale notation after undo/delete. The Rust transaction tests verify
+multi-view endpoint remapping, dependent flows, stable identity, invalid topology,
+undo/redo/no-op behavior and serialization. Frontend tests cover complete payloads,
+draft retention, read failures, late responses and repeated Apply. Manual/native
+acceptance and independent review are still outstanding. The ItemFlow work-order
+tags C04.09.01a–c do not close the separate association-typing finding below.
 
 ### C04.09.01 — explicit association typing of connectors is absent
 
@@ -200,7 +253,8 @@ WebView gestures, touch and visual appearance have not been exercised here.
 
 ## Release acceptance still required
 
-1. Review and integrate the four leaf PRs; require all CI checks on the final heads.
+1. Review and integrate the fourteen leaf PRs in order; require all CI checks on
+   the final heads and requalify the actual integrated revision.
 2. Close or explicitly disposition the open editing findings above. Do not label
    general editing complete while those alternate paths remain inconsistent.
 3. On an installed desktop, exercise create/reuse/rename/retype and connected
