@@ -354,7 +354,8 @@ impl Project {
         // native call stack for deeply chained libraries.
         let mut exports: HashMap<ElementId, Vec<NameBinding>> = HashMap::new();
         for element in self.elements.values() {
-            if element.is_packageable() && element.visibility == VisibilityKind::Public
+            if element.is_packageable()
+                && element.visibility == VisibilityKind::Public
                 && let Some(owner) = element.owner_id
             {
                 exports.entry(owner).or_default().push(NameBinding {
@@ -369,20 +370,28 @@ impl Project {
                 && (relationship.visibility == VisibilityKind::Public
                     || (!exported_only && relationship.source_id == namespace_id))
             {
-                imports.entry(relationship.source_id).or_default().push(relationship.target_id);
+                imports
+                    .entry(relationship.source_id)
+                    .or_default()
+                    .push(relationship.target_id);
             } else if relationship.kind == RelationshipKind::ElementImport
                 && relationship.visibility == VisibilityKind::Public
                 && let Some(target) = self.elements.get(&relationship.target_id)
             {
-                let local_name = relationship.alias.as_deref()
-                        .map(str::trim)
-                        .filter(|alias| !alias.is_empty())
-                        .unwrap_or(target.name.as_str())
-                        .to_string();
-                exports.entry(relationship.source_id).or_default().push(NameBinding {
-                    local_name,
-                    element_id: target.id,
-                });
+                let local_name = relationship
+                    .alias
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|alias| !alias.is_empty())
+                    .unwrap_or(target.name.as_str())
+                    .to_string();
+                exports
+                    .entry(relationship.source_id)
+                    .or_default()
+                    .push(NameBinding {
+                        local_name,
+                        element_id: target.id,
+                    });
             }
         }
         let mut bindings = Vec::new();
@@ -390,7 +399,10 @@ impl Project {
         let mut pending = imports.remove(&namespace_id).unwrap_or_default();
         while let Some(imported_id) = pending.pop() {
             if !visited.insert(imported_id)
-                || !self.elements.get(&imported_id).is_some_and(Element::is_namespace)
+                || !self
+                    .elements
+                    .get(&imported_id)
+                    .is_some_and(Element::is_namespace)
             {
                 continue;
             }
