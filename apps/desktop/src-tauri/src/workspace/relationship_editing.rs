@@ -504,12 +504,11 @@ mod tests {
         std::thread::scope(|scope| {
             let diagrams = fixture.state.diagrams.lock().unwrap();
             let (sender, receiver) = std::sync::mpsc::channel();
-            scope.spawn(|| {
-                let result = delete_bdd_relationship_in_state(
-                    fixture.diagram_id.clone(),
-                    fixture.relationship_id.to_string(),
-                    &fixture.state,
-                );
+            let state = &fixture.state;
+            let diagram_id = fixture.diagram_id.clone();
+            let relationship_id = fixture.relationship_id.to_string();
+            scope.spawn(move || {
+                let result = delete_bdd_relationship_in_state(diagram_id, relationship_id, state);
                 sender.send(result).unwrap();
             });
             let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
@@ -535,7 +534,10 @@ mod tests {
             ),
             Err("diagram lock poisoned".into())
         );
-        assert_eq!(serde_json::to_value(&*fixture.state.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&*fixture.state.project.lock().unwrap()).unwrap(),
+            before
+        );
     }
 
     #[test]
