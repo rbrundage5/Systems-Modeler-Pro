@@ -932,11 +932,11 @@ impl Project {
             .then(|| target.requirement_text.clone())
             .flatten();
         if kind == RelationshipKind::Generalization {
-            if target.is_block() && !source.is_block() {
-                return Err(ModelError::BlockSpecializationRequiresBlock);
-            }
             if !source.is_classifier() || !target.is_classifier() {
                 return Err(ModelError::GeneralizationRequiresClassifiers);
+            }
+            if target.is_block() && !source.is_block() {
+                return Err(ModelError::BlockSpecializationRequiresBlock);
             }
             if self.would_create_generalization_cycle(source_id, target_id) {
                 return Err(ModelError::GeneralizationCycle);
@@ -1698,11 +1698,11 @@ impl Project {
             if relationship.kind == RelationshipKind::Generalization {
                 let source = self.element(relationship.source_id)?;
                 let target = self.element(relationship.target_id)?;
-                if target.is_block() && !source.is_block() {
-                    return Err(ModelError::BlockSpecializationRequiresBlock);
-                }
                 if !source.is_classifier() || !target.is_classifier() {
                     return Err(ModelError::GeneralizationRequiresClassifiers);
+                }
+                if target.is_block() && !source.is_block() {
+                    return Err(ModelError::BlockSpecializationRequiresBlock);
                 }
                 if (matches!(source.kind, ElementKind::Actor | ElementKind::UseCase)
                     || matches!(target.kind, ElementKind::Actor | ElementKind::UseCase))
