@@ -36,7 +36,11 @@ fn malformed_reopened_copy_rejects_client_or_supplier_text_mismatch() {
         let (mut project, [a, b, _]) = fixture();
         let relationship_id = copy(&mut project, b, a);
         let modified = if corrupt_supplier { a } else { b };
-        project.elements.get_mut(&modified).unwrap().requirement_text = Some("Divergent".into());
+        project
+            .elements
+            .get_mut(&modified)
+            .unwrap()
+            .requirement_text = Some("Divergent".into());
         let loaded: Project =
             serde_json::from_value(serde_json::to_value(project).unwrap()).unwrap();
         assert_mismatch_without_mutation(&loaded, relationship_id);
@@ -69,8 +73,7 @@ fn valid_copy_propagation_and_local_identifiers_survive_roundtrip() {
         .update_requirement(c, "LOCAL-C", "Revised text")
         .unwrap();
     project.validate().unwrap();
-    let loaded: Project =
-        serde_json::from_value(serde_json::to_value(&project).unwrap()).unwrap();
+    let loaded: Project = serde_json::from_value(serde_json::to_value(&project).unwrap()).unwrap();
     loaded.validate().unwrap();
     assert_eq!(
         serde_json::to_value(loaded).unwrap(),
