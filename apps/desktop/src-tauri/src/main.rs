@@ -207,7 +207,6 @@ mod workspace {
 }
 
 use serde::Serialize;
-use workspace::{composition_property_choices, link_composition_property};
 use workspace::{
     ActivityExecutionState, ActivityWorkspaceState, HistoryState, SequenceExecutionState,
     SharedWorkspaceState, StandardEditingState, StateMachineExecutionState, WorkspaceState,
@@ -296,6 +295,7 @@ use workspace::{
     preview_parametric_execution_runtime, reset_parametric_execution, run_parametric_execution,
     step_parametric_execution, terminate_parametric_execution,
 };
+use workspace::{composition_property_choices, link_composition_property};
 use workspace::{ibd_connector_specification, update_ibd_connector_specification};
 
 #[derive(Serialize)]

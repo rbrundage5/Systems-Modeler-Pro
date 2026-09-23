@@ -90,22 +90,39 @@ impl Project {
         relationship_id: RelationshipId,
     ) -> Result<Vec<crate::ElementTypeChoice>, ModelError> {
         let (whole, part_type, _) = self.legacy_composition_context(relationship_id)?;
-        let linked: std::collections::HashSet<_> = self.relationships.values()
-            .flat_map(|relationship| relationship.association_ends.iter().filter_map(|end| end.property_id))
+        let linked: std::collections::HashSet<_> = self
+            .relationships
+            .values()
+            .flat_map(|relationship| {
+                relationship
+                    .association_ends
+                    .iter()
+                    .filter_map(|end| end.property_id)
+            })
             .collect();
-        let mut choices: Vec<_> = self.elements.values().filter(|property| {
-            property.kind == ElementKind::PartProperty
-                && property.owner_id == Some(whole)
-                && property.type_id == Some(part_type)
-                && !linked.contains(&property.id)
-        }).map(|property| crate::ElementTypeChoice {
-            id: property.id,
-            external_id: property.external_id.clone(),
-            qualified_name: self.qualified_name(property.id).unwrap_or_else(|_| property.name.clone()),
-            kind: property.kind.clone(),
-        }).collect();
-        choices.sort_by(|left, right| left.qualified_name.cmp(&right.qualified_name)
-            .then(left.external_id.cmp(&right.external_id)));
+        let mut choices: Vec<_> = self
+            .elements
+            .values()
+            .filter(|property| {
+                property.kind == ElementKind::PartProperty
+                    && property.owner_id == Some(whole)
+                    && property.type_id == Some(part_type)
+                    && !linked.contains(&property.id)
+            })
+            .map(|property| crate::ElementTypeChoice {
+                id: property.id,
+                external_id: property.external_id.clone(),
+                qualified_name: self
+                    .qualified_name(property.id)
+                    .unwrap_or_else(|_| property.name.clone()),
+                kind: property.kind.clone(),
+            })
+            .collect();
+        choices.sort_by(|left, right| {
+            left.qualified_name
+                .cmp(&right.qualified_name)
+                .then(left.external_id.cmp(&right.external_id))
+        });
         Ok(choices)
     }
 
@@ -114,22 +131,35 @@ impl Project {
         relationship_id: RelationshipId,
     ) -> Result<(ElementId, ElementId, usize), ModelError> {
         let relationship = self.relationship(relationship_id)?;
-        if relationship.association_ends.iter().any(|end| end.property_id.is_some()) {
-            return Err(ModelError::InvalidAssociationPropertyShape);
-        }
-        if relationship.kind == crate::RelationshipKind::Composition && relationship.association_ends.is_empty() {
-            return Ok((relationship.source_id, relationship.target_id, 1));
-        }
-        if !matches!(relationship.kind, crate::RelationshipKind::Association | crate::RelationshipKind::Composition)
-            || relationship.association_ends.len() != 2
+        if relationship
+            .association_ends
+            .iter()
+            .any(|end| end.property_id.is_some())
         {
             return Err(ModelError::InvalidAssociationPropertyShape);
         }
-        let whole_index = relationship.association_ends.iter()
+        if relationship.kind == crate::RelationshipKind::Composition
+            && relationship.association_ends.is_empty()
+        {
+            return Ok((relationship.source_id, relationship.target_id, 1));
+        }
+        if !matches!(
+            relationship.kind,
+            crate::RelationshipKind::Association | crate::RelationshipKind::Composition
+        ) || relationship.association_ends.len() != 2
+        {
+            return Err(ModelError::InvalidAssociationPropertyShape);
+        }
+        let whole_index = relationship
+            .association_ends
+            .iter()
             .position(|end| end.aggregation == AggregationKind::Composite)
             .ok_or(ModelError::InvalidAssociationPropertyShape)?;
-        Ok((relationship.association_ends[whole_index].classifier_id,
-            relationship.association_ends[1 - whole_index].classifier_id, 1 - whole_index))
+        Ok((
+            relationship.association_ends[whole_index].classifier_id,
+            relationship.association_ends[1 - whole_index].classifier_id,
+            1 - whole_index,
+        ))
     }
 
     /// Explicitly materialize or attach one part to an old composition. Validate a
@@ -140,7 +170,11 @@ impl Project {
         selected_property: Option<ElementId>,
     ) -> Result<ElementId, ModelError> {
         let original = self.relationship(relationship_id)?;
-        if let Some(property_id) = original.association_ends.iter().find_map(|end| end.property_id) {
+        if let Some(property_id) = original
+            .association_ends
+            .iter()
+            .find_map(|end| end.property_id)
+        {
             if selected_property.is_some_and(|selected| selected != property_id) {
                 return Err(ModelError::DuplicateAssociationProperty(property_id));
             }
@@ -150,28 +184,68 @@ impl Project {
         let (whole, part_type, part_index) = self.legacy_composition_context(relationship_id)?;
         let mut candidate = self.clone();
         if original.association_ends.is_empty() {
-            candidate.relationships.get_mut(&relationship_id).unwrap().association_ends = vec![
-                Self::association_end(whole, "", Multiplicity::ONE, true, AggregationKind::Composite),
-                Self::association_end(part_type, "", Multiplicity::ONE, true, AggregationKind::None),
+            candidate
+                .relationships
+                .get_mut(&relationship_id)
+                .unwrap()
+                .association_ends = vec![
+                Self::association_end(
+                    whole,
+                    "",
+                    Multiplicity::ONE,
+                    true,
+                    AggregationKind::Composite,
+                ),
+                Self::association_end(
+                    part_type,
+                    "",
+                    Multiplicity::ONE,
+                    true,
+                    AggregationKind::None,
+                ),
             ];
         }
         let ends = &candidate.relationship(relationship_id)?.association_ends;
-        if ends[1 - part_index].multiplicity.upper.is_none_or(|upper| upper > 1) {
+        if ends[1 - part_index]
+            .multiplicity
+            .upper
+            .is_none_or(|upper| upper > 1)
+        {
             return Err(ModelError::InvalidCompositeWholeMultiplicity);
         }
         let property_id = if let Some(property_id) = selected_property {
-            if !self.composition_property_choices(relationship_id)?.iter().any(|choice| choice.id == property_id) {
+            if !self
+                .composition_property_choices(relationship_id)?
+                .iter()
+                .any(|choice| choice.id == property_id)
+            {
                 return Err(ModelError::InvalidAssociationProperty(property_id));
             }
             property_id
         } else {
             let part_end = &ends[part_index];
-            let base_name = if part_end.role_name.trim().is_empty() { "part" } else { part_end.role_name.trim() };
-            let names: std::collections::HashSet<_> = candidate.owned_features(whole).map(|property| property.name.clone()).collect();
+            let base_name = if part_end.role_name.trim().is_empty() {
+                "part"
+            } else {
+                part_end.role_name.trim()
+            };
+            let names: std::collections::HashSet<_> = candidate
+                .owned_features(whole)
+                .map(|property| property.name.clone())
+                .collect();
             let mut name = base_name.to_owned();
             let mut suffix = 2;
-            while names.contains(&name) { name = format!("{base_name}{suffix}"); suffix += 1; }
-            candidate.create_typed_feature(ElementKind::PartProperty, name, whole, part_type, part_end.multiplicity)?
+            while names.contains(&name) {
+                name = format!("{base_name}{suffix}");
+                suffix += 1;
+            }
+            candidate.create_typed_feature(
+                ElementKind::PartProperty,
+                name,
+                whole,
+                part_type,
+                part_end.multiplicity,
+            )?
         };
         let property = candidate.element(property_id)?.clone();
         let relationship = candidate.relationships.get_mut(&relationship_id).unwrap();
