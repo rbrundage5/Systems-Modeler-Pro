@@ -62,7 +62,13 @@ fn composition_creates_distinct_inherited_usages_with_canonical_member_identity(
 fn property_edits_project_by_id_without_changing_member_end_identity() {
     let (mut project, whole, part) = fixture();
     let (relation, property) = project
-        .create_composition(whole, part, "wheel", Multiplicity::ONE, Some(project.root_id))
+        .create_composition(
+            whole,
+            part,
+            "wheel",
+            Multiplicity::ONE,
+            Some(project.root_id),
+        )
         .unwrap();
     let end_id = project.relationship(relation).unwrap().association_ends[1].id;
     let replacement = project
@@ -124,7 +130,13 @@ fn failed_composition_creation_leaves_no_orphan_property() {
 fn malformed_property_links_and_duplicate_membership_are_rejected() {
     let (mut project, whole, part) = fixture();
     let (relation, property) = project
-        .create_composition(whole, part, "wheel", Multiplicity::ONE, Some(project.root_id))
+        .create_composition(
+            whole,
+            part,
+            "wheel",
+            Multiplicity::ONE,
+            Some(project.root_id),
+        )
         .unwrap();
     let before = serde_json::to_value(&project).unwrap();
     assert_eq!(

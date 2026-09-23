@@ -63,7 +63,10 @@ impl Project {
     ) -> Result<(RelationshipId, ElementId), ModelError> {
         Multiplicity::new(multiplicity.lower, multiplicity.upper)?;
         crate::validate_owner_kind(&ElementKind::PartProperty, &self.element(whole_id)?.kind)?;
-        crate::validate_type_kind(&ElementKind::PartProperty, &self.element(part_type_id)?.kind)?;
+        crate::validate_type_kind(
+            &ElementKind::PartProperty,
+            &self.element(part_type_id)?.kind,
+        )?;
         let property_id = self.create_typed_feature(
             ElementKind::PartProperty,
             role_name,
