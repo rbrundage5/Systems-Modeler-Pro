@@ -41,30 +41,6 @@ fn parse_aggregation(value: &str) -> Result<AggregationKind, String> {
     }
 }
 
-fn generalization_cycle(
-    project: &systems_modeler_core::Project,
-    relationship_id: systems_modeler_core::RelationshipId,
-    source_id: ElementId,
-    target_id: ElementId,
-) -> bool {
-    let mut current = target_id;
-    let mut visited = std::collections::HashSet::new();
-    while visited.insert(current) {
-        if current == source_id {
-            return true;
-        }
-        let Some(next) = project.relationships.values().find(|relationship| {
-            relationship.id != relationship_id
-                && relationship.kind == RelationshipKind::Generalization
-                && relationship.source_id == current
-        }) else {
-            return false;
-        };
-        current = next.target_id;
-    }
-    false
-}
-
 fn duplicate_after_reconnect(
     project: &systems_modeler_core::Project,
     relationship_id: systems_modeler_core::RelationshipId,
@@ -149,6 +125,16 @@ pub fn reconnect_bdd_relationship(
     element_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
+    reconnect_bdd_relationship_in_state(diagram_id, relationship_id, side, element_id, &state)
+}
+
+fn reconnect_bdd_relationship_in_state(
+    diagram_id: String,
+    relationship_id: String,
+    side: String,
+    element_id: String,
+    state: &WorkspaceState,
+) -> Result<(), String> {
     let diagram_id = parse_diagram_id(&diagram_id)?;
     let relationship_id = parse_relationship_id(&relationship_id)?;
     let element_id = parse_element_id(&element_id)?;
@@ -189,31 +175,8 @@ pub fn reconnect_bdd_relationship(
     ) {
         return Err(format!("an equivalent {display_kind} already exists"));
     }
-    if original.kind == RelationshipKind::Generalization
-        && generalization_cycle(project, relationship_id, new_source, new_target)
-    {
-        return Err("generalization would create an inheritance cycle".into());
-    }
-
-    {
-        let relationship = project
-            .relationships
-            .get_mut(&relationship_id)
-            .ok_or("relationship not found")?;
-        relationship.source_id = new_source;
-        relationship.target_id = new_target;
-        if relationship.kind == RelationshipKind::Association
-            && relationship.association_ends.len() == 2
-        {
-            relationship.association_ends[0].classifier_id = new_source;
-            relationship.association_ends[1].classifier_id = new_target;
-        }
-    }
-    if let Err(error) = project.validate() {
-        project.relationships.insert(relationship_id, original);
-        return Err(error.to_string());
-    }
-
+    // Resolve every fallible presentation dependency before publishing semantics.
+    // Both guards remain held until the relationship and edge commit together.
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     let diagram = diagrams
         .iter_mut()
@@ -237,6 +200,20 @@ pub fn reconnect_bdd_relationship(
         .iter_mut()
         .find(|edge| edge.relationship_id == relationship_id.to_string())
         .ok_or("diagram edge not found")?;
+
+    let mut candidate = original.clone();
+    candidate.source_id = new_source;
+    candidate.target_id = new_target;
+    if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2 {
+        candidate.association_ends[0].classifier_id = new_source;
+        candidate.association_ends[1].classifier_id = new_target;
+    }
+    project.relationships.insert(relationship_id, candidate);
+    if let Err(error) = project.validate() {
+        project.relationships.insert(relationship_id, original);
+        return Err(error.to_string());
+    }
+    // No fallible work remains after successful semantic validation.
     edge.source_node_id = source_node.id;
     edge.target_node_id = target_node.id;
     edge.points = points;
@@ -275,7 +252,237 @@ pub fn delete_bdd_relationship(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_multiplicity;
+    use super::*;
+    use crate::workspace::{BddDiagram, DiagramEdge, DiagramNode};
+    use systems_modeler_core::{DiagramId, Project, RelationshipId};
+
+    struct ReconnectFixture {
+        state: WorkspaceState,
+        diagram_id: String,
+        relationship_id: RelationshipId,
+        blocks: [ElementId; 3],
+    }
+
+    fn reconnect_fixture(kind: RelationshipKind) -> ReconnectFixture {
+        let state = WorkspaceState::default();
+        let mut project = Project::new("Reconnect rollback");
+        let blocks = ["A", "B", "C"].map(|name| {
+            project
+                .create_element(ElementKind::Block, name, project.root_id)
+                .unwrap()
+        });
+        let relationship_id = if kind == RelationshipKind::Association {
+            project
+                .create_association(
+                    Some(project.root_id),
+                    blocks[..2]
+                        .iter()
+                        .map(|id| {
+                            Project::association_end(
+                                *id,
+                                "role",
+                                Multiplicity::ONE,
+                                true,
+                                AggregationKind::None,
+                            )
+                        })
+                        .collect(),
+                )
+                .unwrap()
+        } else {
+            project
+                .create_relationship(kind, blocks[0], blocks[1], Some(project.root_id))
+                .unwrap()
+        };
+        let nodes: Vec<_> = blocks
+            .iter()
+            .enumerate()
+            .map(|(index, id)| DiagramNode {
+                id: uuid::Uuid::new_v4().to_string(),
+                element_id: id.to_string(),
+                x: index as f64 * 250.0,
+                y: index as f64 * 150.0,
+                width: 100.0,
+                height: 60.0,
+                actor_notation: None,
+                parameter_presentations: Vec::new(),
+            })
+            .collect();
+        let edge = DiagramEdge {
+            id: uuid::Uuid::new_v4().to_string(),
+            relationship_id: relationship_id.to_string(),
+            source_node_id: nodes[0].id.clone(),
+            target_node_id: nodes[1].id.clone(),
+            points: route_relationship(&nodes[0], &nodes[1], &nodes).unwrap(),
+            label_anchor: None,
+        };
+        let diagram_id = DiagramId::new().to_string();
+        state.diagrams.lock().unwrap().push(BddDiagram {
+            id: diagram_id.clone(),
+            name: "Structure".into(),
+            owner_id: project.root_id.to_string(),
+            family: "bdd".into(),
+            semantic_context_id: None,
+            subject_boundary: None,
+            nodes,
+            edges: vec![edge],
+        });
+        project.validate().unwrap();
+        *state.project.lock().unwrap() = Some(project);
+        ReconnectFixture {
+            state,
+            diagram_id,
+            relationship_id,
+            blocks,
+        }
+    }
+
+    fn snapshot(state: &WorkspaceState) -> (serde_json::Value, serde_json::Value) {
+        (
+            serde_json::to_value(&*state.project.lock().unwrap()).unwrap(),
+            serde_json::to_value(&*state.diagrams.lock().unwrap()).unwrap(),
+        )
+    }
+
+    fn reconnect(fixture: &ReconnectFixture, side: &str) -> Result<(), String> {
+        reconnect_bdd_relationship_in_state(
+            fixture.diagram_id.clone(),
+            fixture.relationship_id.to_string(),
+            side.into(),
+            fixture.blocks[2].to_string(),
+            &fixture.state,
+        )
+    }
+
+    #[test]
+    fn reconnect_presentation_failures_preserve_semantics_and_diagrams() {
+        for failure in 0..4 {
+            let fixture = reconnect_fixture(RelationshipKind::Association);
+            {
+                let mut diagrams = fixture.state.diagrams.lock().unwrap();
+                match failure {
+                    0 => diagrams.clear(),
+                    1 => {
+                        diagrams[0].nodes.pop();
+                    }
+                    2 => diagrams[0].edges.clear(),
+                    _ => {
+                        diagrams[0].nodes[2].x = f64::NAN;
+                        diagrams[0].nodes[2].y = f64::NAN;
+                    }
+                }
+            }
+            let before = snapshot(&fixture.state);
+            assert!(reconnect(&fixture, "target").is_err(), "case {failure}");
+            assert_eq!(snapshot(&fixture.state), before, "case {failure}");
+        }
+    }
+
+    #[test]
+    fn reconnect_poisoned_diagram_lock_preserves_project() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        let before = snapshot(&fixture.state).0;
+        let state = &fixture.state;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.diagrams.lock().unwrap();
+            panic!("inject a poisoned presentation lock");
+        }));
+        assert!(result.is_err());
+        assert_eq!(
+            reconnect(&fixture, "target").unwrap_err(),
+            "diagram lock poisoned"
+        );
+        assert_eq!(
+            serde_json::to_value(&*state.project.lock().unwrap()).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn reconnect_generalization_cycle_rolls_back_semantics_and_routing() {
+        let fixture = reconnect_fixture(RelationshipKind::Generalization);
+        {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project
+                .create_relationship(
+                    RelationshipKind::Generalization,
+                    fixture.blocks[2],
+                    fixture.blocks[0],
+                    Some(project.root_id),
+                )
+                .unwrap();
+        }
+        let before = snapshot(&fixture.state);
+        assert!(
+            reconnect(&fixture, "target")
+                .unwrap_err()
+                .contains("inheritance cycle")
+        );
+        assert_eq!(snapshot(&fixture.state), before);
+    }
+
+    #[test]
+    fn reconnect_commits_both_sides_without_replacing_relationship_identity() {
+        for side in ["source", "target"] {
+            let fixture = reconnect_fixture(RelationshipKind::Association);
+            let original = fixture
+                .state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationship(fixture.relationship_id)
+                .unwrap()
+                .clone();
+            let old_edge = fixture.state.diagrams.lock().unwrap()[0].edges[0].clone();
+            reconnect(&fixture, side).unwrap();
+            let project_guard = fixture.state.project.lock().unwrap();
+            let project = project_guard.as_ref().unwrap();
+            project.validate().unwrap();
+            let relationship = project.relationship(fixture.relationship_id).unwrap();
+            assert_eq!(relationship.id, original.id);
+            assert_eq!(relationship.external_id, original.external_id);
+            assert_eq!(relationship.owner_id, original.owner_id);
+            let (source, target) = if side == "source" {
+                (fixture.blocks[2], fixture.blocks[1])
+            } else {
+                (fixture.blocks[0], fixture.blocks[2])
+            };
+            assert_eq!(
+                (relationship.source_id, relationship.target_id),
+                (source, target)
+            );
+            for (index, id) in [source, target].iter().enumerate() {
+                assert_eq!(relationship.association_ends[index].classifier_id, *id);
+                assert_eq!(
+                    relationship.association_ends[index].id,
+                    original.association_ends[index].id
+                );
+            }
+            let diagrams = fixture.state.diagrams.lock().unwrap();
+            let diagram = &diagrams[0];
+            let edge = &diagram.edges[0];
+            assert_eq!(edge.id, old_edge.id);
+            let source_node = diagram
+                .nodes
+                .iter()
+                .find(|node| node.element_id == source.to_string())
+                .unwrap();
+            let target_node = diagram
+                .nodes
+                .iter()
+                .find(|node| node.element_id == target.to_string())
+                .unwrap();
+            assert_eq!(edge.source_node_id, source_node.id);
+            assert_eq!(edge.target_node_id, target_node.id);
+            assert_eq!(
+                edge.points,
+                route_relationship(source_node, target_node, &diagram.nodes).unwrap()
+            );
+        }
+    }
 
     #[test]
     fn parses_sysml_multiplicity_notation() {
