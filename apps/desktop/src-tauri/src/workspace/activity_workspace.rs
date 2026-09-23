@@ -645,15 +645,11 @@ mod authored_lock_tests {
                 let worker = scope.spawn(move || {
                     let result = if layout {
                         super::super::activity_mutation::layout_activity_with_bounds(
-                            "missing",
-                            state_ref,
-                            None,
+                            "missing", state_ref, None,
                         )
                     } else {
                         super::super::activity_mutation::route_activity_with_bounds(
-                            "missing",
-                            state_ref,
-                            None,
+                            "missing", state_ref, None,
                         )
                     };
                     sender.send(result).unwrap();
@@ -684,7 +680,10 @@ mod authored_lock_tests {
         let before = serde_json::to_value(&*state.repository.lock().unwrap()).unwrap();
         poison(&state.diagrams);
         assert!(state.lock_authored().is_err());
-        let repository = state.repository.try_lock().expect("repository guard leaked");
+        let repository = state
+            .repository
+            .try_lock()
+            .expect("repository guard leaked");
         assert_eq!(serde_json::to_value(&*repository).unwrap(), before);
         assert_eq!(repository.activities[&id].name, "Existing");
     }
