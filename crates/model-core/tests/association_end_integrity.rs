@@ -45,6 +45,7 @@ fn invalid_end_payloads_are_rejected_before_relationship_publication() {
         multiplicity,
         both_aggregated,
         nonbinary_composition,
+        vec![end(a), end(b), end(c)],
     ] {
         let before = serde_json::to_value(&project).unwrap();
         assert!(
@@ -63,7 +64,7 @@ fn reopened_associations_cannot_disagree_with_their_endpoints_or_end_types() {
         .create_association(Some(project.root_id), vec![end(a), end(b)])
         .unwrap();
     let saved = serde_json::to_value(&project).unwrap();
-    for invalid in 0..5 {
+    for invalid in 0..6 {
         let mut loaded: Project = serde_json::from_value(saved.clone()).unwrap();
         let association = loaded.relationships.get_mut(&id).unwrap();
         match invalid {
@@ -76,7 +77,8 @@ fn reopened_associations_cannot_disagree_with_their_endpoints_or_end_types() {
                     upper: Some(0),
                 }
             }
-            _ => association.kind = RelationshipKind::Realization,
+            4 => association.kind = RelationshipKind::Realization,
+            _ => association.association_ends.push(end(c)),
         }
         let before = serde_json::to_value(&loaded).unwrap();
         assert!(loaded.validate().is_err(), "malformed variant {invalid}");
@@ -108,8 +110,32 @@ fn member_end_identity_is_unique_across_distinct_associations() {
 }
 
 #[test]
+fn block_specializations_also_require_binary_associations() {
+    for kind in [
+        ElementKind::Block,
+        ElementKind::AssociationBlock,
+        ElementKind::InterfaceBlock,
+        ElementKind::ConstraintBlock,
+    ] {
+        let (mut project, [a, b, _]) = fixture();
+        let c = project
+            .create_element(kind, "Specialized", project.root_id)
+            .unwrap();
+        let before = serde_json::to_value(&project).unwrap();
+        assert!(matches!(
+            project.create_association(Some(project.root_id), vec![end(a), end(b), end(c)]),
+            Err(ModelError::BlockAssociationMustBeBinary)
+        ));
+        assert_eq!(serde_json::to_value(&project).unwrap(), before);
+    }
+}
+
+#[test]
 fn parallel_reflexive_nary_and_legacy_associations_remain_readable() {
-    let (mut project, [a, b, c]) = fixture();
+    let (mut project, [a, b, _]) = fixture();
+    let c = project
+        .create_element(ElementKind::DataType, "NonBlock", project.root_id)
+        .unwrap();
     for ends in [
         vec![end(a), end(b)],
         vec![end(a), end(b)],

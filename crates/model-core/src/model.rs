@@ -474,6 +474,8 @@ pub enum ModelError {
     DuplicateAssociationEndId(RelationshipEndId),
     #[error("aggregation/composition requires a binary association with only one aggregated end")]
     InvalidAssociationAggregation,
+    #[error("an association with all ends typed by SysML Blocks must be binary")]
+    BlockAssociationMustBeBinary,
     #[error("association endpoints disagree with its first two member ends: {0}")]
     AssociationEndpointMismatch(RelationshipId),
     #[error("association ends are attached to a non-association relationship: {0}")]
@@ -1211,6 +1213,7 @@ impl Project {
             return Err(ModelError::AssociationRequiresTwoEnds);
         }
         let mut identities = HashSet::new();
+        let mut all_block_typed = true;
         let decorated = ends.iter().filter(|end| end.aggregation != AggregationKind::None).count();
         if decorated > 1 || (decorated != 0 && ends.len() != 2) {
             return Err(ModelError::InvalidAssociationAggregation);
@@ -1228,6 +1231,12 @@ impl Project {
                     end.classifier_id,
                 ));
             }
+            all_block_typed &= matches!(classifier.kind,
+                ElementKind::Block | ElementKind::AssociationBlock
+                    | ElementKind::InterfaceBlock | ElementKind::ConstraintBlock);
+        }
+        if all_block_typed && ends.len() != 2 {
+            return Err(ModelError::BlockAssociationMustBeBinary);
         }
         Ok(())
     }
