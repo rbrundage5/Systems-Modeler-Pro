@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use systems_modeler_core::{ActivityRepository, BehaviorRepository, Project};
 
 const HISTORY_LIMIT: usize = 100;
@@ -29,47 +29,86 @@ impl Default for HistoryState {
     }
 }
 
+// Acquire every authored guard before publishing a field or consuming a checkpoint.
+// Legacy diagram commands do not all use one lock order. Do not wait while holding
+// a partial snapshot: contention rejects this operation and releases its guards.
+struct AuthoredStateGuards<'a> {
+    project: MutexGuard<'a, Option<Project>>,
+    diagrams: MutexGuard<'a, Vec<BddDiagram>>,
+    ibd_diagrams: MutexGuard<'a, Vec<ibd::IbdDiagram>>,
+    behavior: MutexGuard<'a, BehaviorRepository>,
+    behavior_diagrams: MutexGuard<'a, Vec<behavior_workspace::BehaviorDiagram>>,
+    activity_repository: MutexGuard<'a, ActivityRepository>,
+    activity_diagrams: MutexGuard<'a, Vec<activity_workspace::ActivityDiagram>>,
+}
+
+impl<'a> AuthoredStateGuards<'a> {
+    fn lock(
+        workspace: &'a WorkspaceState,
+        activity: &'a activity_workspace::ActivityWorkspaceState,
+    ) -> Result<Self, String> {
+        fn acquire<'a, T>(mutex: &'a Mutex<T>, name: &str) -> Result<MutexGuard<'a, T>, String> {
+            mutex.try_lock().map_err(|error| match error {
+                std::sync::TryLockError::Poisoned(_) => format!("{name} lock poisoned"),
+                std::sync::TryLockError::WouldBlock => {
+                    format!(
+                        "workspace is busy ({name}); retry after the current operation completes"
+                    )
+                }
+            })
+        }
+        Ok(Self {
+            project: acquire(&workspace.project, "project")?,
+            diagrams: acquire(&workspace.diagrams, "diagram")?,
+            ibd_diagrams: acquire(&workspace.ibd_diagrams, "IBD")?,
+            behavior: acquire(&workspace.behavior, "behavior")?,
+            behavior_diagrams: acquire(&workspace.behavior_diagrams, "behavior diagram")?,
+            activity_repository: acquire(&activity.repository, "Activity repository")?,
+            activity_diagrams: acquire(&activity.diagrams, "Activity diagram")?,
+        })
+    }
+
+    fn capture(&self) -> HistorySnapshot {
+        HistorySnapshot {
+            project: self.project.clone(),
+            diagrams: self.diagrams.clone(),
+            ibd_diagrams: self.ibd_diagrams.clone(),
+            behavior: self.behavior.clone(),
+            behavior_diagrams: self.behavior_diagrams.clone(),
+            activity_repository: self.activity_repository.clone(),
+            activity_diagrams: self.activity_diagrams.clone(),
+        }
+    }
+
+    fn replace(&mut self, snapshot: HistorySnapshot) -> HistorySnapshot {
+        // Move the previous authored state into the opposite history stack; undo
+        // and redo need no additional full-project clone.
+        HistorySnapshot {
+            project: std::mem::replace(&mut *self.project, snapshot.project),
+            diagrams: std::mem::replace(&mut *self.diagrams, snapshot.diagrams),
+            ibd_diagrams: std::mem::replace(&mut *self.ibd_diagrams, snapshot.ibd_diagrams),
+            behavior: std::mem::replace(&mut *self.behavior, snapshot.behavior),
+            behavior_diagrams: std::mem::replace(
+                &mut *self.behavior_diagrams,
+                snapshot.behavior_diagrams,
+            ),
+            activity_repository: std::mem::replace(
+                &mut *self.activity_repository,
+                snapshot.activity_repository,
+            ),
+            activity_diagrams: std::mem::replace(
+                &mut *self.activity_diagrams,
+                snapshot.activity_diagrams,
+            ),
+        }
+    }
+}
+
 pub(super) fn capture_states(
     workspace: &WorkspaceState,
     activity: &activity_workspace::ActivityWorkspaceState,
 ) -> Result<HistorySnapshot, String> {
-    Ok(HistorySnapshot {
-        project: workspace
-            .project
-            .lock()
-            .map_err(|_| "project lock poisoned")?
-            .clone(),
-        diagrams: workspace
-            .diagrams
-            .lock()
-            .map_err(|_| "diagram lock poisoned")?
-            .clone(),
-        ibd_diagrams: workspace
-            .ibd_diagrams
-            .lock()
-            .map_err(|_| "IBD lock poisoned")?
-            .clone(),
-        behavior: workspace
-            .behavior
-            .lock()
-            .map_err(|_| "behavior lock poisoned")?
-            .clone(),
-        behavior_diagrams: workspace
-            .behavior_diagrams
-            .lock()
-            .map_err(|_| "behavior diagram lock poisoned")?
-            .clone(),
-        activity_repository: activity
-            .repository
-            .lock()
-            .map_err(|_| "Activity repository lock poisoned")?
-            .clone(),
-        activity_diagrams: activity
-            .diagrams
-            .lock()
-            .map_err(|_| "Activity diagram lock poisoned")?
-            .clone(),
-    })
+    Ok(AuthoredStateGuards::lock(workspace, activity)?.capture())
 }
 
 /// Stage one IBD presentation edit and publish geometry plus one history entry.
@@ -150,8 +189,8 @@ pub(super) fn checkpoint_states(
     activity: &activity_workspace::ActivityWorkspaceState,
     history: &HistoryState,
 ) -> Result<(), String> {
-    let snapshot = capture_states(workspace, activity)?;
-    commit_snapshot(snapshot, history)
+    let authored = AuthoredStateGuards::lock(workspace, activity)?;
+    commit_snapshot(authored.capture(), history)
 }
 
 pub(super) fn commit_snapshot(
@@ -162,15 +201,15 @@ pub(super) fn commit_snapshot(
         .undo
         .lock()
         .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
     undo.push(snapshot);
     if undo.len() > HISTORY_LIMIT {
         undo.remove(0);
     }
-    history
-        .redo
-        .lock()
-        .map_err(|_| "redo history lock poisoned")?
-        .clear();
+    redo.clear();
     Ok(())
 }
 
@@ -279,40 +318,34 @@ pub(super) fn undo_len(history: &HistoryState) -> usize {
     history.undo.lock().expect("undo history lock").len()
 }
 
-fn restore(
-    snapshot: HistorySnapshot,
+fn transfer_history(
     workspace: &WorkspaceState,
     activity: &activity_workspace::ActivityWorkspaceState,
-) -> Result<(), String> {
-    *workspace
-        .project
+    history: &HistoryState,
+    undoing: bool,
+) -> Result<bool, String> {
+    let mut authored = AuthoredStateGuards::lock(workspace, activity)?;
+    let mut undo = history
+        .undo
         .lock()
-        .map_err(|_| "project lock poisoned")? = snapshot.project;
-    *workspace
-        .diagrams
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
         .lock()
-        .map_err(|_| "diagram lock poisoned")? = snapshot.diagrams;
-    *workspace
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")? = snapshot.ibd_diagrams;
-    *workspace
-        .behavior
-        .lock()
-        .map_err(|_| "behavior lock poisoned")? = snapshot.behavior;
-    *workspace
-        .behavior_diagrams
-        .lock()
-        .map_err(|_| "behavior diagram lock poisoned")? = snapshot.behavior_diagrams;
-    *activity
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")? = snapshot.activity_repository;
-    *activity
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")? = snapshot.activity_diagrams;
-    Ok(())
+        .map_err(|_| "redo history lock poisoned")?;
+    let (source, destination) = if undoing {
+        (&mut *undo, &mut *redo)
+    } else {
+        (&mut *redo, &mut *undo)
+    };
+    let Some(target) = source.pop() else {
+        return Ok(false);
+    };
+    destination.push(authored.replace(target));
+    if destination.len() > HISTORY_LIMIT {
+        destination.remove(0);
+    }
+    Ok(true)
 }
 
 #[tauri::command]
@@ -338,27 +371,7 @@ pub(super) fn undo_states(
     activity: &activity_workspace::ActivityWorkspaceState,
     history: &HistoryState,
 ) -> Result<bool, String> {
-    let target = {
-        let mut undo = history
-            .undo
-            .lock()
-            .map_err(|_| "undo history lock poisoned")?;
-        undo.pop()
-    };
-    let Some(target) = target else {
-        return Ok(false);
-    };
-    let current = capture_states(workspace, activity)?;
-    restore(target, workspace, activity)?;
-    let mut redo = history
-        .redo
-        .lock()
-        .map_err(|_| "redo history lock poisoned")?;
-    redo.push(current);
-    if redo.len() > HISTORY_LIMIT {
-        redo.remove(0);
-    }
-    Ok(true)
+    transfer_history(workspace, activity, history, true)
 }
 
 #[tauri::command]
@@ -375,42 +388,207 @@ pub(super) fn redo_states(
     activity: &activity_workspace::ActivityWorkspaceState,
     history: &HistoryState,
 ) -> Result<bool, String> {
-    let target = {
-        let mut redo = history
-            .redo
-            .lock()
-            .map_err(|_| "redo history lock poisoned")?;
-        redo.pop()
-    };
-    let Some(target) = target else {
-        return Ok(false);
-    };
-    let current = capture_states(workspace, activity)?;
-    restore(target, workspace, activity)?;
-    let mut undo = history
-        .undo
-        .lock()
-        .map_err(|_| "undo history lock poisoned")?;
-    undo.push(current);
-    if undo.len() > HISTORY_LIMIT {
-        undo.remove(0);
-    }
-    Ok(true)
+    transfer_history(workspace, activity, history, false)
 }
 
 #[tauri::command]
 pub fn history_reset(history: tauri::State<'_, HistoryState>) -> Result<(), String> {
-    history
+    reset_states(&history)
+}
+
+fn reset_states(history: &HistoryState) -> Result<(), String> {
+    let mut undo = history
         .undo
         .lock()
-        .map_err(|_| "undo history lock poisoned")?
-        .clear();
-    history
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
         .redo
         .lock()
-        .map_err(|_| "redo history lock poisoned")?
-        .clear();
+        .map_err(|_| "redo history lock poisoned")?;
+    undo.clear();
+    redo.clear();
     Ok(())
+}
+
+#[cfg(test)]
+mod atomic_history_tests {
+    use super::*;
+
+    fn poison<T: Send>(mutex: &Mutex<T>) {
+        std::thread::scope(|scope| {
+            assert!(
+                scope
+                    .spawn(|| {
+                        let _guard = mutex.lock().unwrap();
+                        panic!("injected history lock failure");
+                    })
+                    .join()
+                    .is_err()
+            );
+        });
+    }
+
+    fn fixture() -> (
+        WorkspaceState,
+        activity_workspace::ActivityWorkspaceState,
+        HistoryState,
+    ) {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        *workspace.project.lock().unwrap() = Some(Project::new("Before"));
+        checkpoint_states(&workspace, &activity, &history).unwrap();
+        *workspace.project.lock().unwrap() = Some(Project::new("After"));
+        (workspace, activity, history)
+    }
+
+    fn project_value(workspace: &WorkspaceState) -> serde_json::Value {
+        serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap()
+    }
+
+    fn stack_lengths(history: &HistoryState) -> (usize, usize) {
+        (
+            history
+                .undo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            history
+                .redo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+        )
+    }
+
+    #[test]
+    fn failed_undo_and_redo_preserve_authored_state_and_both_stacks() {
+        for undoing in [true, false] {
+            for failed_lock in ["late_workspace", "undo", "redo"] {
+                let (workspace, activity, history) = fixture();
+                if !undoing {
+                    undo_states(&workspace, &activity, &history).unwrap();
+                }
+                let before = project_value(&workspace);
+                let lengths = stack_lengths(&history);
+                match failed_lock {
+                    "late_workspace" => poison(&activity.diagrams),
+                    "undo" => poison(&history.undo),
+                    _ => poison(&history.redo),
+                }
+                assert!(transfer_history(&workspace, &activity, &history, undoing).is_err());
+                assert_eq!(project_value(&workspace), before);
+                assert_eq!(stack_lengths(&history), lengths);
+            }
+        }
+    }
+
+    #[test]
+    fn busy_workspace_rejects_history_operations_without_waiting_or_consuming_state() {
+        for operation in ["capture", "checkpoint", "undo", "redo"] {
+            let (workspace, activity, history) = fixture();
+            if operation == "redo" {
+                undo_states(&workspace, &activity, &history).unwrap();
+            }
+            let before = project_value(&workspace);
+            let lengths = stack_lengths(&history);
+            std::thread::scope(|scope| {
+                // Model an Activity command holding diagrams before it needs
+                // the repository. History must not retain that repository while
+                // waiting for this guard, or both operations would deadlock.
+                let held = activity.diagrams.lock().unwrap();
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let workspace_ref = &workspace;
+                let activity_ref = &activity;
+                let history_ref = &history;
+                let worker = scope.spawn(move || {
+                    let result = match operation {
+                        "capture" => capture_states(workspace_ref, activity_ref).map(|_| ()),
+                        "checkpoint" => checkpoint_states(workspace_ref, activity_ref, history_ref),
+                        "undo" => undo_states(workspace_ref, activity_ref, history_ref).map(|_| ()),
+                        _ => redo_states(workspace_ref, activity_ref, history_ref).map(|_| ()),
+                    };
+                    sender.send(result).unwrap();
+                });
+                let received = receiver.recv_timeout(std::time::Duration::from_secs(2));
+                // Always release the guard before asserting, so a regressed
+                // blocking implementation fails instead of hanging the suite.
+                drop(held);
+                worker.join().unwrap();
+                let error = received
+                    .expect("history waited on a busy workspace")
+                    .unwrap_err();
+                assert!(error.contains("workspace is busy"), "{error}");
+                assert!(activity.repository.try_lock().is_ok());
+                assert!(workspace.project.try_lock().is_ok());
+            });
+            assert_eq!(project_value(&workspace), before);
+            assert_eq!(stack_lengths(&history), lengths);
+            // Contention is temporary and does not poison a later operation.
+            assert!(capture_states(&workspace, &activity).is_ok());
+            assert!(
+                transfer_history(&workspace, &activity, &history, operation != "redo").unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn failed_checkpoint_and_reset_do_not_change_either_stack() {
+        let (workspace, activity, history) = fixture();
+        undo_states(&workspace, &activity, &history).unwrap();
+        checkpoint_states(&workspace, &activity, &history).unwrap();
+        // Retain both kinds of history to detect partial clearing/publication.
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
+        let lengths = stack_lengths(&history);
+        let before = project_value(&workspace);
+        poison(&history.redo);
+        assert!(checkpoint_states(&workspace, &activity, &history).is_err());
+        assert_eq!(stack_lengths(&history), lengths);
+        assert!(reset_states(&history).is_err());
+        assert_eq!(stack_lengths(&history), lengths);
+        assert_eq!(project_value(&workspace), before);
+    }
+
+    #[test]
+    fn successful_undo_redo_moves_state_and_preserves_identity() {
+        let (workspace, activity, history) = fixture();
+        let after = project_value(&workspace);
+        let allocation = workspace
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .name
+            .as_ptr();
+        assert!(undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(
+            workspace.project.lock().unwrap().as_ref().unwrap().name,
+            "Before"
+        );
+        assert_eq!(stack_lengths(&history), (0, 1));
+        assert!(redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(project_value(&workspace), after);
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .name
+                .as_ptr(),
+            allocation
+        );
+        assert_eq!(stack_lengths(&history), (1, 0));
+        assert!(!redo_states(&workspace, &activity, &history).unwrap());
+        reset_states(&history).unwrap();
+        assert!(!undo_states(&workspace, &activity, &history).unwrap());
+    }
 }
 
 #[cfg(test)]
