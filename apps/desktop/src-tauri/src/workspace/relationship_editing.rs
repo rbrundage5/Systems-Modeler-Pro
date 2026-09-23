@@ -196,19 +196,26 @@ fn reconnect_bdd_relationship_in_state(
         return Err("a BDD relationship cannot connect a Block to itself".into());
     }
     let display_kind = relationship_display_kind(&original);
-    if !original.association_ends.iter().any(|end| end.property_id.is_some())
+    if !original
+        .association_ends
+        .iter()
+        .any(|end| end.property_id.is_some())
         && duplicate_after_reconnect(
-        project,
-        relationship_id,
-        display_kind,
-        new_source,
-        new_target,
-    ) {
+            project,
+            relationship_id,
+            display_kind,
+            new_source,
+            new_target,
+        )
+    {
         return Err(format!("an equivalent {display_kind} already exists"));
     }
     // Prepare the complete semantic and affected-view change before publication.
     let mut candidate_project = project.clone();
-    if let Some((index, property_id)) = original.association_ends.iter().enumerate()
+    if let Some((index, property_id)) = original
+        .association_ends
+        .iter()
+        .enumerate()
         .find_map(|(index, end)| end.property_id.map(|id| (index, id)))
     {
         let (owner_id, type_id) = if index == 1 {
@@ -216,26 +223,45 @@ fn reconnect_bdd_relationship_in_state(
         } else {
             (new_target, new_source)
         };
-        candidate_project.move_element(property_id, owner_id).map_err(|error| error.to_string())?;
-        candidate_project.set_element_type(property_id, type_id).map_err(|error| error.to_string())?;
+        candidate_project
+            .move_element(property_id, owner_id)
+            .map_err(|error| error.to_string())?;
+        candidate_project
+            .set_element_type(property_id, type_id)
+            .map_err(|error| error.to_string())?;
     } else {
-        let candidate = candidate_project.relationships.get_mut(&relationship_id).ok_or("relationship not found")?;
+        let candidate = candidate_project
+            .relationships
+            .get_mut(&relationship_id)
+            .ok_or("relationship not found")?;
         candidate.source_id = new_source;
         candidate.target_id = new_target;
-        if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2 {
+        if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2
+        {
             candidate.association_ends[0].classifier_id = new_source;
             candidate.association_ends[1].classifier_id = new_target;
         }
     }
-    candidate_project.validate().map_err(|error| error.to_string())?;
+    candidate_project
+        .validate()
+        .map_err(|error| error.to_string())?;
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let selected = diagrams.iter().find(|diagram| diagram.id == diagram_id.to_string())
+    let selected = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id.to_string())
         .ok_or("diagram not found")?;
-    if !selected.edges.iter().any(|edge| edge.relationship_id == relationship_id.to_string()) {
+    if !selected
+        .edges
+        .iter()
+        .any(|edge| edge.relationship_id == relationship_id.to_string())
+    {
         return Err("diagram edge not found".into());
     }
     let candidate_diagrams = stage_relationship_presentations(
-        project, &candidate_project, &diagrams, Some(&diagram_id.to_string()),
+        project,
+        &candidate_project,
+        &diagrams,
+        Some(&diagram_id.to_string()),
     )?;
     let ibds = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
     super::ibd::validate_ibd_diagrams(&candidate_project, &ibds)?;
@@ -253,45 +279,76 @@ pub(super) fn stage_relationship_presentations(
     diagrams: &[super::BddDiagram],
     required_diagram: Option<&str>,
 ) -> Result<Vec<super::BddDiagram>, String> {
-    let changed: std::collections::HashMap<_, _> = candidate.relationships.values()
-        .filter(|relationship| previous.relationships.get(&relationship.id).is_some_and(|old| {
-            old.source_id != relationship.source_id || old.target_id != relationship.target_id
-        }))
+    let changed: std::collections::HashMap<_, _> = candidate
+        .relationships
+        .values()
+        .filter(|relationship| {
+            previous
+                .relationships
+                .get(&relationship.id)
+                .is_some_and(|old| {
+                    old.source_id != relationship.source_id
+                        || old.target_id != relationship.target_id
+                })
+        })
         .map(|relationship| (relationship.id.to_string(), relationship))
         .collect();
     let mut staged = diagrams.to_vec();
     for diagram in &mut staged {
         for edge_index in 0..diagram.edges.len() {
             let edge = &diagram.edges[edge_index];
-            let Some(relationship) = changed.get(&edge.relationship_id) else { continue; };
+            let Some(relationship) = changed.get(&edge.relationship_id) else {
+                continue;
+            };
             let mut endpoint_ids = Vec::new();
             for (element_id, old_node_id) in [
                 (relationship.source_id, edge.source_node_id.clone()),
                 (relationship.target_id, edge.target_node_id.clone()),
             ] {
-                if let Some(node) = diagram.nodes.iter().find(|node| node.element_id == element_id.to_string()) {
+                if let Some(node) = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.element_id == element_id.to_string())
+                {
                     endpoint_ids.push(node.id.clone());
                     continue;
                 }
                 if required_diagram == Some(diagram.id.as_str()) {
                     return Err("new classifier must be presented on the selected BDD".into());
                 }
-                let mut node = diagram.nodes.iter().find(|node| node.id == old_node_id)
-                    .cloned().ok_or("existing relationship endpoint presentation is missing")?;
+                let mut node = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == old_node_id)
+                    .cloned()
+                    .ok_or("existing relationship endpoint presentation is missing")?;
                 node.id = uuid::Uuid::new_v4().to_string();
                 node.element_id = element_id.to_string();
-                node.x = diagram.nodes.iter().map(|node| node.x + node.width)
-                    .fold(0.0, f64::max) + 60.0;
+                node.x = diagram
+                    .nodes
+                    .iter()
+                    .map(|node| node.x + node.width)
+                    .fold(0.0, f64::max)
+                    + 60.0;
                 node.actor_notation = None;
                 node.parameter_presentations.clear();
                 endpoint_ids.push(node.id.clone());
                 diagram.nodes.push(node);
             }
-            let source = diagram.nodes.iter().find(|node| node.id == endpoint_ids[0]).ok_or("source presentation missing")?;
-            let target = diagram.nodes.iter().find(|node| node.id == endpoint_ids[1]).ok_or("target presentation missing")?;
-            let lane = diagram.edges[..edge_index].iter().filter(|edge| {
-                edge.source_node_id == source.id && edge.target_node_id == target.id
-            }).count();
+            let source = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == endpoint_ids[0])
+                .ok_or("source presentation missing")?;
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == endpoint_ids[1])
+                .ok_or("target presentation missing")?;
+            let lane = diagram.edges[..edge_index]
+                .iter()
+                .filter(|edge| edge.source_node_id == source.id && edge.target_node_id == target.id)
+                .count();
             let points = super::route_relationship_at_lane(source, target, &diagram.nodes, lane)?;
             let edge = &mut diagram.edges[edge_index];
             edge.source_node_id = source.id.clone();
@@ -574,7 +631,9 @@ mod tests {
         view.nodes.pop();
         for (index, node) in view.nodes.iter_mut().enumerate() {
             node.id = uuid::Uuid::new_v4().to_string();
-            if malformed && index == 0 { node.y = f64::NAN; }
+            if malformed && index == 0 {
+                node.y = f64::NAN;
+            }
         }
         view.edges[0].id = uuid::Uuid::new_v4().to_string();
         view.edges[0].source_node_id = view.nodes[0].id.clone();
@@ -594,9 +653,16 @@ mod tests {
         for diagram in diagrams.iter() {
             assert_eq!(diagram.nodes.len(), 3);
             let edge = &diagram.edges[0];
-            let target = diagram.nodes.iter().find(|node| node.id == edge.target_node_id).unwrap();
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.target_node_id)
+                .unwrap();
             assert_eq!(target.element_id, fixture.blocks[2].to_string());
-            assert_eq!(edge.label_anchor, Some(super::super::routing::route_label_anchor(&edge.points)));
+            assert_eq!(
+                edge.label_anchor,
+                Some(super::super::routing::route_label_anchor(&edge.points))
+            );
         }
     }
 
@@ -616,17 +682,31 @@ mod tests {
             let mut guard = fixture.state.project.lock().unwrap();
             let project = guard.as_mut().unwrap();
             project.relationships.remove(&fixture.relationship_id);
-            project.create_composition(fixture.blocks[0], fixture.blocks[1], "part",
-                Multiplicity::ONE, Some(project.root_id)).unwrap()
+            project
+                .create_composition(
+                    fixture.blocks[0],
+                    fixture.blocks[1],
+                    "part",
+                    Multiplicity::ONE,
+                    Some(project.root_id),
+                )
+                .unwrap()
         };
         fixture.relationship_id = relationship;
-        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id = relationship.to_string();
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id =
+            relationship.to_string();
         add_second_view(&fixture, false);
         reconnect(&fixture, "target").unwrap();
         let guard = fixture.state.project.lock().unwrap();
         let project = guard.as_ref().unwrap();
-        assert_eq!(project.element(property).unwrap().type_id, Some(fixture.blocks[2]));
-        assert_eq!(project.relationship(relationship).unwrap().association_ends[1].property_id, Some(property));
+        assert_eq!(
+            project.element(property).unwrap().type_id,
+            Some(fixture.blocks[2])
+        );
+        assert_eq!(
+            project.relationship(relationship).unwrap().association_ends[1].property_id,
+            Some(property)
+        );
         project.validate().unwrap();
     }
 
