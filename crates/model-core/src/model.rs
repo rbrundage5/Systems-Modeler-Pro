@@ -470,6 +470,14 @@ pub enum ModelError {
     InvalidExtensionPoints(ElementId),
     #[error("represented Use Case subject is not a valid classifier: {0}")]
     InvalidUseCaseSubject(ElementId),
+    #[error("association end identity is duplicated: {0}")]
+    DuplicateAssociationEndId(RelationshipEndId),
+    #[error("aggregation/composition requires a binary association with only one aggregated end")]
+    InvalidAssociationAggregation,
+    #[error("association endpoints disagree with its first two member ends: {0}")]
+    AssociationEndpointMismatch(RelationshipId),
+    #[error("association ends are attached to a non-association relationship: {0}")]
+    UnexpectedAssociationEnds(RelationshipId),
     #[error("association requires at least two ends")]
     AssociationRequiresTwoEnds,
     #[error("association end classifier not found: {0}")]
@@ -1198,15 +1206,20 @@ impl Project {
         Ok(id)
     }
 
-    pub fn create_association(
-        &mut self,
-        owner_id: Option<ElementId>,
-        ends: Vec<AssociationEnd>,
-    ) -> Result<RelationshipId, ModelError> {
+    fn validate_association_ends(&self, ends: &[AssociationEnd]) -> Result<(), ModelError> {
         if ends.len() < 2 {
             return Err(ModelError::AssociationRequiresTwoEnds);
         }
-        for end in &ends {
+        let mut identities = HashSet::new();
+        let decorated = ends.iter().filter(|end| end.aggregation != AggregationKind::None).count();
+        if decorated > 1 || (decorated != 0 && ends.len() != 2) {
+            return Err(ModelError::InvalidAssociationAggregation);
+        }
+        for end in ends {
+            if !identities.insert(end.id) {
+                return Err(ModelError::DuplicateAssociationEndId(end.id));
+            }
+            Multiplicity::new(end.multiplicity.lower, end.multiplicity.upper)?;
             let classifier = self.elements.get(&end.classifier_id).ok_or(
                 ModelError::AssociationEndClassifierNotFound(end.classifier_id),
             )?;
@@ -1215,6 +1228,21 @@ impl Project {
                     end.classifier_id,
                 ));
             }
+        }
+        Ok(())
+    }
+
+    pub fn create_association(
+        &mut self,
+        owner_id: Option<ElementId>,
+        ends: Vec<AssociationEnd>,
+    ) -> Result<RelationshipId, ModelError> {
+        self.validate_association_ends(&ends)?;
+        let existing: HashSet<_> = self.relationships.values()
+            .flat_map(|relationship| relationship.association_ends.iter().map(|end| end.id))
+            .collect();
+        if let Some(end) = ends.iter().find(|end| existing.contains(&end.id)) {
+            return Err(ModelError::DuplicateAssociationEndId(end.id));
         }
         let source_id = ends[0].classifier_id;
         let target_id = ends[1].classifier_id;
@@ -1484,6 +1512,7 @@ impl Project {
             }
         }
         let duplicate_endpoints = self.duplicate_relationship_endpoints();
+        let mut association_end_ids = HashSet::new();
         for relationship in self.relationships.values() {
             if !external_ids.insert(relationship.external_id.clone()) {
                 return Err(ModelError::DuplicateExternalId(
@@ -1616,9 +1645,23 @@ impl Project {
                     location: location.to_owned(),
                 });
             }
-            for end in &relationship.association_ends {
-                self.element(end.classifier_id)
-                    .map_err(|_| ModelError::AssociationEndClassifierNotFound(end.classifier_id))?;
+            // Old foundation relationships have no member-end payload. Preserve
+            // their readability; once a payload is present it must be coherent.
+            if !relationship.association_ends.is_empty() {
+                if !matches!(relationship.kind, RelationshipKind::Association | RelationshipKind::Composition) {
+                    return Err(ModelError::UnexpectedAssociationEnds(relationship.id));
+                }
+                self.validate_association_ends(&relationship.association_ends)?;
+                if relationship.source_id != relationship.association_ends[0].classifier_id
+                    || relationship.target_id != relationship.association_ends[1].classifier_id
+                {
+                    return Err(ModelError::AssociationEndpointMismatch(relationship.id));
+                }
+                for end in &relationship.association_ends {
+                    if !association_end_ids.insert(end.id) {
+                        return Err(ModelError::DuplicateAssociationEndId(end.id));
+                    }
+                }
             }
             if relationship.kind == RelationshipKind::Generalization {
                 let source = self.element(relationship.source_id)?;
