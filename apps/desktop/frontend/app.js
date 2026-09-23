@@ -301,8 +301,8 @@ function applyAssociationEndDecoration(polyline, relationship) {
   const decoratedEnd = (relationship.association_ends || []).find((end) => end.aggregation === 'shared' || end.aggregation === 'composite');
   if (!decoratedEnd) return;
   const markerId = decoratedEnd.aggregation === 'composite' ? 'composite-diamond' : 'shared-diamond';
-  if (decoratedEnd.classifier_id === relationship.source_id) polyline.setAttribute('marker-start', `url(#${markerId})`);
-  else if (decoratedEnd.classifier_id === relationship.target_id) polyline.setAttribute('marker-end', `url(#${markerId})`);
+  const side = decoratedEnd.decoration_side || (decoratedEnd.classifier_id === relationship.source_id ? 'source' : 'target');
+  polyline.setAttribute(side === 'source' ? 'marker-start' : 'marker-end', `url(#${markerId})`);
 }
 function endpointLabel(end) {
   if (!end) return '';
