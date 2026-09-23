@@ -1063,10 +1063,12 @@ fn add_sequence_message_in_state(
         signature,
         arguments,
     });
-    systems_modeler_core::behavior::validate_interaction(project, interaction).map_err(|error| {
-        interaction.messages.pop();
-        error.to_string()
-    })?;
+    systems_modeler_core::behavior::validate_interaction(project, interaction).map_err(
+        |error| {
+            interaction.messages.pop();
+            error.to_string()
+        },
+    )?;
     Ok(id.to_string())
 }
 
@@ -2379,15 +2381,25 @@ mod authored_lock_tests {
         *state.behavior.lock().unwrap() = repository;
         state.behavior_diagrams.lock().unwrap().push(diagram);
         let lifeline = add_sequence_lifeline_in_state(
-            diagram_id.clone(), vec![part.to_string()], 200.0, &state,
-        ).unwrap();
+            diagram_id.clone(),
+            vec![part.to_string()],
+            200.0,
+            &state,
+        )
+        .unwrap();
         (state, diagram_id, lifeline)
     }
 
     fn add_found(state: &WorkspaceState, diagram: &str, target: &str) -> Result<String, String> {
         add_sequence_message_in_state(
-            diagram.into(), None, Some(target.into()), "Found".into(),
-            "receive".into(), None, Vec::new(), state,
+            diagram.into(),
+            None,
+            Some(target.into()),
+            "Found".into(),
+            "receive".into(),
+            None,
+            Vec::new(),
+            state,
         )
     }
 
@@ -2408,9 +2420,15 @@ mod authored_lock_tests {
             let state_ref = &state;
             let worker = scope.spawn(move || {
                 tx.send(add_state_vertex_in_state(
-                    "missing".into(), None, "State".into(), "State".into(),
-                    0.0, 0.0, state_ref,
-                )).unwrap();
+                    "missing".into(),
+                    None,
+                    "State".into(),
+                    "State".into(),
+                    0.0,
+                    0.0,
+                    state_ref,
+                ))
+                .unwrap();
             });
             let result = rx.recv_timeout(Duration::from_secs(2));
             // Release even after timeout so a regression fails instead of hanging CI.
@@ -2453,7 +2471,10 @@ mod authored_lock_tests {
         let before = semantics(&state);
         assert!(before.to_string().contains(&message_id));
         let project = state.project.lock().unwrap().take();
-        assert_eq!(add_found(&state, &diagram, &lifeline).unwrap_err(), "no project open");
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "no project open"
+        );
         assert_eq!(semantics(&state), before);
         *state.project.lock().unwrap() = project;
         assert!(add_found(&state, &diagram, &LifelineId::new().to_string()).is_err());
@@ -2462,7 +2483,10 @@ mod authored_lock_tests {
             let _guard = state.project.lock().unwrap();
             panic!("poison project fixture");
         }));
-        assert_eq!(add_found(&state, &diagram, &lifeline).unwrap_err(), "project lock poisoned");
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "project lock poisoned"
+        );
         assert_eq!(semantics(&state), before);
     }
 
@@ -2474,7 +2498,10 @@ mod authored_lock_tests {
             let _guard = state.behavior_diagrams.lock().unwrap();
             panic!("poison presentation fixture");
         }));
-        assert_eq!(add_found(&state, &diagram, &lifeline).unwrap_err(), "behavior diagram lock poisoned");
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "behavior diagram lock poisoned"
+        );
         assert!(state.project.try_lock().is_ok());
         assert!(state.behavior.try_lock().is_ok());
         assert_eq!(semantics(&state), before);
