@@ -143,7 +143,8 @@ mod workspace {
         set_stereotype_tag_values,
     };
     pub use relationship_editing::{
-        delete_bdd_relationship, reconnect_bdd_relationship, update_association_end,
+        composition_property_choices, delete_bdd_relationship, link_composition_property,
+        reconnect_bdd_relationship, update_association_end,
     };
     pub use repository_editing::{
         delete_model_element, delete_repository_diagram, move_repository_diagram,
@@ -206,6 +207,7 @@ mod workspace {
 }
 
 use serde::Serialize;
+use workspace::{composition_property_choices, link_composition_property};
 use workspace::{
     ActivityExecutionState, ActivityWorkspaceState, HistoryState, SequenceExecutionState,
     SharedWorkspaceState, StandardEditingState, StateMachineExecutionState, WorkspaceState,
@@ -896,6 +898,8 @@ fn main() {
             create_bdd_relationship,
             create_bdd_relationship_complete,
             update_association_end,
+            composition_property_choices,
+            link_composition_property,
             reconnect_bdd_relationship,
             delete_bdd_relationship
         ]))

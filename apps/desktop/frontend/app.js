@@ -563,6 +563,7 @@ function associationEndEditor(end, index) {
   </fieldset>`;
 }
 function renderRelationshipProperties(panel, project, relationship) {
+  const needsPartLink = relationship.kind === 'Composition' && !(relationship.association_ends || []).some((end) => end.property_id);
   panel.innerHTML = `<div class="property-heading">Relationship</div>
     <label>Type<input value="${escapeAttr(relationship.kind)}" disabled></label>
     <label>Owner<input value="${escapeAttr(project.elements.find((element)=>element.id===relationship.owner_id)?.name||'Model')}" disabled></label>
@@ -571,8 +572,25 @@ function renderRelationshipProperties(panel, project, relationship) {
     <button id="apply-source" class="primary">Reconnect source</button>
     <label>Target<select id="relationship-target">${relationshipEndpointOptions(project,relationship,'target')}</select></label>
     <button id="apply-target" class="primary">Reconnect target</button>
+    ${needsPartLink ? '<fieldset><legend>Part property</legend><label>Usage<select id="composition-part-choice"><option value="">Create a new part property</option></select></label><button id="link-composition-part" class="primary">Link part property</button></fieldset>' : ''}
     ${(relationship.association_ends || []).map(associationEndEditor).join('')}
     <button id="delete-relationship" class="danger">Delete relationship</button>`;
+  if (needsPartLink) {
+    const choices = $('composition-part-choice');
+    const linkButton = $('link-composition-part');
+    linkButton.disabled = true;
+    requireInvoke()('composition_property_choices', { relationshipId: relationship.id }).then((items) => {
+      if (!choices.isConnected) return;
+      choices.innerHTML += items.map((item) => `<option value="${escapeAttr(item.id)}">${escapeHtml(item.qualifiedName)} (${escapeHtml(item.externalId)})</option>`).join('');
+      linkButton.disabled = false;
+    }).catch((error) => renderStatus(`Cannot load part properties: ${error?.message || error}`));
+    linkButton.onclick = async () => {
+      await runCommand('Linking composition property…', () => requireInvoke()('link_composition_property', {
+        relationshipId: relationship.id, propertyId: choices.value || null,
+      }));
+      await refresh();
+    };
+  }
   const reconnect = async (side) => {
     const elementId = $(`relationship-${side}`).value;
     const command=TRACEABILITY_KINDS.has(relationship.kind)?'reconnect_traceability_relationship':'reconnect_bdd_relationship';
