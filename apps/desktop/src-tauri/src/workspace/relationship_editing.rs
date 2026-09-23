@@ -517,36 +517,92 @@ mod tests {
     #[test]
     fn linked_association_end_editor_updates_property_and_rejects_partial_changes() {
         let mut project = Project::new("Linked end editor");
-        let whole = project.create_element(ElementKind::Block, "Vehicle", project.root_id).unwrap();
-        let part = project.create_element(ElementKind::Block, "Wheel", project.root_id).unwrap();
-        let (relation, property) = project.create_composition(
-            whole, part, "wheel", Multiplicity::ONE, Some(project.root_id),
-        ).unwrap();
-        let end_id = project.relationship(relation).unwrap().association_ends[1].id.to_string();
+        let whole = project
+            .create_element(ElementKind::Block, "Vehicle", project.root_id)
+            .unwrap();
+        let part = project
+            .create_element(ElementKind::Block, "Wheel", project.root_id)
+            .unwrap();
+        let (relation, property) = project
+            .create_composition(
+                whole,
+                part,
+                "wheel",
+                Multiplicity::ONE,
+                Some(project.root_id),
+            )
+            .unwrap();
+        let end_id = project.relationship(relation).unwrap().association_ends[1]
+            .id
+            .to_string();
         edit_association_end(
-            &mut project, relation, &end_id, "front", Multiplicity::new(2, Some(2)).unwrap(),
-            true, AggregationKind::Composite,
-        ).unwrap();
+            &mut project,
+            relation,
+            &end_id,
+            "front",
+            Multiplicity::new(2, Some(2)).unwrap(),
+            true,
+            AggregationKind::Composite,
+        )
+        .unwrap();
         assert_eq!(project.element(property).unwrap().name, "front");
-        assert_eq!(project.element(property).unwrap().multiplicity.unwrap().notation(), "2");
+        assert_eq!(
+            project
+                .element(property)
+                .unwrap()
+                .multiplicity
+                .unwrap()
+                .notation(),
+            "2"
+        );
         let before = serde_json::to_value(&project).unwrap();
-        assert!(edit_association_end(
-            &mut project, relation, &end_id, "bad", Multiplicity::ONE,
-            false, AggregationKind::Composite,
-        ).is_err());
+        assert!(
+            edit_association_end(
+                &mut project,
+                relation,
+                &end_id,
+                "bad",
+                Multiplicity::ONE,
+                false,
+                AggregationKind::Composite,
+            )
+            .is_err()
+        );
         assert_eq!(serde_json::to_value(&project).unwrap(), before);
-        let inverse_id = project.relationship(relation).unwrap().association_ends[0].id.to_string();
-        assert!(edit_association_end(
-            &mut project, relation, &inverse_id, "", Multiplicity::new(0, None).unwrap(),
-            false, AggregationKind::None,
-        ).is_err());
+        let inverse_id = project.relationship(relation).unwrap().association_ends[0]
+            .id
+            .to_string();
+        assert!(
+            edit_association_end(
+                &mut project,
+                relation,
+                &inverse_id,
+                "",
+                Multiplicity::new(0, None).unwrap(),
+                false,
+                AggregationKind::None,
+            )
+            .is_err()
+        );
         assert_eq!(serde_json::to_value(&project).unwrap(), before);
         edit_association_end(
-            &mut project, relation, &end_id, "sharedWheel", Multiplicity::ONE,
-            true, AggregationKind::Shared,
-        ).unwrap();
-        assert_eq!(project.element(property).unwrap().kind, ElementKind::ReferenceProperty);
-        assert_eq!(project.relationship(relation).unwrap().association_ends[1].property_id, Some(property));
+            &mut project,
+            relation,
+            &end_id,
+            "sharedWheel",
+            Multiplicity::ONE,
+            true,
+            AggregationKind::Shared,
+        )
+        .unwrap();
+        assert_eq!(
+            project.element(property).unwrap().kind,
+            ElementKind::ReferenceProperty
+        );
+        assert_eq!(
+            project.relationship(relation).unwrap().association_ends[1].property_id,
+            Some(property)
+        );
         project.validate().unwrap();
     }
 

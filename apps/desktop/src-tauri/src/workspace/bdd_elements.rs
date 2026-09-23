@@ -788,27 +788,41 @@ pub(super) fn create_bdd_relationship_in_state(
         .ok_or("target classifier must be presented on the selected BDD")?;
     let owner_id = Some(parse_element_id(&diagram.owner_id)?);
     // A route failure must not publish either half of a new composition.
-    let lane_index = diagram.edges.iter().filter(|edge| {
-        edge.source_node_id == source_node.id && edge.target_node_id == target_node.id
-    }).count();
-    let points = route_relationship_at_lane(&source_node, &target_node, &diagram.nodes, lane_index)?;
+    let lane_index = diagram
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.source_node_id == source_node.id && edge.target_node_id == target_node.id
+        })
+        .count();
+    let points =
+        route_relationship_at_lane(&source_node, &target_node, &diagram.nodes, lane_index)?;
     let relationship_id = match kind {
         "Composition" => {
-            let type_name = project.element(target_id).map_err(|error| error.to_string())?.name.clone();
+            let type_name = project
+                .element(target_id)
+                .map_err(|error| error.to_string())?
+                .name
+                .clone();
             let mut characters = type_name.chars();
-            let base_name = characters.next().map(|first| {
-                first.to_lowercase().collect::<String>() + characters.as_str()
-            }).unwrap_or_else(|| "part".into());
-            let names: std::collections::HashSet<_> = project.owned_features(source_id)
-                .map(|element| element.name.clone()).collect();
+            let base_name = characters
+                .next()
+                .map(|first| first.to_lowercase().collect::<String>() + characters.as_str())
+                .unwrap_or_else(|| "part".into());
+            let names: std::collections::HashSet<_> = project
+                .owned_features(source_id)
+                .map(|element| element.name.clone())
+                .collect();
             let mut name = base_name.clone();
             let mut suffix = 2;
             while names.contains(&name) {
                 name = format!("{base_name}{suffix}");
                 suffix += 1;
             }
-            project.create_composition(source_id, target_id, name, Multiplicity::ONE, owner_id)
-                .map_err(|error| error.to_string())?.0
+            project
+                .create_composition(source_id, target_id, name, Multiplicity::ONE, owner_id)
+                .map_err(|error| error.to_string())?
+                .0
         }
         "Association" | "Aggregation" => {
             let aggregation = match kind {
@@ -1385,19 +1399,27 @@ mod composition_authoring_tests {
         let state = WorkspaceState::default();
         let mut project = Project::new("Composition authoring");
         let root = project.root_id;
-        let whole = project.create_element(ElementKind::Block, "Vehicle", root).unwrap();
-        let part = project.create_element(ElementKind::Block, "Wheel", root).unwrap();
+        let whole = project
+            .create_element(ElementKind::Block, "Vehicle", root)
+            .unwrap();
+        let part = project
+            .create_element(ElementKind::Block, "Wheel", root)
+            .unwrap();
         let diagram_id = DiagramId::new().to_string();
-        let nodes = [whole, part].iter().enumerate().map(|(index, id)| DiagramNode {
-            id: uuid::Uuid::new_v4().to_string(),
-            element_id: id.to_string(),
-            x: 100.0 + index as f64 * 350.0,
-            y: 100.0 + index as f64 * 150.0,
-            width: 180.0,
-            height: 100.0,
-            actor_notation: None,
-            parameter_presentations: Vec::new(),
-        }).collect();
+        let nodes = [whole, part]
+            .iter()
+            .enumerate()
+            .map(|(index, id)| DiagramNode {
+                id: uuid::Uuid::new_v4().to_string(),
+                element_id: id.to_string(),
+                x: 100.0 + index as f64 * 350.0,
+                y: 100.0 + index as f64 * 150.0,
+                width: 180.0,
+                height: 100.0,
+                actor_notation: None,
+                parameter_presentations: Vec::new(),
+            })
+            .collect();
         state.diagrams.lock().unwrap().push(BddDiagram {
             id: diagram_id.clone(),
             name: "Vehicle structure".into(),
@@ -1417,9 +1439,16 @@ mod composition_authoring_tests {
         let (state, diagram_id, whole, part) = fixture();
         let mut relationships = Vec::new();
         for _ in 0..2 {
-            relationships.push(create_bdd_relationship_in_state(
-                diagram_id.clone(), "Composition".into(), whole.to_string(), part.to_string(), &state,
-            ).unwrap());
+            relationships.push(
+                create_bdd_relationship_in_state(
+                    diagram_id.clone(),
+                    "Composition".into(),
+                    whole.to_string(),
+                    part.to_string(),
+                    &state,
+                )
+                .unwrap(),
+            );
         }
         let project_guard = state.project.lock().unwrap();
         let project = project_guard.as_ref().unwrap();
@@ -1441,9 +1470,15 @@ mod composition_authoring_tests {
         ibd::populate_ibd_diagram_from_context(project, &mut ibd).unwrap();
         assert_eq!(ibd.properties.len(), 2);
         for relationship_id in relationships {
-            let relation = project.relationship(parse_relationship_id(&relationship_id).unwrap()).unwrap();
+            let relation = project
+                .relationship(parse_relationship_id(&relationship_id).unwrap())
+                .unwrap();
             let property = relation.association_ends[1].property_id.unwrap();
-            assert!(ibd.properties.iter().any(|node| node.element_id == property.to_string()));
+            assert!(
+                ibd.properties
+                    .iter()
+                    .any(|node| node.element_id == property.to_string())
+            );
             let snapshot = association_end_snapshot(relation, 1, &relation.association_ends[1]);
             assert_eq!(snapshot.property_id, Some(property.to_string()));
             assert_eq!(snapshot.decoration_side.as_deref(), Some("source"));
@@ -1459,10 +1494,20 @@ mod composition_authoring_tests {
         let (state, diagram_id, whole, part) = fixture();
         state.diagrams.lock().unwrap()[0].nodes[1].x = f64::NAN;
         let before = serde_json::to_value(&*state.project.lock().unwrap()).unwrap();
-        assert!(create_bdd_relationship_in_state(
-            diagram_id, "Composition".into(), whole.to_string(), part.to_string(), &state,
-        ).is_err());
-        assert_eq!(serde_json::to_value(&*state.project.lock().unwrap()).unwrap(), before);
+        assert!(
+            create_bdd_relationship_in_state(
+                diagram_id,
+                "Composition".into(),
+                whole.to_string(),
+                part.to_string(),
+                &state,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(&*state.project.lock().unwrap()).unwrap(),
+            before
+        );
         assert!(state.diagrams.lock().unwrap()[0].edges.is_empty());
     }
 }
