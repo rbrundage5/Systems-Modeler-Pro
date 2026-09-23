@@ -2360,7 +2360,15 @@ mod inherited_lifeline_tests {
     fn fixture() -> (WorkspaceState, String, [ElementId; 4]) {
         let mut project = Project::new("Inherited Sequence roles");
         let mut blocks = Vec::new();
-        for name in ["Base", "Left", "Right", "Derived", "WheelBase", "Wheel", "Sensor"] {
+        for name in [
+            "Base",
+            "Left",
+            "Right",
+            "Derived",
+            "WheelBase",
+            "Wheel",
+            "Sensor",
+        ] {
             blocks.push(
                 project
                     .create_element(ElementKind::Block, name, project.root_id)
@@ -2466,13 +2474,9 @@ mod inherited_lifeline_tests {
             .iter()
             .find(|choice| choice.label == "wheel.sensor")
             .unwrap();
-        let id = add_sequence_lifeline_in_state(
-            diagram,
-            selected.property_path.clone(),
-            200.0,
-            &state,
-        )
-        .unwrap();
+        let id =
+            add_sequence_lifeline_in_state(diagram, selected.property_path.clone(), 200.0, &state)
+                .unwrap();
         let project_guard = state.project.lock().unwrap();
         let project = project_guard.as_ref().unwrap();
         assert_eq!(serde_json::to_value(&*project_guard).unwrap(), before);
@@ -2495,13 +2499,8 @@ mod inherited_lifeline_tests {
         let (state, diagram, [_, _, hidden, _]) = fixture();
         let before = authored_snapshot(&state);
         assert!(
-            add_sequence_lifeline_in_state(
-                diagram,
-                vec![hidden.to_string()],
-                200.0,
-                &state,
-            )
-            .is_err()
+            add_sequence_lifeline_in_state(diagram, vec![hidden.to_string()], 200.0, &state,)
+                .is_err()
         );
         assert_eq!(authored_snapshot(&state), before);
     }
