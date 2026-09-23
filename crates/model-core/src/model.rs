@@ -1743,7 +1743,9 @@ impl Project {
             values.sort_unstable_by_key(|id| id.0);
         }
         let mut owned: HashMap<ElementId, Vec<&Element>> = HashMap::new();
-        for element in self.elements.values().filter(|element| element.is_feature()) {
+        for element in self.elements.values().filter(|element| {
+            element.is_feature() && element.visibility != VisibilityKind::Private
+        }) {
             if let Some(owner) = element.owner_id {
                 owned.entry(owner).or_default().push(element);
             }
@@ -1771,6 +1773,35 @@ impl Project {
             }
         }
         Ok(result)
+    }
+
+    /// Features usable in this classifier without copying or changing their owners.
+    /// Own private features remain local; only non-private ancestor features inherit.
+    pub fn classifier_features(&self, classifier_id: ElementId) -> Result<Vec<&Element>, ModelError> {
+        let mut features = self.inherited_features(classifier_id)?;
+        features.extend(self.children(classifier_id).filter(|element| element.is_feature()));
+        features.sort_by(|left, right| {
+            left.name.cmp(&right.name).then_with(|| left.id.0.cmp(&right.id.0))
+        });
+        Ok(features)
+    }
+
+    pub fn has_classifier_feature(
+        &self,
+        classifier_id: ElementId,
+        feature_id: ElementId,
+    ) -> Result<bool, ModelError> {
+        if !self.element(classifier_id)?.is_classifier() {
+            return Err(ModelError::GeneralizationRequiresClassifiers);
+        }
+        let feature = self.element(feature_id)?;
+        if !feature.is_feature() {
+            return Ok(false);
+        }
+        if feature.owner_id == Some(classifier_id) {
+            return Ok(true);
+        }
+        Ok(self.inherited_features(classifier_id)?.iter().any(|item| item.id == feature_id))
     }
 
     fn would_create_generalization_cycle(

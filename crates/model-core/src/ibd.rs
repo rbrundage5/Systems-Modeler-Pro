@@ -161,7 +161,7 @@ impl Project {
             if !matches!(
                 property.kind,
                 ElementKind::PartProperty | ElementKind::ReferenceProperty
-            ) || property.owner_id != Some(classifier_id)
+            ) || !self.has_classifier_feature(classifier_id, *property_id)?
             {
                 return Err(ModelError::InvalidConnectorPath(*property_id));
             }
@@ -192,7 +192,7 @@ impl Project {
             if !port.is_port() {
                 return Err(ModelError::ConnectorEndpointMustBePortOrProperty(port_id));
             }
-            if port.owner_id != Some(reached_classifier) {
+            if !self.has_classifier_feature(reached_classifier, port_id)? {
                 return Err(ModelError::InvalidConnectorPath(port_id));
             }
             // Boundary ports have an empty role path and identify themselves as

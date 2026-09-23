@@ -428,11 +428,21 @@ pub fn populate_ibd_from_context(
         .iter_mut()
         .find(|d| d.id == diagram_id)
         .ok_or("IBD not found")?;
+    populate_ibd_diagram_from_context(project, diagram)
+}
+
+fn populate_ibd_diagram_from_context(
+    project: &Project,
+    diagram: &mut IbdDiagram,
+) -> Result<(), String> {
     let context = parse_element_id(&diagram.context_block_id)?;
+    let features = project
+        .classifier_features(context)
+        .map_err(|error| error.to_string())?;
     let mut x = 120.0;
     let mut y = 120.0;
 
-    for feature in project.children(context) {
+    for feature in features {
         match feature.kind {
             ElementKind::PartProperty | ElementKind::ReferenceProperty => {
                 if diagram
@@ -858,6 +868,93 @@ pub fn load_ibd_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_ibd_population_is_idempotent_and_survives_sqlite_reopen() {
+        let mut project = Project::new("Inherited IBD persistence");
+        let root = project.root_id;
+        let base = project
+            .create_element(ElementKind::Block, "Base", root)
+            .unwrap();
+        let child = project
+            .create_element(ElementKind::Block, "Child", root)
+            .unwrap();
+        let component = project
+            .create_element(ElementKind::Block, "Component", root)
+            .unwrap();
+        let interface = project
+            .create_element(ElementKind::InterfaceBlock, "Interface", root)
+            .unwrap();
+        project
+            .create_relationship(RelationshipKind::Generalization, child, base, Some(root))
+            .unwrap();
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "part",
+                base,
+                component,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let port = project
+            .create_typed_feature(
+                ElementKind::ProxyPort,
+                "port",
+                base,
+                interface,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let hidden = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "hidden",
+                base,
+                component,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        project.elements.get_mut(&hidden).unwrap().visibility =
+            systems_modeler_core::VisibilityKind::Private;
+        project.validate().unwrap();
+        let original_project = serde_json::to_value(&project).unwrap();
+        let mut diagram = IbdDiagram {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Child internals".into(),
+            context_block_id: child.to_string(),
+            owner_id: root.to_string(),
+            context_frame: Some(super::super::ibd_geometry::default_context_frame()),
+            properties: Vec::new(),
+            boundary_ports: Vec::new(),
+            connectors: Vec::new(),
+        };
+        populate_ibd_diagram_from_context(&project, &mut diagram).unwrap();
+        assert_eq!(diagram.properties.len(), 1);
+        assert_eq!(diagram.properties[0].element_id, part.to_string());
+        assert_eq!(diagram.boundary_ports.len(), 1);
+        assert_eq!(diagram.boundary_ports[0].element_id, port.to_string());
+        let first = serde_json::to_value(&diagram).unwrap();
+        populate_ibd_diagram_from_context(&project, &mut diagram).unwrap();
+        assert_eq!(serde_json::to_value(&diagram).unwrap(), first);
+        assert_eq!(serde_json::to_value(&project).unwrap(), original_project);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("inherited.smproj");
+        let mut database = ProjectDatabase::open(&path).unwrap();
+        database.save_project(&project).unwrap();
+        save_ibd_metadata(&mut database, &project, &[diagram]).unwrap();
+        drop(database);
+        let database = ProjectDatabase::open(&path).unwrap();
+        let reopened = database.load_first_project().unwrap();
+        let diagrams = load_ibd_metadata(&database, &reopened).unwrap();
+        assert_eq!(serde_json::to_value(&diagrams[0]).unwrap(), first);
+        assert_eq!(reopened.element(part).unwrap().owner_id, Some(base));
+        let mut invalid = diagrams[0].clone();
+        invalid.context_block_id = root.to_string();
+        let before = serde_json::to_value(&invalid).unwrap();
+        assert!(populate_ibd_diagram_from_context(&reopened, &mut invalid).is_err());
+        assert_eq!(serde_json::to_value(&invalid).unwrap(), before);
+    }
 
     fn property(id: &str, x: f64, y: f64) -> IbdPropertyPresentation {
         IbdPropertyPresentation {
