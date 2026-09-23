@@ -315,20 +315,16 @@ pub fn delete_activity_item(
     _workspace: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
 ) -> Result<(), String> {
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
     let original_diagram = diagram.clone();
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let original_activity = repository
         .activities
         .get(&activity_id)
@@ -421,20 +417,16 @@ pub fn reconnect_activity_edge(
         .lock()
         .map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_ref().ok_or("no project open")?;
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
     let original_diagram = diagram.clone();
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let original_activity = repository
         .activities
         .get(&activity_id)
@@ -541,10 +533,10 @@ pub(super) fn route_activity_with_bounds(
     activity_state: &activity_workspace::ActivityWorkspaceState,
     bounds: Option<routing::RouteRect>,
 ) -> Result<bool, String> {
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let index = diagrams
         .iter()
         .position(|diagram| diagram.id == diagram_id)
@@ -552,10 +544,6 @@ pub(super) fn route_activity_with_bounds(
     let original = diagrams[index].clone();
     let mut candidate = original.clone();
     let activity_id = activity_workspace::parse_activity_id(&candidate.activity_id)?;
-    let repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let activity = repository
         .activities
         .get(&activity_id)
@@ -573,10 +561,10 @@ pub(super) fn layout_activity_with_bounds(
     activity_state: &activity_workspace::ActivityWorkspaceState,
     bounds: Option<routing::RouteRect>,
 ) -> Result<bool, String> {
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let index = diagrams
         .iter()
         .position(|diagram| diagram.id == diagram_id)
@@ -607,10 +595,6 @@ pub(super) fn layout_activity_with_bounds(
         }
     }
     let activity_id = activity_workspace::parse_activity_id(&candidate.activity_id)?;
-    let repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let activity = repository
         .activities
         .get(&activity_id)

@@ -138,18 +138,14 @@ pub fn add_activity_action(
         .lock()
         .map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_ref().ok_or("no project open")?;
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
 
     let action = match kind.as_str() {
         "CallBehaviorAction" => {
@@ -234,18 +230,14 @@ pub fn add_activity_parameter_node(
     {
         return Err("ActivityParameterNode requires a Parameter stable ID".into());
     }
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let node = ActivityNode {
         id: ActivityNodeId::new(),
         name: project
@@ -279,18 +271,14 @@ pub fn add_activity_partition(
         .as_deref()
         .map(parse_element_id)
         .transpose()?;
-    let diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let partition = ActivityPartition {
         id: ActivityPartitionId::new(),
         name,
@@ -321,18 +309,14 @@ pub fn assign_activity_node_partition(
                 .map_err(|_| format!("invalid Activity partition id: {value}"))
         })
         .transpose()?;
-    let diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let activity = activity_for_diagram(&mut repository, diagram)?;
     if partition_id.is_some_and(|id| {
         !activity
@@ -376,18 +360,14 @@ pub fn add_structured_activity_node(
                 .map_err(|_| format!("invalid structured Activity node id: {value}"))
         })
         .transpose()?;
-    let diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let structured = StructuredActivityNode {
         id: StructuredNodeId::new(),
         name,
@@ -417,18 +397,14 @@ pub fn assign_activity_node_structured_parent(
                 .map_err(|_| format!("invalid structured Activity node id: {value}"))
         })
         .transpose()?;
-    let diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let activity = activity_for_diagram(&mut repository, diagram)?;
     if structured_node_id
         .is_some_and(|id| !activity.structured_nodes.iter().any(|node| node.id == id))
@@ -465,19 +441,15 @@ pub fn update_activity_node_semantics(
         .lock()
         .map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_ref().ok_or("no project open")?;
-    let diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let activity_workspace::ActivityAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let original = repository
         .activities
         .get(&activity_id)

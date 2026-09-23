@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use systems_modeler_core::{
     Action, ActionKind, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint,
     ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository, ObjectNode,
@@ -50,6 +50,30 @@ pub struct ActivityWorkspaceSnapshot {
 pub struct ActivityWorkspaceState {
     pub(super) repository: Mutex<ActivityRepository>,
     pub(super) diagrams: Mutex<Vec<ActivityDiagram>>,
+}
+
+pub(super) struct ActivityAuthoredGuards<'a> {
+    pub repository: MutexGuard<'a, ActivityRepository>,
+    pub diagrams: MutexGuard<'a, Vec<ActivityDiagram>>,
+}
+
+impl ActivityWorkspaceState {
+    /// Match complete Save/Open: semantic repository before presentations.
+    /// Acquire both fallible guards before the caller changes either field.
+    pub(super) fn lock_authored(&self) -> Result<ActivityAuthoredGuards<'_>, String> {
+        let repository = self
+            .repository
+            .lock()
+            .map_err(|_| "Activity repository lock poisoned")?;
+        let diagrams = self
+            .diagrams
+            .lock()
+            .map_err(|_| "Activity diagram lock poisoned")?;
+        Ok(ActivityAuthoredGuards {
+            repository,
+            diagrams,
+        })
+    }
 }
 
 impl Default for ActivityWorkspaceState {
@@ -257,26 +281,22 @@ pub fn create_activity_diagram(
         .lock()
         .map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_ref().ok_or("no project open")?;
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
+    let ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let activity_id = repository
         .create_activity(project, owner_id, context_id, name.clone())
         .map_err(|error| error.to_string())?;
     let diagram_id = DiagramId::new();
-    activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?
-        .push(ActivityDiagram {
-            id: diagram_id.to_string(),
-            name,
-            owner_id: owner_id.to_string(),
-            activity_id: activity_id.to_string(),
-            nodes: Vec::new(),
-            edges: Vec::new(),
-        });
+    diagrams.push(ActivityDiagram {
+        id: diagram_id.to_string(),
+        name,
+        owner_id: owner_id.to_string(),
+        activity_id: activity_id.to_string(),
+        nodes: Vec::new(),
+        edges: Vec::new(),
+    });
     Ok(diagram_id.to_string())
 }
 
@@ -340,10 +360,10 @@ pub fn add_activity_node(
     y: f64,
     activity_state: tauri::State<'_, ActivityWorkspaceState>,
 ) -> Result<String, String> {
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -352,10 +372,6 @@ pub fn add_activity_node(
     let node = make_activity_node(&kind, name)?;
     let node_id = node.id;
     let (width, height) = activity_node_size(&node.kind);
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     repository
         .activities
         .get_mut(&activity_id)
@@ -418,20 +434,16 @@ pub fn add_activity_edge(
         "ObjectFlow" => ActivityEdgeKind::ObjectFlow,
         _ => return Err(format!("unsupported Activity edge kind: {kind}")),
     };
-    let mut diagrams = activity_state
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?;
+    let ActivityAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = activity_state.lock_authored()?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("Activity diagram not found")?;
     let activity_id = parse_activity_id(&diagram.activity_id)?;
 
-    let mut repository = activity_state
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?;
     let activity = repository
         .activities
         .get_mut(&activity_id)
@@ -601,4 +613,89 @@ pub fn load_activity_workspace(
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")? = diagrams;
     Ok(())
+}
+
+#[cfg(test)]
+mod authored_lock_tests {
+    use super::*;
+
+    fn poison<T: Send>(mutex: &Mutex<T>) {
+        std::thread::scope(|scope| {
+            assert!(
+                scope
+                    .spawn(|| {
+                        let _guard = mutex.lock().unwrap();
+                        panic!("injected Activity lock failure");
+                    })
+                    .join()
+                    .is_err()
+            );
+        });
+    }
+
+    #[test]
+    fn activity_route_and_layout_acquire_repository_before_presentations() {
+        for layout in [false, true] {
+            let state = ActivityWorkspaceState::default();
+            poison(&state.repository);
+            std::thread::scope(|scope| {
+                let held = state.diagrams.lock().unwrap();
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let state_ref = &state;
+                let worker = scope.spawn(move || {
+                    let result = if layout {
+                        super::super::activity_mutation::layout_activity_with_bounds(
+                            "missing",
+                            state_ref,
+                            None,
+                        )
+                    } else {
+                        super::super::activity_mutation::route_activity_with_bounds(
+                            "missing",
+                            state_ref,
+                            None,
+                        )
+                    };
+                    sender.send(result).unwrap();
+                });
+                let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+                // Release even on failure: inverted acquisition must fail this
+                // test without leaving the test process permanently blocked.
+                drop(held);
+                worker.join().unwrap();
+                assert_eq!(
+                    result.expect("Activity command waited on presentations first"),
+                    Err("Activity repository lock poisoned".into())
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn late_activity_lock_failure_releases_repository_without_publication() {
+        let state = ActivityWorkspaceState::default();
+        let project = Project::new("Lock failure");
+        let id = state
+            .repository
+            .lock()
+            .unwrap()
+            .create_activity(&project, project.root_id, None, "Existing".to_string())
+            .unwrap();
+        let before = serde_json::to_value(&*state.repository.lock().unwrap()).unwrap();
+        poison(&state.diagrams);
+        assert!(state.lock_authored().is_err());
+        let repository = state.repository.try_lock().expect("repository guard leaked");
+        assert_eq!(serde_json::to_value(&*repository).unwrap(), before);
+        assert_eq!(repository.activities[&id].name, "Existing");
+    }
+
+    #[test]
+    fn activity_authored_guards_release_together_and_allow_retry() {
+        let state = ActivityWorkspaceState::default();
+        let guards = state.lock_authored().unwrap();
+        assert!(state.repository.try_lock().is_err());
+        assert!(state.diagrams.try_lock().is_err());
+        drop(guards);
+        assert!(state.lock_authored().is_ok());
+    }
 }
