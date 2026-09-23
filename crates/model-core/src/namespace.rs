@@ -1,5 +1,5 @@
 use crate::{Element, ElementId, ElementKind, Project, RelationshipKind, VisibilityKind};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -349,48 +349,56 @@ impl Project {
         namespace_id: ElementId,
         exported_only: bool,
     ) -> Vec<NameBinding> {
-        let mut visited = HashSet::new();
-        visited.insert(namespace_id);
-        self.package_import_bindings_recursive(namespace_id, exported_only, &mut visited)
-    }
-
-    fn package_import_bindings_recursive(
-        &self,
-        namespace_id: ElementId,
-        exported_only: bool,
-        visited: &mut HashSet<ElementId>,
-    ) -> Vec<NameBinding> {
+        // Index this query's snapshot once. Walking every import path repeated
+        // whole-project scans, revisited diamonds exponentially and used the
+        // native call stack for deeply chained libraries.
+        let mut exports: HashMap<ElementId, Vec<NameBinding>> = HashMap::new();
+        for element in self.elements.values() {
+            if element.is_packageable() && element.visibility == VisibilityKind::Public
+                && let Some(owner) = element.owner_id
+            {
+                exports.entry(owner).or_default().push(NameBinding {
+                    local_name: element.name.clone(),
+                    element_id: element.id,
+                });
+            }
+        }
+        let mut imports: HashMap<ElementId, Vec<ElementId>> = HashMap::new();
+        for relationship in self.relationships.values() {
+            if relationship.kind == RelationshipKind::PackageImport
+                && (relationship.visibility == VisibilityKind::Public
+                    || (!exported_only && relationship.source_id == namespace_id))
+            {
+                imports.entry(relationship.source_id).or_default().push(relationship.target_id);
+            } else if relationship.kind == RelationshipKind::ElementImport
+                && relationship.visibility == VisibilityKind::Public
+                && let Some(target) = self.elements.get(&relationship.target_id)
+            {
+                let local_name = relationship.alias.as_deref()
+                        .map(str::trim)
+                        .filter(|alias| !alias.is_empty())
+                        .unwrap_or(target.name.as_str())
+                        .to_string();
+                exports.entry(relationship.source_id).or_default().push(NameBinding {
+                    local_name,
+                    element_id: target.id,
+                });
+            }
+        }
         let mut bindings = Vec::new();
-        let mut imports: Vec<_> = self
-            .relationships
-            .values()
-            .filter(|relationship| {
-                relationship.kind == RelationshipKind::PackageImport
-                    && relationship.source_id == namespace_id
-                    && (!exported_only || relationship.visibility == VisibilityKind::Public)
-            })
-            .collect();
-        imports.sort_by_key(|relationship| relationship.id.to_string());
-
-        for relationship in imports {
-            let imported_namespace_id = relationship.target_id;
-            let Some(imported_namespace) = self.elements.get(&imported_namespace_id) else {
-                continue;
-            };
-            if !imported_namespace.is_namespace() || !visited.insert(imported_namespace_id) {
+        let mut visited = HashSet::from([namespace_id]);
+        let mut pending = imports.remove(&namespace_id).unwrap_or_default();
+        while let Some(imported_id) = pending.pop() {
+            if !visited.insert(imported_id)
+                || !self.elements.get(&imported_id).is_some_and(Element::is_namespace)
+            {
                 continue;
             }
-
-            bindings.extend(self.owned_bindings(imported_namespace_id, true));
-            bindings.extend(self.element_import_bindings(imported_namespace_id, true));
-            bindings.extend(self.package_import_bindings_recursive(
-                imported_namespace_id,
-                true,
-                visited,
-            ));
-            visited.remove(&imported_namespace_id);
+            // Every reached package exports publicly, regardless of how many
+            // paths lead to it. Aliases and distinct semantic IDs stay separate.
+            bindings.extend(exports.remove(&imported_id).unwrap_or_default());
+            pending.extend(imports.remove(&imported_id).unwrap_or_default());
         }
-
         bindings.sort_by(|left, right| {
             left.local_name.cmp(&right.local_name).then_with(|| {
                 left.element_id
@@ -398,6 +406,7 @@ impl Project {
                     .cmp(&right.element_id.to_string())
             })
         });
+        bindings.dedup();
         bindings
     }
 }
