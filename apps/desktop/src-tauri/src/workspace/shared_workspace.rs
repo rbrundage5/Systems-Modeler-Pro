@@ -614,19 +614,16 @@ pub fn rename_active_diagram_header(
             diagram.name = diagram_name.into();
         }
         "activity" => {
-            let mut diagrams = activity
-                .diagrams
-                .lock()
-                .map_err(|_| "Activity diagram lock poisoned")?;
+            let super::activity_workspace::ActivityAuthoredGuards {
+                mut repository,
+                mut diagrams,
+            } = activity.lock_authored()?;
             let diagram = diagrams
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("Activity diagram not found")?;
             let activity_id = super::activity_workspace::parse_activity_id(&diagram.activity_id)?;
-            activity
-                .repository
-                .lock()
-                .map_err(|_| "Activity repository lock poisoned")?
+            repository
                 .activities
                 .get_mut(&activity_id)
                 .ok_or("Activity not found")?
