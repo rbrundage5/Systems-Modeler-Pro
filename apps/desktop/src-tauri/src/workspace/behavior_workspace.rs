@@ -2355,9 +2355,15 @@ mod authored_lock_tests {
             .create_element(ElementKind::Block, "Controller", project.root_id)
             .unwrap();
         let part = project
-            .create_element(ElementKind::PartProperty, "component", block)
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "component",
+                block,
+                block,
+                systems_modeler_core::Multiplicity::ONE,
+            )
             .unwrap();
-        project.elements.get_mut(&part).unwrap().type_id = Some(block);
+        project.validate().unwrap();
         let mut repository = BehaviorRepository::default();
         let interaction = repository
             .create_interaction(&project, block, "Sequence")
