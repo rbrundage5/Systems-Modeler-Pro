@@ -19,14 +19,23 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
         remove: (...names) => names.forEach(name => this.classes.delete(name)),
         toggle: (name, value) => value ? this.classes.add(name) : this.classes.delete(name),
       };
-      this.dataset = {}; this.style = {}; this.children = []; this.listeners = new Map();
+      this.dataset = {}; this.style = {}; this.attributes = {}; this.children = []; this.listeners = new Map();
     }
     set className(value) { this.classes = new Set(value.split(' ').filter(Boolean)); }
     addEventListener(name, listener) { const list = this.listeners.get(name) || []; list.push(listener); this.listeners.set(name, list); }
     removeEventListener(name, listener) { this.listeners.set(name, (this.listeners.get(name) || []).filter(item => item !== listener)); }
     appendChild(child) { this.children.push(child); child.parentElement = this; return child; }
-    setAttribute() {}
-    matches(selector) { return selector.split(',').some(item => this.classes.has(item.trim().slice(1))); }
+    setAttribute(name, value) { this.attributes[name] = String(value); }
+    getAttribute(name) { return this.attributes[name]; }
+    matches(selector) {
+      return selector.split(',').some(item => {
+        const match = /^(?:[\w-]+)?\.([\w-]+)(?:\[data-presentation-id="([^"]+)"\])?$/.exec(item.trim());
+        return match && this.classes.has(match[1]) && (!match[2] || this.dataset.presentationId === match[2]);
+      });
+    }
+    querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this); }
     closest(selector) {
       for (let current = this; current; current = current.parentElement) if (current.matches(selector)) return current;
       return null;
@@ -56,17 +65,37 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
   };
   const document = {
     createElement: () => new Node(), head: new Node(), getElementById: id => id === 'canvas' ? canvas : null,
-    querySelector: () => null,
+    createElementNS: () => new Node(),
+    querySelector: selector => {
+      const match = /^#canvas \.([\w-]+)\[data-presentation-id="([^"]+)"\]$/.exec(selector);
+      if (!match) return null;
+      const descend = node => node.children.flatMap(child => [child, ...descend(child)]);
+      return descend(canvas).find(node => node.classList.contains(match[1]) && node.dataset.presentationId === match[2]) || null;
+    },
     querySelectorAll: selector => selector === `#canvas .${kind}` ? [node] : [],
   };
   const context = {
-    state, document, Element: Node, console, CSS: { escape: String },
+    state, document, Element: Node, console, CSS: { escape: String }, SVG_NS: 'http://www.w3.org/2000/svg',
     MutationObserver: class { observe() {} }, queueMicrotask() {}, getComputedStyle: () => ({ position: 'absolute' }),
     window: { smpPreviewStateTransitionGeometry: (_, __, geometry) => previews.push({ ...geometry }), smpRendererHost: { frameGeometry: () => options.frame || null } },
-    runCommand: async (_, action) => action(), requireInvoke: () => async (command, args) => { commands.push({ command, args }); return options.invoke?.(command, args); },
-    refresh: async () => { refreshes++; }, render() {}, renderStatus() {},
+    runCommand: async (_, action) => action(), requireInvoke: () => async (command, args) => {
+      commands.push({ command, args });
+      return command === 'ibd_item_flow_notation' ? options.itemFlows : options.invoke?.(command, args);
+    },
+    $: id => document.getElementById(id), localStorage: { getItem: () => JSON.stringify(options.labelVisibility || {}) },
+    refresh: async () => { refreshes++; }, render() {}, renderStatus() {}, renderContext() {},
+    renderDiagramTabs() {}, renderRepository() {}, renderCanvas() {}, renderPalette() {}, renderProperties() {},
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/diagram-interaction.js'), 'utf8'), context);
+  if (options.connectors) {
+    diagram.connectors = options.connectors;
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/ibd-ui.js'), 'utf8'), context);
+    if (options.itemFlows) {
+      state.itemFlowNotation = options.itemFlows;
+      vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/item-flow-ui.js'), 'utf8'), context);
+    }
+    context.renderIbdConnectorLayer(canvas, diagram, { relationships: options.connectors.map(edge => ({ id: edge.relationship_id, name: 'Link', kind: 'Connector' })) });
+  }
   context.window.smpInstallPresentationGeometry();
   const handle = node.children.find(child => child.classList.contains('smp-resize-handle'));
   function event(target, x, y, pointerId = 1) {
@@ -82,7 +111,7 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
       end: name => target.fire(name, event(target, 50, 60)),
     };
   }
-  return { node, canvas, commands, original, diagram, previews, start, event, get refreshes() { return refreshes; } };
+  return { node, canvas, commands, original, diagram, previews, start, event, document, state, get refreshes() { return refreshes; } };
 }
 
 module.exports = { fixture, flush };

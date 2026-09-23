@@ -213,13 +213,13 @@ pub fn preview_ibd_port_geometry(
     size: f64,
     frame_preference: Option<super::shared_workspace::DiagramFramePreference>,
     state: tauri::State<'_, WorkspaceState>,
-) -> Result<ibd::IbdPortPresentation, String> {
+) -> Result<super::ibd_geometry::IbdPortGeometryPreview, String> {
     let diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
         .ok_or("IBD not found")?;
-    super::ibd_geometry::preview_port(
+    super::ibd_geometry::preview_connected_port(
         diagram,
         &presentation_id,
         x,

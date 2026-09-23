@@ -65,3 +65,71 @@ test('port resizing requests square geometry and invalid preview leaves the last
   assert.equal(ui.node.style.width, '16px'); assert.equal(ui.node.style.height, '16px');
   gesture.end('pointercancel');
 });
+
+test('native connector and label previews follow the port and cancel restores the rendered routes', async () => {
+  const edge = { id: 'edge', relationship_id: 'rel', source_presentation_id: 'presentation', target_presentation_id: 'target',
+    points: [{ x: 54, y: 128 }, { x: 200, y: 128 }], label_anchor: { x: 127, y: 128 } };
+  const projected = { ...edge, points: [{ x: 1072, y: 400 }, { x: 200, y: 400 }], label_anchor: { x: 636, y: 400 } };
+  const ui = fixture('ibd-port', 1, { frame, connectors: [edge], invoke: () => ({ x: 1072, y: 400, size: 16, connectors: [projected] }) });
+  const line = ui.document.querySelector('#canvas .ibd-connector[data-presentation-id="edge"]');
+  const label = ui.document.querySelector('#canvas .relationship-label[data-presentation-id="edge"]');
+  const before = JSON.stringify(ui.diagram);
+  const gesture = ui.start(); gesture.move(500, 400); await flush();
+  assert.equal(line.getAttribute('points'), '1072,400 200,400');
+  assert.equal(label.getAttribute('x'), '641'); assert.equal(label.getAttribute('y'), '394');
+  assert.equal(JSON.stringify(ui.diagram), before, 'preview cannot change authored snapshots');
+  gesture.end('pointercancel');
+  assert.equal(line.getAttribute('points'), '54,128 200,128');
+  assert.equal(label.getAttribute('x'), '132'); assert.equal(label.getAttribute('y'), '122');
+  assert.equal(ui.commands.length, 1); assert.equal(ui.refreshes, 0);
+});
+
+test('an outstanding native route preview cannot repaint after switching diagrams', async () => {
+  const reply = deferred();
+  const edge = { id: 'edge', relationship_id: 'rel', source_presentation_id: 'presentation', target_presentation_id: 'target',
+    points: [{ x: 54, y: 128 }, { x: 200, y: 128 }], label_anchor: null };
+  const ui = fixture('ibd-port', 1, { frame, connectors: [edge], invoke: () => reply.promise });
+  const line = ui.document.querySelector('#canvas .ibd-connector[data-presentation-id="edge"]');
+  const gesture = ui.start(); gesture.move(500, 400); ui.state.selectedDiagramId = 'another';
+  reply.resolve({ x: 1072, y: 400, size: 16, connectors: [{ ...edge, points: [{ x: 1, y: 2 }] }] }); await flush();
+  assert.equal(line.getAttribute('points'), '54,128 200,128');
+  gesture.end('pointercancel');
+});
+
+for (const hideLabels of [false, true]) {
+  test(`ItemFlow arrows follow native routes and cancel restores them (hidden labels: ${hideLabels})`, async () => {
+    const edge = { id: 'edge', relationship_id: 'rel', source_presentation_id: 'presentation', target_presentation_id: 'target',
+      points: [{ x: 54, y: 128 }, { x: 200, y: 128 }], label_anchor: null };
+    const other = { ...edge, id: 'other', relationship_id: 'other-rel', source_presentation_id: 'other-source' };
+    const projected = { ...edge, points: [{ x: 1072, y: 400 }, { x: 200, y: 400 }] };
+    const flows = [
+      { relationship_id: 'flow', connector_id: 'rel', direction: 'Forward', conveyed_item_names: ['Fuel'] },
+      { relationship_id: 'reverse-flow', connector_id: 'rel', direction: 'Reverse', conveyed_item_names: ['Status'] },
+      { relationship_id: 'other-flow', connector_id: 'other-rel', direction: 'Forward', conveyed_item_names: ['Signal'] },
+    ];
+    const ui = fixture('ibd-port', 1, { frame, connectors: [edge, other], itemFlows: flows,
+      labelVisibility: { 'project:diagram:rel:item-flow-labels': !hideLabels },
+      invoke: () => ({ x: 1072, y: 400, size: 16, connectors: [projected] }),
+    });
+    await flush();
+    const overlay = id => ui.canvas.querySelector(`.ibd-item-flow-overlay[data-presentation-id="${id}"]`);
+    const arrowPoints = () => overlay('edge').querySelectorAll('.ibd-item-flow-arrow').map(node => node.getAttribute('points'));
+    const before = arrowPoints();
+    const unrelated = overlay('other');
+    const authored = JSON.stringify(ui.diagram);
+    const gesture = ui.start(); gesture.move(500, 400); await flush();
+    assert.deepEqual(arrowPoints(), ['636,409 650,402 650,416', '636,391 622,384 622,398']);
+    assert.equal(overlay('other'), unrelated, 'unconnected adornments must not be rebuilt');
+    const labels = overlay('edge').querySelectorAll('.item-flow-label');
+    assert.equal(labels.length, hideLabels ? 0 : 2);
+    if (!hideLabels) {
+      assert.deepEqual(labels.map(node => node.textContent), ['Fuel', 'Status']);
+      assert.equal(labels[0].getAttribute('x'), '641'); assert.equal(labels[0].getAttribute('y'), '390');
+    }
+    assert.equal(JSON.stringify(ui.diagram), authored);
+    gesture.end('pointercancel');
+    assert.deepEqual(arrowPoints(), before);
+    assert.equal(overlay('edge').querySelectorAll('.item-flow-label').length, hideLabels ? 0 : 2);
+    assert.equal(ui.commands.filter(item => item.command === 'update_ibd_port_geometry').length, 0);
+  });
+}

@@ -108,7 +108,12 @@
     if (!svg) return;
 
     removeHiddenConnectorLabels(svg, diagram, project);
+    renderItemFlowOverlays(svg, diagram, diagram.connectors.map(edge => ({
+      ...edge, points: ibdConnectorDisplayPoints(diagram, edge),
+    })));
+  };
 
+  function renderItemFlowOverlays(svg, diagram, edges) {
     const flowsByConnector = new Map();
     const seenFlowKeys = new Set();
     for (const flow of state.itemFlowNotation || []) {
@@ -119,9 +124,13 @@
       flowsByConnector.get(flow.connector_id).push(flow);
     }
 
-    for (const edge of diagram.connectors) {
+    for (const edge of edges) {
       const flows = flowsByConnector.get(edge.relationship_id) || [];
       if (!flows.length || !edge.points || edge.points.length < 2) continue;
+      const overlay = document.createElementNS(SVG_NS, 'g');
+      overlay.classList.add('ibd-item-flow-overlay');
+      overlay.dataset.presentationId = edge.id;
+      svg.appendChild(overlay);
 
       const segmentIndex = Math.max(1, Math.floor(edge.points.length / 2));
       const from = edge.points[segmentIndex - 1];
@@ -157,7 +166,7 @@
         const title = document.createElementNS(SVG_NS, 'title');
         title.textContent = `Item Flow: ${(flow.conveyed_item_names || []).join(', ') || 'conveyed item'}`;
         arrow.appendChild(title);
-        svg.appendChild(arrow);
+        overlay.appendChild(arrow);
 
         if (labelVisible(diagram.id, edge.relationship_id, 'item-flow-labels')) {
           const label = document.createElementNS(SVG_NS, 'text');
@@ -165,10 +174,24 @@
           label.setAttribute('x', tipX + px * 14 + 5);
           label.setAttribute('y', tipY + py * 14 - 5);
           label.textContent = (flow.conveyed_item_names || []).join(', ') || 'item';
-          svg.appendChild(label);
+          overlay.appendChild(label);
         }
       });
     }
+  }
+
+  window.smpPreviewIbdItemFlows = (diagram, edges, preview) => {
+    if (state.selectedDiagramId !== diagram.id) return;
+    const svg = $('canvas')?.querySelector('svg.relationship-layer');
+    if (!svg) return;
+    for (const edge of edges) {
+      const id = CSS.escape(String(edge.id));
+      svg.querySelector(`.ibd-item-flow-overlay[data-presentation-id="${id}"]`)?.remove();
+    }
+    // These adornments use the native route; they never author connector paths.
+    renderItemFlowOverlays(svg, diagram, preview ? edges : edges.map(edge => ({
+      ...edge, points: ibdConnectorDisplayPoints(diagram, edge),
+    })));
   };
 
   const baseRenderPropertiesItemFlow = renderProperties;
