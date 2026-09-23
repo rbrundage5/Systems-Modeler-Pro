@@ -584,20 +584,16 @@ pub fn rename_active_diagram_header(
                 .name = diagram_name.into();
         }
         "state-machine" | "sequence" => {
-            let mut diagrams = workspace
-                .behavior_diagrams
-                .lock()
-                .map_err(|_| "behavior diagram lock poisoned")?;
+            let super::behavior_workspace::BehaviorAuthoredGuards {
+                mut repository,
+                mut diagrams,
+            } = super::behavior_workspace::lock_behavior_authored(&workspace)?;
             let diagram = diagrams
                 .iter_mut()
                 .find(|diagram| diagram.id == diagram_id)
                 .ok_or("behavior diagram not found")?;
             let semantic_id = uuid::Uuid::parse_str(&diagram.semantic_id)
                 .map_err(|_| "behavior semantic id is invalid")?;
-            let mut repository = workspace
-                .behavior
-                .lock()
-                .map_err(|_| "behavior repository lock poisoned")?;
             if active.family.id.0 == "state-machine" {
                 repository
                     .state_machines

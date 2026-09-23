@@ -6,6 +6,7 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::MutexGuard;
 use systems_modeler_core::behavior::{
     BehaviorRepository, CombinedFragment, Event, ExecutionSpecification, InteractionOperand,
     InteractionOperator, Lifeline, LifelineId, Message, MessageId, MessageSignature, MessageSort,
@@ -87,6 +88,30 @@ pub struct BehaviorDiagram {
     pub hidden_semantic_ids: Vec<String>,
     #[serde(default)]
     pub presentation_copies: Vec<BehaviorPresentationCopy>,
+}
+
+// Nested authoring uses the same repository-before-presentation order as Save/Open.
+// Callers that also need the project must acquire it before this pair.
+pub(super) struct BehaviorAuthoredGuards<'a> {
+    pub repository: MutexGuard<'a, BehaviorRepository>,
+    pub diagrams: MutexGuard<'a, Vec<BehaviorDiagram>>,
+}
+
+pub(super) fn lock_behavior_authored(
+    state: &WorkspaceState,
+) -> Result<BehaviorAuthoredGuards<'_>, String> {
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    Ok(BehaviorAuthoredGuards {
+        repository,
+        diagrams,
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -485,10 +510,22 @@ pub fn add_state_vertex(
     y: f64,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
-    let mut diagrams = state
-        .behavior_diagrams
-        .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
+    add_state_vertex_in_state(diagram_id, region_id_value, kind, name, x, y, &state)
+}
+
+fn add_state_vertex_in_state(
+    diagram_id: String,
+    region_id_value: Option<String>,
+    kind: String,
+    name: String,
+    x: f64,
+    y: f64,
+    state: &WorkspaceState,
+) -> Result<String, String> {
+    let BehaviorAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = lock_behavior_authored(state)?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -497,10 +534,6 @@ pub fn add_state_vertex(
         return Err("active behavior diagram is not a State Machine".into());
     }
     let machine_id = state_machine_id(&diagram.semantic_id)?;
-    let mut repository = state
-        .behavior
-        .lock()
-        .map_err(|_| "behavior lock poisoned")?;
     let target_region = match region_id_value {
         Some(value) => region_id(&value)?,
         None => root_region_id(&repository, machine_id)?,
@@ -769,10 +802,21 @@ pub fn add_sequence_lifeline(
     x: f64,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
-    let mut diagrams = state
-        .behavior_diagrams
-        .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
+    add_sequence_lifeline_in_state(diagram_id, represented_path, x, &state)
+}
+
+fn add_sequence_lifeline_in_state(
+    diagram_id: String,
+    represented_path: Vec<String>,
+    x: f64,
+    state: &WorkspaceState,
+) -> Result<String, String> {
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let BehaviorAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = lock_behavior_authored(state)?;
     let diagram = diagrams
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id)
@@ -787,8 +831,6 @@ pub fn add_sequence_lifeline(
         .iter()
         .map(|value| parse_element_id(value))
         .collect::<Result<_, _>>()?;
-    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_ref().ok_or("no project open")?;
     project
         .resolve_structural_path(context_id, &path)
         .map_err(|error| error.to_string())?;
@@ -802,12 +844,7 @@ pub fn add_sequence_lifeline(
         })
         .collect::<Result<Vec<_>, _>>()?
         .join(".");
-    drop(project_guard);
     let id = LifelineId::new();
-    let mut repository = state
-        .behavior
-        .lock()
-        .map_err(|_| "behavior lock poisoned")?;
     repository
         .interactions
         .get_mut(&interaction_id)
@@ -943,10 +980,35 @@ pub fn add_sequence_message(
     arguments: Vec<String>,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
-    let diagrams = state
-        .behavior_diagrams
-        .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?;
+    add_sequence_message_in_state(
+        diagram_id,
+        source_lifeline_id,
+        target_lifeline_id,
+        sort,
+        name,
+        signature_id,
+        arguments,
+        &state,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // Mirrors the stable Tauri command parameters.
+fn add_sequence_message_in_state(
+    diagram_id: String,
+    source_lifeline_id: Option<String>,
+    target_lifeline_id: Option<String>,
+    sort: String,
+    name: String,
+    signature_id: Option<String>,
+    arguments: Vec<String>,
+    state: &WorkspaceState,
+) -> Result<String, String> {
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let BehaviorAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = lock_behavior_authored(state)?;
     let diagram = diagrams
         .iter()
         .find(|diagram| diagram.id == diagram_id)
@@ -954,10 +1016,6 @@ pub fn add_sequence_message(
     let interaction_id =
         parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
     drop(diagrams);
-    let mut repository = state
-        .behavior
-        .lock()
-        .map_err(|_| "behavior lock poisoned")?;
     let interaction = repository
         .interactions
         .get_mut(&interaction_id)
@@ -1005,15 +1063,12 @@ pub fn add_sequence_message(
         signature,
         arguments,
     });
-    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    systems_modeler_core::behavior::validate_interaction(
-        project_guard.as_ref().ok_or("no project open")?,
-        interaction,
-    )
-    .map_err(|error| {
-        interaction.messages.pop();
-        error.to_string()
-    })?;
+    systems_modeler_core::behavior::validate_interaction(project, interaction).map_err(
+        |error| {
+            interaction.messages.pop();
+            error.to_string()
+        },
+    )?;
     Ok(id.to_string())
 }
 
@@ -2284,5 +2339,177 @@ mod state_machine_layout_tests {
             diagram.edge_routes[0].semantic_id,
             transition_id.to_string()
         );
+    }
+}
+
+#[cfg(test)]
+mod authored_lock_tests {
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    fn sequence_fixture() -> (WorkspaceState, String, String) {
+        let mut project = Project::new("Sequence locking");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .unwrap();
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "component",
+                block,
+                block,
+                systems_modeler_core::Multiplicity::ONE,
+            )
+            .unwrap();
+        project.validate().unwrap();
+        let mut repository = BehaviorRepository::default();
+        let interaction = repository
+            .create_interaction(&project, block, "Sequence")
+            .unwrap();
+        let diagram = BehaviorDiagram {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Sequence".into(),
+            owner_id: project.root_id.to_string(),
+            context_id: block.to_string(),
+            kind: BehaviorDiagramKind::Sequence,
+            semantic_id: interaction.to_string(),
+            state_nodes: Vec::new(),
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        };
+        let diagram_id = diagram.id.clone();
+        let state = WorkspaceState::default();
+        *state.project.lock().unwrap() = Some(project);
+        *state.behavior.lock().unwrap() = repository;
+        state.behavior_diagrams.lock().unwrap().push(diagram);
+        let lifeline = add_sequence_lifeline_in_state(
+            diagram_id.clone(),
+            vec![part.to_string()],
+            200.0,
+            &state,
+        )
+        .unwrap();
+        (state, diagram_id, lifeline)
+    }
+
+    fn add_found(state: &WorkspaceState, diagram: &str, target: &str) -> Result<String, String> {
+        add_sequence_message_in_state(
+            diagram.into(),
+            None,
+            Some(target.into()),
+            "Found".into(),
+            "receive".into(),
+            None,
+            Vec::new(),
+            state,
+        )
+    }
+
+    fn semantics(state: &WorkspaceState) -> serde_json::Value {
+        serde_json::to_value(&*state.behavior.lock().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn state_vertex_checks_repository_before_waiting_for_presentations() {
+        let state = WorkspaceState::default();
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.behavior.lock().unwrap();
+            panic!("poison repository fixture");
+        }));
+        let presentations = state.behavior_diagrams.lock().unwrap();
+        std::thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            let state_ref = &state;
+            let worker = scope.spawn(move || {
+                tx.send(add_state_vertex_in_state(
+                    "missing".into(),
+                    None,
+                    "State".into(),
+                    "State".into(),
+                    0.0,
+                    0.0,
+                    state_ref,
+                ))
+                .unwrap();
+            });
+            let result = rx.recv_timeout(Duration::from_secs(2));
+            // Release even after timeout so a regression fails instead of hanging CI.
+            drop(presentations);
+            worker.join().unwrap();
+            assert_eq!(result.unwrap().unwrap_err(), "behavior lock poisoned");
+        });
+    }
+
+    #[test]
+    fn sequence_commands_check_project_before_waiting_for_authored_locks() {
+        for message in [false, true] {
+            let state = WorkspaceState::default();
+            let repository = state.behavior.lock().unwrap();
+            let presentations = state.behavior_diagrams.lock().unwrap();
+            std::thread::scope(|scope| {
+                let (tx, rx) = mpsc::channel();
+                let state_ref = &state;
+                let worker = scope.spawn(move || {
+                    let result = if message {
+                        add_found(state_ref, "missing", "missing")
+                    } else {
+                        add_sequence_lifeline_in_state("missing".into(), Vec::new(), 0.0, state_ref)
+                    };
+                    tx.send(result).unwrap();
+                });
+                let result = rx.recv_timeout(Duration::from_secs(2));
+                drop(presentations);
+                drop(repository);
+                worker.join().unwrap();
+                assert_eq!(result.unwrap().unwrap_err(), "no project open");
+            });
+        }
+    }
+
+    #[test]
+    fn sequence_message_project_failure_and_invalid_endpoint_preserve_prior_messages() {
+        let (state, diagram, lifeline) = sequence_fixture();
+        let message_id = add_found(&state, &diagram, &lifeline).unwrap();
+        let before = semantics(&state);
+        assert!(before.to_string().contains(&message_id));
+        let project = state.project.lock().unwrap().take();
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "no project open"
+        );
+        assert_eq!(semantics(&state), before);
+        *state.project.lock().unwrap() = project;
+        assert!(add_found(&state, &diagram, &LifelineId::new().to_string()).is_err());
+        assert_eq!(semantics(&state), before);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.project.lock().unwrap();
+            panic!("poison project fixture");
+        }));
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "project lock poisoned"
+        );
+        assert_eq!(semantics(&state), before);
+    }
+
+    #[test]
+    fn late_behavior_lock_failure_releases_earlier_guards_without_mutation() {
+        let (state, diagram, lifeline) = sequence_fixture();
+        let before = semantics(&state);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.behavior_diagrams.lock().unwrap();
+            panic!("poison presentation fixture");
+        }));
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "behavior diagram lock poisoned"
+        );
+        assert!(state.project.try_lock().is_ok());
+        assert!(state.behavior.try_lock().is_ok());
+        assert_eq!(semantics(&state), before);
     }
 }
