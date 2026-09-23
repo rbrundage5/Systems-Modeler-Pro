@@ -1733,29 +1733,44 @@ impl Project {
         if !classifier.is_classifier() {
             return Err(ModelError::GeneralizationRequiresClassifiers);
         }
+        let mut parents: HashMap<ElementId, Vec<ElementId>> = HashMap::new();
+        for relationship in self.relationships.values() {
+            if relationship.kind == RelationshipKind::Generalization {
+                parents.entry(relationship.source_id).or_default().push(relationship.target_id);
+            }
+        }
+        for values in parents.values_mut() {
+            values.sort_unstable_by_key(|id| id.0);
+        }
+        let mut owned: HashMap<ElementId, Vec<&Element>> = HashMap::new();
+        for element in self.elements.values().filter(|element| element.is_feature()) {
+            if let Some(owner) = element.owner_id {
+                owned.entry(owner).or_default().push(element);
+            }
+        }
         let mut result = Vec::new();
-        let mut visited = HashSet::new();
-        self.collect_inherited_features(classifier_id, &mut visited, &mut result);
+        let mut visited = HashSet::from([classifier_id]);
+        let mut stack = parents.remove(&classifier_id).unwrap_or_default();
+        stack.reverse();
+        while let Some(general) = stack.pop() {
+            // A diamond (or repeated edge) must not emit an ancestor's features
+            // again. Mark before collecting, not only before following parents.
+            if !visited.insert(general) {
+                continue;
+            }
+            if let Some(mut features) = owned.remove(&general) {
+                features.sort_by(|left, right| {
+                    left.external_id.cmp(&right.external_id)
+                        .then_with(|| left.name.cmp(&right.name))
+                        .then_with(|| left.id.0.cmp(&right.id.0))
+                });
+                result.extend(features);
+            }
+            if let Some(ancestors) = parents.remove(&general) {
+                stack.extend(ancestors.into_iter().rev());
+            }
+        }
         Ok(result)
-    }
-
-    fn collect_inherited_features<'a>(
-        &'a self,
-        classifier_id: ElementId,
-        visited: &mut HashSet<ElementId>,
-        result: &mut Vec<&'a Element>,
-    ) {
-        if !visited.insert(classifier_id) {
-            return;
-        }
-        for relationship in self.relationships.values().filter(|relationship| {
-            relationship.kind == RelationshipKind::Generalization
-                && relationship.source_id == classifier_id
-        }) {
-            let general = relationship.target_id;
-            result.extend(self.owned_features(general));
-            self.collect_inherited_features(general, visited, result);
-        }
     }
 
     fn would_create_generalization_cycle(
