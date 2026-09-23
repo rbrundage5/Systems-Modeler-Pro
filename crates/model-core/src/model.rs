@@ -561,6 +561,8 @@ pub enum ModelError {
     CopiedRequirementIsReadOnly(ElementId),
     #[error("Requirement Copy suppliers would have conflicting text; resolve the supplier links before editing: {0}")]
     ConflictingRequirementCopyText(ElementId),
+    #[error("Requirement Copy client text differs from its supplier: relationship {0}")]
+    RequirementCopyTextMismatch(RelationshipId),
     #[error("Requirement traceability relationships cannot connect an element to itself")]
     SelfTraceabilityRelationship,
     #[error(
@@ -1551,6 +1553,11 @@ impl Project {
             )?;
             let source = self.element(relationship.source_id)?;
             let target = self.element(relationship.target_id)?;
+            if relationship.kind == RelationshipKind::Copy
+                && source.requirement_text != target.requirement_text
+            {
+                return Err(ModelError::RequirementCopyTextMismatch(relationship.id));
+            }
             validate_use_case_relationship_endpoints(
                 &relationship.kind,
                 &source.kind,
