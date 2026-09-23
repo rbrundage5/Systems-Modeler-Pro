@@ -366,12 +366,14 @@ fn collect_lifeline_candidates(
     labels: &mut Vec<String>,
     output: &mut Vec<LifelineCandidate>,
     depth: usize,
-) {
+) -> Result<(), String> {
     if depth > 6 {
-        return;
+        return Ok(());
     }
     let mut features: Vec<_> = project
-        .children(classifier_id)
+        .classifier_features(classifier_id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
         .filter(|element| {
             matches!(
                 element.kind,
@@ -388,11 +390,12 @@ fn collect_lifeline_candidates(
             property_path: path.iter().map(ToString::to_string).collect(),
         });
         if let Some(type_id) = feature.type_id {
-            collect_lifeline_candidates(project, type_id, path, labels, output, depth + 1);
+            collect_lifeline_candidates(project, type_id, path, labels, output, depth + 1)?;
         }
         path.pop();
         labels.pop();
     }
+    Ok(())
 }
 
 fn next_occurrence_order(messages: &[Message]) -> u32 {
@@ -768,6 +771,13 @@ pub fn behavior_lifeline_candidates(
     diagram_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<Vec<LifelineCandidate>, String> {
+    behavior_lifeline_candidates_in_state(&diagram_id, &state)
+}
+
+fn behavior_lifeline_candidates_in_state(
+    diagram_id: &str,
+    state: &WorkspaceState,
+) -> Result<Vec<LifelineCandidate>, String> {
     let diagrams = state
         .behavior_diagrams
         .lock()
@@ -791,7 +801,7 @@ pub fn behavior_lifeline_candidates(
         &mut Vec::new(),
         &mut output,
         0,
-    );
+    )?;
     Ok(output)
 }
 
@@ -2339,6 +2349,161 @@ mod state_machine_layout_tests {
             diagram.edge_routes[0].semantic_id,
             transition_id.to_string()
         );
+    }
+}
+
+#[cfg(test)]
+mod inherited_lifeline_tests {
+    use super::*;
+    use systems_modeler_core::{Multiplicity, RelationshipKind, VisibilityKind};
+
+    fn fixture() -> (WorkspaceState, String, [ElementId; 4]) {
+        let mut project = Project::new("Inherited Sequence roles");
+        let mut blocks = Vec::new();
+        for name in ["Base", "Left", "Right", "Derived", "WheelBase", "Wheel", "Sensor"] {
+            blocks.push(
+                project
+                    .create_element(ElementKind::Block, name, project.root_id)
+                    .unwrap(),
+            );
+        }
+        for (specific, general) in [(1, 0), (2, 0), (3, 1), (3, 2), (5, 4)] {
+            project
+                .create_relationship(
+                    RelationshipKind::Generalization,
+                    blocks[specific],
+                    blocks[general],
+                    Some(project.root_id),
+                )
+                .unwrap();
+        }
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "wheel",
+                blocks[0],
+                blocks[5],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let nested = project
+            .create_typed_feature(
+                ElementKind::ReferenceProperty,
+                "sensor",
+                blocks[4],
+                blocks[6],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let hidden = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "hidden",
+                blocks[0],
+                blocks[6],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let local = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "local",
+                blocks[3],
+                blocks[6],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        for id in [hidden, local] {
+            project.element_mut(id).unwrap().visibility = VisibilityKind::Private;
+        }
+        project.validate().unwrap();
+        let mut repository = BehaviorRepository::default();
+        let interaction = repository
+            .create_interaction(&project, blocks[3], "Sequence")
+            .unwrap();
+        let diagram = BehaviorDiagram {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Sequence".into(),
+            owner_id: project.root_id.to_string(),
+            context_id: blocks[3].to_string(),
+            kind: BehaviorDiagramKind::Sequence,
+            semantic_id: interaction.to_string(),
+            state_nodes: Vec::new(),
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        };
+        let diagram_id = diagram.id.clone();
+        let state = WorkspaceState::default();
+        *state.project.lock().unwrap() = Some(project);
+        *state.behavior.lock().unwrap() = repository;
+        state.behavior_diagrams.lock().unwrap().push(diagram);
+        (state, diagram_id, [part, nested, hidden, local])
+    }
+
+    fn authored_snapshot(state: &WorkspaceState) -> serde_json::Value {
+        let repository = state.behavior.lock().unwrap();
+        let diagrams = state.behavior_diagrams.lock().unwrap();
+        serde_json::to_value((&*repository, &*diagrams)).unwrap()
+    }
+
+    #[test]
+    fn selector_and_authoring_share_inherited_property_identity() {
+        let (state, diagram, [part, nested, hidden, local]) = fixture();
+        let before = serde_json::to_value(&*state.project.lock().unwrap()).unwrap();
+        let candidates = behavior_lifeline_candidates_in_state(&diagram, &state).unwrap();
+        let paths: Vec<_> = candidates
+            .iter()
+            .map(|choice| choice.property_path.clone())
+            .collect();
+        assert_eq!(paths.len(), 3);
+        assert!(paths.contains(&vec![part.to_string()]));
+        assert!(paths.contains(&vec![part.to_string(), nested.to_string()]));
+        assert!(paths.contains(&vec![local.to_string()]));
+        assert!(!paths.iter().flatten().any(|id| id == &hidden.to_string()));
+        let selected = candidates
+            .iter()
+            .find(|choice| choice.label == "wheel.sensor")
+            .unwrap();
+        let id = add_sequence_lifeline_in_state(
+            diagram,
+            selected.property_path.clone(),
+            200.0,
+            &state,
+        )
+        .unwrap();
+        let project_guard = state.project.lock().unwrap();
+        let project = project_guard.as_ref().unwrap();
+        assert_eq!(serde_json::to_value(&*project_guard).unwrap(), before);
+        let repository = state.behavior.lock().unwrap();
+        repository.validate(project).unwrap();
+        let restored: BehaviorRepository =
+            serde_json::from_value(serde_json::to_value(&*repository).unwrap()).unwrap();
+        restored.validate(project).unwrap();
+        let lifeline = restored
+            .interactions
+            .values()
+            .flat_map(|item| &item.lifelines)
+            .find(|item| item.id.to_string() == id)
+            .unwrap();
+        assert_eq!(lifeline.represented_path, vec![part, nested]);
+    }
+
+    #[test]
+    fn private_ancestor_path_rejection_preserves_semantics_and_presentations() {
+        let (state, diagram, [_, _, hidden, _]) = fixture();
+        let before = authored_snapshot(&state);
+        assert!(
+            add_sequence_lifeline_in_state(
+                diagram,
+                vec![hidden.to_string()],
+                200.0,
+                &state,
+            )
+            .is_err()
+        );
+        assert_eq!(authored_snapshot(&state), before);
     }
 }
 
