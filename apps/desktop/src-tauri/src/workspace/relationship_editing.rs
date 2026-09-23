@@ -226,8 +226,19 @@ pub fn delete_bdd_relationship(
     relationship_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<(), String> {
+    delete_bdd_relationship_in_state(diagram_id, relationship_id, &state)
+}
+
+fn delete_bdd_relationship_in_state(
+    diagram_id: String,
+    relationship_id: String,
+    state: &WorkspaceState,
+) -> Result<(), String> {
     let diagram_id = parse_diagram_id(&diagram_id)?;
     let relationship_id = parse_relationship_id(&relationship_id)?;
+
+    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_mut().ok_or("no project open")?;
 
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
     if !diagrams
@@ -237,8 +248,6 @@ pub fn delete_bdd_relationship(
         return Err("diagram not found".into());
     }
 
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
     if project.relationships.remove(&relationship_id).is_none() {
         return Err("relationship not found".into());
     }
@@ -482,6 +491,51 @@ mod tests {
                 route_relationship(source_node, target_node, &diagram.nodes).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn delete_checks_project_before_waiting_for_a_diagram_lock() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = fixture.state.project.lock().unwrap();
+            panic!("inject project lock failure");
+        }));
+        assert!(poisoned.is_err());
+        std::thread::scope(|scope| {
+            let diagrams = fixture.state.diagrams.lock().unwrap();
+            let (sender, receiver) = std::sync::mpsc::channel();
+            scope.spawn(|| {
+                let result = delete_bdd_relationship_in_state(
+                    fixture.diagram_id.clone(),
+                    fixture.relationship_id.to_string(),
+                    &fixture.state,
+                );
+                sender.send(result).unwrap();
+            });
+            let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+            drop(diagrams);
+            assert_eq!(result.unwrap(), Err("project lock poisoned".into()));
+        });
+    }
+
+    #[test]
+    fn delete_diagram_lock_failure_does_not_remove_the_relationship() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        let before = snapshot(&fixture.state).0;
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = fixture.state.diagrams.lock().unwrap();
+            panic!("inject diagram lock failure");
+        }));
+        assert!(poisoned.is_err());
+        assert_eq!(
+            delete_bdd_relationship_in_state(
+                fixture.diagram_id.clone(),
+                fixture.relationship_id.to_string(),
+                &fixture.state,
+            ),
+            Err("diagram lock poisoned".into())
+        );
+        assert_eq!(serde_json::to_value(&*fixture.state.project.lock().unwrap()).unwrap(), before);
     }
 
     #[test]
