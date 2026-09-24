@@ -15,13 +15,23 @@ fn deleted_contexts_retire_only_their_specialized_repositories_and_identities() 
         .create_element(ElementKind::Block, "Kept", project.root_id)
         .unwrap();
     let mut behavior = BehaviorRepository::default();
-    let machine = behavior.create_state_machine(&project, context, "Old").unwrap();
-    let other = behavior.create_state_machine(&project, kept, "Kept").unwrap();
+    let machine = behavior
+        .create_state_machine(&project, context, "Old")
+        .unwrap();
+    let other = behavior
+        .create_state_machine(&project, kept, "Kept")
+        .unwrap();
     let region = behavior.state_machines[&machine].regions[0].id;
-    behavior.external_ids.insert("old-region".into(), BehaviorSemanticId::Region(region));
+    behavior
+        .external_ids
+        .insert("old-region".into(), BehaviorSemanticId::Region(region));
     let mut activity = ActivityRepository::default();
-    let old_activity = activity.create_activity(&project, project.root_id, Some(context), "Old").unwrap();
-    let kept_activity = activity.create_activity(&project, project.root_id, Some(kept), "Kept").unwrap();
+    let old_activity = activity
+        .create_activity(&project, project.root_id, Some(context), "Old")
+        .unwrap();
+    let kept_activity = activity
+        .create_activity(&project, project.root_id, Some(kept), "Kept")
+        .unwrap();
     let deleted = HashSet::from([context]);
     behavior.remove_deleted_contexts(&deleted);
     activity.remove_deleted_contexts(&deleted);

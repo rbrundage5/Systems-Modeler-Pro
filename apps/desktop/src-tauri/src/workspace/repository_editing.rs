@@ -615,7 +615,8 @@ mod tests {
             assert!(project.element(sibling).is_ok());
             assert!(project.relationships.is_empty());
             let directory = tempfile::tempdir().unwrap();
-            let mut database = ProjectDatabase::open(directory.path().join("deleted.smproj")).unwrap();
+            let mut database =
+                ProjectDatabase::open(directory.path().join("deleted.smproj")).unwrap();
             database.save_project(project).unwrap();
             let loaded = database.load_first_project().unwrap();
             loaded.validate().unwrap();
