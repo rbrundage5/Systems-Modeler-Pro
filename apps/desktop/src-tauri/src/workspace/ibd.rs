@@ -431,7 +431,7 @@ pub fn populate_ibd_from_context(
     populate_ibd_diagram_from_context(project, diagram)
 }
 
-fn populate_ibd_diagram_from_context(
+pub(super) fn populate_ibd_diagram_from_context(
     project: &Project,
     diagram: &mut IbdDiagram,
 ) -> Result<(), String> {

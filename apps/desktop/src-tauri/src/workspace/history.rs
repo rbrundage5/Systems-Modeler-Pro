@@ -242,7 +242,7 @@ pub(super) fn apply_structural_specification(
         .lock()
         .map_err(|_| "project lock poisoned")?;
     let current = project.as_ref().ok_or("no project open")?;
-    let diagrams = workspace
+    let mut diagrams = workspace
         .diagrams
         .lock()
         .map_err(|_| "diagram lock poisoned")?;
@@ -274,7 +274,10 @@ pub(super) fn apply_structural_specification(
         .diagrams
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
-    super::validate_loaded_diagrams(&candidate, &diagrams)?;
+    let candidate_diagrams = super::relationship_editing::stage_relationship_presentations(
+        current, &candidate, &diagrams, None,
+    )?;
+    super::validate_loaded_diagrams(&candidate, &candidate_diagrams)?;
     super::ibd::validate_ibd_diagrams(&candidate, &candidate_ibds)?;
     super::behavior_workspace::validate_behavior_workspace(
         &candidate,
@@ -309,6 +312,7 @@ pub(super) fn apply_structural_specification(
     }
     redo.clear();
     *project = Some(candidate);
+    *diagrams = candidate_diagrams;
     *ibd_diagrams = candidate_ibds;
     Ok(true)
 }
@@ -636,6 +640,91 @@ mod specification_tests {
 
     fn project_value(workspace: &WorkspaceState) -> serde_json::Value {
         serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn linked_property_retype_updates_bdd_and_undo_redo_restores_the_whole_edit() {
+        use crate::workspace::{BddDiagram, DiagramEdge, DiagramNode};
+        let (workspace, activity, history, feature, next) = fixture();
+        {
+            let mut guard = workspace.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let property = project.element(feature).unwrap().clone();
+            let relationship = project
+                .create_property_association(feature, Some(project.root_id))
+                .unwrap();
+            let nodes: Vec<_> = [property.owner_id.unwrap(), property.type_id.unwrap()]
+                .iter()
+                .enumerate()
+                .map(|(index, id)| DiagramNode {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    element_id: id.to_string(),
+                    x: 100.0 + index as f64 * 300.0,
+                    y: 100.0,
+                    width: 180.0,
+                    height: 100.0,
+                    actor_notation: None,
+                    parameter_presentations: Vec::new(),
+                })
+                .collect();
+            let edge = DiagramEdge {
+                id: uuid::Uuid::new_v4().to_string(),
+                relationship_id: relationship.to_string(),
+                source_node_id: nodes[0].id.clone(),
+                target_node_id: nodes[1].id.clone(),
+                points: super::super::route_relationship(&nodes[0], &nodes[1], &nodes).unwrap(),
+                label_anchor: None,
+            };
+            workspace.diagrams.lock().unwrap().push(BddDiagram {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "Parts".into(),
+                owner_id: project.root_id.to_string(),
+                family: "bdd".into(),
+                semantic_context_id: None,
+                subject_boundary: None,
+                nodes,
+                edges: vec![edge],
+            });
+        }
+        let before = (
+            project_value(&workspace),
+            serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+        );
+        apply_element_specification(
+            &workspace,
+            &activity,
+            &history,
+            feature,
+            &ElementSpecificationEdit {
+                name: "renamed".into(),
+                type_id: Some(next),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let after = (
+            project_value(&workspace),
+            serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+        );
+        assert_ne!(after, before);
+        assert_eq!(workspace.diagrams.lock().unwrap()[0].nodes.len(), 3);
+        assert_eq!(undo_len(&history), 1);
+        undo_states(&workspace, &activity, &history).unwrap();
+        assert_eq!(
+            (
+                project_value(&workspace),
+                serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap()
+            ),
+            before
+        );
+        redo_states(&workspace, &activity, &history).unwrap();
+        assert_eq!(
+            (
+                project_value(&workspace),
+                serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap()
+            ),
+            after
+        );
     }
 
     #[test]
