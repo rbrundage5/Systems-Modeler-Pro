@@ -752,9 +752,9 @@ impl Project {
         let id = self.create_element(kind.clone(), name, owner_id)?;
         let result = (|| {
             self.set_element_type(id, type_id)?;
+            self.set_multiplicity(id, multiplicity)?;
             {
                 let element = self.element_mut(id)?;
-                element.multiplicity = Some(multiplicity);
                 if kind == ElementKind::PartProperty {
                     element.aggregation = AggregationKind::Composite;
                 }

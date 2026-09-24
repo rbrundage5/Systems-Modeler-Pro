@@ -5,12 +5,14 @@ Allowed paths: `crates/model-core/src/model.rs`, new core regression file
 `crates/model-core/tests/typed_feature_atomicity.rs`, and this record.
 
 `Project::create_typed_feature` inserts a Property before checking its type and
-final multiplicity. An error returns after insertion and leaves an orphan or
-invalid Property in the caller's Project. This shared API is used throughout
+assigns multiplicity without checking its bounds. A type error returns after
+insertion and leaves an orphan Property; invalid multiplicity can be accepted.
+This shared API is used throughout
 authoring/import; requiring every caller to remember cleanup is not an atomic
 construction contract.
 
-Retain the existing diagnostics, initialization and validation path. On any
+Reuse `set_multiplicity` for bounds validation and retain the existing diagnostics,
+initialization and final element validation. On any
 post-insertion failure, remove exactly the newly created element before returning
 the original error. The exclusive mutable Project borrow prevents intermediate
 publication. No full-project clone, unrelated cleanup, schema change or new index
