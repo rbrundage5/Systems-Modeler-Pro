@@ -415,6 +415,151 @@ pub(super) fn reset_states(history: &HistoryState) -> Result<(), String> {
 }
 
 #[cfg(test)]
+mod open_history_tests {
+    use super::*;
+    use systems_modeler_persistence::ProjectDatabase;
+
+    fn fixture() -> (
+        WorkspaceState,
+        activity_workspace::ActivityWorkspaceState,
+        HistoryState,
+    ) {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        let project = Project::new("Old session");
+        activity
+            .repository
+            .lock()
+            .unwrap()
+            .create_activity(&project, project.root_id, None, "Old activity")
+            .unwrap();
+        *workspace.project.lock().unwrap() = Some(project);
+        *workspace.current_file.lock().unwrap() = Some("old.smproj".into());
+        checkpoint_states(&workspace, &activity, &history).unwrap();
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
+        (workspace, activity, history)
+    }
+
+    fn before_value(
+        workspace: &WorkspaceState,
+        activity: &activity_workspace::ActivityWorkspaceState,
+    ) -> serde_json::Value {
+        serde_json::json!([
+            &*workspace.project.lock().unwrap(),
+            &*activity.repository.lock().unwrap(),
+            &*workspace
+                .current_file
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        ])
+    }
+
+    fn lengths(history: &HistoryState) -> (usize, usize) {
+        (
+            history
+                .undo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            history
+                .redo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+        )
+    }
+
+    #[test]
+    fn complete_open_history_failure_cannot_publish_new_authored_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("new.smproj");
+        ProjectDatabase::open(&path)
+            .unwrap()
+            .save_project(&Project::new("New"))
+            .unwrap();
+        for fail_history in [true, false] {
+            let (workspace, activity, history) = fixture();
+            let before = before_value(&workspace, &activity);
+            let stacks = lengths(&history);
+            let poisoned = std::panic::catch_unwind(|| {
+                if fail_history {
+                    let _held = history.redo.lock().unwrap();
+                    panic!("injected redo failure");
+                } else {
+                    let _held = workspace.current_file.lock().unwrap();
+                    panic!("injected path failure");
+                }
+            });
+            assert!(poisoned.is_err());
+            assert!(
+                super::super::bdd_elements::open_project_file_in_state(
+                    path.to_string_lossy().into_owned(),
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
+            assert_eq!(before_value(&workspace, &activity), before);
+            assert_eq!(lengths(&history), stacks);
+        }
+    }
+
+    #[test]
+    fn complete_open_retires_old_history_before_returning_to_frontend() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("new.smproj");
+        let replacement = Project::new("New session");
+        ProjectDatabase::open(&path)
+            .unwrap()
+            .save_project(&replacement)
+            .unwrap();
+        let (workspace, activity, history) = fixture();
+        super::super::bdd_elements::open_project_file_in_state(
+            path.to_string_lossy().into_owned(),
+            &workspace,
+            &activity,
+            &history,
+        )
+        .unwrap();
+        assert_eq!(
+            workspace.project.lock().unwrap().as_ref().unwrap().id,
+            replacement.id
+        );
+        assert!(activity.repository.lock().unwrap().activities.is_empty());
+        assert_eq!(lengths(&history), (0, 0));
+        assert!(!undo_states(&workspace, &activity, &history).unwrap());
+        assert!(!redo_states(&workspace, &activity, &history).unwrap());
+    }
+
+    #[test]
+    fn invalid_complete_open_preserves_both_old_history_stacks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid.smproj");
+        std::fs::write(&path, b"invalid sqlite input").unwrap();
+        let (workspace, activity, history) = fixture();
+        let before = before_value(&workspace, &activity);
+        let stacks = lengths(&history);
+        assert!(
+            super::super::bdd_elements::open_project_file_in_state(
+                path.to_string_lossy().into_owned(),
+                &workspace,
+                &activity,
+                &history,
+            )
+            .is_err()
+        );
+        assert_eq!(before_value(&workspace, &activity), before);
+        assert_eq!(lengths(&history), stacks);
+    }
+}
+
+#[cfg(test)]
 mod atomic_history_tests {
     use super::*;
 
