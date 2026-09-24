@@ -472,7 +472,7 @@ mod tests {
                 assert!(edge.label_anchor.is_some());
             }
             let directory = tempfile::tempdir().unwrap();
-            let database = ProjectDatabase::open(directory.path().join("copy.smproj")).unwrap();
+            let mut database = ProjectDatabase::open(directory.path().join("copy.smproj")).unwrap();
             database.save_project(project).unwrap();
             let loaded = database.load_first_project().unwrap();
             loaded.validate().unwrap();
