@@ -576,6 +576,12 @@ mod tests {
         let history = history::HistoryState::default();
         let mut second = bdd.clone();
         second.id = DiagramId::new().to_string();
+        for node in &mut second.nodes {
+            node.id = uuid::Uuid::new_v4().to_string();
+        }
+        second.edges[0].id = uuid::Uuid::new_v4().to_string();
+        second.edges[0].source_node_id = second.nodes[0].id.clone();
+        second.edges[0].target_node_id = second.nodes[1].id.clone();
         *workspace.project.lock().unwrap() = Some(project);
         *workspace.diagrams.lock().unwrap() = vec![bdd, second];
         *workspace.ibd_diagrams.lock().unwrap() = vec![internal];
