@@ -296,7 +296,10 @@ pub(super) fn apply_structural_specification_with_views(
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
     let candidate_diagrams = super::relationship_editing::stage_relationship_presentations(
-        current, &candidate, &diagrams, required_diagram,
+        current,
+        &candidate,
+        &diagrams,
+        required_diagram,
     )?;
     super::validate_loaded_diagrams(&candidate, &candidate_diagrams)?;
     super::ibd::validate_ibd_diagrams(&candidate, &candidate_ibds)?;

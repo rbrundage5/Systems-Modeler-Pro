@@ -215,7 +215,13 @@ pub fn reconnect_bdd_relationship(
     history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<(), String> {
     reconnect_bdd_relationship_in_state(
-        diagram_id, relationship_id, side, element_id, &state, &activity, &history,
+        diagram_id,
+        relationship_id,
+        side,
+        element_id,
+        &state,
+        &activity,
+        &history,
     )
 }
 
@@ -304,7 +310,8 @@ fn reconnect_bdd_relationship_in_state(
                     .ok_or("relationship not found")?;
                 candidate.source_id = new_source;
                 candidate.target_id = new_target;
-                if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2
+                if candidate.kind == RelationshipKind::Association
+                    && candidate.association_ends.len() == 2
                 {
                     candidate.association_ends[0].classifier_id = new_source;
                     candidate.association_ends[1].classifier_id = new_target;
