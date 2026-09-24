@@ -268,7 +268,8 @@ pub fn validate_structural_diagrams(
                 }
                 project
                     .validate_parametric_role(
-                        semantic_context_id.ok_or("Parametric Diagram requires a semantic context")?,
+                        semantic_context_id
+                            .ok_or("Parametric Diagram requires a semantic context")?,
                         element_id,
                     )
                     .map_err(|error| error.to_string())?;
@@ -394,7 +395,8 @@ pub fn validate_structural_diagrams(
                 project
                     .validate_binding_in_context(
                         relationship,
-                        semantic_context_id.ok_or("Parametric Diagram requires a semantic context")?,
+                        semantic_context_id
+                            .ok_or("Parametric Diagram requires a semantic context")?,
                     )
                     .map_err(|error| error.to_string())?;
                 let binding = relationship
