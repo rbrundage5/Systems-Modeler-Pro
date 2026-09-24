@@ -65,7 +65,10 @@ fn command_allowed_for_build(
     // tauri.conf.json only specifies frontendDist. Trust that native config's
     // exact entrypoint, never a frontend argument or an arbitrary localhost port.
     if !matches!(dev_url.scheme(), "http" | "https")
-        || !matches!(dev_url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+        || !matches!(
+            dev_url.host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]")
+        )
         || !dev_url.username().is_empty()
         || dev_url.password().is_some()
         || dev_url.query().is_some()
