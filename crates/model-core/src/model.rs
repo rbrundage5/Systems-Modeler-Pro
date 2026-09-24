@@ -750,16 +750,22 @@ impl Project {
             return Err(ModelError::InvalidOwner(owner_id));
         }
         let id = self.create_element(kind.clone(), name, owner_id)?;
-        self.set_element_type(id, type_id)?;
-        {
-            let element = self.element_mut(id)?;
-            element.multiplicity = Some(multiplicity);
-            if kind == ElementKind::PartProperty {
-                element.aggregation = AggregationKind::Composite;
+        let result = (|| {
+            self.set_element_type(id, type_id)?;
+            {
+                let element = self.element_mut(id)?;
+                element.multiplicity = Some(multiplicity);
+                if kind == ElementKind::PartProperty {
+                    element.aggregation = AggregationKind::Composite;
+                }
             }
+            self.validate_element(id)?;
+            Ok(id)
+        })();
+        if result.is_err() {
+            self.elements.remove(&id);
         }
-        self.validate_element(id)?;
-        Ok(id)
+        result
     }
 
     pub fn rename_element(
