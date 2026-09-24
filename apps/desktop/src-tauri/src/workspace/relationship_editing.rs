@@ -359,12 +359,17 @@ pub(super) fn stage_relationship_presentations(
         })
         .map(|relationship| (relationship.id.to_string(), relationship))
         .collect();
-    let removed: std::collections::HashSet<_> = previous.relationships.keys()
+    let removed: std::collections::HashSet<_> = previous
+        .relationships
+        .keys()
         .filter(|id| !candidate.relationships.contains_key(id))
-        .map(ToString::to_string).collect();
+        .map(ToString::to_string)
+        .collect();
     let mut staged = diagrams.to_vec();
     for diagram in &mut staged {
-        diagram.edges.retain(|edge| !removed.contains(&edge.relationship_id));
+        diagram
+            .edges
+            .retain(|edge| !removed.contains(&edge.relationship_id));
         for edge_index in 0..diagram.edges.len() {
             let edge = &diagram.edges[edge_index];
             let Some(relationship) = changed.get(&edge.relationship_id) else {
@@ -456,9 +461,15 @@ fn delete_bdd_relationship_in_state(
         history,
         None,
         |project, diagrams, ibds| {
-            let selected = diagrams.iter().find(|diagram| diagram.id == diagram_id)
+            let selected = diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
                 .ok_or("diagram not found")?;
-            if !selected.edges.iter().any(|edge| edge.relationship_id == relationship_id.to_string()) {
+            if !selected
+                .edges
+                .iter()
+                .any(|edge| edge.relationship_id == relationship_id.to_string())
+            {
                 return Err("relationship is not presented on the selected diagram".into());
             }
             let mut candidate = project.clone();
@@ -1033,39 +1044,75 @@ mod tests {
         let connector = {
             let mut guard = fixture.state.project.lock().unwrap();
             let project = guard.as_mut().unwrap();
-            let mut role = |name| project.create_typed_feature(
-                ElementKind::PartProperty, name, fixture.blocks[0], fixture.blocks[1], Multiplicity::ONE,
-            ).unwrap();
+            let mut role = |name| {
+                project
+                    .create_typed_feature(
+                        ElementKind::PartProperty,
+                        name,
+                        fixture.blocks[0],
+                        fixture.blocks[1],
+                        Multiplicity::ONE,
+                    )
+                    .unwrap()
+            };
             let source = ConnectorEnd::role(role("left"));
             let target = ConnectorEnd::role(role("right"));
-            let connector = project.create_connector(Connector {
-                context_id: fixture.blocks[0], kind: ConnectorKind::Assembly,
-                source: source.clone(), target: target.clone(),
-            }).unwrap();
-            project.create_item_flow(ItemFlow {
-                connector_id: connector, source, target, conveyed_item_ids: vec![fixture.blocks[2]],
-            }).unwrap();
+            let connector = project
+                .create_connector(Connector {
+                    context_id: fixture.blocks[0],
+                    kind: ConnectorKind::Assembly,
+                    source: source.clone(),
+                    target: target.clone(),
+                })
+                .unwrap();
+            project
+                .create_item_flow(ItemFlow {
+                    connector_id: connector,
+                    source,
+                    target,
+                    conveyed_item_ids: vec![fixture.blocks[2]],
+                })
+                .unwrap();
             project.validate().unwrap();
             connector
         };
-        let delete = || delete_bdd_relationship_in_state(
-            fixture.diagram_id.clone(), connector.to_string(),
-            &fixture.state, &fixture.activity, &fixture.history,
-        );
+        let delete = || {
+            delete_bdd_relationship_in_state(
+                fixture.diagram_id.clone(),
+                connector.to_string(),
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+        };
         let before = snapshot(&fixture.state);
         assert!(delete().unwrap_err().contains("not presented"));
         assert_eq!(snapshot(&fixture.state), before);
         // Even a forged generic-view presentation must not bypass ItemFlow integrity.
         fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id = connector.to_string();
-        super::super::history::checkpoint_states(&fixture.state, &fixture.activity, &fixture.history).unwrap();
+        super::super::history::checkpoint_states(
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+        .unwrap();
         fixture.state.project.lock().unwrap().as_mut().unwrap().name = "Redo".into();
-        assert!(super::super::history::undo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert!(
+            super::super::history::undo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
         let before = snapshot(&fixture.state);
         assert!(delete().is_err());
         assert_eq!(snapshot(&fixture.state), before);
         assert_eq!(super::super::history::undo_len(&fixture.history), 0);
-        assert!(super::super::history::redo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
-        assert_eq!(fixture.state.project.lock().unwrap().as_ref().unwrap().name, "Redo");
+        assert!(
+            super::super::history::redo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
+        assert_eq!(
+            fixture.state.project.lock().unwrap().as_ref().unwrap().name,
+            "Redo"
+        );
     }
 
     #[test]
@@ -1075,32 +1122,62 @@ mod tests {
             let mut guard = fixture.state.project.lock().unwrap();
             let project = guard.as_mut().unwrap();
             project.relationships.remove(&fixture.relationship_id);
-            project.create_composition(
-                fixture.blocks[0], fixture.blocks[1], "part", Multiplicity::ONE, Some(project.root_id),
-            ).unwrap()
+            project
+                .create_composition(
+                    fixture.blocks[0],
+                    fixture.blocks[1],
+                    "part",
+                    Multiplicity::ONE,
+                    Some(project.root_id),
+                )
+                .unwrap()
         };
         fixture.relationship_id = relationship;
-        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id = relationship.to_string();
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id =
+            relationship.to_string();
         add_second_view(&fixture, false);
         let before = snapshot(&fixture.state);
         delete_bdd_relationship_in_state(
-            fixture.diagram_id.clone(), relationship.to_string(),
-            &fixture.state, &fixture.activity, &fixture.history,
-        ).unwrap();
+            fixture.diagram_id.clone(),
+            relationship.to_string(),
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+        .unwrap();
         assert_eq!(super::super::history::undo_len(&fixture.history), 1);
         {
             let guard = fixture.state.project.lock().unwrap();
             let project = guard.as_ref().unwrap();
             project.validate().unwrap();
             assert!(project.relationship(relationship).is_err());
-            assert_eq!(project.element(property).unwrap().type_id, Some(fixture.blocks[1]));
-            for id in fixture.blocks { assert!(project.element(id).is_ok()); }
-            assert!(fixture.state.diagrams.lock().unwrap().iter().all(|diagram| diagram.edges.is_empty()));
+            assert_eq!(
+                project.element(property).unwrap().type_id,
+                Some(fixture.blocks[1])
+            );
+            for id in fixture.blocks {
+                assert!(project.element(id).is_ok());
+            }
+            assert!(
+                fixture
+                    .state
+                    .diagrams
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|diagram| diagram.edges.is_empty())
+            );
         }
         let after = snapshot(&fixture.state);
-        assert!(super::super::history::undo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert!(
+            super::super::history::undo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
         assert_eq!(snapshot(&fixture.state), before);
-        assert!(super::super::history::redo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert!(
+            super::super::history::redo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
         assert_eq!(snapshot(&fixture.state), after);
     }
 
@@ -1121,7 +1198,13 @@ mod tests {
             let diagram_id = fixture.diagram_id.clone();
             let relationship_id = fixture.relationship_id.to_string();
             scope.spawn(move || {
-                let result = delete_bdd_relationship_in_state(diagram_id, relationship_id, state, activity, history);
+                let result = delete_bdd_relationship_in_state(
+                    diagram_id,
+                    relationship_id,
+                    state,
+                    activity,
+                    history,
+                );
                 sender.send(result).unwrap();
             });
             let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
