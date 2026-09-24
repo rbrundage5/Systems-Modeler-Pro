@@ -6,13 +6,13 @@ const HISTORY_LIMIT: usize = 100;
 
 #[derive(Clone)]
 pub(super) struct HistorySnapshot {
-    project: Option<Project>,
-    diagrams: Vec<BddDiagram>,
-    ibd_diagrams: Vec<ibd::IbdDiagram>,
-    behavior: BehaviorRepository,
-    behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
-    activity_repository: ActivityRepository,
-    activity_diagrams: Vec<activity_workspace::ActivityDiagram>,
+    pub(super) project: Option<Project>,
+    pub(super) diagrams: Vec<BddDiagram>,
+    pub(super) ibd_diagrams: Vec<ibd::IbdDiagram>,
+    pub(super) behavior: BehaviorRepository,
+    pub(super) behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
+    pub(super) activity_repository: ActivityRepository,
+    pub(super) activity_diagrams: Vec<activity_workspace::ActivityDiagram>,
 }
 
 pub struct HistoryState {
@@ -109,6 +109,34 @@ pub(super) fn capture_states(
     activity: &activity_workspace::ActivityWorkspaceState,
 ) -> Result<HistorySnapshot, String> {
     Ok(AuthoredStateGuards::lock(workspace, activity)?.capture())
+}
+
+/// Stage an authored mutation while retaining every repository guard.
+/// The caller validates its complete candidate before this commits one history entry.
+pub(super) fn edit_authored(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    edit: impl FnOnce(&mut HistorySnapshot) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut authored = AuthoredStateGuards::lock(workspace, activity)?;
+    let mut candidate = authored.capture();
+    edit(&mut candidate)?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
+    let previous = authored.replace(candidate);
+    undo.push(previous);
+    if undo.len() > HISTORY_LIMIT {
+        undo.remove(0);
+    }
+    redo.clear();
+    Ok(())
 }
 
 /// Stage one IBD presentation edit and publish geometry plus one history entry.
@@ -339,6 +367,45 @@ pub(super) fn apply_structural_specification_with_views(
     *diagrams = candidate_diagrams;
     *ibd_diagrams = candidate_ibds;
     Ok(true)
+}
+
+#[cfg(test)]
+mod connected_delete_history_tests {
+    use super::*;
+
+    #[test]
+    fn connected_delete_history_failure_preserves_the_authored_revision() {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        let mut project = Project::new("Unchanged");
+        let id = project
+            .create_element(
+                systems_modeler_core::ElementKind::Block,
+                "Block",
+                project.root_id,
+            )
+            .unwrap();
+        *workspace.project.lock().unwrap() = Some(project);
+        checkpoint_states(&workspace, &activity, &history).unwrap();
+        let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        let poison = std::panic::catch_unwind(|| {
+            let _guard = history.redo.lock().unwrap();
+            panic!("injected history publication failure");
+        });
+        assert!(poison.is_err());
+        assert!(
+            super::super::repository_editing::delete_model_element_in_state(
+                id, &workspace, &activity, &history,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
+        assert_eq!(history.undo.lock().unwrap().len(), 1);
+    }
 }
 
 #[cfg(test)]

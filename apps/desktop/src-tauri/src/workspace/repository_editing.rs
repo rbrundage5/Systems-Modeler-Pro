@@ -183,89 +183,95 @@ pub fn delete_model_element(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
-    let element_id = parse_element_id(&element_id)?;
-    let mut project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?
-        .clone()
-        .ok_or("no project open")?;
-    let mut diagrams = workspace
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")?
-        .clone();
-    let mut ibd_diagrams = workspace
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")?
-        .clone();
-    let behavior = workspace
-        .behavior
-        .lock()
-        .map_err(|_| "behavior lock poisoned")?
-        .clone();
-    let behavior_diagrams = workspace
-        .behavior_diagrams
-        .lock()
-        .map_err(|_| "behavior diagram lock poisoned")?
-        .clone();
-    let activity_repository = activity
-        .repository
-        .lock()
-        .map_err(|_| "Activity repository lock poisoned")?
-        .clone();
-    let activity_diagrams = activity
-        .diagrams
-        .lock()
-        .map_err(|_| "Activity diagram lock poisoned")?
-        .clone();
+    delete_model_element_in_state(
+        parse_element_id(&element_id)?,
+        &workspace,
+        &activity,
+        &history,
+    )
+}
 
-    project
-        .delete_element(element_id)
-        .map_err(|error| error.to_string())?;
-    remove_bdd_presentations(&mut diagrams, element_id);
-    let deleted_id = element_id.to_string();
-    for diagram in &mut diagrams {
-        if diagram.semantic_context_id.as_deref() == Some(deleted_id.as_str()) {
-            diagram.semantic_context_id = None;
-            diagram.subject_boundary = None;
+pub(super) fn delete_model_element_in_state(
+    element_id: ElementId,
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<(), String> {
+    history::edit_authored(workspace, activity, history, |candidate| {
+        let deletion = candidate
+            .project
+            .as_ref()
+            .ok_or("no project open")?
+            .stage_connected_element_deletion(element_id)?;
+        let deleted: HashSet<_> = deletion.elements.iter().map(ToString::to_string).collect();
+        let relationships: HashSet<_> = deletion
+            .relationships
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        for id in &deletion.elements {
+            remove_bdd_presentations(&mut candidate.diagrams, *id);
+            remove_ibd_presentations(&mut candidate.ibd_diagrams, *id);
         }
-    }
-    diagrams.retain(|diagram| {
-        !(diagram.family == "parametric" && diagram.semantic_context_id.is_none())
-    });
-    remove_ibd_presentations(&mut ibd_diagrams, element_id);
-
-    project.validate().map_err(|error| error.to_string())?;
-    validate_loaded_diagrams(&project, &diagrams)?;
-    ibd::validate_ibd_diagrams(&project, &ibd_diagrams)?;
-    behavior_workspace::validate_behavior_workspace(&project, &behavior, &behavior_diagrams)?;
-    activity_repository
-        .validate(&project)
-        .map_err(|error| error.to_string())?;
-    validate_all_diagram_owners(
-        &project,
-        &diagrams,
-        &ibd_diagrams,
-        &behavior_diagrams,
-        &activity_diagrams,
-    )?;
-
-    history::checkpoint_states(&workspace, &activity, &history)?;
-    *workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")? = diagrams;
-    *workspace
-        .ibd_diagrams
-        .lock()
-        .map_err(|_| "IBD lock poisoned")? = ibd_diagrams;
-    Ok(())
+        candidate.diagrams.retain(|diagram| {
+            !deleted.contains(&diagram.owner_id)
+                && !diagram
+                    .semantic_context_id
+                    .as_ref()
+                    .is_some_and(|id| deleted.contains(id))
+        });
+        for diagram in &mut candidate.diagrams {
+            diagram
+                .edges
+                .retain(|edge| !relationships.contains(&edge.relationship_id));
+        }
+        candidate.ibd_diagrams.retain(|diagram| {
+            !deleted.contains(&diagram.owner_id) && !deleted.contains(&diagram.context_block_id)
+        });
+        for diagram in &mut candidate.ibd_diagrams {
+            diagram
+                .connectors
+                .retain(|edge| !relationships.contains(&edge.relationship_id));
+        }
+        candidate
+            .behavior
+            .remove_deleted_contexts(&deletion.elements);
+        candidate
+            .activity_repository
+            .remove_deleted_contexts(&deletion.elements);
+        candidate.behavior_diagrams.retain(|diagram| {
+            !deleted.contains(&diagram.owner_id) && !deleted.contains(&diagram.context_id)
+        });
+        candidate.activity_diagrams.retain(|diagram| {
+            !deleted.contains(&diagram.owner_id)
+                && candidate
+                    .activity_repository
+                    .activities
+                    .keys()
+                    .any(|id| id.to_string() == diagram.activity_id)
+        });
+        let project = deletion.project;
+        validate_loaded_diagrams(&project, &candidate.diagrams)?;
+        ibd::validate_ibd_diagrams(&project, &candidate.ibd_diagrams)?;
+        behavior_workspace::validate_behavior_workspace(
+            &project,
+            &candidate.behavior,
+            &candidate.behavior_diagrams,
+        )?;
+        candidate
+            .activity_repository
+            .validate(&project)
+            .map_err(|error| error.to_string())?;
+        validate_all_diagram_owners(
+            &project,
+            &candidate.diagrams,
+            &candidate.ibd_diagrams,
+            &candidate.behavior_diagrams,
+            &candidate.activity_diagrams,
+        )?;
+        candidate.project = Some(project);
+        Ok(())
+    })
 }
 
 fn update_diagram_owner(
@@ -454,6 +460,185 @@ pub fn delete_repository_diagram(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connected_part_deletion_cleans_every_view_and_is_one_undoable_edit() {
+        use systems_modeler_core::{
+            Connector, ConnectorEnd, ConnectorKind, ItemFlow, Multiplicity,
+        };
+        let mut project = Project::new("Connected deletion");
+        let owner = project.root_id;
+        let system = project
+            .create_element(ElementKind::Block, "System", owner)
+            .unwrap();
+        let component = project
+            .create_element(ElementKind::Block, "Component", owner)
+            .unwrap();
+        let signal = project
+            .create_element(ElementKind::Signal, "Signal", owner)
+            .unwrap();
+        let (composition, part) = project
+            .create_composition(system, component, "part", Multiplicity::ONE, Some(owner))
+            .unwrap();
+        let sibling = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "other",
+                system,
+                component,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let source = ConnectorEnd::role(part);
+        let target = ConnectorEnd::role(sibling);
+        let connector = project
+            .create_connector(Connector {
+                context_id: system,
+                kind: ConnectorKind::Assembly,
+                source: source.clone(),
+                target: target.clone(),
+            })
+            .unwrap();
+        project
+            .create_item_flow(ItemFlow {
+                connector_id: connector,
+                source,
+                target,
+                conveyed_item_ids: vec![signal],
+            })
+            .unwrap();
+        let nodes: Vec<_> = [system, component]
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| DiagramNode {
+                id: uuid::Uuid::new_v4().to_string(),
+                element_id: id.to_string(),
+                x: index as f64 * 300.0,
+                y: 0.0,
+                width: 100.0,
+                height: 60.0,
+                actor_notation: None,
+                parameter_presentations: Vec::new(),
+            })
+            .collect();
+        let edge = DiagramEdge {
+            id: uuid::Uuid::new_v4().to_string(),
+            relationship_id: composition.to_string(),
+            source_node_id: nodes[0].id.clone(),
+            target_node_id: nodes[1].id.clone(),
+            points: route_relationship(&nodes[0], &nodes[1], &nodes).unwrap(),
+            label_anchor: None,
+        };
+        let bdd = BddDiagram {
+            id: DiagramId::new().to_string(),
+            name: "Structure".into(),
+            owner_id: owner.to_string(),
+            family: "bdd".into(),
+            semantic_context_id: None,
+            subject_boundary: None,
+            nodes,
+            edges: vec![edge],
+        };
+        let properties: Vec<_> = [part, sibling]
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| ibd::IbdPropertyPresentation {
+                id: uuid::Uuid::new_v4().to_string(),
+                element_id: id.to_string(),
+                property_path: vec![id.to_string()],
+                x: index as f64 * 300.0,
+                y: 0.0,
+                width: 100.0,
+                height: 60.0,
+                ports: Vec::new(),
+            })
+            .collect();
+        let ibd_edge = ibd::IbdConnectorPresentation {
+            id: uuid::Uuid::new_v4().to_string(),
+            relationship_id: connector.to_string(),
+            source_presentation_id: properties[0].id.clone(),
+            target_presentation_id: properties[1].id.clone(),
+            points: Vec::new(),
+            label_anchor: None,
+        };
+        let internal = ibd::IbdDiagram {
+            id: DiagramId::new().to_string(),
+            name: "Internal".into(),
+            context_block_id: system.to_string(),
+            owner_id: owner.to_string(),
+            context_frame: None,
+            properties,
+            boundary_ports: Vec::new(),
+            connectors: vec![ibd_edge],
+        };
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        let mut second = bdd.clone();
+        second.id = DiagramId::new().to_string();
+        for node in &mut second.nodes {
+            node.id = uuid::Uuid::new_v4().to_string();
+        }
+        second.edges[0].id = uuid::Uuid::new_v4().to_string();
+        second.edges[0].source_node_id = second.nodes[0].id.clone();
+        second.edges[0].target_node_id = second.nodes[1].id.clone();
+        *workspace.project.lock().unwrap() = Some(project);
+        *workspace.diagrams.lock().unwrap() = vec![bdd, second];
+        *workspace.ibd_diagrams.lock().unwrap() = vec![internal];
+        let value = || {
+            serde_json::to_value((
+                &*workspace.project.lock().unwrap(),
+                &*workspace.diagrams.lock().unwrap(),
+                &*workspace.ibd_diagrams.lock().unwrap(),
+            ))
+            .unwrap()
+        };
+        let before = value();
+        delete_model_element_in_state(part, &workspace, &activity, &history).unwrap();
+        let after = value();
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(
+            workspace
+                .diagrams
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|diagram| diagram.edges.is_empty())
+        );
+        assert_eq!(
+            workspace.ibd_diagrams.lock().unwrap()[0].properties.len(),
+            1
+        );
+        assert!(
+            workspace.ibd_diagrams.lock().unwrap()[0]
+                .connectors
+                .is_empty()
+        );
+        {
+            let guard = workspace.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            assert!(project.element(component).is_ok());
+            assert!(project.element(sibling).is_ok());
+            assert!(project.relationships.is_empty());
+            let directory = tempfile::tempdir().unwrap();
+            let mut database =
+                ProjectDatabase::open(directory.path().join("deleted.smproj")).unwrap();
+            database.save_project(project).unwrap();
+            let loaded = database.load_first_project().unwrap();
+            loaded.validate().unwrap();
+            assert_eq!(
+                serde_json::to_value(loaded).unwrap(),
+                serde_json::to_value(project).unwrap()
+            );
+        }
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(value(), before);
+        assert!(delete_model_element_in_state(owner, &workspace, &activity, &history).is_err());
+        assert_eq!(value(), before);
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(value(), after);
+    }
 
     #[test]
     fn removing_a_semantic_element_removes_each_bdd_presentation_and_incident_edge() {
