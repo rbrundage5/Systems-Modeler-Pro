@@ -636,6 +636,7 @@ pub fn create_bdd_feature(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Preserve named fields on the existing IPC command.
 pub fn update_bdd_element_details(
     element_id: String,
     documentation: Option<String>,
@@ -644,33 +645,46 @@ pub fn update_bdd_element_details(
     unit_external_id: Option<String>,
     type_id: Option<String>,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
-    let element_id = parse_element_id(&element_id)?;
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    if let Some(type_id) = type_id {
-        project
-            .set_element_type(element_id, parse_element_id(&type_id)?)
-            .map_err(|error| error.to_string())?;
-    }
-    let element = project
-        .element_mut(element_id)
-        .map_err(|error| error.to_string())?;
-    if let Some(value) = documentation {
-        element.documentation = value;
-    }
-    if let Some(value) = default_value {
-        element.default_value = if value.is_empty() { None } else { Some(value) };
-    }
-    if let Some(value) = quantity_kind_external_id {
-        element.quantity_kind_external_id = if value.is_empty() { None } else { Some(value) };
-    }
-    if let Some(value) = unit_external_id {
-        element.unit_external_id = if value.is_empty() { None } else { Some(value) };
-    }
-    project
-        .validate_element(element_id)
-        .map_err(|error| error.to_string())
+    apply_legacy_details(
+        parse_element_id(&element_id)?,
+        systems_modeler_core::ElementSpecificationEdit {
+            documentation,
+            default_value,
+            quantity_kind_external_id,
+            unit_external_id,
+            type_id: type_id.as_deref().map(parse_element_id).transpose()?,
+            ..Default::default()
+        },
+        &state,
+        &activity,
+        &history,
+    )
+    .map(|_| ())
+}
+
+fn apply_legacy_details(
+    element_id: ElementId,
+    mut edit: systems_modeler_core::ElementSpecificationEdit,
+    state: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<bool, String> {
+    history::apply_structural_specification(state, activity, history, |project, ibds| {
+        // The legacy command has no rename field. Resolve its current name under
+        // the transaction guard rather than racing a separate snapshot/read.
+        edit.name = project
+            .element(element_id)
+            .map_err(|error| error.to_string())?
+            .name
+            .clone();
+        Ok((
+            project.stage_element_specification(element_id, &edit)?,
+            ibds.to_vec(),
+        ))
+    })
 }
 
 #[tauri::command]
@@ -1169,6 +1183,75 @@ fn load_complete_project(database: &ProjectDatabase) -> Result<CompleteProjectLo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejected_legacy_details_preserve_model_and_redo() {
+        let state = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        let mut project = Project::new("Details");
+        let id = project
+            .create_element(ElementKind::ValueType, "Speed", project.root_id)
+            .unwrap();
+        *state.project.lock().unwrap() = Some(project);
+        history::checkpoint_states(&state, &activity, &history).unwrap();
+        state.project.lock().unwrap().as_mut().unwrap().name = "Redo revision".into();
+        assert!(history::undo_states(&state, &activity, &history).unwrap());
+        let before = serde_json::to_value(&*state.project.lock().unwrap()).unwrap();
+
+        for edit in [
+            systems_modeler_core::ElementSpecificationEdit {
+                documentation: Some("must not leak".into()),
+                unit_external_id: Some("missing-unit".into()),
+                ..Default::default()
+            },
+            systems_modeler_core::ElementSpecificationEdit {
+                documentation: Some("must not leak".into()),
+                type_id: Some(ElementId::new()),
+                ..Default::default()
+            },
+        ] {
+            assert!(apply_legacy_details(id, edit, &state, &activity, &history).is_err());
+            assert_eq!(
+                serde_json::to_value(&*state.project.lock().unwrap()).unwrap(),
+                before
+            );
+            assert_eq!(history::undo_len(&history), 0);
+        }
+        assert!(history::redo_states(&state, &activity, &history).unwrap());
+        assert_eq!(
+            state.project.lock().unwrap().as_ref().unwrap().name,
+            "Redo revision"
+        );
+    }
+
+    #[test]
+    fn legacy_details_commit_once_skip_noop_and_support_undo_redo() {
+        let (state, activity) = save_session_fixture();
+        let history = history::HistoryState::default();
+        let id = state.project.lock().unwrap().as_ref().unwrap().root_id;
+        let before = serde_json::to_value(&*state.project.lock().unwrap()).unwrap();
+        let edit = systems_modeler_core::ElementSpecificationEdit {
+            documentation: Some("authored documentation".into()),
+            ..Default::default()
+        };
+        assert!(apply_legacy_details(id, edit.clone(), &state, &activity, &history).unwrap());
+        let after = serde_json::to_value(&*state.project.lock().unwrap()).unwrap();
+        assert_ne!(before, after);
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(!apply_legacy_details(id, edit, &state, &activity, &history).unwrap());
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(history::undo_states(&state, &activity, &history).unwrap());
+        assert_eq!(
+            serde_json::to_value(&*state.project.lock().unwrap()).unwrap(),
+            before
+        );
+        assert!(history::redo_states(&state, &activity, &history).unwrap());
+        assert_eq!(
+            serde_json::to_value(&*state.project.lock().unwrap()).unwrap(),
+            after
+        );
+    }
 
     fn save_session_fixture() -> (WorkspaceState, activity_workspace::ActivityWorkspaceState) {
         let state = WorkspaceState::default();
