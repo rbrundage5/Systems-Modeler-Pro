@@ -237,6 +237,27 @@ pub(super) fn apply_structural_specification(
     history: &HistoryState,
     edit: impl FnOnce(&Project, &[ibd::IbdDiagram]) -> Result<(Project, Vec<ibd::IbdDiagram>), String>,
 ) -> Result<bool, String> {
+    apply_structural_specification_with_views(
+        workspace,
+        activity,
+        history,
+        None,
+        |project, _views, ibds| edit(project, ibds),
+    )
+}
+
+/// The selected view is validated under the same guard as semantic staging.
+pub(super) fn apply_structural_specification_with_views(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    required_diagram: Option<&str>,
+    edit: impl FnOnce(
+        &Project,
+        &[BddDiagram],
+        &[ibd::IbdDiagram],
+    ) -> Result<(Project, Vec<ibd::IbdDiagram>), String>,
+) -> Result<bool, String> {
     let mut project = workspace
         .project
         .lock()
@@ -250,7 +271,7 @@ pub(super) fn apply_structural_specification(
         .ibd_diagrams
         .lock()
         .map_err(|_| "IBD lock poisoned")?;
-    let (candidate, candidate_ibds) = edit(current, &ibd_diagrams)?;
+    let (candidate, candidate_ibds) = edit(current, &diagrams, &ibd_diagrams)?;
     if serde_json::to_value(current).map_err(|error| error.to_string())?
         == serde_json::to_value(&candidate).map_err(|error| error.to_string())?
         && serde_json::to_value(&*ibd_diagrams).map_err(|error| error.to_string())?
@@ -275,7 +296,7 @@ pub(super) fn apply_structural_specification(
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
     let candidate_diagrams = super::relationship_editing::stage_relationship_presentations(
-        current, &candidate, &diagrams, None,
+        current, &candidate, &diagrams, required_diagram,
     )?;
     super::validate_loaded_diagrams(&candidate, &candidate_diagrams)?;
     super::ibd::validate_ibd_diagrams(&candidate, &candidate_ibds)?;
