@@ -5,7 +5,8 @@ Baseline: `f3e45cc0d1bf5ff40001afe75ac03fc1e4bfa8c7`.
 
 Allowed paths: core `deletion.rs`, `lib.rs`, `activity.rs`, `behavior.rs`,
 `tests/connected_deletion.rs`; desktop `workspace/history.rs`,
-`workspace/repository_editing.rs`; `frontend/standard-editing-ui.js`;
+`workspace/repository_editing.rs`; `frontend/standard-editing-ui.js`,
+`frontend/repository-tree-ui.js`;
 `scripts/test_connected_element_delete.cjs`; this work order.
 
 Implement Delete from Model as a staged Rust operation: delete the selected
