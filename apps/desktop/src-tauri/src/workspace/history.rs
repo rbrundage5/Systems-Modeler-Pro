@@ -400,7 +400,7 @@ pub fn history_reset(history: tauri::State<'_, HistoryState>) -> Result<(), Stri
     reset_states(&history)
 }
 
-fn reset_states(history: &HistoryState) -> Result<(), String> {
+pub(super) fn reset_states(history: &HistoryState) -> Result<(), String> {
     let mut undo = history
         .undo
         .lock()
@@ -463,6 +463,164 @@ mod atomic_history_tests {
                 .unwrap_or_else(|error| error.into_inner())
                 .len(),
         )
+    }
+
+    fn populated_new_session_fixture() -> (
+        WorkspaceState,
+        activity_workspace::ActivityWorkspaceState,
+        HistoryState,
+    ) {
+        let (workspace, activity, history) = fixture();
+        {
+            let mut guard = workspace.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let block = project
+                .create_element(ElementKind::Block, "System", project.root_id)
+                .unwrap();
+            workspace
+                .behavior
+                .lock()
+                .unwrap()
+                .create_state_machine(project, block, "Operate")
+                .unwrap();
+            let activity_id = activity
+                .repository
+                .lock()
+                .unwrap()
+                .create_activity(project, project.root_id, Some(block), "Run")
+                .unwrap();
+            workspace.diagrams.lock().unwrap().push(BddDiagram {
+                id: DiagramId::new().to_string(),
+                name: "Structure".into(),
+                owner_id: project.root_id.to_string(),
+                family: "bdd".into(),
+                semantic_context_id: None,
+                subject_boundary: None,
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            });
+            activity
+                .diagrams
+                .lock()
+                .unwrap()
+                .push(activity_workspace::ActivityDiagram {
+                    id: DiagramId::new().to_string(),
+                    name: "Run".into(),
+                    owner_id: project.root_id.to_string(),
+                    activity_id: activity_id.to_string(),
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                });
+        }
+        *workspace.current_file.lock().unwrap() = Some("previous.smproj".into());
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
+        (workspace, activity, history)
+    }
+
+    fn session_value(
+        workspace: &WorkspaceState,
+        activity: &activity_workspace::ActivityWorkspaceState,
+    ) -> serde_json::Value {
+        fn value<T: serde::Serialize>(mutex: &Mutex<T>) -> serde_json::Value {
+            serde_json::to_value(&*mutex.lock().unwrap_or_else(|error| error.into_inner())).unwrap()
+        }
+        serde_json::json!([
+            value(&workspace.project),
+            value(&workspace.diagrams),
+            value(&workspace.ibd_diagrams),
+            value(&workspace.behavior),
+            value(&workspace.behavior_diagrams),
+            value(&workspace.reqif_exchange),
+            value(&activity.repository),
+            value(&activity.diagrams),
+            value(&workspace.current_file),
+        ])
+    }
+
+    #[test]
+    fn new_project_late_failure_preserves_every_authored_field_and_history() {
+        for failing_lock in ["activity", "path", "redo"] {
+            let (workspace, activity, history) = populated_new_session_fixture();
+            let before = session_value(&workspace, &activity);
+            let stacks = stack_lengths(&history);
+            match failing_lock {
+                "activity" => poison(&activity.diagrams),
+                "path" => poison(&workspace.current_file),
+                _ => poison(&history.redo),
+            }
+            assert!(
+                super::super::new_project_in_state(
+                    "Replacement".into(),
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
+            assert_eq!(session_value(&workspace, &activity), before);
+            assert_eq!(stack_lengths(&history), stacks);
+        }
+    }
+
+    #[test]
+    fn new_project_rejects_contention_without_partial_publication_and_can_retry() {
+        let (workspace, activity, history) = populated_new_session_fixture();
+        let before = session_value(&workspace, &activity);
+        let stacks = stack_lengths(&history);
+        std::thread::scope(|scope| {
+            let held = activity.diagrams.lock().unwrap();
+            let (send, receive) = std::sync::mpsc::channel();
+            let workspace = &workspace;
+            let activity = &activity;
+            let history = &history;
+            let worker = scope.spawn(move || {
+                send.send(super::super::new_project_in_state(
+                    "Replacement".into(),
+                    workspace,
+                    activity,
+                    history,
+                ))
+                .unwrap();
+            });
+            let result = receive.recv_timeout(std::time::Duration::from_secs(2));
+            drop(held);
+            worker.join().unwrap();
+            assert!(
+                result
+                    .expect("New waited with partial guards")
+                    .unwrap_err()
+                    .contains("busy")
+            );
+        });
+        assert_eq!(session_value(&workspace, &activity), before);
+        assert_eq!(stack_lengths(&history), stacks);
+        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history)
+            .unwrap();
+        assert_eq!(stack_lengths(&history), (0, 0));
+    }
+
+    #[test]
+    fn new_project_clears_specialized_repositories_path_and_old_history_together() {
+        let (workspace, activity, history) = populated_new_session_fixture();
+        let old_id = workspace.project.lock().unwrap().as_ref().unwrap().id;
+        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history)
+            .unwrap();
+        let current = workspace.project.lock().unwrap().clone().unwrap();
+        assert_ne!(current.id, old_id);
+        assert_eq!(current.name, "Replacement");
+        assert_eq!(current.elements.len(), 1);
+        assert!(workspace.diagrams.lock().unwrap().is_empty());
+        assert!(workspace.behavior.lock().unwrap().state_machines.is_empty());
+        assert!(activity.repository.lock().unwrap().activities.is_empty());
+        assert!(activity.diagrams.lock().unwrap().is_empty());
+        assert!(workspace.current_file.lock().unwrap().is_none());
+        assert_eq!(stack_lengths(&history), (0, 0));
+        assert!(!undo_states(&workspace, &activity, &history).unwrap());
+        assert!(!redo_states(&workspace, &activity, &history).unwrap());
     }
 
     #[test]
