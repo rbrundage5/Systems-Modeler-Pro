@@ -338,9 +338,9 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                         element.kind
                     ));
                 }
-                if element.owner_id.map(|id| id.to_string()) != diagram.semantic_context_id {
-                    return Err("Parametric presentation is outside the diagram context".into());
-                }
+                project
+                    .validate_parametric_role(parametrics::diagram_context(diagram)?, element.id)
+                    .map_err(|error| error.to_string())?;
                 if element.kind == ElementKind::ValueProperty
                     && !node.parameter_presentations.is_empty()
                 {
@@ -459,6 +459,12 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
                 return Err("BindingConnector presentations belong on a Parametric Diagram".into());
             }
             if diagram.family == "parametric" {
+                project
+                    .validate_binding_in_context(
+                        relationship,
+                        parametrics::diagram_context(diagram)?,
+                    )
+                    .map_err(|error| error.to_string())?;
                 let binding = relationship
                     .binding
                     .as_ref()

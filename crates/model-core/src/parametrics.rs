@@ -550,6 +550,50 @@ fn format_value(project: &Project, endpoint: &BindingEndpoint, base_value: f64) 
 }
 
 impl Project {
+    /// A Parametric view uses accessible feature identities, not copies owned by
+    /// the specialized Block. Own private features remain available locally.
+    pub fn validate_parametric_role(
+        &self,
+        context_id: ElementId,
+        role_id: ElementId,
+    ) -> Result<(), ModelError> {
+        if !matches!(
+            self.element(context_id)?.kind,
+            ElementKind::Block | ElementKind::AssociationBlock | ElementKind::ConstraintBlock
+        ) {
+            return Err(ModelError::InvalidOwner(context_id));
+        }
+        let role = self.element(role_id)?;
+        if !matches!(role.kind, ElementKind::ValueProperty | ElementKind::ConstraintProperty)
+            || !self.has_classifier_feature(context_id, role_id)?
+        {
+            return Err(ModelError::InvalidBindingEndpoint(format!(
+                "{role_id} is not an accessible Parametric role in context {context_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Qualify wiring as well as endpoints, preventing a sibling context's
+    /// connector from entering an evaluation through shared inherited role IDs.
+    pub fn validate_binding_in_context(
+        &self,
+        relationship: &Relationship,
+        context_id: ElementId,
+    ) -> Result<(), ModelError> {
+        self.validate_binding_connector(relationship)?;
+        let owner = relationship.owner_id.ok_or(ModelError::InvalidOwner(context_id))?;
+        if !crate::structural_runtime::classifier_conforms(self, context_id, owner) {
+            return Err(ModelError::InvalidBindingEndpoint(format!(
+                "binding {} is outside Parametric context {context_id}",
+                relationship.id
+            )));
+        }
+        let binding = relationship.binding.as_ref().unwrap();
+        self.validate_parametric_role(context_id, binding.source.role_id)?;
+        self.validate_parametric_role(context_id, binding.target.role_id)
+    }
+
     pub fn create_binding_connector(
         &mut self,
         owner_id: ElementId,
@@ -567,13 +611,7 @@ impl Project {
             return Err(ModelError::BindingSelfConnection);
         }
         for endpoint in [&source, &target] {
-            let role = self.element(endpoint.role_id)?;
-            if role.owner_id != Some(owner_id) {
-                return Err(ModelError::InvalidBindingEndpoint(format!(
-                    "{} is not owned by parametric context {owner_id}",
-                    role.id
-                )));
-            }
+            self.validate_parametric_role(owner_id, endpoint.role_id)?;
             endpoint_feature(self, endpoint)?;
         }
         if !binding_types_compatible(self, &source, &target)? {
@@ -583,7 +621,8 @@ impl Project {
             });
         }
         if self.relationships.values().any(|relationship| {
-            relationship.binding.as_ref().is_some_and(|binding| {
+            relationship.owner_id == Some(owner_id)
+                && relationship.binding.as_ref().is_some_and(|binding| {
                 (binding.source == source && binding.target == target)
                     || (binding.source == target && binding.target == source)
             })
@@ -632,13 +671,7 @@ impl Project {
             ModelError::InvalidBindingEndpoint("BindingConnector requires an owner".into())
         })?;
         for endpoint in [&binding.source, &binding.target] {
-            let role = self.element(endpoint.role_id)?;
-            if role.owner_id != Some(owner_id) {
-                return Err(ModelError::InvalidBindingEndpoint(format!(
-                    "{} is outside BindingConnector context {owner_id}",
-                    role.id
-                )));
-            }
+            self.validate_parametric_role(owner_id, endpoint.role_id)?;
             endpoint_feature(self, endpoint)?;
         }
         if !binding_types_compatible(self, &binding.source, &binding.target)? {
@@ -649,6 +682,7 @@ impl Project {
         }
         if self.relationships.values().any(|candidate| {
             candidate.id != relationship.id
+                && candidate.owner_id == relationship.owner_id
                 && candidate.binding.as_ref().is_some_and(|candidate_binding| {
                     (candidate_binding.source == binding.source
                         && candidate_binding.target == binding.target)
@@ -724,7 +758,7 @@ pub fn evaluate_parametrics(
         .iter()
         .map(|id| {
             let relationship = project.relationship(*id)?;
-            project.validate_binding_connector(relationship)?;
+            project.validate_binding_in_context(relationship, scope.context_id)?;
             relationship
                 .binding
                 .clone()
@@ -738,8 +772,8 @@ pub fn evaluate_parametrics(
         .iter()
         .map(|property_id| {
             let property = project.element(*property_id)?;
+            project.validate_parametric_role(scope.context_id, *property_id)?;
             if property.kind != ElementKind::ConstraintProperty
-                || property.owner_id != Some(scope.context_id)
             {
                 return Err(ModelError::InvalidBindingEndpoint(format!(
                     "{property_id} is not a ConstraintProperty in the Parametric context"
@@ -862,11 +896,7 @@ pub fn evaluate_parametrics(
             parameter_id: None,
         };
         let property = endpoint_feature(project, &endpoint)?;
-        if property.owner_id != Some(scope.context_id) {
-            return Err(ModelError::InvalidBindingEndpoint(format!(
-                "{value_property_id} is outside the Parametric context"
-            )));
-        }
+        project.validate_parametric_role(scope.context_id, *value_property_id)?;
         let Some(component) = component_by_endpoint.get(&endpoint).copied() else {
             continue;
         };

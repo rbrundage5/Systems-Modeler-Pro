@@ -486,6 +486,20 @@ pub fn place_on_parametric_diagram(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<String, String> {
+    place_on_parametric_diagram_in_state(
+        diagram_id, element_id, x, y, &workspace, &activity, &history,
+    )
+}
+
+fn place_on_parametric_diagram_in_state(
+    diagram_id: String,
+    element_id: String,
+    x: f64,
+    y: f64,
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<String, String> {
     if !x.is_finite() || !y.is_finite() {
         return Err("Parametric presentation coordinates must be finite".into());
     }
@@ -518,9 +532,9 @@ pub fn place_on_parametric_diagram(
         .iter_mut()
         .find(|diagram| diagram.id == diagram_id && diagram.family == "parametric")
         .ok_or("Parametric Diagram not found")?;
-    if element.owner_id != Some(diagram_context(diagram)?) {
-        return Err("Parametric element must be owned by the diagram context".into());
-    }
+    project
+        .validate_parametric_role(diagram_context(diagram)?, element_id)
+        .map_err(|error| error.to_string())?;
     if diagram
         .nodes
         .iter()
@@ -551,7 +565,7 @@ pub fn place_on_parametric_diagram(
     let presentation_id = node.id.clone();
     diagram.nodes.push(node);
     validate_loaded_diagrams(&project, &diagrams)?;
-    checkpoint(&workspace, &activity, &history)?;
+    checkpoint(workspace, activity, history)?;
     *workspace
         .diagrams
         .lock()
@@ -1584,6 +1598,110 @@ pub fn evaluate_parametric_diagram(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_parametric_placement_preserves_identity_history_and_reopen_validation() {
+        let mut project = Project::new("Inherited Parametric placement");
+        let base = project
+            .create_element(ElementKind::Block, "Base", project.root_id)
+            .unwrap();
+        let derived = project
+            .create_element(ElementKind::Block, "Derived", project.root_id)
+            .unwrap();
+        let real = project
+            .create_element(ElementKind::PrimitiveType, "Real", project.root_id)
+            .unwrap();
+        project
+            .create_relationship(
+                RelationshipKind::Generalization,
+                derived,
+                base,
+                Some(project.root_id),
+            )
+            .unwrap();
+        let visible = project
+            .create_typed_feature(
+                ElementKind::ValueProperty,
+                "value",
+                base,
+                real,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let hidden = project
+            .create_typed_feature(
+                ElementKind::ValueProperty,
+                "hidden",
+                base,
+                real,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        project.element_mut(hidden).unwrap().visibility =
+            systems_modeler_core::VisibilityKind::Private;
+        let diagram = BddDiagram {
+            id: DiagramId::new().to_string(),
+            name: "Derived analysis".into(),
+            owner_id: project.root_id.to_string(),
+            family: "parametric".into(),
+            semantic_context_id: Some(derived.to_string()),
+            subject_boundary: None,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+        let diagram_id = diagram.id.clone();
+        let before = serde_json::to_value(&project).unwrap();
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().unwrap() = Some(project.clone());
+        *workspace.diagrams.lock().unwrap() = vec![diagram];
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        place_on_parametric_diagram_in_state(
+            diagram_id.clone(),
+            visible.to_string(),
+            80.0,
+            80.0,
+            &workspace,
+            &activity,
+            &history,
+        )
+        .unwrap();
+        let after = serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap();
+        let restored: Vec<BddDiagram> = serde_json::from_value(after.clone()).unwrap();
+        validate_loaded_diagrams(&project, &restored).unwrap();
+        assert_eq!(restored[0].nodes[0].element_id, visible.to_string());
+        assert_eq!(history::undo_len(&history), 1);
+        for rejected in [hidden, visible] {
+            assert!(
+                place_on_parametric_diagram_in_state(
+                    diagram_id.clone(),
+                    rejected.to_string(),
+                    80.0,
+                    80.0,
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
+            assert_eq!(
+                serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+                after
+            );
+            assert_eq!(history::undo_len(&history), 1);
+        }
+        assert_eq!(
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(),
+            before
+        );
+        history::undo_states(&workspace, &activity, &history).unwrap();
+        assert!(workspace.diagrams.lock().unwrap()[0].nodes.is_empty());
+        history::redo_states(&workspace, &activity, &history).unwrap();
+        assert_eq!(
+            serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+            after
+        );
+    }
 
     #[test]
     fn fresh_constraint_parameter_gets_reusable_real_primitive_type() {
