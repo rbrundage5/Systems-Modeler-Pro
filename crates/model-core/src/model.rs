@@ -1186,6 +1186,35 @@ impl Project {
         Ok(())
     }
 
+    /// Stage an endpoint edit together with the transitive text implied by Copy.
+    pub fn stage_traceability_reconnect(
+        &self,
+        id: RelationshipId,
+        source_id: ElementId,
+        target_id: ElementId,
+    ) -> Result<Self, String> {
+        let original = self.relationship(id).map_err(|error| error.to_string())?;
+        if !is_traceability_relationship(&original.kind) {
+            return Err("selected relationship is not Requirement traceability".into());
+        }
+        let mut candidate = self.clone();
+        let relationship = candidate.relationships.get_mut(&id).expect("existing relationship");
+        relationship.source_id = source_id;
+        relationship.target_id = target_id;
+        if original.kind == RelationshipKind::Copy {
+            let text = candidate.element(target_id).map_err(|error| error.to_string())?
+                .requirement_text.clone().ok_or("Copy supplier has no requirement text")?;
+            let clients = candidate.requirement_copy_updates(source_id, &text)
+                .map_err(|error| error.to_string())?;
+            for client_id in clients {
+                candidate.elements.get_mut(&client_id).expect("validated Copy client")
+                    .requirement_text = Some(text.clone());
+            }
+        }
+        candidate.validate().map_err(|error| error.to_string())?;
+        Ok(candidate)
+    }
+
     // Compute every affected Copy client and validate before publishing any text.
     // A visited set bounds traversal even in an imported cyclic graph.
     fn requirement_copy_updates(&self, root: ElementId, text: &str) -> Result<Vec<ElementId>, ModelError> {
