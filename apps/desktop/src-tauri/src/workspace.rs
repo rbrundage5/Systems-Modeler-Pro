@@ -44,6 +44,8 @@ pub struct ElementSnapshot {
 #[derive(Debug, Clone, Serialize)]
 pub struct AssociationEndSnapshot {
     pub id: String,
+    pub property_id: Option<String>,
+    pub decoration_side: Option<String>,
     pub classifier_id: String,
     pub role_name: String,
     pub multiplicity: String,
@@ -249,14 +251,8 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
             association_ends: relationship
                 .association_ends
                 .iter()
-                .map(|end| AssociationEndSnapshot {
-                    id: end.id.to_string(),
-                    classifier_id: end.classifier_id.to_string(),
-                    role_name: end.role_name.clone(),
-                    multiplicity: end.multiplicity.notation(),
-                    navigable: end.navigable,
-                    aggregation: aggregation_name(end.aggregation).to_string(),
-                })
+                .enumerate()
+                .map(|(index, end)| association_end_snapshot(relationship, index, end))
                 .collect(),
             extension_condition: relationship.extension_condition.clone(),
             extension_location: relationship.extension_location.clone(),
@@ -461,41 +457,27 @@ fn semantic_duplicate(project: &Project, kind: &str, source_id: ElementId, targe
 
 #[tauri::command]
 pub fn create_bdd_relationship(diagram_id: String, kind: String, source_element_id: String, target_element_id: String, state: tauri::State<'_, WorkspaceState>) -> Result<String, String> {
-    let kind = supported_relationship_kind(&kind)?;
-    let source_id = parse_element_id(&source_element_id)?;
-    let target_id = parse_element_id(&target_element_id)?;
-    if source_id == target_id { return Err(format!("{kind} cannot connect a Block to itself")); }
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    let source = project.element(source_id).map_err(|error| error.to_string())?;
-    let target = project.element(target_id).map_err(|error| error.to_string())?;
-    if source.kind != ElementKind::Block || target.kind != ElementKind::Block { return Err(format!("{kind} requires Block endpoints on a BDD")); }
-    if semantic_duplicate(project, kind, source_id, target_id) { return Err(format!("an equivalent {kind} already exists")); }
-    let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let diagram = diagrams.iter_mut().find(|diagram| diagram.id == diagram_id).ok_or("diagram not found")?;
-    let source_node = diagram.nodes.iter().find(|node| node.element_id == source_element_id).cloned().ok_or("source Block must be presented on the selected BDD")?;
-    let target_node = diagram.nodes.iter().find(|node| node.element_id == target_element_id).cloned().ok_or("target Block must be presented on the selected BDD")?;
-    let owner_id = Some(parse_element_id(&diagram.owner_id)?);
-    let relationship_id = match kind {
-        "Association" => project.create_association(owner_id, vec![Project::association_end(source_id, "", Multiplicity::ONE, true, AggregationKind::None), Project::association_end(target_id, "", Multiplicity::ONE, true, AggregationKind::None)]).map_err(|error| error.to_string())?,
-        "Aggregation" => project.create_association(owner_id, vec![Project::association_end(source_id, "", Multiplicity::ONE, true, AggregationKind::Shared), Project::association_end(target_id, "", Multiplicity::ONE, true, AggregationKind::None)]).map_err(|error| error.to_string())?,
-        "Composition" => project.create_association(owner_id, vec![Project::association_end(source_id, "", Multiplicity::ONE, true, AggregationKind::Composite), Project::association_end(target_id, "", Multiplicity::ONE, true, AggregationKind::None)]).map_err(|error| error.to_string())?,
-        "Generalization" => project.create_relationship(RelationshipKind::Generalization, source_id, target_id, owner_id).map_err(|error| error.to_string())?,
-        "Dependency" => project.create_relationship(RelationshipKind::Dependency, source_id, target_id, owner_id).map_err(|error| error.to_string())?,
-        "Realization" => project.create_relationship(RelationshipKind::Realization, source_id, target_id, owner_id).map_err(|error| error.to_string())?,
-        _ => unreachable!(),
-    };
-    let points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
-    let edge_id = uuid::Uuid::new_v4().to_string();
-    diagram.edges.push(DiagramEdge {
-        id: edge_id,
-        relationship_id: relationship_id.to_string(),
-        source_node_id: source_node.id,
-        target_node_id: target_node.id,
-        label_anchor: Some(routing::route_label_anchor(&points)),
-        points,
-    });
-    Ok(relationship_id.to_string())
+    bdd_elements::create_bdd_relationship_in_state(diagram_id, kind, source_element_id, target_element_id, &state)
+}
+
+fn association_end_snapshot(
+    relationship: &systems_modeler_core::Relationship,
+    index: usize,
+    end: &systems_modeler_core::AssociationEnd,
+) -> AssociationEndSnapshot {
+    let canonical = relationship.association_ends.iter().any(|end| end.property_id.is_some());
+    AssociationEndSnapshot {
+        id: end.id.to_string(),
+        property_id: end.property_id.map(|id| id.to_string()),
+        decoration_side: (end.aggregation != AggregationKind::None).then(|| {
+            if (index == 0) != canonical { "source" } else { "target" }.to_owned()
+        }),
+        classifier_id: end.classifier_id.to_string(),
+        role_name: end.role_name.clone(),
+        multiplicity: end.multiplicity.notation(),
+        navigable: end.navigable,
+        aggregation: aggregation_name(end.aggregation).to_string(),
+    }
 }
 
 fn route_relationship(
@@ -503,12 +485,21 @@ fn route_relationship(
     target: &DiagramNode,
     nodes: &[DiagramNode],
 ) -> Result<Vec<DiagramPoint>, String> {
+    route_relationship_at_lane(source, target, nodes, 0)
+}
+
+fn route_relationship_at_lane(
+    source: &DiagramNode,
+    target: &DiagramNode,
+    nodes: &[DiagramNode],
+    lane_index: usize,
+) -> Result<Vec<DiagramPoint>, String> {
     let obstacles: Vec<routing::RouteRect> = nodes.iter().filter(|node| node.id != source.id && node.id != target.id).map(|node| routing::RouteRect { x: node.x, y: node.y, width: node.width, height: node.height }).collect();
     routing::orthogonal_route(routing::RouteRequest {
         source: routing::RouteRect { x: source.x, y: source.y, width: source.width, height: source.height },
         target: routing::RouteRect { x: target.x, y: target.y, width: target.width, height: target.height },
         obstacles: &obstacles,
-        lane_index: 0,
+        lane_index,
         reserved_routes: &[],
         allow_shared_departure: false,
         bounds: None,
