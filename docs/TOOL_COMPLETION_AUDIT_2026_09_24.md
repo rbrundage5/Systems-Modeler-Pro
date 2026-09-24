@@ -228,7 +228,11 @@ problems early. The parent's completion claim requires every applicable child to
 be VERIFIED or explicitly dispositioned outside a named release scope; known
 defects cannot be relabeled as optional polish.
 
-**Next executable leaf:** TC-01, atomic native New Project publication. Start from
+**Implementation follow-up:** [PR168–174 implementation update](TOOL_COMPLETION_IMPLEMENTATION_2026_09_24.md)
+records the fixes published after this baseline audit, their CI evidence, the
+connected-element deletion workflow, and the unresolved completion gates.
+
+**Original next executable leaf at the audited baseline:** TC-01, atomic native New Project publication. Start from
 the current main SHA after refreshing GitHub. Scope authored-state staging and
 publication in `workspace.rs` plus the existing native state helpers and focused
 tests. Reproduce a poisoned late lock with populated structural/Activity/Behavior
