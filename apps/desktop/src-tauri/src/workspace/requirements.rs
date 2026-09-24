@@ -411,6 +411,12 @@ mod tests {
         let mut second = diagram.clone();
         second.id = DiagramId::new().to_string();
         second.nodes.pop();
+        for node in &mut second.nodes {
+            node.id = uuid::Uuid::new_v4().to_string();
+        }
+        second.edges[0].id = uuid::Uuid::new_v4().to_string();
+        second.edges[0].source_node_id = second.nodes[1].id.clone();
+        second.edges[0].target_node_id = second.nodes[0].id.clone();
         let workspace = WorkspaceState::default();
         let activity = activity_workspace::ActivityWorkspaceState::default();
         let history = history::HistoryState::default();
