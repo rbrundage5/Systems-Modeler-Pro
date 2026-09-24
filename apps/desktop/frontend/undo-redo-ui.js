@@ -21,7 +21,7 @@
     return text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
       || text.startsWith('reconnecting bdd ')
-      || text.startsWith('reconnecting traceability ')
+      || text.startsWith('deleting diagram relationship')
       || text.startsWith('linking composition property');
   }
 

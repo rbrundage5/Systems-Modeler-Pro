@@ -620,7 +620,7 @@ function renderRelationshipProperties(panel, project, relationship) {
   });
   $('delete-relationship').onclick = async () => {
     if (!confirm(`Delete ${relationship.kind} relationship?`)) return;
-    await runCommand('Deleting relationship…', () => requireInvoke()('delete_bdd_relationship', {
+    await runCommand('Deleting diagram relationship…', () => requireInvoke()('delete_bdd_relationship', {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
     }));
