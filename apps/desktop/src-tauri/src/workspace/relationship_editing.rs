@@ -57,6 +57,63 @@ fn duplicate_after_reconnect(
 }
 
 #[tauri::command]
+pub fn composition_property_choices(
+    relationship_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<Vec<systems_modeler_core::ElementTypeChoice>, String> {
+    let project = state.project.lock().map_err(|_| "project lock poisoned")?;
+    project
+        .as_ref()
+        .ok_or("no project open")?
+        .composition_property_choices(parse_relationship_id(&relationship_id)?)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn link_composition_property(
+    relationship_id: String,
+    property_id: Option<String>,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
+) -> Result<String, String> {
+    link_composition_property_in_state(
+        parse_relationship_id(&relationship_id)?,
+        property_id.as_deref().map(parse_element_id).transpose()?,
+        &state,
+        &activity,
+        &history,
+    )
+}
+
+fn link_composition_property_in_state(
+    relationship_id: systems_modeler_core::RelationshipId,
+    property_id: Option<ElementId>,
+    state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    history: &super::history::HistoryState,
+) -> Result<String, String> {
+    let mut linked = None;
+    super::history::apply_structural_specification(
+        state,
+        activity,
+        history,
+        |current, diagrams| {
+            let mut candidate = current.clone();
+            linked = Some(
+                candidate
+                    .link_composition_property(relationship_id, property_id)
+                    .map_err(|error| error.to_string())?,
+            );
+            Ok((candidate, diagrams.to_vec()))
+        },
+    )?;
+    linked
+        .map(|id| id.to_string())
+        .ok_or_else(|| "composition link produced no Property".into())
+}
+
+#[tauri::command]
 pub fn update_association_end(
     relationship_id: String,
     end_id: String,
@@ -708,6 +765,63 @@ mod tests {
             Some(property)
         );
         project.validate().unwrap();
+    }
+
+    #[test]
+    fn legacy_link_is_one_native_history_step_and_rejections_preserve_redo() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        {
+            let mut guard = fixture.state.project.lock().unwrap();
+            guard
+                .as_mut()
+                .unwrap()
+                .relationships
+                .get_mut(&fixture.relationship_id)
+                .unwrap()
+                .association_ends[0]
+                .aggregation = AggregationKind::Composite;
+        }
+        let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
+        let history = super::super::history::HistoryState::default();
+        let before = snapshot(&fixture.state);
+        let property = link_composition_property_in_state(
+            fixture.relationship_id,
+            None,
+            &fixture.state,
+            &activity,
+            &history,
+        )
+        .unwrap();
+        let after = snapshot(&fixture.state);
+        assert_ne!(after, before);
+        assert_eq!(super::super::history::undo_len(&history), 1);
+        assert_eq!(
+            link_composition_property_in_state(
+                fixture.relationship_id,
+                None,
+                &fixture.state,
+                &activity,
+                &history,
+            )
+            .unwrap(),
+            property
+        );
+        assert_eq!(super::super::history::undo_len(&history), 1);
+        super::super::history::undo_states(&fixture.state, &activity, &history).unwrap();
+        assert_eq!(snapshot(&fixture.state), before);
+        assert!(
+            link_composition_property_in_state(
+                fixture.relationship_id,
+                Some(ElementId::new()),
+                &fixture.state,
+                &activity,
+                &history,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot(&fixture.state), before);
+        super::super::history::redo_states(&fixture.state, &activity, &history).unwrap();
+        assert_eq!(snapshot(&fixture.state), after);
     }
 
     #[test]

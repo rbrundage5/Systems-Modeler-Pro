@@ -19,7 +19,8 @@
   function isRustCheckpointedCommand(label) {
     const text = String(label || '').toLowerCase();
     return text.startsWith('updating diagram presentation')
-      || text.startsWith('applying element specification');
+      || text.startsWith('applying element specification')
+      || text.startsWith('linking composition property');
   }
 
   async function checkpointIfNeeded(label) {

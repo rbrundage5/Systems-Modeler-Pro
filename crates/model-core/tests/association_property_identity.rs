@@ -202,3 +202,171 @@ fn legacy_end_payloads_keep_their_notation_and_do_not_infer_properties() {
     );
     assert_eq!(decoded.owned_features(whole).count(), 0);
 }
+
+#[test]
+fn explicit_legacy_link_preserves_both_member_ids_and_diamond_orientation() {
+    for whole_index in 0..2 {
+        let (mut project, whole, part) = fixture();
+        let whole_end = Project::association_end(
+            whole,
+            "",
+            Multiplicity::ONE,
+            true,
+            AggregationKind::Composite,
+        );
+        let part_end = Project::association_end(
+            part,
+            "wheel",
+            Multiplicity::new(2, Some(2)).unwrap(),
+            true,
+            AggregationKind::None,
+        );
+        let ends = if whole_index == 0 {
+            vec![whole_end, part_end]
+        } else {
+            vec![part_end, whole_end]
+        };
+        let ids: Vec<_> = ends.iter().map(|end| end.id).collect();
+        let relation = project
+            .create_association(Some(project.root_id), ends)
+            .unwrap();
+        let property = project.link_composition_property(relation, None).unwrap();
+        let relationship = project.relationship(relation).unwrap();
+        assert_eq!(
+            relationship
+                .association_ends
+                .iter()
+                .map(|end| end.id)
+                .collect::<Vec<_>>(),
+            ids
+        );
+        assert_eq!(
+            relationship.association_ends[1 - whole_index].property_id,
+            Some(property)
+        );
+        assert_eq!(project.element(property).unwrap().owner_id, Some(whole));
+        assert_eq!(project.element(property).unwrap().type_id, Some(part));
+        assert_eq!(
+            project
+                .element(property)
+                .unwrap()
+                .multiplicity
+                .unwrap()
+                .notation(),
+            "2"
+        );
+        let notation = relationship_notation(relationship);
+        let diamond = if whole_index == 0 {
+            notation.source_decoration
+        } else {
+            notation.target_decoration
+        };
+        assert_eq!(diamond, EndDecoration::FilledDiamond);
+        let before = serde_json::to_value(&project).unwrap();
+        assert_eq!(
+            project
+                .link_composition_property(relation, Some(property))
+                .unwrap(),
+            property
+        );
+        assert_eq!(serde_json::to_value(&project).unwrap(), before);
+        project.validate().unwrap();
+    }
+}
+
+#[test]
+fn legacy_foundation_composition_can_reuse_only_an_explicit_eligible_part() {
+    let (mut project, whole, part) = fixture();
+    let property = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "front",
+            whole,
+            part,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let relation = project
+        .create_relationship(
+            RelationshipKind::Composition,
+            whole,
+            part,
+            Some(project.root_id),
+        )
+        .unwrap();
+    let before = serde_json::to_value(&project).unwrap();
+    assert_eq!(
+        project
+            .composition_property_choices(relation)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        project
+            .link_composition_property(relation, Some(part))
+            .is_err()
+    );
+    assert_eq!(serde_json::to_value(&project).unwrap(), before);
+    let count = project.elements.len();
+    assert_eq!(
+        project
+            .link_composition_property(relation, Some(property))
+            .unwrap(),
+        property
+    );
+    assert_eq!(project.elements.len(), count);
+    let second = project
+        .create_relationship(
+            RelationshipKind::Composition,
+            whole,
+            part,
+            Some(project.root_id),
+        )
+        .unwrap();
+    assert!(
+        project
+            .composition_property_choices(second)
+            .unwrap()
+            .is_empty()
+    );
+    let before = serde_json::to_value(&project).unwrap();
+    assert!(
+        project
+            .link_composition_property(second, Some(property))
+            .is_err()
+    );
+    assert_eq!(serde_json::to_value(&project).unwrap(), before);
+}
+
+#[test]
+fn legacy_link_rejects_invalid_whole_multiplicity_without_creating_a_part() {
+    let (mut project, whole, part) = fixture();
+    let relation = project
+        .create_association(
+            Some(project.root_id),
+            vec![
+                Project::association_end(
+                    whole,
+                    "",
+                    Multiplicity::new(0, None).unwrap(),
+                    true,
+                    AggregationKind::Composite,
+                ),
+                Project::association_end(
+                    part,
+                    "wheel",
+                    Multiplicity::ONE,
+                    true,
+                    AggregationKind::None,
+                ),
+            ],
+        )
+        .unwrap();
+    let before = serde_json::to_value(&project).unwrap();
+    assert_eq!(
+        project.link_composition_property(relation, None),
+        Err(ModelError::InvalidCompositeWholeMultiplicity)
+    );
+    assert_eq!(serde_json::to_value(&project).unwrap(), before);
+}
