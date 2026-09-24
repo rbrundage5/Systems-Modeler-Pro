@@ -341,6 +341,16 @@ impl ActivityRepository {
         Ok(())
     }
 
+    pub fn remove_deleted_contexts(&mut self, deleted: &HashSet<ElementId>) {
+        self.activities.retain(|_, activity| {
+            !deleted.contains(&activity.owner_id)
+                && !activity.context_id.is_some_and(|id| deleted.contains(&id))
+        });
+        let identities = std::mem::take(&mut self.external_ids);
+        self.external_ids = identities.into_iter()
+            .filter(|(_, identity)| self.semantic_identity_exists(*identity)).collect();
+    }
+
     fn semantic_identity_exists(&self, identity: ActivitySemanticId) -> bool {
         match identity {
             ActivitySemanticId::Node(id) => self

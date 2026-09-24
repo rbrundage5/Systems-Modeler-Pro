@@ -1,6 +1,7 @@
 include!("model.rs");
 
 mod association_properties;
+pub mod deletion;
 
 pub mod element_specification;
 pub use element_specification::{ElementSpecificationEdit, ElementTypeChoice};
