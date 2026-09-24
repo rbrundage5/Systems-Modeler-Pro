@@ -687,7 +687,7 @@ async function createProject() {
   try {
     await runCommand('Creating project…', async () => {
       await requireInvoke()('new_project', { name });
-      return { outcome: 'committed' };
+      return { outcome: 'committed', historyOwner: 'native' };
     });
   } catch (error) {
     Object.assign(state, previousInteraction);

@@ -52,7 +52,7 @@
       await selectDiagram(state.snapshot.diagrams[0].id);
     }
     render();
-    return { outcome: 'committed' };
+    return { outcome: 'committed', historyOwner: 'native' };
   }
 
   const openButton = $('open-project');

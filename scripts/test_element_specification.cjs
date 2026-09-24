@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject = false } = {}) {
+function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject = false, legacy = false } = {}) {
   const fields = new Map();
   const calls = [];
   let refreshed = 0;
@@ -60,12 +60,42 @@ function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject =
     requireInvoke: () => invoke, runCommand: async (_, action) => action(), refresh: async () => { refreshed++; },
   };
   vm.createContext(context);
-  for (const filename of ['bdd-feature-editing.js', 'undo-redo-ui.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend', filename), 'utf8'), context);
+  for (const filename of [legacy ? 'bdd-completion-ui.js' : 'bdd-feature-editing.js', 'undo-redo-ui.js']) {
+    let source = fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend', filename), 'utf8');
+    if (filename === 'bdd-completion-ui.js') {
+      source = source.slice(source.indexOf('const renderStructuralProperties'), source.indexOf('async function saveProjectAsComplete'));
+    }
+    vm.runInContext(source, context);
   }
   context.renderProperties();
   return { fields, calls, state, context, element, panel, document, get refreshed() { return refreshed; }, get delegated() { return delegated; } };
 }
+
+test('legacy Apply combines name and metadata into a single Rust transaction', async () => {
+  const ui = fixture({ kind: 'ValueType', legacy: true });
+  ui.fields.get('property-name').value = 'renamed';
+  ui.fields.get('property-documentation').value = 'updated documentation';
+  ui.fields.get('property-unit').value = 'metres';
+  await ui.fields.get('apply-element').onclick();
+  assert.equal(ui.calls.length, 1);
+  assert.equal(ui.calls[0].command, 'update_element_specification');
+  assert.equal(ui.calls[0].args.edit.name, 'renamed');
+  assert.equal(ui.calls[0].args.edit.documentation, 'updated documentation');
+  assert.equal(ui.calls[0].args.edit.unitExternalId, 'metres');
+  assert.equal(ui.refreshed, 1);
+});
+
+test('legacy rejection neither renames first nor refreshes away the draft', async () => {
+  const ui = fixture({ kind: 'ValueType', legacy: true, reject: true });
+  ui.fields.get('property-name').value = 'unsaved name';
+  ui.fields.get('property-unit').value = 'invalid';
+  await assert.rejects(ui.fields.get('apply-element').onclick(), /Invalid multiplicity/);
+  assert.equal(ui.calls.length, 1);
+  assert.equal(ui.calls[0].command, 'update_element_specification');
+  assert.equal(ui.fields.get('property-name').value, 'unsaved name');
+  assert.equal(ui.fields.get('property-unit').value, 'invalid');
+  assert.equal(ui.refreshed, 0);
+});
 
 test('one Apply sends the entire draft through one Rust transaction with no frontend checkpoint', async () => {
   const ui = fixture(); await flush();
