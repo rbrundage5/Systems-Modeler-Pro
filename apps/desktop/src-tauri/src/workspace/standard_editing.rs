@@ -1333,6 +1333,21 @@ fn duplicate_relationship(
         .owner_id
         .map(|owner_id| element_map.get(&owner_id).copied().unwrap_or(owner_id));
     for end in &mut duplicate.association_ends {
+        if let Some(property_id) = end.property_id {
+            let source_property = project.element(property_id).map_err(|error| error.to_string())?.clone();
+            let mapped = if let Some(mapped) = element_map.get(&property_id) {
+                *mapped
+            } else {
+                duplicate_element(project, property_id)?
+            };
+            let property = project.element_mut(mapped).map_err(|error| error.to_string())?;
+            property.owner_id = source_property.owner_id.map(|owner| element_map.get(&owner).copied().unwrap_or(owner));
+            property.type_id = source_property.type_id.map(|kind| element_map.get(&kind).copied().unwrap_or(kind));
+            end.property_id = Some(mapped);
+            end.role_name = property.name.clone();
+            end.multiplicity = property.multiplicity.unwrap_or(systems_modeler_core::Multiplicity::ONE);
+            end.aggregation = property.aggregation;
+        }
         end.id = RelationshipEndId::new();
         end.classifier_id = element_map
             .get(&end.classifier_id)
@@ -2548,6 +2563,24 @@ pub fn move_active_selection(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duplicate_composition_remaps_a_distinct_property_and_keeps_the_type() {
+        use systems_modeler_core::Multiplicity;
+        let mut project = Project::new("Composition duplicate");
+        let whole = project.create_element(ElementKind::Block, "Vehicle", project.root_id).unwrap();
+        let part = project.create_element(ElementKind::Block, "Wheel", project.root_id).unwrap();
+        let (relation, property) = project.create_composition(whole, part, "wheel", Multiplicity::ONE, Some(project.root_id)).unwrap();
+        let new_whole = duplicate_element(&mut project, whole).unwrap();
+        let mapping = HashMap::from([(whole, new_whole)]);
+        let duplicate = duplicate_relationship(&mut project, relation, &mapping, &HashMap::new()).unwrap();
+        let new_property = project.relationship(duplicate).unwrap().association_ends[1].property_id.unwrap();
+        assert_ne!(new_property, property);
+        assert_eq!(project.element(new_property).unwrap().owner_id, Some(new_whole));
+        assert_eq!(project.element(new_property).unwrap().type_id, Some(part));
+        assert_eq!(project.element(property).unwrap().owner_id, Some(whole));
+        project.validate().unwrap();
+    }
+
     use super::*;
 
     fn ibd_selection(id: &str) -> WorkspaceSelection {

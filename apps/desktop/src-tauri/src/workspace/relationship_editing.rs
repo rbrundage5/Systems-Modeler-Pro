@@ -1,6 +1,6 @@
 use super::{
     WorkspaceState, parse_diagram_id, parse_element_id, parse_relationship_id,
-    relationship_display_kind, route_relationship,
+    relationship_display_kind,
 };
 use systems_modeler_core::{
     AggregationKind, ElementId, ElementKind, Multiplicity, RelationshipKind,
@@ -177,8 +177,8 @@ fn reconnect_bdd_relationship_in_state(
     let replacement = project
         .element(element_id)
         .map_err(|error| error.to_string())?;
-    if replacement.kind != ElementKind::Block {
-        return Err("BDD relationship endpoints must be Blocks".into());
+    if !replacement.is_classifier() {
+        return Err("BDD relationship endpoints must be classifiers".into());
     }
 
     let original = project
@@ -196,58 +196,168 @@ fn reconnect_bdd_relationship_in_state(
         return Err("a BDD relationship cannot connect a Block to itself".into());
     }
     let display_kind = relationship_display_kind(&original);
-    if duplicate_after_reconnect(
-        project,
-        relationship_id,
-        display_kind,
-        new_source,
-        new_target,
-    ) {
+    if !original
+        .association_ends
+        .iter()
+        .any(|end| end.property_id.is_some())
+        && duplicate_after_reconnect(
+            project,
+            relationship_id,
+            display_kind,
+            new_source,
+            new_target,
+        )
+    {
         return Err(format!("an equivalent {display_kind} already exists"));
     }
-    // Resolve every fallible presentation dependency before publishing semantics.
-    // Both guards remain held until the relationship and edge commit together.
+    // Prepare the complete semantic and affected-view change before publication.
+    let mut candidate_project = project.clone();
+    if let Some((index, property_id)) = original
+        .association_ends
+        .iter()
+        .enumerate()
+        .find_map(|(index, end)| end.property_id.map(|id| (index, id)))
+    {
+        let (owner_id, type_id) = if index == 1 {
+            (new_source, new_target)
+        } else {
+            (new_target, new_source)
+        };
+        candidate_project
+            .move_element(property_id, owner_id)
+            .map_err(|error| error.to_string())?;
+        candidate_project
+            .set_element_type(property_id, type_id)
+            .map_err(|error| error.to_string())?;
+    } else {
+        let candidate = candidate_project
+            .relationships
+            .get_mut(&relationship_id)
+            .ok_or("relationship not found")?;
+        candidate.source_id = new_source;
+        candidate.target_id = new_target;
+        if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2
+        {
+            candidate.association_ends[0].classifier_id = new_source;
+            candidate.association_ends[1].classifier_id = new_target;
+        }
+    }
+    candidate_project
+        .validate()
+        .map_err(|error| error.to_string())?;
     let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let diagram = diagrams
-        .iter_mut()
+    let selected = diagrams
+        .iter()
         .find(|diagram| diagram.id == diagram_id.to_string())
         .ok_or("diagram not found")?;
-    let source_node = diagram
-        .nodes
-        .iter()
-        .find(|node| node.element_id == new_source.to_string())
-        .cloned()
-        .ok_or("new source Block must be presented on the BDD")?;
-    let target_node = diagram
-        .nodes
-        .iter()
-        .find(|node| node.element_id == new_target.to_string())
-        .cloned()
-        .ok_or("new target Block must be presented on the BDD")?;
-    let points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
-    let edge = diagram
+    if !selected
         .edges
-        .iter_mut()
-        .find(|edge| edge.relationship_id == relationship_id.to_string())
-        .ok_or("diagram edge not found")?;
-
-    let mut candidate = original.clone();
-    candidate.source_id = new_source;
-    candidate.target_id = new_target;
-    if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2 {
-        candidate.association_ends[0].classifier_id = new_source;
-        candidate.association_ends[1].classifier_id = new_target;
+        .iter()
+        .any(|edge| edge.relationship_id == relationship_id.to_string())
+    {
+        return Err("diagram edge not found".into());
     }
-    project.relationships.insert(relationship_id, candidate);
-    if let Err(error) = project.validate() {
-        project.relationships.insert(relationship_id, original);
-        return Err(error.to_string());
-    }
-    // No fallible work remains after successful semantic validation.
-    edge.source_node_id = source_node.id;
-    edge.target_node_id = target_node.id;
-    edge.points = points;
+    let candidate_diagrams = stage_relationship_presentations(
+        project,
+        &candidate_project,
+        &diagrams,
+        Some(&diagram_id.to_string()),
+    )?;
+    let ibds = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
+    super::ibd::validate_ibd_diagrams(&candidate_project, &ibds)?;
+    super::validate_loaded_diagrams(&candidate_project, &candidate_diagrams)?;
+    *project = candidate_project;
+    *diagrams = candidate_diagrams;
     Ok(())
+}
+
+/// Preserve all existing presentations while staging endpoint changes. An absent
+/// endpoint in another view gets its own presentation, never a semantic duplicate.
+pub(super) fn stage_relationship_presentations(
+    previous: &systems_modeler_core::Project,
+    candidate: &systems_modeler_core::Project,
+    diagrams: &[super::BddDiagram],
+    required_diagram: Option<&str>,
+) -> Result<Vec<super::BddDiagram>, String> {
+    let changed: std::collections::HashMap<_, _> = candidate
+        .relationships
+        .values()
+        .filter(|relationship| {
+            previous
+                .relationships
+                .get(&relationship.id)
+                .is_some_and(|old| {
+                    old.source_id != relationship.source_id
+                        || old.target_id != relationship.target_id
+                })
+        })
+        .map(|relationship| (relationship.id.to_string(), relationship))
+        .collect();
+    let mut staged = diagrams.to_vec();
+    for diagram in &mut staged {
+        for edge_index in 0..diagram.edges.len() {
+            let edge = &diagram.edges[edge_index];
+            let Some(relationship) = changed.get(&edge.relationship_id) else {
+                continue;
+            };
+            let mut endpoint_ids = Vec::new();
+            for (element_id, old_node_id) in [
+                (relationship.source_id, edge.source_node_id.clone()),
+                (relationship.target_id, edge.target_node_id.clone()),
+            ] {
+                if let Some(node) = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.element_id == element_id.to_string())
+                {
+                    endpoint_ids.push(node.id.clone());
+                    continue;
+                }
+                if required_diagram == Some(diagram.id.as_str()) {
+                    return Err("new classifier must be presented on the selected BDD".into());
+                }
+                let mut node = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == old_node_id)
+                    .cloned()
+                    .ok_or("existing relationship endpoint presentation is missing")?;
+                node.id = uuid::Uuid::new_v4().to_string();
+                node.element_id = element_id.to_string();
+                node.x = diagram
+                    .nodes
+                    .iter()
+                    .map(|node| node.x + node.width)
+                    .fold(0.0, f64::max)
+                    + 60.0;
+                node.actor_notation = None;
+                node.parameter_presentations.clear();
+                endpoint_ids.push(node.id.clone());
+                diagram.nodes.push(node);
+            }
+            let source = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == endpoint_ids[0])
+                .ok_or("source presentation missing")?;
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == endpoint_ids[1])
+                .ok_or("target presentation missing")?;
+            let lane = diagram.edges[..edge_index]
+                .iter()
+                .filter(|edge| edge.source_node_id == source.id && edge.target_node_id == target.id)
+                .count();
+            let points = super::route_relationship_at_lane(source, target, &diagram.nodes, lane)?;
+            let edge = &mut diagram.edges[edge_index];
+            edge.source_node_id = source.id.clone();
+            edge.target_node_id = target.id.clone();
+            edge.label_anchor = Some(super::routing::route_label_anchor(&points));
+            edge.points = points;
+        }
+    }
+    Ok(staged)
 }
 
 #[tauri::command]
@@ -283,7 +393,7 @@ pub fn delete_bdd_relationship(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace::{BddDiagram, DiagramEdge, DiagramNode};
+    use crate::workspace::{BddDiagram, DiagramEdge, DiagramNode, route_relationship};
     use systems_modeler_core::{DiagramId, Project, RelationshipId};
 
     struct ReconnectFixture {
@@ -512,6 +622,92 @@ mod tests {
                 route_relationship(source_node, target_node, &diagram.nodes).unwrap()
             );
         }
+    }
+
+    fn add_second_view(fixture: &ReconnectFixture, malformed: bool) {
+        let mut diagrams = fixture.state.diagrams.lock().unwrap();
+        let mut view = diagrams[0].clone();
+        view.id = DiagramId::new().to_string();
+        view.nodes.pop();
+        for (index, node) in view.nodes.iter_mut().enumerate() {
+            node.id = uuid::Uuid::new_v4().to_string();
+            if malformed && index == 0 {
+                node.y = f64::NAN;
+            }
+        }
+        view.edges[0].id = uuid::Uuid::new_v4().to_string();
+        view.edges[0].source_node_id = view.nodes[0].id.clone();
+        view.edges[0].target_node_id = view.nodes[1].id.clone();
+        diagrams.push(view);
+    }
+
+    #[test]
+    fn reconnect_updates_every_view_and_recomputes_attached_labels() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        add_second_view(&fixture, false);
+        reconnect(&fixture, "target").unwrap();
+        let project_guard = fixture.state.project.lock().unwrap();
+        let project = project_guard.as_ref().unwrap();
+        let diagrams = fixture.state.diagrams.lock().unwrap();
+        super::super::validate_loaded_diagrams(project, &diagrams).unwrap();
+        for diagram in diagrams.iter() {
+            assert_eq!(diagram.nodes.len(), 3);
+            let edge = &diagram.edges[0];
+            let target = diagram
+                .nodes
+                .iter()
+                .find(|node| node.id == edge.target_node_id)
+                .unwrap();
+            assert_eq!(target.element_id, fixture.blocks[2].to_string());
+            assert_eq!(
+                edge.label_anchor,
+                Some(super::super::routing::route_label_anchor(&edge.points))
+            );
+        }
+    }
+
+    #[test]
+    fn failed_secondary_view_route_rolls_back_every_view_and_semantics() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        add_second_view(&fixture, true);
+        let before = snapshot(&fixture.state);
+        assert!(reconnect(&fixture, "target").is_err());
+        assert_eq!(snapshot(&fixture.state), before);
+    }
+
+    #[test]
+    fn reconnect_linked_composition_retypes_the_original_property() {
+        let mut fixture = reconnect_fixture(RelationshipKind::Association);
+        let (relationship, property) = {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project.relationships.remove(&fixture.relationship_id);
+            project
+                .create_composition(
+                    fixture.blocks[0],
+                    fixture.blocks[1],
+                    "part",
+                    Multiplicity::ONE,
+                    Some(project.root_id),
+                )
+                .unwrap()
+        };
+        fixture.relationship_id = relationship;
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id =
+            relationship.to_string();
+        add_second_view(&fixture, false);
+        reconnect(&fixture, "target").unwrap();
+        let guard = fixture.state.project.lock().unwrap();
+        let project = guard.as_ref().unwrap();
+        assert_eq!(
+            project.element(property).unwrap().type_id,
+            Some(fixture.blocks[2])
+        );
+        assert_eq!(
+            project.relationship(relationship).unwrap().association_ends[1].property_id,
+            Some(property)
+        );
+        project.validate().unwrap();
     }
 
     #[test]
