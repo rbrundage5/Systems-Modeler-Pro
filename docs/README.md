@@ -5,7 +5,8 @@ contract is useful evidence, but is not a current whole-product completeness cla
 
 | Need | Read |
 | --- | --- |
-| Current tool, SysML, code quality and improvement review | [22 September 2026 review of integrated main](TOOL_SYSML_REVIEW_2026_09_22.md) |
+| Current completion gaps, priorities and release gates | [24 September 2026 completion audit after PR164-166](TOOL_COMPLETION_AUDIT_2026_09_24.md) |
+| Earlier tool, SysML and code review | [22 September 2026 review](TOOL_SYSML_REVIEW_2026_09_22.md), reconciled by the completion audit above |
 | Execution scope, network/file access and unexpected-code audit | [22 September 2026 execution-scope audit](EXECUTION_SCOPE_AUDIT_2026_09_22.md), with obsolete automation cleanup in PR129 |
 | Historical pre-package candidates and their evidence | [21 September 2026 engineering review](PREPACKAGE_AUDIT_2026_09_21.md), predates PR127 integration |
 | Step 5 scope and acceptance | [Planning package](STEP5_SCOPE_AND_ACCEPTANCE.md) and [coverage checklist](STEP5_AUDIT_COVERAGE.md) |
