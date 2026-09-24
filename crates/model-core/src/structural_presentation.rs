@@ -182,9 +182,14 @@ pub fn validate_structural_diagrams(
                 diagram.owner_id
             ));
         }
-        if let Some(context_id) = diagram.semantic_context_id.as_deref() {
+        let semantic_context_id = diagram
+            .semantic_context_id
+            .as_deref()
+            .map(parse_element_id)
+            .transpose()?;
+        if let Some(context_id) = semantic_context_id {
             let context = project
-                .element(parse_element_id(context_id)?)
+                .element(context_id)
                 .map_err(|error| error.to_string())?;
             if diagram.family == "use-case"
                 && (!context.is_classifier()
@@ -261,9 +266,12 @@ pub fn validate_structural_diagrams(
                         element.kind
                     ));
                 }
-                if element.owner_id.map(|id| id.to_string()) != diagram.semantic_context_id {
-                    return Err("Parametric presentation is outside the diagram context".into());
-                }
+                project
+                    .validate_parametric_role(
+                        semantic_context_id.ok_or("Parametric Diagram requires a semantic context")?,
+                        element_id,
+                    )
+                    .map_err(|error| error.to_string())?;
                 if element.kind == ElementKind::ValueProperty
                     && !node.parameter_presentations.is_empty()
                 {
@@ -383,6 +391,12 @@ pub fn validate_structural_diagrams(
                 ));
             }
             if diagram.family == "parametric" {
+                project
+                    .validate_binding_in_context(
+                        relationship,
+                        semantic_context_id.ok_or("Parametric Diagram requires a semantic context")?,
+                    )
+                    .map_err(|error| error.to_string())?;
                 let binding = relationship
                     .binding
                     .as_ref()

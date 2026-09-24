@@ -2,8 +2,11 @@
 
 Baseline: `bfdd50ea63b1bc1eec7445c2e52c94c087d538ee`. Independent PR targeting main.
 Direct primary-session implementation. Independent review remains outstanding.
-Allowed production paths: core `parametrics.rs`; desktop workspace `parametrics.rs`
-and `bdd_elements.rs`. Tests: existing core `pr35_parametric_runtime.rs` and
+Allowed production paths: core `parametrics.rs` and `structural_presentation.rs`;
+desktop workspace `parametrics.rs` and `bdd_elements.rs`. The shared structural
+validator is on the same native placement/reopen path; the desktop regression
+confirmed its direct-owner check must use the same accessible-role authority.
+Tests: existing core `pr35_parametric_runtime.rs` and
 colocated desktop command tests. This file records the bounded work order.
 
 Binding authoring, validation, evaluation and diagram placement currently require
