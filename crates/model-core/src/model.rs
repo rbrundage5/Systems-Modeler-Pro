@@ -347,6 +347,9 @@ impl Element {
 pub struct AssociationEnd {
     pub id: RelationshipEndId,
     pub classifier_id: ElementId,
+    /// Classifier-owned member Property. Absent on legacy notation-oriented ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub property_id: Option<ElementId>,
     pub role_name: String,
     pub multiplicity: Multiplicity,
     pub navigable: bool,
@@ -472,6 +475,14 @@ pub enum ModelError {
     InvalidUseCaseSubject(ElementId),
     #[error("association end identity is duplicated: {0}")]
     DuplicateAssociationEndId(RelationshipEndId),
+    #[error("association property link is invalid: {0}")]
+    InvalidAssociationProperty(ElementId),
+    #[error("property is already a member end of an association: {0}")]
+    DuplicateAssociationProperty(ElementId),
+    #[error("linked associations require one Property and one anonymous inverse end")]
+    InvalidAssociationPropertyShape,
+    #[error("the whole end of a composition must have an upper multiplicity of at most one")]
+    InvalidCompositeWholeMultiplicity,
     #[error("aggregation/composition requires a binary association with only one aggregated end")]
     InvalidAssociationAggregation,
     #[error("an association with all ends typed by SysML Blocks must be binary")]
@@ -744,6 +755,7 @@ impl Project {
         name: impl Into<String>,
     ) -> Result<(), ModelError> {
         self.element_mut(id)?.name = name.into();
+        self.refresh_association_property(id);
         Ok(())
     }
 
@@ -770,6 +782,7 @@ impl Project {
             ancestor = self.element(candidate)?.owner_id;
         }
         self.element_mut(id)?.owner_id = Some(new_owner_id);
+        self.refresh_association_property(id);
         Ok(())
     }
 
@@ -803,6 +816,7 @@ impl Project {
         let type_kind = self.element(type_id)?.kind.clone();
         validate_type_kind(&kind, &type_kind)?;
         self.element_mut(id)?.type_id = Some(type_id);
+        self.refresh_association_property(id);
         Ok(())
     }
 
@@ -815,7 +829,9 @@ impl Project {
         if !element.is_feature() {
             return Err(ModelError::InvalidOwner(id));
         }
+        Multiplicity::new(multiplicity.lower, multiplicity.upper)?;
         element.multiplicity = Some(multiplicity);
+        self.refresh_association_property(id);
         Ok(())
     }
 
@@ -832,6 +848,7 @@ impl Project {
             return Err(ModelError::ReferenceCannotBeComposite(id));
         }
         self.element_mut(id)?.aggregation = aggregation;
+        self.refresh_association_property(id);
         Ok(())
     }
 
@@ -1237,6 +1254,7 @@ impl Project {
                 ElementKind::Block | ElementKind::AssociationBlock
                     | ElementKind::InterfaceBlock | ElementKind::ConstraintBlock);
         }
+        self.validate_association_property_ends(ends)?;
         if all_block_typed && ends.len() != 2 {
             return Err(ModelError::BlockAssociationMustBeBinary);
         }
@@ -1254,6 +1272,13 @@ impl Project {
             .collect();
         if let Some(end) = ends.iter().find(|end| existing.contains(&end.id)) {
             return Err(ModelError::DuplicateAssociationEndId(end.id));
+        }
+        for property_id in ends.iter().filter_map(|end| end.property_id) {
+            if self.relationships.values().any(|relationship| {
+                relationship.association_ends.iter().any(|end| end.property_id == Some(property_id))
+            }) {
+                return Err(ModelError::DuplicateAssociationProperty(property_id));
+            }
         }
         let source_id = ends[0].classifier_id;
         let target_id = ends[1].classifier_id;
@@ -1277,6 +1302,7 @@ impl Project {
         AssociationEnd {
             id: RelationshipEndId::new(),
             classifier_id,
+            property_id: None,
             role_name: role_name.into(),
             multiplicity,
             navigable,
@@ -1298,7 +1324,7 @@ impl Project {
                 || relationship
                     .association_ends
                     .iter()
-                    .any(|end| end.classifier_id == id)
+                    .any(|end| end.classifier_id == id || end.property_id == Some(id))
                 || relationship.connector.as_ref().is_some_and(|connector| {
                     connector.source.role_id == id
                         || connector.source.port_id == Some(id)
@@ -1524,6 +1550,7 @@ impl Project {
         }
         let duplicate_endpoints = self.duplicate_relationship_endpoints();
         let mut association_end_ids = HashSet::new();
+        let mut association_property_ids = HashSet::new();
         for relationship in self.relationships.values() {
             if !external_ids.insert(relationship.external_id.clone()) {
                 return Err(ModelError::DuplicateExternalId(
@@ -1674,6 +1701,11 @@ impl Project {
                     return Err(ModelError::AssociationEndpointMismatch(relationship.id));
                 }
                 for end in &relationship.association_ends {
+                    if let Some(property_id) = end.property_id
+                        && !association_property_ids.insert(property_id)
+                    {
+                        return Err(ModelError::DuplicateAssociationProperty(property_id));
+                    }
                     if !association_end_ids.insert(end.id) {
                         return Err(ModelError::DuplicateAssociationEndId(end.id));
                     }
@@ -2308,9 +2340,10 @@ pub mod notation {
                 target_decoration: EndDecoration::None,
             },
             RelationshipKind::Association => {
+                let linked = relationship.association_ends.iter().any(|end| end.property_id.is_some());
                 let source_decoration = relationship
                     .association_ends
-                    .first()
+                    .get(if linked { 1 } else { 0 })
                     .map(|end| match end.aggregation {
                         AggregationKind::Composite => EndDecoration::FilledDiamond,
                         AggregationKind::Shared => EndDecoration::HollowDiamond,
@@ -2319,7 +2352,7 @@ pub mod notation {
                     .unwrap_or(EndDecoration::None);
                 let target_decoration = relationship
                     .association_ends
-                    .get(1)
+                    .get(if linked { 0 } else { 1 })
                     .map(|end| match end.aggregation {
                         AggregationKind::Composite => EndDecoration::FilledDiamond,
                         AggregationKind::Shared => EndDecoration::HollowDiamond,
