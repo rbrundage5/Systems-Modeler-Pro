@@ -1045,6 +1045,16 @@ pub fn open_project_file_complete(
     path: String,
     state: tauri::State<'_, WorkspaceState>,
     activity_state: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, history::HistoryState>,
+) -> Result<String, String> {
+    open_project_file_in_state(path, &state, &activity_state, &history)
+}
+
+pub(super) fn open_project_file_in_state(
+    path: String,
+    state: &WorkspaceState,
+    activity_state: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
 ) -> Result<String, String> {
     let path = normalize_project_path(&path)?;
     if !path.exists() {
@@ -1096,6 +1106,9 @@ pub fn open_project_file_complete(
         .lock()
         .map_err(|_| "project path lock poisoned")?;
 
+    // History belongs to this session, not a later frontend refresh. Acquiring
+    // both history guards can still fail; do so before publishing any field.
+    history::reset_states(history)?;
     *current_project = Some(project);
     *current_diagrams = diagrams;
     *current_ibd = ibd_diagrams;
