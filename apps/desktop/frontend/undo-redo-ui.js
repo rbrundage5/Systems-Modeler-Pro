@@ -20,7 +20,7 @@
     const text = String(label || '').toLowerCase();
     return text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
-      || text.startsWith('updating element details')
+      || text.startsWith('reconnecting bdd ')
       || text.startsWith('linking composition property');
   }
 

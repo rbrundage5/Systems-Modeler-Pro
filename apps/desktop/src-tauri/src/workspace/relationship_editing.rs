@@ -211,8 +211,18 @@ pub fn reconnect_bdd_relationship(
     side: String,
     element_id: String,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<(), String> {
-    reconnect_bdd_relationship_in_state(diagram_id, relationship_id, side, element_id, &state)
+    reconnect_bdd_relationship_in_state(
+        diagram_id,
+        relationship_id,
+        side,
+        element_id,
+        &state,
+        &activity,
+        &history,
+    )
 }
 
 fn reconnect_bdd_relationship_in_state(
@@ -221,6 +231,8 @@ fn reconnect_bdd_relationship_in_state(
     side: String,
     element_id: String,
     state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    history: &super::history::HistoryState,
 ) -> Result<(), String> {
     let diagram_id = parse_diagram_id(&diagram_id)?;
     let relationship_id = parse_relationship_id(&relationship_id)?;
@@ -229,103 +241,100 @@ fn reconnect_bdd_relationship_in_state(
         return Err("relationship side must be source or target".into());
     }
 
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    let replacement = project
-        .element(element_id)
-        .map_err(|error| error.to_string())?;
-    if !replacement.is_classifier() {
-        return Err("BDD relationship endpoints must be classifiers".into());
-    }
+    let diagram_key = diagram_id.to_string();
+    super::history::apply_structural_specification_with_views(
+        state,
+        activity,
+        history,
+        Some(&diagram_key),
+        |project, diagrams, ibds| {
+            let replacement = project
+                .element(element_id)
+                .map_err(|error| error.to_string())?;
+            if !replacement.is_classifier() {
+                return Err("BDD relationship endpoints must be classifiers".into());
+            }
 
-    let original = project
-        .relationship(relationship_id)
-        .map_err(|error| error.to_string())?
-        .clone();
-    let mut new_source = original.source_id;
-    let mut new_target = original.target_id;
-    if side == "source" {
-        new_source = element_id;
-    } else {
-        new_target = element_id;
-    }
-    if new_source == new_target {
-        return Err("a BDD relationship cannot connect a Block to itself".into());
-    }
-    let display_kind = relationship_display_kind(&original);
-    if !original
-        .association_ends
-        .iter()
-        .any(|end| end.property_id.is_some())
-        && duplicate_after_reconnect(
-            project,
-            relationship_id,
-            display_kind,
-            new_source,
-            new_target,
-        )
-    {
-        return Err(format!("an equivalent {display_kind} already exists"));
-    }
-    // Prepare the complete semantic and affected-view change before publication.
-    let mut candidate_project = project.clone();
-    if let Some((index, property_id)) = original
-        .association_ends
-        .iter()
-        .enumerate()
-        .find_map(|(index, end)| end.property_id.map(|id| (index, id)))
-    {
-        let (owner_id, type_id) = if index == 1 {
-            (new_source, new_target)
-        } else {
-            (new_target, new_source)
-        };
-        candidate_project
-            .move_element(property_id, owner_id)
-            .map_err(|error| error.to_string())?;
-        candidate_project
-            .set_element_type(property_id, type_id)
-            .map_err(|error| error.to_string())?;
-    } else {
-        let candidate = candidate_project
-            .relationships
-            .get_mut(&relationship_id)
-            .ok_or("relationship not found")?;
-        candidate.source_id = new_source;
-        candidate.target_id = new_target;
-        if candidate.kind == RelationshipKind::Association && candidate.association_ends.len() == 2
-        {
-            candidate.association_ends[0].classifier_id = new_source;
-            candidate.association_ends[1].classifier_id = new_target;
-        }
-    }
-    candidate_project
-        .validate()
-        .map_err(|error| error.to_string())?;
-    let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    let selected = diagrams
-        .iter()
-        .find(|diagram| diagram.id == diagram_id.to_string())
-        .ok_or("diagram not found")?;
-    if !selected
-        .edges
-        .iter()
-        .any(|edge| edge.relationship_id == relationship_id.to_string())
-    {
-        return Err("diagram edge not found".into());
-    }
-    let candidate_diagrams = stage_relationship_presentations(
-        project,
-        &candidate_project,
-        &diagrams,
-        Some(&diagram_id.to_string()),
-    )?;
-    let ibds = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
-    super::ibd::validate_ibd_diagrams(&candidate_project, &ibds)?;
-    super::validate_loaded_diagrams(&candidate_project, &candidate_diagrams)?;
-    *project = candidate_project;
-    *diagrams = candidate_diagrams;
-    Ok(())
+            let original = project
+                .relationship(relationship_id)
+                .map_err(|error| error.to_string())?
+                .clone();
+            let mut new_source = original.source_id;
+            let mut new_target = original.target_id;
+            if side == "source" {
+                new_source = element_id;
+            } else {
+                new_target = element_id;
+            }
+            if new_source == new_target {
+                return Err("a BDD relationship cannot connect a Block to itself".into());
+            }
+            let display_kind = relationship_display_kind(&original);
+            if !original
+                .association_ends
+                .iter()
+                .any(|end| end.property_id.is_some())
+                && duplicate_after_reconnect(
+                    project,
+                    relationship_id,
+                    display_kind,
+                    new_source,
+                    new_target,
+                )
+            {
+                return Err(format!("an equivalent {display_kind} already exists"));
+            }
+            // Prepare the complete semantic and affected-view change before publication.
+            let mut candidate_project = project.clone();
+            if let Some((index, property_id)) = original
+                .association_ends
+                .iter()
+                .enumerate()
+                .find_map(|(index, end)| end.property_id.map(|id| (index, id)))
+            {
+                let (owner_id, type_id) = if index == 1 {
+                    (new_source, new_target)
+                } else {
+                    (new_target, new_source)
+                };
+                candidate_project
+                    .move_element(property_id, owner_id)
+                    .map_err(|error| error.to_string())?;
+                candidate_project
+                    .set_element_type(property_id, type_id)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                let candidate = candidate_project
+                    .relationships
+                    .get_mut(&relationship_id)
+                    .ok_or("relationship not found")?;
+                candidate.source_id = new_source;
+                candidate.target_id = new_target;
+                if candidate.kind == RelationshipKind::Association
+                    && candidate.association_ends.len() == 2
+                {
+                    candidate.association_ends[0].classifier_id = new_source;
+                    candidate.association_ends[1].classifier_id = new_target;
+                }
+            }
+            candidate_project
+                .validate()
+                .map_err(|error| error.to_string())?;
+            let selected = diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id.to_string())
+                .ok_or("diagram not found")?;
+            if !selected
+                .edges
+                .iter()
+                .any(|edge| edge.relationship_id == relationship_id.to_string())
+            {
+                return Err("diagram edge not found".into());
+            }
+            Ok((candidate_project, ibds.to_vec()))
+        },
+    )
+    .map(|_| ())
 }
 
 /// Preserve all existing presentations while staging endpoint changes. An absent
@@ -464,6 +473,8 @@ mod tests {
 
     struct ReconnectFixture {
         state: WorkspaceState,
+        activity: super::super::activity_workspace::ActivityWorkspaceState,
+        history: super::super::history::HistoryState,
         diagram_id: String,
         relationship_id: RelationshipId,
         blocks: [ElementId; 3],
@@ -537,6 +548,8 @@ mod tests {
         *state.project.lock().unwrap() = Some(project);
         ReconnectFixture {
             state,
+            activity: Default::default(),
+            history: Default::default(),
             diagram_id,
             relationship_id,
             blocks,
@@ -557,7 +570,88 @@ mod tests {
             side.into(),
             fixture.blocks[2].to_string(),
             &fixture.state,
+            &fixture.activity,
+            &fixture.history,
         )
+    }
+
+    #[test]
+    fn rejected_reconnect_preserves_redo_and_all_authored_state() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        super::super::history::checkpoint_states(
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+        .unwrap();
+        fixture.state.project.lock().unwrap().as_mut().unwrap().name = "Redo revision".into();
+        assert!(
+            super::super::history::undo_states(
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+            .unwrap()
+        );
+        let before = snapshot(&fixture.state);
+        // The selected diagram is valid, but this would make a self-association.
+        assert!(
+            reconnect_bdd_relationship_in_state(
+                fixture.diagram_id.clone(),
+                fixture.relationship_id.to_string(),
+                "target".into(),
+                fixture.blocks[0].to_string(),
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(super::super::history::undo_len(&fixture.history), 0);
+        assert!(
+            super::super::history::redo_states(
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            fixture.state.project.lock().unwrap().as_ref().unwrap().name,
+            "Redo revision"
+        );
+    }
+
+    #[test]
+    fn reconnect_history_covers_every_view_and_skips_noops() {
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        add_second_view(&fixture, false);
+        let before = snapshot(&fixture.state);
+        reconnect(&fixture, "target").unwrap();
+        let after = snapshot(&fixture.state);
+        assert_ne!(before, after);
+        assert_eq!(super::super::history::undo_len(&fixture.history), 1);
+        reconnect(&fixture, "target").unwrap();
+        assert_eq!(super::super::history::undo_len(&fixture.history), 1);
+        assert!(
+            super::super::history::undo_states(
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+            .unwrap()
+        );
+        assert_eq!(snapshot(&fixture.state), before);
+        assert!(
+            super::super::history::redo_states(
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+            .unwrap()
+        );
+        assert_eq!(snapshot(&fixture.state), after);
     }
 
     #[test]
