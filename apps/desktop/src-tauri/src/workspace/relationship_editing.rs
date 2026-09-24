@@ -72,48 +72,78 @@ pub fn update_association_end(
 
     let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
     let project = project_guard.as_mut().ok_or("no project open")?;
+    edit_association_end(
+        project,
+        relationship_id,
+        &end_id,
+        &role_name,
+        multiplicity,
+        navigable,
+        aggregation,
+    )
+}
+
+fn edit_association_end(
+    project: &mut systems_modeler_core::Project,
+    relationship_id: systems_modeler_core::RelationshipId,
+    end_id: &str,
+    role_name: &str,
+    multiplicity: Multiplicity,
+    navigable: bool,
+    aggregation: AggregationKind,
+) -> Result<(), String> {
     let original = project
         .relationship(relationship_id)
-        .map_err(|error| error.to_string())?
-        .clone();
+        .map_err(|error| error.to_string())?;
     if original.kind != RelationshipKind::Association || original.association_ends.len() != 2 {
         return Err(
             "association-end editing requires a binary Association-family relationship".into(),
         );
     }
-
     let end_index = original
         .association_ends
         .iter()
         .position(|end| end.id.to_string() == end_id)
         .ok_or("association end not found")?;
-    {
-        let relationship = project
+    let property_id = original.association_ends[end_index].property_id;
+    let mut candidate = project.clone();
+    if let Some(property_id) = property_id {
+        if !navigable {
+            return Err("a classifier-owned association Property is navigable".into());
+        }
+        if role_name.trim().is_empty() {
+            return Err("the linked Property name cannot be empty".into());
+        }
+        candidate
+            .element_mut(property_id)
+            .map_err(|error| error.to_string())?
+            .kind = if aggregation == AggregationKind::Composite {
+            ElementKind::PartProperty
+        } else {
+            ElementKind::ReferenceProperty
+        };
+        candidate
+            .rename_element(property_id, role_name.trim())
+            .map_err(|error| error.to_string())?;
+        candidate
+            .set_multiplicity(property_id, multiplicity)
+            .map_err(|error| error.to_string())?;
+        candidate
+            .set_aggregation(property_id, aggregation)
+            .map_err(|error| error.to_string())?;
+    } else {
+        let end = &mut candidate
             .relationships
             .get_mut(&relationship_id)
-            .ok_or("relationship not found")?;
-        relationship.association_ends[end_index].role_name = role_name.trim().to_string();
-        relationship.association_ends[end_index].multiplicity = multiplicity;
-        relationship.association_ends[end_index].navigable = navigable;
-        relationship.association_ends[end_index].aggregation = aggregation;
-
-        let decorated = relationship
-            .association_ends
-            .iter()
-            .filter(|end| end.aggregation != AggregationKind::None)
-            .count();
-        if decorated > 1 {
-            project.relationships.insert(relationship_id, original);
-            return Err(
-                "a binary association can have aggregation/composition on only one end".into(),
-            );
-        }
+            .ok_or("relationship not found")?
+            .association_ends[end_index];
+        end.role_name = role_name.trim().to_string();
+        end.multiplicity = multiplicity;
+        end.navigable = navigable;
+        end.aggregation = aggregation;
     }
-
-    if let Err(error) = project.validate() {
-        project.relationships.insert(relationship_id, original);
-        return Err(error.to_string());
-    }
+    candidate.validate().map_err(|error| error.to_string())?;
+    *project = candidate;
     Ok(())
 }
 
@@ -482,6 +512,98 @@ mod tests {
                 route_relationship(source_node, target_node, &diagram.nodes).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn linked_association_end_editor_updates_property_and_rejects_partial_changes() {
+        let mut project = Project::new("Linked end editor");
+        let whole = project
+            .create_element(ElementKind::Block, "Vehicle", project.root_id)
+            .unwrap();
+        let part = project
+            .create_element(ElementKind::Block, "Wheel", project.root_id)
+            .unwrap();
+        let (relation, property) = project
+            .create_composition(
+                whole,
+                part,
+                "wheel",
+                Multiplicity::ONE,
+                Some(project.root_id),
+            )
+            .unwrap();
+        let end_id = project.relationship(relation).unwrap().association_ends[1]
+            .id
+            .to_string();
+        edit_association_end(
+            &mut project,
+            relation,
+            &end_id,
+            "front",
+            Multiplicity::new(2, Some(2)).unwrap(),
+            true,
+            AggregationKind::Composite,
+        )
+        .unwrap();
+        assert_eq!(project.element(property).unwrap().name, "front");
+        assert_eq!(
+            project
+                .element(property)
+                .unwrap()
+                .multiplicity
+                .unwrap()
+                .notation(),
+            "2"
+        );
+        let before = serde_json::to_value(&project).unwrap();
+        assert!(
+            edit_association_end(
+                &mut project,
+                relation,
+                &end_id,
+                "bad",
+                Multiplicity::ONE,
+                false,
+                AggregationKind::Composite,
+            )
+            .is_err()
+        );
+        assert_eq!(serde_json::to_value(&project).unwrap(), before);
+        let inverse_id = project.relationship(relation).unwrap().association_ends[0]
+            .id
+            .to_string();
+        assert!(
+            edit_association_end(
+                &mut project,
+                relation,
+                &inverse_id,
+                "",
+                Multiplicity::new(0, None).unwrap(),
+                false,
+                AggregationKind::None,
+            )
+            .is_err()
+        );
+        assert_eq!(serde_json::to_value(&project).unwrap(), before);
+        edit_association_end(
+            &mut project,
+            relation,
+            &end_id,
+            "sharedWheel",
+            Multiplicity::ONE,
+            true,
+            AggregationKind::Shared,
+        )
+        .unwrap();
+        assert_eq!(
+            project.element(property).unwrap().kind,
+            ElementKind::ReferenceProperty
+        );
+        assert_eq!(
+            project.relationship(relation).unwrap().association_ends[1].property_id,
+            Some(property)
+        );
+        project.validate().unwrap();
     }
 
     #[test]
