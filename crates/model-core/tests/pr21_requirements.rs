@@ -9,6 +9,35 @@ fn requirement_project() -> (Project, systems_modeler_core::ElementId) {
 }
 
 #[test]
+fn copy_reconnect_propagates_branches_preserves_identity_and_rejects_conflicts() {
+    let (mut project, owner) = requirement_project();
+    let old = project.create_requirement("Old", "R1", "Old text", owner).unwrap();
+    let new = project.create_requirement("New", "R2", "New text", owner).unwrap();
+    let client = project.create_requirement("Client", "R3", "Old text", owner).unwrap();
+    let left = project.create_requirement("Left", "R4", "Old text", owner).unwrap();
+    let right = project.create_requirement("Right", "R5", "Old text", owner).unwrap();
+    let copy = project.create_relationship(RelationshipKind::Copy, client, old, Some(owner)).unwrap();
+    for child in [left, right] {
+        project.create_relationship(RelationshipKind::Copy, child, client, Some(owner)).unwrap();
+    }
+    let before = serde_json::to_value(&project).unwrap();
+    let candidate = project.stage_traceability_reconnect(copy, client, new).unwrap();
+    assert_eq!(serde_json::to_value(&project).unwrap(), before);
+    for id in [client, left, right] {
+        assert_eq!(candidate.element(id).unwrap().requirement_text.as_deref(), Some("New text"));
+        assert_eq!(candidate.element(id).unwrap().requirement_id, project.element(id).unwrap().requirement_id);
+    }
+    assert_eq!(candidate.relationship(copy).unwrap().external_id, project.relationship(copy).unwrap().external_id);
+    assert_eq!(candidate.element(old).unwrap().requirement_text.as_deref(), Some("Old text"));
+    candidate.validate().unwrap();
+    project.create_relationship(RelationshipKind::Copy, left, old, Some(owner)).unwrap();
+    let before = serde_json::to_value(&project).unwrap();
+    assert!(project.stage_traceability_reconnect(copy, client, new).is_err());
+    assert_eq!(serde_json::to_value(&project).unwrap(), before);
+    assert!(project.stage_traceability_reconnect(copy, client, client).is_err());
+}
+
+#[test]
 fn requirement_identity_id_and_text_are_distinct() {
     let (mut project, package) = requirement_project();
     let requirement = project
