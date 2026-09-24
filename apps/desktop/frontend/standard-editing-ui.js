@@ -357,7 +357,7 @@
     const accepted = window.smpDialogs?.confirm
       ? await window.smpDialogs.confirm({
           title: 'Delete from Model',
-          description: 'Delete the selected semantic item from the model? Rust reference validation will block unsafe deletion.',
+          description: 'Delete this item, its owned elements, and dependent relationships from the model and every diagram? Reusable types and unrelated usages are preserved. Undo restores the whole deletion.',
           confirmLabel: 'Delete from Model',
           destructive: true,
         })

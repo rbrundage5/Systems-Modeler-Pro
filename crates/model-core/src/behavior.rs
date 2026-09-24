@@ -397,6 +397,14 @@ impl BehaviorRepository {
         Ok(())
     }
 
+    pub fn remove_deleted_contexts(&mut self, deleted: &HashSet<ElementId>) {
+        self.state_machines.retain(|_, machine| !deleted.contains(&machine.context_id));
+        self.interactions.retain(|_, interaction| !deleted.contains(&interaction.context_id));
+        let identities = std::mem::take(&mut self.external_ids);
+        self.external_ids = identities.into_iter()
+            .filter(|(_, identity)| self.semantic_identity_exists(*identity)).collect();
+    }
+
     fn semantic_identity_exists(&self, identity: BehaviorSemanticId) -> bool {
         fn region_contains(regions: &[Region], identity: BehaviorSemanticId) -> bool {
             for region in regions {

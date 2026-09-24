@@ -594,7 +594,8 @@ function renderRelationshipProperties(panel, project, relationship) {
   const reconnect = async (side) => {
     const elementId = $(`relationship-${side}`).value;
     const command=TRACEABILITY_KINDS.has(relationship.kind)?'reconnect_traceability_relationship':'reconnect_bdd_relationship';
-    await runCommand(`Reconnecting ${side}…`, () => requireInvoke()(command, {
+    const label = command === 'reconnect_bdd_relationship' ? `Reconnecting BDD ${side}…` : `Reconnecting traceability ${side}…`;
+    await runCommand(label, () => requireInvoke()(command, {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
       side,
@@ -619,7 +620,7 @@ function renderRelationshipProperties(panel, project, relationship) {
   });
   $('delete-relationship').onclick = async () => {
     if (!confirm(`Delete ${relationship.kind} relationship?`)) return;
-    await runCommand('Deleting relationship…', () => requireInvoke()('delete_bdd_relationship', {
+    await runCommand('Deleting diagram relationship…', () => requireInvoke()('delete_bdd_relationship', {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
     }));
@@ -686,7 +687,7 @@ async function createProject() {
   try {
     await runCommand('Creating project…', async () => {
       await requireInvoke()('new_project', { name });
-      return { outcome: 'committed' };
+      return { outcome: 'committed', historyOwner: 'native' };
     });
   } catch (error) {
     Object.assign(state, previousInteraction);

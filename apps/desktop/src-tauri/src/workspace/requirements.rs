@@ -229,100 +229,72 @@ pub fn reconnect_traceability_relationship(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
+    reconnect_traceability_in_state(
+        diagram_id,
+        relationship_id,
+        side,
+        element_id,
+        &workspace,
+        &activity,
+        &history,
+    )
+}
+
+fn reconnect_traceability_in_state(
+    diagram_id: String,
+    relationship_id: String,
+    side: String,
+    element_id: String,
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<(), String> {
     if side != "source" && side != "target" {
         return Err("relationship side must be source or target".into());
     }
     let relationship_id = parse_relationship_id(&relationship_id)?;
     let element_id = parse_element_id(&element_id)?;
-    checkpoint(&workspace, &activity, &history)?;
-    let mut diagrams = workspace
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")?;
-    let diagram = diagrams
-        .iter_mut()
-        .find(|candidate| candidate.id == diagram_id && candidate.family == "requirement")
-        .ok_or("Requirement Diagram not found")?;
-    if !diagram
-        .nodes
-        .iter()
-        .any(|node| node.element_id == element_id.to_string())
-    {
-        return Err("replacement endpoint must be presented on this Requirement Diagram".into());
-    }
-
-    let mut project_guard = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    let original = project
-        .relationship(relationship_id)
-        .map_err(|error| error.to_string())?
-        .clone();
-    if !matches!(
-        original.kind,
-        RelationshipKind::DeriveRequirement
-            | RelationshipKind::Satisfy
-            | RelationshipKind::Verify
-            | RelationshipKind::Refine
-            | RelationshipKind::Trace
-            | RelationshipKind::Copy
-    ) {
-        return Err("selected relationship is not Requirement traceability".into());
-    }
-    let (new_source, new_target) = if side == "source" {
-        (element_id, original.target_id)
-    } else {
-        (original.source_id, element_id)
-    };
-    {
-        let relationship = project
-            .relationships
-            .get_mut(&relationship_id)
-            .ok_or("relationship not found")?;
-        relationship.source_id = new_source;
-        relationship.target_id = new_target;
-    }
-    if let Err(error) = project.validate() {
-        project
-            .relationships
-            .insert(relationship_id, original.clone());
-        return Err(error.to_string());
-    }
-    if original.kind == RelationshipKind::Copy {
-        let master_text = project
-            .element(new_target)
-            .map_err(|error| error.to_string())?
-            .requirement_text
-            .clone();
-        project
-            .element_mut(new_source)
-            .map_err(|error| error.to_string())?
-            .requirement_text = master_text;
-    }
-
-    let source_node = diagram
-        .nodes
-        .iter()
-        .find(|node| node.element_id == new_source.to_string())
-        .cloned()
-        .ok_or("new source endpoint must be presented on the Requirement Diagram")?;
-    let target_node = diagram
-        .nodes
-        .iter()
-        .find(|node| node.element_id == new_target.to_string())
-        .cloned()
-        .ok_or("new target endpoint must be presented on the Requirement Diagram")?;
-    let edge = diagram
-        .edges
-        .iter_mut()
-        .find(|edge| edge.relationship_id == relationship_id.to_string())
-        .ok_or("Requirement relationship presentation not found")?;
-    edge.source_node_id = source_node.id.clone();
-    edge.target_node_id = target_node.id.clone();
-    edge.points = route_relationship(&source_node, &target_node, &diagram.nodes)?;
-    Ok(())
+    history::apply_structural_specification_with_views(
+        workspace,
+        activity,
+        history,
+        Some(&diagram_id),
+        |project, diagrams, ibds| {
+            let diagram = diagrams
+                .iter()
+                .find(|candidate| candidate.id == diagram_id && candidate.family == "requirement")
+                .ok_or("Requirement Diagram not found")?;
+            if !diagram
+                .nodes
+                .iter()
+                .any(|node| node.element_id == element_id.to_string())
+            {
+                return Err(
+                    "replacement endpoint must be presented on this Requirement Diagram".into(),
+                );
+            }
+            if !diagram
+                .edges
+                .iter()
+                .any(|edge| edge.relationship_id == relationship_id.to_string())
+            {
+                return Err("Requirement relationship presentation not found".into());
+            }
+            let original = project
+                .relationship(relationship_id)
+                .map_err(|error| error.to_string())?;
+            let (source, target) = if side == "source" {
+                (element_id, original.target_id)
+            } else {
+                (original.source_id, element_id)
+            };
+            Ok((
+                project.stage_traceability_reconnect(relationship_id, source, target)?,
+                ibds.to_vec(),
+            ))
+        },
+    )
+    .map(|_| ())
 }
 
 #[tauri::command]
@@ -390,6 +362,130 @@ pub fn create_traceability_relationship(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requirement_reconnect_is_atomic_across_copy_text_views_and_history() {
+        let mut project = Project::new("Reconnect");
+        let owner = project.root_id;
+        let ids = ["Old", "Client", "Leaf", "New"]
+            .map(|name| project.create_requirement(name, name, name, owner).unwrap());
+        let relationship = project
+            .create_relationship(RelationshipKind::Copy, ids[1], ids[0], Some(owner))
+            .unwrap();
+        project
+            .create_relationship(RelationshipKind::Copy, ids[2], ids[1], Some(owner))
+            .unwrap();
+        let nodes: Vec<_> = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| DiagramNode {
+                id: uuid::Uuid::new_v4().to_string(),
+                element_id: id.to_string(),
+                x: index as f64 * 250.0,
+                y: index as f64 * 150.0,
+                width: 100.0,
+                height: 60.0,
+                actor_notation: None,
+                parameter_presentations: Vec::new(),
+            })
+            .collect();
+        let edge = DiagramEdge {
+            id: uuid::Uuid::new_v4().to_string(),
+            relationship_id: relationship.to_string(),
+            source_node_id: nodes[1].id.clone(),
+            target_node_id: nodes[0].id.clone(),
+            points: route_relationship(&nodes[1], &nodes[0], &nodes).unwrap(),
+            label_anchor: None,
+        };
+        let selected = DiagramId::new().to_string();
+        let diagram = BddDiagram {
+            id: selected.clone(),
+            name: "Requirements".into(),
+            owner_id: owner.to_string(),
+            family: "requirement".into(),
+            semantic_context_id: None,
+            subject_boundary: None,
+            nodes,
+            edges: vec![edge],
+        };
+        let mut second = diagram.clone();
+        second.id = DiagramId::new().to_string();
+        second.nodes.pop();
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        *workspace.project.lock().unwrap() = Some(project);
+        *workspace.diagrams.lock().unwrap() = vec![diagram, second];
+        let value = || {
+            serde_json::to_value((
+                &*workspace.project.lock().unwrap(),
+                &*workspace.diagrams.lock().unwrap(),
+            ))
+            .unwrap()
+        };
+        let reconnect = |target: ElementId| {
+            reconnect_traceability_in_state(
+                selected.clone(),
+                relationship.to_string(),
+                "target".into(),
+                target.to_string(),
+                &workspace,
+                &activity,
+                &history,
+            )
+        };
+        history::checkpoint_states(&workspace, &activity, &history).unwrap();
+        workspace.project.lock().unwrap().as_mut().unwrap().name = "Redo".into();
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        let before = value();
+        let saved_edge = workspace.diagrams.lock().unwrap()[0].edges.pop().unwrap();
+        assert!(reconnect(ids[3]).is_err());
+        workspace.diagrams.lock().unwrap()[0].edges.push(saved_edge);
+        assert_eq!(value(), before);
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(value(), before);
+        reconnect(ids[3]).unwrap();
+        let after = value();
+        reconnect(ids[3]).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        {
+            let guard = workspace.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            for id in [ids[1], ids[2]] {
+                assert_eq!(
+                    project.element(id).unwrap().requirement_text.as_deref(),
+                    Some("New")
+                );
+            }
+            let diagrams = workspace.diagrams.lock().unwrap();
+            validate_loaded_diagrams(project, &diagrams).unwrap();
+            for diagram in diagrams.iter() {
+                let edge = &diagram.edges[0];
+                let target = diagram
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == edge.target_node_id)
+                    .unwrap();
+                assert_eq!(target.element_id, ids[3].to_string());
+                assert!(edge.label_anchor.is_some());
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let mut database = ProjectDatabase::open(directory.path().join("copy.smproj")).unwrap();
+            database.save_project(project).unwrap();
+            let loaded = database.load_first_project().unwrap();
+            loaded.validate().unwrap();
+            assert_eq!(
+                serde_json::to_value(loaded).unwrap(),
+                serde_json::to_value(project).unwrap()
+            );
+        }
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(value(), before);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(value(), after);
+    }
 
     #[test]
     fn requirement_edit_is_one_transaction_with_transitive_copy_undo_and_redo() {

@@ -82,11 +82,9 @@ test('committed New resets dependent execution and Activity state exactly once',
   assert.equal((await f.buttons['new-project'].onclick()).outcome, 'committed');
   assert.deepEqual(f.calls, [
     'new_project',
-    'history_reset',
     'clear_state_machine_executions',
     'clear_sequence_executions',
     'clear_parametric_executions',
-    'reset_activity_workspace',
     'clear_activity_executions',
   ]);
   assert.equal(Object.keys(f.state.activitySnapshot.repository.activities).length, 0);

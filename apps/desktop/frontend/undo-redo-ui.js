@@ -20,6 +20,10 @@
     const text = String(label || '').toLowerCase();
     return text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
+      || text.startsWith('updating element details')
+      || text.startsWith('reconnecting bdd ')
+      || text.startsWith('reconnecting traceability ')
+      || text.startsWith('deleting diagram relationship')
       || text.startsWith('linking composition property');
   }
 
@@ -32,7 +36,7 @@
   runCommand = async function runCommandWithHistory(label, operation) {
     await checkpointIfNeeded(label);
     const result = await baseRunCommand(label, operation);
-    if (isSessionResetCommand(label) && result?.outcome === 'committed') {
+    if (isSessionResetCommand(label) && result?.outcome === 'committed' && result.historyOwner !== 'native') {
       await requireInvoke()('history_reset');
     }
     return result;

@@ -304,14 +304,53 @@ pub fn workspace_snapshot(state: tauri::State<'_, WorkspaceState>) -> Result<Wor
 }
 
 #[tauri::command]
-pub fn new_project(name: String, state: tauri::State<'_, WorkspaceState>) -> Result<(), String> {
-    *state.project.lock().map_err(|_| "project lock poisoned")? = Some(Project::new(name));
-    state.diagrams.lock().map_err(|_| "diagram lock poisoned")?.clear();
-    state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?.clear();
-    *state.behavior.lock().map_err(|_| "behavior lock poisoned")? = BehaviorRepository::default();
-    state.behavior_diagrams.lock().map_err(|_| "behavior diagram lock poisoned")?.clear();
-    *state.reqif_exchange.lock().map_err(|_| "ReqIF exchange lock poisoned")? = reqif_interchange::ReqifExchangeState::default();
-    *state.current_file.lock().map_err(|_| "project path lock poisoned")? = None;
+pub fn new_project(
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, history::HistoryState>,
+) -> Result<(), String> {
+    new_project_in_state(name, &state, &activity, &history)
+}
+
+fn new_project_in_state(
+    name: String,
+    state: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<(), String> {
+    fn acquire<'a, T>(mutex: &'a Mutex<T>, name: &str) -> Result<std::sync::MutexGuard<'a, T>, String> {
+        mutex.try_lock().map_err(|error| match error {
+            std::sync::TryLockError::Poisoned(_) => format!("{name} lock poisoned"),
+            std::sync::TryLockError::WouldBlock => format!("workspace is busy ({name}); retry after the current operation completes"),
+        })
+    }
+
+    let replacement = Project::new(name);
+    // Acquire every authored field before the first irreversible publication.
+    // Never wait with partial guards: legacy commands do not all share an order.
+    let mut project = acquire(&state.project, "project")?;
+    let mut diagrams = acquire(&state.diagrams, "diagram")?;
+    let mut ibd_diagrams = acquire(&state.ibd_diagrams, "IBD")?;
+    let mut behavior = acquire(&state.behavior, "behavior")?;
+    let mut behavior_diagrams = acquire(&state.behavior_diagrams, "behavior diagram")?;
+    let mut exchange = acquire(&state.reqif_exchange, "ReqIF exchange")?;
+    let mut activity_repository = acquire(&activity.repository, "Activity repository")?;
+    let mut activity_diagrams = acquire(&activity.diagrams, "Activity diagram")?;
+    let mut current_file = acquire(&state.current_file, "project path")?;
+
+    // This acquires both history guards before clearing either stack. All
+    // remaining operations are infallible while every authored guard is held.
+    history::reset_states(history)?;
+    *project = Some(replacement);
+    diagrams.clear();
+    ibd_diagrams.clear();
+    *behavior = BehaviorRepository::default();
+    behavior_diagrams.clear();
+    *exchange = reqif_interchange::ReqifExchangeState::default();
+    *activity_repository = systems_modeler_core::ActivityRepository::default();
+    activity_diagrams.clear();
+    *current_file = None;
     Ok(())
 }
 

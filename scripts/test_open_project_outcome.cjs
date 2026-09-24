@@ -7,8 +7,9 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, 'apps/desktop/frontend', name), 'utf8');
 
-function fixture({ promptValue = null, rejectOpen = false } = {}) {
+function fixture({ promptValue = null, rejectOpen = false, failSnapshot = false } = {}) {
   const calls = [];
+  const history = { undo: ['old'], redo: ['old-redo'] };
   const buttons = { 'open-project': {} };
   const state = {
     snapshot: {
@@ -42,6 +43,8 @@ function fixture({ promptValue = null, rejectOpen = false } = {}) {
       calls.push({ command, args });
       if (command === 'open_project_file_complete') {
         if (rejectOpen) throw new Error('malformed project');
+        history.undo = [];
+        history.redo = [];
         state.snapshot = {
           project: { id: 'opened-project', name: 'Opened project' },
           current_file: args.path,
@@ -50,6 +53,7 @@ function fixture({ promptValue = null, rejectOpen = false } = {}) {
         return args.path;
       }
       if (command === 'activity_snapshot') {
+        if (failSnapshot) throw new Error('snapshot unavailable');
         return { repository: { activities: {} }, diagrams: [] };
       }
       return null;
@@ -64,7 +68,7 @@ function fixture({ promptValue = null, rejectOpen = false } = {}) {
     }
     ${undo}
   `, context);
-  return { buttons, calls, state };
+  return { buttons, calls, state, history };
 }
 
 test('cancelled Open preserves the session and both history stacks', async () => {
@@ -83,14 +87,22 @@ test('failed Open does not reset history or clear frontend session state', async
   assert.deepEqual(f.state, before);
 });
 
-test('committed Open resets history after the replacement finishes', async () => {
+test('committed Open relies on native history retirement without a second reset', async () => {
   const f = fixture({ promptValue: '/models/opened.smproj' });
   assert.equal((await f.buttons['open-project'].onclick()).outcome, 'committed');
   assert.deepEqual(f.calls.map(call => call.command), [
     'open_project_file_complete',
     'activity_snapshot',
     'activity_snapshot',
-    'history_reset',
   ]);
   assert.equal(f.state.snapshot.project.id, 'opened-project');
+  assert.deepEqual(f.history, { undo: [], redo: [] });
+});
+
+test('post-publication snapshot failure cannot retain the previous project history', async () => {
+  const f = fixture({ promptValue: '/models/opened.smproj', failSnapshot: true });
+  await assert.rejects(f.buttons['open-project'].onclick(), /snapshot unavailable/);
+  assert.equal(f.state.snapshot.project.id, 'opened-project');
+  assert.deepEqual(f.history, { undo: [], redo: [] });
+  assert.deepEqual(f.calls.map(call => call.command), ['open_project_file_complete', 'activity_snapshot']);
 });

@@ -101,7 +101,7 @@
   async function deleteElement(element) {
     const accepted = await confirmDestructive(
       `Delete ${element.kind} from model`,
-      `Delete “${element.name}” from the semantic model and remove all of its diagram presentations? The operation is blocked while it owns content or is referenced.`,
+      `Delete “${element.name}”, its owned elements, and dependent relationships from the model and every diagram? Reusable types and unrelated usages are preserved. Undo restores the whole deletion.`,
       'Delete from Model',
     );
     if (!accepted) return;

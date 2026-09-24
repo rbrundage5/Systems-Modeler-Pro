@@ -6,13 +6,13 @@ const HISTORY_LIMIT: usize = 100;
 
 #[derive(Clone)]
 pub(super) struct HistorySnapshot {
-    project: Option<Project>,
-    diagrams: Vec<BddDiagram>,
-    ibd_diagrams: Vec<ibd::IbdDiagram>,
-    behavior: BehaviorRepository,
-    behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
-    activity_repository: ActivityRepository,
-    activity_diagrams: Vec<activity_workspace::ActivityDiagram>,
+    pub(super) project: Option<Project>,
+    pub(super) diagrams: Vec<BddDiagram>,
+    pub(super) ibd_diagrams: Vec<ibd::IbdDiagram>,
+    pub(super) behavior: BehaviorRepository,
+    pub(super) behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
+    pub(super) activity_repository: ActivityRepository,
+    pub(super) activity_diagrams: Vec<activity_workspace::ActivityDiagram>,
 }
 
 pub struct HistoryState {
@@ -109,6 +109,34 @@ pub(super) fn capture_states(
     activity: &activity_workspace::ActivityWorkspaceState,
 ) -> Result<HistorySnapshot, String> {
     Ok(AuthoredStateGuards::lock(workspace, activity)?.capture())
+}
+
+/// Stage an authored mutation while retaining every repository guard.
+/// The caller validates its complete candidate before this commits one history entry.
+pub(super) fn edit_authored(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    edit: impl FnOnce(&mut HistorySnapshot) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut authored = AuthoredStateGuards::lock(workspace, activity)?;
+    let mut candidate = authored.capture();
+    edit(&mut candidate)?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
+    let previous = authored.replace(candidate);
+    undo.push(previous);
+    if undo.len() > HISTORY_LIMIT {
+        undo.remove(0);
+    }
+    redo.clear();
+    Ok(())
 }
 
 /// Stage one IBD presentation edit and publish geometry plus one history entry.
@@ -237,6 +265,27 @@ pub(super) fn apply_structural_specification(
     history: &HistoryState,
     edit: impl FnOnce(&Project, &[ibd::IbdDiagram]) -> Result<(Project, Vec<ibd::IbdDiagram>), String>,
 ) -> Result<bool, String> {
+    apply_structural_specification_with_views(
+        workspace,
+        activity,
+        history,
+        None,
+        |project, _views, ibds| edit(project, ibds),
+    )
+}
+
+/// The selected view is validated under the same guard as semantic staging.
+pub(super) fn apply_structural_specification_with_views(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    required_diagram: Option<&str>,
+    edit: impl FnOnce(
+        &Project,
+        &[BddDiagram],
+        &[ibd::IbdDiagram],
+    ) -> Result<(Project, Vec<ibd::IbdDiagram>), String>,
+) -> Result<bool, String> {
     let mut project = workspace
         .project
         .lock()
@@ -250,7 +299,7 @@ pub(super) fn apply_structural_specification(
         .ibd_diagrams
         .lock()
         .map_err(|_| "IBD lock poisoned")?;
-    let (candidate, candidate_ibds) = edit(current, &ibd_diagrams)?;
+    let (candidate, candidate_ibds) = edit(current, &diagrams, &ibd_diagrams)?;
     if serde_json::to_value(current).map_err(|error| error.to_string())?
         == serde_json::to_value(&candidate).map_err(|error| error.to_string())?
         && serde_json::to_value(&*ibd_diagrams).map_err(|error| error.to_string())?
@@ -275,7 +324,10 @@ pub(super) fn apply_structural_specification(
         .lock()
         .map_err(|_| "Activity diagram lock poisoned")?;
     let candidate_diagrams = super::relationship_editing::stage_relationship_presentations(
-        current, &candidate, &diagrams, None,
+        current,
+        &candidate,
+        &diagrams,
+        required_diagram,
     )?;
     super::validate_loaded_diagrams(&candidate, &candidate_diagrams)?;
     super::ibd::validate_ibd_diagrams(&candidate, &candidate_ibds)?;
@@ -315,6 +367,45 @@ pub(super) fn apply_structural_specification(
     *diagrams = candidate_diagrams;
     *ibd_diagrams = candidate_ibds;
     Ok(true)
+}
+
+#[cfg(test)]
+mod connected_delete_history_tests {
+    use super::*;
+
+    #[test]
+    fn connected_delete_history_failure_preserves_the_authored_revision() {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        let mut project = Project::new("Unchanged");
+        let id = project
+            .create_element(
+                systems_modeler_core::ElementKind::Block,
+                "Block",
+                project.root_id,
+            )
+            .unwrap();
+        *workspace.project.lock().unwrap() = Some(project);
+        checkpoint_states(&workspace, &activity, &history).unwrap();
+        let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        let poison = std::panic::catch_unwind(|| {
+            let _guard = history.redo.lock().unwrap();
+            panic!("injected history publication failure");
+        });
+        assert!(poison.is_err());
+        assert!(
+            super::super::repository_editing::delete_model_element_in_state(
+                id, &workspace, &activity, &history,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
+        assert_eq!(history.undo.lock().unwrap().len(), 1);
+    }
 }
 
 #[cfg(test)]
@@ -400,7 +491,7 @@ pub fn history_reset(history: tauri::State<'_, HistoryState>) -> Result<(), Stri
     reset_states(&history)
 }
 
-fn reset_states(history: &HistoryState) -> Result<(), String> {
+pub(super) fn reset_states(history: &HistoryState) -> Result<(), String> {
     let mut undo = history
         .undo
         .lock()
@@ -412,6 +503,151 @@ fn reset_states(history: &HistoryState) -> Result<(), String> {
     undo.clear();
     redo.clear();
     Ok(())
+}
+
+#[cfg(test)]
+mod open_history_tests {
+    use super::*;
+    use systems_modeler_persistence::ProjectDatabase;
+
+    fn fixture() -> (
+        WorkspaceState,
+        activity_workspace::ActivityWorkspaceState,
+        HistoryState,
+    ) {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        let project = Project::new("Old session");
+        activity
+            .repository
+            .lock()
+            .unwrap()
+            .create_activity(&project, project.root_id, None, "Old activity")
+            .unwrap();
+        *workspace.project.lock().unwrap() = Some(project);
+        *workspace.current_file.lock().unwrap() = Some("old.smproj".into());
+        checkpoint_states(&workspace, &activity, &history).unwrap();
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
+        (workspace, activity, history)
+    }
+
+    fn before_value(
+        workspace: &WorkspaceState,
+        activity: &activity_workspace::ActivityWorkspaceState,
+    ) -> serde_json::Value {
+        serde_json::json!([
+            &*workspace.project.lock().unwrap(),
+            &*activity.repository.lock().unwrap(),
+            &*workspace
+                .current_file
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        ])
+    }
+
+    fn lengths(history: &HistoryState) -> (usize, usize) {
+        (
+            history
+                .undo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            history
+                .redo
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+        )
+    }
+
+    #[test]
+    fn complete_open_history_failure_cannot_publish_new_authored_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("new.smproj");
+        ProjectDatabase::open(&path)
+            .unwrap()
+            .save_project(&Project::new("New"))
+            .unwrap();
+        for fail_history in [true, false] {
+            let (workspace, activity, history) = fixture();
+            let before = before_value(&workspace, &activity);
+            let stacks = lengths(&history);
+            let poisoned = std::panic::catch_unwind(|| {
+                if fail_history {
+                    let _held = history.redo.lock().unwrap();
+                    panic!("injected redo failure");
+                } else {
+                    let _held = workspace.current_file.lock().unwrap();
+                    panic!("injected path failure");
+                }
+            });
+            assert!(poisoned.is_err());
+            assert!(
+                super::super::bdd_elements::open_project_file_in_state(
+                    path.to_string_lossy().into_owned(),
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
+            assert_eq!(before_value(&workspace, &activity), before);
+            assert_eq!(lengths(&history), stacks);
+        }
+    }
+
+    #[test]
+    fn complete_open_retires_old_history_before_returning_to_frontend() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("new.smproj");
+        let replacement = Project::new("New session");
+        ProjectDatabase::open(&path)
+            .unwrap()
+            .save_project(&replacement)
+            .unwrap();
+        let (workspace, activity, history) = fixture();
+        super::super::bdd_elements::open_project_file_in_state(
+            path.to_string_lossy().into_owned(),
+            &workspace,
+            &activity,
+            &history,
+        )
+        .unwrap();
+        assert_eq!(
+            workspace.project.lock().unwrap().as_ref().unwrap().id,
+            replacement.id
+        );
+        assert!(activity.repository.lock().unwrap().activities.is_empty());
+        assert_eq!(lengths(&history), (0, 0));
+        assert!(!undo_states(&workspace, &activity, &history).unwrap());
+        assert!(!redo_states(&workspace, &activity, &history).unwrap());
+    }
+
+    #[test]
+    fn invalid_complete_open_preserves_both_old_history_stacks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid.smproj");
+        std::fs::write(&path, b"invalid sqlite input").unwrap();
+        let (workspace, activity, history) = fixture();
+        let before = before_value(&workspace, &activity);
+        let stacks = lengths(&history);
+        assert!(
+            super::super::bdd_elements::open_project_file_in_state(
+                path.to_string_lossy().into_owned(),
+                &workspace,
+                &activity,
+                &history,
+            )
+            .is_err()
+        );
+        assert_eq!(before_value(&workspace, &activity), before);
+        assert_eq!(lengths(&history), stacks);
+    }
 }
 
 #[cfg(test)]
@@ -463,6 +699,164 @@ mod atomic_history_tests {
                 .unwrap_or_else(|error| error.into_inner())
                 .len(),
         )
+    }
+
+    fn populated_new_session_fixture() -> (
+        WorkspaceState,
+        activity_workspace::ActivityWorkspaceState,
+        HistoryState,
+    ) {
+        let (workspace, activity, history) = fixture();
+        {
+            let mut guard = workspace.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let block = project
+                .create_element(ElementKind::Block, "System", project.root_id)
+                .unwrap();
+            workspace
+                .behavior
+                .lock()
+                .unwrap()
+                .create_state_machine(project, block, "Operate")
+                .unwrap();
+            let activity_id = activity
+                .repository
+                .lock()
+                .unwrap()
+                .create_activity(project, project.root_id, Some(block), "Run")
+                .unwrap();
+            workspace.diagrams.lock().unwrap().push(BddDiagram {
+                id: DiagramId::new().to_string(),
+                name: "Structure".into(),
+                owner_id: project.root_id.to_string(),
+                family: "bdd".into(),
+                semantic_context_id: None,
+                subject_boundary: None,
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            });
+            activity
+                .diagrams
+                .lock()
+                .unwrap()
+                .push(activity_workspace::ActivityDiagram {
+                    id: DiagramId::new().to_string(),
+                    name: "Run".into(),
+                    owner_id: project.root_id.to_string(),
+                    activity_id: activity_id.to_string(),
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                });
+        }
+        *workspace.current_file.lock().unwrap() = Some("previous.smproj".into());
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
+        (workspace, activity, history)
+    }
+
+    fn session_value(
+        workspace: &WorkspaceState,
+        activity: &activity_workspace::ActivityWorkspaceState,
+    ) -> serde_json::Value {
+        fn value<T: serde::Serialize>(mutex: &Mutex<T>) -> serde_json::Value {
+            serde_json::to_value(&*mutex.lock().unwrap_or_else(|error| error.into_inner())).unwrap()
+        }
+        serde_json::json!([
+            value(&workspace.project),
+            value(&workspace.diagrams),
+            value(&workspace.ibd_diagrams),
+            value(&workspace.behavior),
+            value(&workspace.behavior_diagrams),
+            value(&workspace.reqif_exchange),
+            value(&activity.repository),
+            value(&activity.diagrams),
+            value(&workspace.current_file),
+        ])
+    }
+
+    #[test]
+    fn new_project_late_failure_preserves_every_authored_field_and_history() {
+        for failing_lock in ["activity", "path", "redo"] {
+            let (workspace, activity, history) = populated_new_session_fixture();
+            let before = session_value(&workspace, &activity);
+            let stacks = stack_lengths(&history);
+            match failing_lock {
+                "activity" => poison(&activity.diagrams),
+                "path" => poison(&workspace.current_file),
+                _ => poison(&history.redo),
+            }
+            assert!(
+                super::super::new_project_in_state(
+                    "Replacement".into(),
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
+            assert_eq!(session_value(&workspace, &activity), before);
+            assert_eq!(stack_lengths(&history), stacks);
+        }
+    }
+
+    #[test]
+    fn new_project_rejects_contention_without_partial_publication_and_can_retry() {
+        let (workspace, activity, history) = populated_new_session_fixture();
+        let before = session_value(&workspace, &activity);
+        let stacks = stack_lengths(&history);
+        std::thread::scope(|scope| {
+            let held = activity.diagrams.lock().unwrap();
+            let (send, receive) = std::sync::mpsc::channel();
+            let workspace = &workspace;
+            let activity = &activity;
+            let history = &history;
+            let worker = scope.spawn(move || {
+                send.send(super::super::new_project_in_state(
+                    "Replacement".into(),
+                    workspace,
+                    activity,
+                    history,
+                ))
+                .unwrap();
+            });
+            let result = receive.recv_timeout(std::time::Duration::from_secs(2));
+            drop(held);
+            worker.join().unwrap();
+            assert!(
+                result
+                    .expect("New waited with partial guards")
+                    .unwrap_err()
+                    .contains("busy")
+            );
+        });
+        assert_eq!(session_value(&workspace, &activity), before);
+        assert_eq!(stack_lengths(&history), stacks);
+        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history)
+            .unwrap();
+        assert_eq!(stack_lengths(&history), (0, 0));
+    }
+
+    #[test]
+    fn new_project_clears_specialized_repositories_path_and_old_history_together() {
+        let (workspace, activity, history) = populated_new_session_fixture();
+        let old_id = workspace.project.lock().unwrap().as_ref().unwrap().id;
+        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history)
+            .unwrap();
+        let current = workspace.project.lock().unwrap().clone().unwrap();
+        assert_ne!(current.id, old_id);
+        assert_eq!(current.name, "Replacement");
+        assert_eq!(current.elements.len(), 1);
+        assert!(workspace.diagrams.lock().unwrap().is_empty());
+        assert!(workspace.behavior.lock().unwrap().state_machines.is_empty());
+        assert!(activity.repository.lock().unwrap().activities.is_empty());
+        assert!(activity.diagrams.lock().unwrap().is_empty());
+        assert!(workspace.current_file.lock().unwrap().is_none());
+        assert_eq!(stack_lengths(&history), (0, 0));
+        assert!(!undo_states(&workspace, &activity, &history).unwrap());
+        assert!(!redo_states(&workspace, &activity, &history).unwrap());
     }
 
     #[test]
