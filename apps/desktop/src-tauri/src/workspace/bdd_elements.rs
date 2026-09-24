@@ -466,7 +466,10 @@ fn validate_complete_diagrams(project: &Project, diagrams: &[BddDiagram]) -> Res
             }
             if diagram.family == "parametric" {
                 project
-                    .validate_binding_in_context(relationship, parametrics::diagram_context(diagram)?)
+                    .validate_binding_in_context(
+                        relationship,
+                        parametrics::diagram_context(diagram)?,
+                    )
                     .map_err(|error| error.to_string())?;
                 let binding = relationship
                     .binding

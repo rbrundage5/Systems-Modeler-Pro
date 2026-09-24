@@ -1602,13 +1602,43 @@ mod tests {
     #[test]
     fn inherited_parametric_placement_preserves_identity_history_and_reopen_validation() {
         let mut project = Project::new("Inherited Parametric placement");
-        let base = project.create_element(ElementKind::Block, "Base", project.root_id).unwrap();
-        let derived = project.create_element(ElementKind::Block, "Derived", project.root_id).unwrap();
-        let real = project.create_element(ElementKind::PrimitiveType, "Real", project.root_id).unwrap();
-        project.create_relationship(RelationshipKind::Generalization, derived, base, Some(project.root_id)).unwrap();
-        let visible = project.create_typed_feature(ElementKind::ValueProperty, "value", base, real, Multiplicity::ONE).unwrap();
-        let hidden = project.create_typed_feature(ElementKind::ValueProperty, "hidden", base, real, Multiplicity::ONE).unwrap();
-        project.element_mut(hidden).unwrap().visibility = systems_modeler_core::VisibilityKind::Private;
+        let base = project
+            .create_element(ElementKind::Block, "Base", project.root_id)
+            .unwrap();
+        let derived = project
+            .create_element(ElementKind::Block, "Derived", project.root_id)
+            .unwrap();
+        let real = project
+            .create_element(ElementKind::PrimitiveType, "Real", project.root_id)
+            .unwrap();
+        project
+            .create_relationship(
+                RelationshipKind::Generalization,
+                derived,
+                base,
+                Some(project.root_id),
+            )
+            .unwrap();
+        let visible = project
+            .create_typed_feature(
+                ElementKind::ValueProperty,
+                "value",
+                base,
+                real,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let hidden = project
+            .create_typed_feature(
+                ElementKind::ValueProperty,
+                "hidden",
+                base,
+                real,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        project.element_mut(hidden).unwrap().visibility =
+            systems_modeler_core::VisibilityKind::Private;
         let diagram = BddDiagram {
             id: DiagramId::new().to_string(),
             name: "Derived analysis".into(),
@@ -1627,27 +1657,50 @@ mod tests {
         let activity = activity_workspace::ActivityWorkspaceState::default();
         let history = history::HistoryState::default();
         place_on_parametric_diagram_in_state(
-            diagram_id.clone(), visible.to_string(), 80.0, 80.0,
-            &workspace, &activity, &history,
-        ).unwrap();
+            diagram_id.clone(),
+            visible.to_string(),
+            80.0,
+            80.0,
+            &workspace,
+            &activity,
+            &history,
+        )
+        .unwrap();
         let after = serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap();
         let restored: Vec<BddDiagram> = serde_json::from_value(after.clone()).unwrap();
         validate_loaded_diagrams(&project, &restored).unwrap();
         assert_eq!(restored[0].nodes[0].element_id, visible.to_string());
         assert_eq!(history::undo_len(&history), 1);
         for rejected in [hidden, visible] {
-            assert!(place_on_parametric_diagram_in_state(
-                diagram_id.clone(), rejected.to_string(), 80.0, 80.0,
-                &workspace, &activity, &history,
-            ).is_err());
-            assert_eq!(serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(), after);
+            assert!(
+                place_on_parametric_diagram_in_state(
+                    diagram_id.clone(),
+                    rejected.to_string(),
+                    80.0,
+                    80.0,
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
+            assert_eq!(
+                serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+                after
+            );
             assert_eq!(history::undo_len(&history), 1);
         }
-        assert_eq!(serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(),
+            before
+        );
         history::undo_states(&workspace, &activity, &history).unwrap();
         assert!(workspace.diagrams.lock().unwrap()[0].nodes.is_empty());
         history::redo_states(&workspace, &activity, &history).unwrap();
-        assert_eq!(serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(), after);
+        assert_eq!(
+            serde_json::to_value(&*workspace.diagrams.lock().unwrap()).unwrap(),
+            after
+        );
     }
 
     #[test]

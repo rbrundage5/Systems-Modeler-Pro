@@ -150,33 +150,62 @@ fn session(project: &Project, root: ElementId) -> ExecutionSession {
 #[test]
 fn inherited_roles_bind_and_evaluate_in_the_specialized_runtime_context() {
     let mut fixture = force_fixture();
-    let derived = fixture.project.create_element(
-        ElementKind::Block, "ElectricVehicle", fixture.project.root_id,
-    ).unwrap();
-    fixture.project.create_relationship(
-        RelationshipKind::Generalization, derived, fixture.context,
-        Some(fixture.project.root_id),
-    ).unwrap();
+    let derived = fixture
+        .project
+        .create_element(
+            ElementKind::Block,
+            "ElectricVehicle",
+            fixture.project.root_id,
+        )
+        .unwrap();
+    fixture
+        .project
+        .create_relationship(
+            RelationshipKind::Generalization,
+            derived,
+            fixture.context,
+            Some(fixture.project.root_id),
+        )
+        .unwrap();
     let mut derived_bindings = Vec::new();
     for id in &fixture.scope.binding_relationship_ids {
-        let binding = fixture.project.relationship(*id).unwrap().binding.clone().unwrap();
-        derived_bindings.push(fixture.project.create_binding_connector(
-            derived, binding.source, binding.target,
-        ).unwrap());
+        let binding = fixture
+            .project
+            .relationship(*id)
+            .unwrap()
+            .binding
+            .clone()
+            .unwrap();
+        derived_bindings.push(
+            fixture
+                .project
+                .create_binding_connector(derived, binding.source, binding.target)
+                .unwrap(),
+        );
     }
     fixture.project.validate().unwrap();
-    let duplicate = fixture.project.relationship(derived_bindings[0]).unwrap().binding.clone().unwrap();
+    let duplicate = fixture
+        .project
+        .relationship(derived_bindings[0])
+        .unwrap()
+        .binding
+        .clone()
+        .unwrap();
     let before = serde_json::to_value(&fixture.project).unwrap();
-    assert!(matches!(fixture.project.create_binding_connector(
-        derived, duplicate.source, duplicate.target,
-    ), Err(ModelError::DuplicateBindingConnector)));
+    assert!(matches!(
+        fixture
+            .project
+            .create_binding_connector(derived, duplicate.source, duplicate.target,),
+        Err(ModelError::DuplicateBindingConnector)
+    ));
     assert_eq!(serde_json::to_value(&fixture.project).unwrap(), before);
     fixture.scope.context_id = derived;
     // Ancestor wiring is usable too; select the local variant only for this run.
     for id in &fixture.scope.binding_relationship_ids {
-        fixture.project.validate_binding_in_context(
-            fixture.project.relationship(*id).unwrap(), derived,
-        ).unwrap();
+        fixture
+            .project
+            .validate_binding_in_context(fixture.project.relationship(*id).unwrap(), derived)
+            .unwrap();
     }
     fixture.scope.binding_relationship_ids = derived_bindings;
     let restored: Project = serde_json::from_value(before.clone()).unwrap();
@@ -184,27 +213,56 @@ fn inherited_roles_bind_and_evaluate_in_the_specialized_runtime_context() {
     let mut session = session(&restored, derived);
     let mut engine = ParametricExecutionEngine::new(fixture.scope);
     engine.initialize(&restored, &mut session).unwrap();
-    assert_eq!(engine.step(&restored, &mut session).unwrap(), EngineStepOutcome::Completed);
-    assert_eq!(session.value(engine.runtime_instance_id(), fixture.force), Some(&RuntimeValue::Real(2000.0)));
-    assert_eq!(restored.element(fixture.force).unwrap().owner_id, Some(fixture.context));
+    assert_eq!(
+        engine.step(&restored, &mut session).unwrap(),
+        EngineStepOutcome::Completed
+    );
+    assert_eq!(
+        session.value(engine.runtime_instance_id(), fixture.force),
+        Some(&RuntimeValue::Real(2000.0))
+    );
+    assert_eq!(
+        restored.element(fixture.force).unwrap().owner_id,
+        Some(fixture.context)
+    );
     assert_eq!(serde_json::to_value(&restored).unwrap(), before);
 }
 
 #[test]
 fn inherited_binding_rejects_private_roles_without_mutation() {
     let mut fixture = force_fixture();
-    let derived = fixture.project.create_element(
-        ElementKind::Block, "Derived", fixture.project.root_id,
-    ).unwrap();
-    fixture.project.create_relationship(
-        RelationshipKind::Generalization, derived, fixture.context,
-        Some(fixture.project.root_id),
-    ).unwrap();
-    fixture.project.element_mut(fixture.mass).unwrap().visibility = VisibilityKind::Private;
-    let binding = fixture.project.relationship(fixture.scope.binding_relationship_ids[0])
-        .unwrap().binding.clone().unwrap();
+    let derived = fixture
+        .project
+        .create_element(ElementKind::Block, "Derived", fixture.project.root_id)
+        .unwrap();
+    fixture
+        .project
+        .create_relationship(
+            RelationshipKind::Generalization,
+            derived,
+            fixture.context,
+            Some(fixture.project.root_id),
+        )
+        .unwrap();
+    fixture
+        .project
+        .element_mut(fixture.mass)
+        .unwrap()
+        .visibility = VisibilityKind::Private;
+    let binding = fixture
+        .project
+        .relationship(fixture.scope.binding_relationship_ids[0])
+        .unwrap()
+        .binding
+        .clone()
+        .unwrap();
     let before = serde_json::to_value(&fixture.project).unwrap();
-    assert!(fixture.project.create_binding_connector(derived, binding.source, binding.target).is_err());
+    assert!(
+        fixture
+            .project
+            .create_binding_connector(derived, binding.source, binding.target)
+            .is_err()
+    );
     assert_eq!(serde_json::to_value(&fixture.project).unwrap(), before);
     fixture.project.validate().unwrap();
 }
@@ -214,18 +272,32 @@ fn evaluation_rejects_sibling_context_wiring_before_value_updates() {
     let mut fixture = force_fixture();
     let mut siblings = Vec::new();
     for name in ["VariantA", "VariantB"] {
-        let id = fixture.project.create_element(ElementKind::Block, name, fixture.project.root_id).unwrap();
-        fixture.project.create_relationship(
-            RelationshipKind::Generalization, id, fixture.context,
-            Some(fixture.project.root_id),
-        ).unwrap();
+        let id = fixture
+            .project
+            .create_element(ElementKind::Block, name, fixture.project.root_id)
+            .unwrap();
+        fixture
+            .project
+            .create_relationship(
+                RelationshipKind::Generalization,
+                id,
+                fixture.context,
+                Some(fixture.project.root_id),
+            )
+            .unwrap();
         siblings.push(id);
     }
-    let binding = fixture.project.relationship(fixture.scope.binding_relationship_ids[0])
-        .unwrap().binding.clone().unwrap();
-    let foreign = fixture.project.create_binding_connector(
-        siblings[1], binding.source, binding.target,
-    ).unwrap();
+    let binding = fixture
+        .project
+        .relationship(fixture.scope.binding_relationship_ids[0])
+        .unwrap()
+        .binding
+        .clone()
+        .unwrap();
+    let foreign = fixture
+        .project
+        .create_binding_connector(siblings[1], binding.source, binding.target)
+        .unwrap();
     fixture.scope.context_id = siblings[0];
     fixture.scope.binding_relationship_ids[0] = foreign;
     let before = serde_json::to_value(&fixture.project).unwrap();
