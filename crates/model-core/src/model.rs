@@ -306,6 +306,17 @@ impl Element {
         )
     }
 
+    /// Built-in specializations of the SysML Block stereotype.
+    pub fn is_block(&self) -> bool {
+        matches!(
+            self.kind,
+            ElementKind::Block
+                | ElementKind::AssociationBlock
+                | ElementKind::InterfaceBlock
+                | ElementKind::ConstraintBlock
+        )
+    }
+
     pub fn is_property(&self) -> bool {
         matches!(
             self.kind,
@@ -452,6 +463,8 @@ pub enum ModelError {
     ReferenceCannotBeComposite(ElementId),
     #[error("generalization requires classifier endpoints")]
     GeneralizationRequiresClassifiers,
+    #[error("a classifier specializing a SysML Block must also be a Block")]
+    BlockSpecializationRequiresBlock,
     #[error("generalization would create an inheritance cycle")]
     GeneralizationCycle,
     #[error("Actor and Use Case generalization endpoints must have the same semantic kind")]
@@ -938,6 +951,9 @@ impl Project {
         if kind == RelationshipKind::Generalization {
             if !source.is_classifier() || !target.is_classifier() {
                 return Err(ModelError::GeneralizationRequiresClassifiers);
+            }
+            if target.is_block() && !source.is_block() {
+                return Err(ModelError::BlockSpecializationRequiresBlock);
             }
             if self.would_create_generalization_cycle(source_id, target_id) {
                 return Err(ModelError::GeneralizationCycle);
@@ -1716,6 +1732,9 @@ impl Project {
                 let target = self.element(relationship.target_id)?;
                 if !source.is_classifier() || !target.is_classifier() {
                     return Err(ModelError::GeneralizationRequiresClassifiers);
+                }
+                if target.is_block() && !source.is_block() {
+                    return Err(ModelError::BlockSpecializationRequiresBlock);
                 }
                 if (matches!(source.kind, ElementKind::Actor | ElementKind::UseCase)
                     || matches!(target.kind, ElementKind::Actor | ElementKind::UseCase))
