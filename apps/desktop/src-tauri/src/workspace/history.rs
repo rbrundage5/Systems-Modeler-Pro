@@ -499,17 +499,25 @@ mod atomic_history_tests {
                 nodes: Vec::new(),
                 edges: Vec::new(),
             });
-            activity.diagrams.lock().unwrap().push(activity_workspace::ActivityDiagram {
-                id: DiagramId::new().to_string(),
-                name: "Run".into(),
-                owner_id: project.root_id.to_string(),
-                activity_id: activity_id.to_string(),
-                nodes: Vec::new(),
-                edges: Vec::new(),
-            });
+            activity
+                .diagrams
+                .lock()
+                .unwrap()
+                .push(activity_workspace::ActivityDiagram {
+                    id: DiagramId::new().to_string(),
+                    name: "Run".into(),
+                    owner_id: project.root_id.to_string(),
+                    activity_id: activity_id.to_string(),
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                });
         }
         *workspace.current_file.lock().unwrap() = Some("previous.smproj".into());
-        history.redo.lock().unwrap().push(capture_states(&workspace, &activity).unwrap());
+        history
+            .redo
+            .lock()
+            .unwrap()
+            .push(capture_states(&workspace, &activity).unwrap());
         (workspace, activity, history)
     }
 
@@ -544,9 +552,15 @@ mod atomic_history_tests {
                 "path" => poison(&workspace.current_file),
                 _ => poison(&history.redo),
             }
-            assert!(super::super::new_project_in_state(
-                "Replacement".into(), &workspace, &activity, &history,
-            ).is_err());
+            assert!(
+                super::super::new_project_in_state(
+                    "Replacement".into(),
+                    &workspace,
+                    &activity,
+                    &history,
+                )
+                .is_err()
+            );
             assert_eq!(session_value(&workspace, &activity), before);
             assert_eq!(stack_lengths(&history), stacks);
         }
@@ -565,17 +579,27 @@ mod atomic_history_tests {
             let history = &history;
             let worker = scope.spawn(move || {
                 send.send(super::super::new_project_in_state(
-                    "Replacement".into(), workspace, activity, history,
-                )).unwrap();
+                    "Replacement".into(),
+                    workspace,
+                    activity,
+                    history,
+                ))
+                .unwrap();
             });
             let result = receive.recv_timeout(std::time::Duration::from_secs(2));
             drop(held);
             worker.join().unwrap();
-            assert!(result.expect("New waited with partial guards").unwrap_err().contains("busy"));
+            assert!(
+                result
+                    .expect("New waited with partial guards")
+                    .unwrap_err()
+                    .contains("busy")
+            );
         });
         assert_eq!(session_value(&workspace, &activity), before);
         assert_eq!(stack_lengths(&history), stacks);
-        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history).unwrap();
+        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history)
+            .unwrap();
         assert_eq!(stack_lengths(&history), (0, 0));
     }
 
@@ -583,7 +607,8 @@ mod atomic_history_tests {
     fn new_project_clears_specialized_repositories_path_and_old_history_together() {
         let (workspace, activity, history) = populated_new_session_fixture();
         let old_id = workspace.project.lock().unwrap().as_ref().unwrap().id;
-        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history).unwrap();
+        super::super::new_project_in_state("Replacement".into(), &workspace, &activity, &history)
+            .unwrap();
         let current = workspace.project.lock().unwrap().clone().unwrap();
         assert_ne!(current.id, old_id);
         assert_eq!(current.name, "Replacement");
