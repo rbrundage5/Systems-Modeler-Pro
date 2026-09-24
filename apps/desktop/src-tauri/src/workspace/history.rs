@@ -122,11 +122,19 @@ pub(super) fn edit_authored(
     let mut authored = AuthoredStateGuards::lock(workspace, activity)?;
     let mut candidate = authored.capture();
     edit(&mut candidate)?;
-    let mut undo = history.undo.lock().map_err(|_| "undo history lock poisoned")?;
-    let mut redo = history.redo.lock().map_err(|_| "redo history lock poisoned")?;
+    let mut undo = history
+        .undo
+        .lock()
+        .map_err(|_| "undo history lock poisoned")?;
+    let mut redo = history
+        .redo
+        .lock()
+        .map_err(|_| "redo history lock poisoned")?;
     let previous = authored.replace(candidate);
     undo.push(previous);
-    if undo.len() > HISTORY_LIMIT { undo.remove(0); }
+    if undo.len() > HISTORY_LIMIT {
+        undo.remove(0);
+    }
     redo.clear();
     Ok(())
 }
@@ -347,7 +355,13 @@ mod connected_delete_history_tests {
         let activity = activity_workspace::ActivityWorkspaceState::default();
         let history = HistoryState::default();
         let mut project = Project::new("Unchanged");
-        let id = project.create_element(systems_modeler_core::ElementKind::Block, "Block", project.root_id).unwrap();
+        let id = project
+            .create_element(
+                systems_modeler_core::ElementKind::Block,
+                "Block",
+                project.root_id,
+            )
+            .unwrap();
         *workspace.project.lock().unwrap() = Some(project);
         checkpoint_states(&workspace, &activity, &history).unwrap();
         let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
@@ -356,10 +370,16 @@ mod connected_delete_history_tests {
             panic!("injected history publication failure");
         });
         assert!(poison.is_err());
-        assert!(super::super::repository_editing::delete_model_element_in_state(
-            id, &workspace, &activity, &history,
-        ).is_err());
-        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert!(
+            super::super::repository_editing::delete_model_element_in_state(
+                id, &workspace, &activity, &history,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
         assert_eq!(history.undo.lock().unwrap().len(), 1);
     }
 }

@@ -347,8 +347,10 @@ impl ActivityRepository {
                 && !activity.context_id.is_some_and(|id| deleted.contains(&id))
         });
         let identities = std::mem::take(&mut self.external_ids);
-        self.external_ids = identities.into_iter()
-            .filter(|(_, identity)| self.semantic_identity_exists(*identity)).collect();
+        self.external_ids = identities
+            .into_iter()
+            .filter(|(_, identity)| self.semantic_identity_exists(*identity))
+            .collect();
     }
 
     fn semantic_identity_exists(&self, identity: ActivitySemanticId) -> bool {
