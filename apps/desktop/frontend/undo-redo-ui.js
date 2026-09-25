@@ -20,6 +20,7 @@
     const text = String(label || '').toLowerCase();
     return text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
+      || text.startsWith('updating requirement')
       || text.startsWith('reconnecting bdd ')
       || text.startsWith('presenting part composition')
       || text.startsWith('updating association end')
