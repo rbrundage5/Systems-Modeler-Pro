@@ -23,6 +23,9 @@
       || text.startsWith('reconnecting bdd ')
       || text.startsWith('presenting part composition')
       || text.startsWith('creating bdd part composition')
+      || text.startsWith('updating association end')
+      || text.startsWith('deleting diagram relationship')
+      || text.startsWith('reconnecting traceability ')
       || text.startsWith('linking composition property');
   }
 

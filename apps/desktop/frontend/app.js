@@ -595,7 +595,7 @@ function renderRelationshipProperties(panel, project, relationship) {
   const reconnect = async (side) => {
     const elementId = $(`relationship-${side}`).value;
     const command=TRACEABILITY_KINDS.has(relationship.kind)?'reconnect_traceability_relationship':'reconnect_bdd_relationship';
-    const label = command === 'reconnect_bdd_relationship' ? `Reconnecting BDD ${side}…` : `Reconnecting ${side}…`;
+    const label = command === 'reconnect_bdd_relationship' ? `Reconnecting BDD ${side}…` : `Reconnecting traceability ${side}…`;
     await runCommand(label, () => requireInvoke()(command, {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
@@ -621,7 +621,7 @@ function renderRelationshipProperties(panel, project, relationship) {
   });
   $('delete-relationship').onclick = async () => {
     if (!confirm(`Delete ${relationship.kind} relationship?`)) return;
-    await runCommand('Deleting relationship…', () => requireInvoke()('delete_bdd_relationship', {
+    await runCommand('Deleting diagram relationship…', () => requireInvoke()('delete_bdd_relationship', {
       diagramId: state.selectedDiagramId,
       relationshipId: relationship.id,
     }));
