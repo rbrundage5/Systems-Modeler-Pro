@@ -5,9 +5,15 @@ use systems_modeler_persistence::ProjectDatabase;
 fn nested_requirement_ownership_survives_database_and_portable_json_round_trips() {
     let mut project = Project::new("Nested requirements");
     let root = project.root_id;
-    let parent = project.create_requirement("Parent", "R-1", "Parent text", root).unwrap();
-    let child = project.create_requirement("Child", "R-2", "Child text", parent).unwrap();
-    let leaf = project.create_requirement("Leaf", "R-3", "Leaf text", child).unwrap();
+    let parent = project
+        .create_requirement("Parent", "R-1", "Parent text", root)
+        .unwrap();
+    let child = project
+        .create_requirement("Child", "R-2", "Child text", parent)
+        .unwrap();
+    let leaf = project
+        .create_requirement("Leaf", "R-3", "Leaf text", child)
+        .unwrap();
     let expected = serde_json::to_value(&project).unwrap();
     let mut database = ProjectDatabase::open_in_memory().unwrap();
     database.save_project(&project).unwrap();
