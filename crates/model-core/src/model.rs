@@ -2098,10 +2098,10 @@ fn validate_owner_kind(kind: &ElementKind, owner: &ElementKind) -> Result<(), Mo
         | ElementKind::Unit
         | ElementKind::QuantityKind
         | ElementKind::InstanceSpecification
-        | ElementKind::Requirement
         | ElementKind::TestCase
         | ElementKind::Actor
         | ElementKind::UseCase => namespace_owned,
+        ElementKind::Requirement => namespace_owned || *owner == ElementKind::Requirement,
         ElementKind::Comment => namespace_owned || classifier_owner,
         ElementKind::EnumerationLiteral => matches!(owner, ElementKind::Enumeration),
         ElementKind::Slot => matches!(owner, ElementKind::InstanceSpecification),
