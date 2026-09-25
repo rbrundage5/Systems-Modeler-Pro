@@ -122,22 +122,58 @@ pub fn update_association_end(
     navigable: bool,
     aggregation: String,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<(), String> {
-    let relationship_id = parse_relationship_id(&relationship_id)?;
-    let multiplicity = parse_multiplicity(&multiplicity)?;
-    let aggregation = parse_aggregation(&aggregation)?;
-
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    edit_association_end(
-        project,
-        relationship_id,
-        &end_id,
-        &role_name,
-        multiplicity,
-        navigable,
-        aggregation,
+    update_association_end_in_state(
+        AssociationEndEdit {
+            relationship_id: parse_relationship_id(&relationship_id)?,
+            end_id,
+            role_name,
+            multiplicity: parse_multiplicity(&multiplicity)?,
+            navigable,
+            aggregation: parse_aggregation(&aggregation)?,
+        },
+        &state,
+        &activity,
+        &history,
     )
+}
+
+struct AssociationEndEdit {
+    relationship_id: systems_modeler_core::RelationshipId,
+    end_id: String,
+    role_name: String,
+    multiplicity: Multiplicity,
+    navigable: bool,
+    aggregation: AggregationKind,
+}
+
+fn update_association_end_in_state(
+    edit: AssociationEndEdit,
+    state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    history: &super::history::HistoryState,
+) -> Result<(), String> {
+    super::history::apply_structural_specification(
+        state,
+        activity,
+        history,
+        |current, diagrams| {
+            let mut candidate = current.clone();
+            edit_association_end(
+                &mut candidate,
+                edit.relationship_id,
+                &edit.end_id,
+                &edit.role_name,
+                edit.multiplicity,
+                edit.navigable,
+                edit.aggregation,
+            )?;
+            Ok((candidate, diagrams.to_vec()))
+        },
+    )
+    .map(|_| ())
 }
 
 fn edit_association_end(
@@ -1017,6 +1053,95 @@ mod tests {
             Some(property)
         );
         project.validate().unwrap();
+    }
+
+    fn linked_end_fixture() -> (ReconnectFixture, ElementId) {
+        let mut fixture = reconnect_fixture(RelationshipKind::Association);
+        let property = {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project.relationships.remove(&fixture.relationship_id);
+            let (relationship, property) = project
+                .create_composition(
+                    fixture.blocks[0],
+                    fixture.blocks[1],
+                    "unit",
+                    Multiplicity::ONE,
+                    Some(project.root_id),
+                )
+                .unwrap();
+            fixture.relationship_id = relationship;
+            property
+        };
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id =
+            fixture.relationship_id.to_string();
+        add_second_view(&fixture, false);
+        (fixture, property)
+    }
+
+    fn apply_end(fixture: &ReconnectFixture, role: &str, navigable: bool) -> Result<(), String> {
+        let end_id = fixture.state.project.lock().unwrap().as_ref().unwrap()
+            .relationship(fixture.relationship_id).unwrap().association_ends[1].id.to_string();
+        update_association_end_in_state(
+            AssociationEndEdit {
+                relationship_id: fixture.relationship_id,
+                end_id,
+                role_name: role.into(),
+                multiplicity: Multiplicity::new(2, Some(2)).unwrap(),
+                navigable,
+                aggregation: AggregationKind::Composite,
+            },
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+    }
+
+    #[test]
+    fn association_end_transaction_preserves_identity_reopen_and_one_step_history() {
+        use super::super::history;
+        let (fixture, property) = linked_end_fixture();
+        let before = snapshot(&fixture.state);
+        apply_end(&fixture, "primary", true).unwrap();
+        let after = snapshot(&fixture.state);
+        {
+            let guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            let part = project.element(property).unwrap();
+            assert_eq!(part.name, "primary");
+            assert_eq!(part.type_id, Some(fixture.blocks[1]));
+            assert_eq!(part.owner_id, Some(fixture.blocks[0]));
+            assert_eq!(part.multiplicity.unwrap().notation(), "2");
+            let end = &project.relationship(fixture.relationship_id).unwrap().association_ends[1];
+            assert_eq!(end.property_id, Some(property));
+            assert_eq!(end.role_name, "primary");
+            super::super::validate_loaded_diagrams(project, &fixture.state.diagrams.lock().unwrap()).unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            let mut database = systems_modeler_persistence::ProjectDatabase::open(directory.path().join("ends.smproj")).unwrap();
+            database.save_project(project).unwrap();
+            assert_eq!(serde_json::to_value(database.load_first_project().unwrap()).unwrap(), serde_json::to_value(project).unwrap());
+        }
+        assert_eq!(history::undo_len(&fixture.history), 1);
+        apply_end(&fixture, "primary", true).unwrap();
+        assert_eq!(history::undo_len(&fixture.history), 1);
+        assert!(history::undo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert!(apply_end(&fixture, "", true).is_err());
+        assert!(apply_end(&fixture, "invalid", false).is_err());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(history::undo_len(&fixture.history), 0);
+        assert!(history::redo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert_eq!(snapshot(&fixture.state), after);
+    }
+
+    #[test]
+    fn association_end_transaction_rejects_invalid_dependent_views_before_commit() {
+        let (fixture, _) = linked_end_fixture();
+        fixture.state.diagrams.lock().unwrap()[1].nodes[0].element_id = ElementId::new().to_string();
+        let before = snapshot(&fixture.state);
+        assert!(apply_end(&fixture, "primary", true).is_err());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(super::super::history::undo_len(&fixture.history), 0);
     }
 
     #[test]
