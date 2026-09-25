@@ -199,6 +199,7 @@ function renderIbdConnectorLayer(frame, diagram, project) {
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;
+      state.selectedIbdPresentationId = edge.id;
       state.selectedElementId = null;
       state.pendingRelationship = null;
       render();
@@ -475,6 +476,13 @@ renderProperties = function renderPropertiesPr11() {
   const project = state.snapshot.project;
   const relationship = project.relationships.find((r) => r.id === state.selectedRelationshipId);
   if (relationship?.kind === 'Connector') {
+    const occurrence = ibd.connectors.find(edge => edge.id === state.selectedIbdPresentationId && edge.relationship_id === relationship.id);
+    if (occurrence?.context_path?.length) {
+      window.smpConnectorProperties?.deactivate();
+      const owner = ibdElement(project, relationship.connector?.context_id || relationship.owner_id);
+      $('properties').innerHTML = `<p class="property-help">This connector is defined by ${escapeHtml(owner?.name || 'the part type')}. Edit it in that type's IBD; changes apply to every usage. This view presents its contextual occurrence.</p>`;
+      return;
+    }
     window.smpConnectorProperties.render({
       container: $('properties'), projectId: project.root_id, diagram: ibd, relationship,
       invoke: requireInvoke(), refresh, route: routeSelectedIbd,

@@ -22,6 +22,7 @@ mod workspace {
     mod history;
     mod ibd;
     mod ibd_geometry;
+    mod ibd_projection;
     mod ibd_structure;
     mod item_flow_editing;
     mod item_flow_notation;

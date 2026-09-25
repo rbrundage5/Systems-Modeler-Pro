@@ -35,6 +35,9 @@ pub struct IbdPropertyPresentation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbdConnectorPresentation {
+    /// Type usage containing this occurrence; empty for context-level connectors.
+    #[serde(default)]
+    pub context_path: Vec<String>,
     pub id: String,
     pub relationship_id: String,
     pub source_presentation_id: String,
@@ -310,6 +313,11 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 .map_err(|error| error.to_string())?;
 
             for port in &property.ports {
+                if port.property_path != property.property_path {
+                    return Err(
+                        "IBD port must be attached to its contextual owning property".into(),
+                    );
+                }
                 if !presentation_ids.insert(&port.id) {
                     return Err(format!("duplicate IBD port presentation id: {}", port.id));
                 }
@@ -362,7 +370,16 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 .connector
                 .as_ref()
                 .ok_or("Connector semantics missing")?;
-            if semantic.source != source || semantic.target != target {
+            let prefix = parse_path(&edge.context_path)?;
+            let reached = project
+                .resolve_structural_path(context_id, &prefix)
+                .map_err(|error| error.to_string())?;
+            if reached != semantic.context_id {
+                return Err("IBD connector occurrence has the wrong contextual type".into());
+            }
+            if super::ibd_projection::project_end(&prefix, &semantic.source) != source
+                || super::ibd_projection::project_end(&prefix, &semantic.target) != target
+            {
                 return Err(format!(
                     "IBD presentation endpoints do not match semantic Connector: {}",
                     edge.relationship_id
@@ -616,6 +633,7 @@ pub fn create_ibd_connector(
 
     let points = route_ibd_edge(diagram, &source_presentation_id, &target_presentation_id)?;
     diagram.connectors.push(IbdConnectorPresentation {
+        context_path: Vec::new(),
         id: uuid::Uuid::new_v4().to_string(),
         relationship_id: semantic_id.to_string(),
         source_presentation_id,
@@ -969,6 +987,7 @@ mod tests {
 
     fn connector(id: &str, source: &str, target: &str) -> IbdConnectorPresentation {
         IbdConnectorPresentation {
+            context_path: Vec::new(),
             id: id.into(),
             relationship_id: uuid::Uuid::new_v4().to_string(),
             source_presentation_id: source.into(),

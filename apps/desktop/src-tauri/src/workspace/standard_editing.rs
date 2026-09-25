@@ -1084,6 +1084,7 @@ fn paste_clipboard(
                     let id = uuid::Uuid::new_v4().to_string();
                     let points = ibd::route_ibd_edge(diagram, &source_id, &target_id)?;
                     diagram.connectors.push(ibd::IbdConnectorPresentation {
+                        context_path: connector.context_path.clone(),
                         id: id.clone(),
                         relationship_id: connector.relationship_id.clone(),
                         source_presentation_id: source_id,
@@ -2124,6 +2125,7 @@ fn duplicate_selection_items(
                 snapshot.ibd_diagrams[diagram_index]
                     .connectors
                     .push(ibd::IbdConnectorPresentation {
+                        context_path: connector.context_path.clone(),
                         id: id.clone(),
                         relationship_id: new.to_string(),
                         source_presentation_id: source_id,

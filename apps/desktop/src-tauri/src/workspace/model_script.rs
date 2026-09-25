@@ -3080,6 +3080,7 @@ fn create_script_diagram(
                         (endpoint(&connector.source), endpoint(&connector.target))
                     {
                         native.connectors.push(IbdConnectorPresentation {
+                            context_path: Vec::new(),
                             id: uuid::Uuid::new_v4().to_string(),
                             relationship_id: relationship.id.to_string(),
                             source_presentation_id: source,

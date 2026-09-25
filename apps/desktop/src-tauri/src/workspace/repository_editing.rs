@@ -555,6 +555,7 @@ mod tests {
             })
             .collect();
         let ibd_edge = ibd::IbdConnectorPresentation {
+            context_path: Vec::new(),
             id: uuid::Uuid::new_v4().to_string(),
             relationship_id: connector.to_string(),
             source_presentation_id: properties[0].id.clone(),
