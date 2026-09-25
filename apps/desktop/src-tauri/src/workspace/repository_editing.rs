@@ -115,7 +115,8 @@ pub fn move_repository_element(
         &workspace,
         &activity,
         &history,
-    ).map(|_| ())
+    )
+    .map(|_| ())
 }
 
 fn move_repository_element_in_state(
@@ -127,17 +128,34 @@ fn move_repository_element_in_state(
 ) -> Result<bool, String> {
     history::edit_authored_if_changed(workspace, activity, history, |candidate| {
         let current = candidate.project.as_ref().ok_or("no project open")?;
-        if current.element(element_id).map_err(|error| error.to_string())?.owner_id == Some(new_owner_id) {
+        if current
+            .element(element_id)
+            .map_err(|error| error.to_string())?
+            .owner_id
+            == Some(new_owner_id)
+        {
             return Ok(false);
         }
         let mut project = current.clone();
-        project.move_element(element_id, new_owner_id).map_err(|error| error.to_string())?;
+        project
+            .move_element(element_id, new_owner_id)
+            .map_err(|error| error.to_string())?;
         project.validate().map_err(|error| error.to_string())?;
         let mut diagrams = super::relationship_editing::stage_relationship_presentations(
-            current, &project, &candidate.diagrams, None,
+            current,
+            &project,
+            &candidate.diagrams,
+            None,
         )?;
-        let moved_kind = project.element(element_id).map_err(|error| error.to_string())?.kind.clone();
-        if matches!(moved_kind, ElementKind::ConstraintProperty | ElementKind::ValueProperty) {
+        let moved_kind = project
+            .element(element_id)
+            .map_err(|error| error.to_string())?
+            .kind
+            .clone();
+        if matches!(
+            moved_kind,
+            ElementKind::ConstraintProperty | ElementKind::ValueProperty
+        ) {
             let new_owner = new_owner_id.to_string();
             for diagram in diagrams.iter_mut().filter(|diagram| {
                 diagram.family == "parametric"
@@ -147,7 +165,10 @@ fn move_repository_element_in_state(
             }
         }
         if moved_kind == ElementKind::ConstraintParameter {
-            for diagram in diagrams.iter_mut().filter(|diagram| diagram.family == "parametric") {
+            for diagram in diagrams
+                .iter_mut()
+                .filter(|diagram| diagram.family == "parametric")
+            {
                 for node in &mut diagram.nodes {
                     super::parametrics::sync_parameter_presentations(node, &project)?;
                 }
@@ -156,8 +177,15 @@ fn move_repository_element_in_state(
         }
         validate_loaded_diagrams(&project, &diagrams)?;
         ibd::validate_ibd_diagrams(&project, &candidate.ibd_diagrams)?;
-        behavior_workspace::validate_behavior_workspace(&project, &candidate.behavior, &candidate.behavior_diagrams)?;
-        candidate.activity_repository.validate(&project).map_err(|error| error.to_string())?;
+        behavior_workspace::validate_behavior_workspace(
+            &project,
+            &candidate.behavior,
+            &candidate.behavior_diagrams,
+        )?;
+        candidate
+            .activity_repository
+            .validate(&project)
+            .map_err(|error| error.to_string())?;
         candidate.project = Some(project);
         candidate.diagrams = diagrams;
         Ok(true)
@@ -690,10 +718,15 @@ mod move_transaction_tests {
         let history = history::HistoryState::default();
         let mut project = Project::new("Move");
         let root = project.root_id;
-        let package = project.create_element(ElementKind::Package, "Destination", root).unwrap();
-        let block = project.create_element(ElementKind::Block, "Block", root).unwrap();
+        let package = project
+            .create_element(ElementKind::Package, "Destination", root)
+            .unwrap();
+        let block = project
+            .create_element(ElementKind::Block, "Block", root)
+            .unwrap();
         *workspace.project.lock().unwrap() = Some(project);
-        let apply = |owner| move_repository_element_in_state(block, owner, &workspace, &activity, &history);
+        let apply =
+            |owner| move_repository_element_in_state(block, owner, &workspace, &activity, &history);
         assert!(apply(package).unwrap());
         assert_eq!(history::undo_len(&history), 1);
         assert!(!apply(package).unwrap());
@@ -704,11 +737,26 @@ mod move_transaction_tests {
         assert!(!apply(root).unwrap());
         assert_eq!(history::undo_len(&history), 0);
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().element(block).unwrap().owner_id, Some(package));
-        let before = serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap();
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .element(block)
+                .unwrap()
+                .owner_id,
+            Some(package)
+        );
+        let before =
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap();
         let _busy = activity.repository.lock().unwrap();
         assert!(apply(root).is_err());
-        assert_eq!(serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(),
+            before
+        );
         assert_eq!(history::undo_len(&history), 1);
     }
 }
