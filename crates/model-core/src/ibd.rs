@@ -268,7 +268,7 @@ impl Project {
         let association = self.relationship(type_id).map_err(|_| {
             invalid("Association no longer exists; explicitly untype or retype its connectors before deletion".into())
         })?;
-        if !matches!(association.kind, RelationshipKind::Association | RelationshipKind::Composition | RelationshipKind::Aggregation)
+        if !matches!(association.kind, RelationshipKind::Association | RelationshipKind::Composition)
             || association.association_ends.len() != 2
         {
             return Err(invalid("select an Association with two explicit ordered ends".into()));

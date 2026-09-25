@@ -72,11 +72,34 @@ fn pr44_portable_json_round_trip_preserves_full_connector_topology() {
         .unwrap();
     project.relationships.get_mut(&id).unwrap().external_id = "catia:pr44::CONN-NESTED".into();
     project.validate().unwrap();
-    let association = project.create_association(Some(project.root_id), vec![
-        Project::association_end(interface, "sender", Multiplicity::new(0, None).unwrap(), true, systems_modeler_core::AggregationKind::None),
-        Project::association_end(interface, "receiver", Multiplicity::new(0, None).unwrap(), true, systems_modeler_core::AggregationKind::None),
-    ]).unwrap();
-    let semantics = project.relationships.get_mut(&id).unwrap().connector.as_mut().unwrap();
+    let association = project
+        .create_association(
+            Some(project.root_id),
+            vec![
+                Project::association_end(
+                    interface,
+                    "sender",
+                    Multiplicity::new(0, None).unwrap(),
+                    true,
+                    systems_modeler_core::AggregationKind::None,
+                ),
+                Project::association_end(
+                    interface,
+                    "receiver",
+                    Multiplicity::new(0, None).unwrap(),
+                    true,
+                    systems_modeler_core::AggregationKind::None,
+                ),
+            ],
+        )
+        .unwrap();
+    let semantics = project
+        .relationships
+        .get_mut(&id)
+        .unwrap()
+        .connector
+        .as_mut()
+        .unwrap();
     semantics.association_type_id = Some(association);
     semantics.end_multiplicities = [Multiplicity::ONE, Multiplicity::new(1, Some(4)).unwrap()];
     *source.project.lock().unwrap() = Some(project);
@@ -98,7 +121,10 @@ fn pr44_portable_json_round_trip_preserves_full_connector_topology() {
     assert_eq!(connector_payload.context_id, context);
     assert_eq!(connector_payload.kind, ConnectorKind::Assembly);
     assert_eq!(connector_payload.association_type_id, Some(association));
-    assert_eq!(connector_payload.end_multiplicities, [Multiplicity::ONE, Multiplicity::new(1, Some(4)).unwrap()]);
+    assert_eq!(
+        connector_payload.end_multiplicities,
+        [Multiplicity::ONE, Multiplicity::new(1, Some(4)).unwrap()]
+    );
     assert_eq!(
         connector_payload.source.property_path,
         vec![subsystem, controller]
