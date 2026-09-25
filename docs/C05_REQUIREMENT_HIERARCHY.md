@@ -12,7 +12,9 @@ Other element kinds do not become legal children merely because a Requirement is
 a classifier. Diagram ownership remains with its package.
 
 Allowed changes: model.rs ownership validation, requirement_hierarchy.rs core
-regressions, requirements_persistence.rs regressions and this record.
+regressions, requirements_persistence.rs and collaboration_requirements.rs
+regressions and this record. Shared commits accept nested parents, reject Block
+parents and preserve revision/retry identity.
 
 Acceptance covers three levels, rename/reparent with stable identity, invalid
 parent kinds and cycles without mutation, duplicate-ID creation rollback,
