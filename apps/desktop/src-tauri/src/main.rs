@@ -23,6 +23,7 @@ mod workspace {
     mod ibd;
     mod ibd_geometry;
     mod ibd_structure;
+    mod ibd_projection;
     mod item_flow_editing;
     mod item_flow_notation;
     mod layout;
@@ -253,6 +254,7 @@ use workspace::{
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
+    set_ibd_structure_expanded, show_ibd_existing_parts,
     preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script,
     preview_reqif_import, preview_sequence_execution_runtime, preview_spreadsheet_import,
     preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,

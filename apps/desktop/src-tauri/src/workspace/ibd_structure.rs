@@ -185,6 +185,7 @@ pub(super) fn expand_property(
         y += diagram.properties[child_index].height + 24.0;
     }
     fit_ancestors(diagram)?;
+    super::ibd_projection::show_existing_connectors(project, diagram)?;
     diagram.connectors = ibd::routed_ibd_connectors(diagram, None)?;
     Ok(())
 }
@@ -428,6 +429,7 @@ fn edit_structure(
                 add_ports(project, diagram, index)?;
             }
             fit_ancestors(diagram)?;
+            super::ibd_projection::show_existing_connectors(project, diagram)?;
         }
         Ok((project.clone(), diagrams))
     })

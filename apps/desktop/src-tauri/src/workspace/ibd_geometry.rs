@@ -441,6 +441,7 @@ pub(super) mod tests {
                 size: 16.0,
             }],
             connectors: vec![ibd::IbdConnectorPresentation {
+                context_path: Vec::new(),
                 id: "connector".into(),
                 relationship_id: relationship.to_string(),
                 source_presentation_id: "external".into(),

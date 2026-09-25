@@ -167,10 +167,11 @@ fn stage_specification(
             if edge.relationship_id != relationship_id.to_string() {
                 continue;
             }
-            let source =
-                presented_endpoint(diagram, &edge.source_presentation_id, &connector.source)?;
-            let target =
-                presented_endpoint(diagram, &edge.target_presentation_id, &connector.target)?;
+            let prefix = edge.context_path.iter().map(|id| parse_element_id(id)).collect::<Result<Vec<_>, _>>()?;
+            let source_end = super::ibd_projection::project_end(&prefix, &connector.source);
+            let target_end = super::ibd_projection::project_end(&prefix, &connector.target);
+            let source = presented_endpoint(diagram, &edge.source_presentation_id, &source_end)?;
+            let target = presented_endpoint(diagram, &edge.target_presentation_id, &target_end)?;
             if source == edge.source_presentation_id && target == edge.target_presentation_id {
                 continue;
             }
