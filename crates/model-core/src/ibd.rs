@@ -1,4 +1,4 @@
-use crate::{ElementId, ElementKind, ModelError, Project, RelationshipId};
+use crate::{ElementId, ElementKind, ModelError, Multiplicity, Project, RelationshipId, RelationshipKind};
 use serde::{Deserialize, Serialize};
 
 /// SysML/UML connector classification for a Block's internal structure.
@@ -57,6 +57,13 @@ pub struct Connector {
     pub kind: ConnectorKind,
     pub source: ConnectorEnd,
     pub target: ConnectorEnd,
+    /// Stable identity of the Association classifying this connector's links.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub association_type_id: Option<RelationshipId>,
+    /// Source then target multiplicity; independent of the connected properties.
+    /// Kept outside ConnectorEnd because that type also identifies ItemFlow paths.
+    #[serde(default)]
+    pub end_multiplicities: [Multiplicity; 2],
 }
 
 /// SysML ItemFlow semantics realized by a Connector. `conveyed_item_ids`
@@ -237,7 +244,59 @@ impl Project {
             }
             _ => {}
         }
-        self.validate_connector_compatibility(&connector.source, &connector.target)
+        for multiplicity in connector.end_multiplicities {
+            Multiplicity::new(multiplicity.lower, multiplicity.upper)?;
+        }
+        if let Some(type_id) = connector.association_type_id {
+            self.validate_connector_association_type(connector, type_id)
+        } else {
+            self.validate_connector_compatibility(&connector.source, &connector.target)
+        }
+    }
+
+    /// UML 2.5.1 11.8.10–11.8.11: ordered end conformance, not equality
+    /// between the types at opposite ends. No orientation is guessed by name.
+    fn validate_connector_association_type(
+        &self,
+        connector: &Connector,
+        type_id: RelationshipId,
+    ) -> Result<(), ModelError> {
+        let invalid = |details: String| ModelError::InvalidConnectorAssociationType {
+            association_id: type_id,
+            details,
+        };
+        let association = self.relationship(type_id).map_err(|_| {
+            invalid("Association no longer exists; explicitly untype or retype its connectors before deletion".into())
+        })?;
+        if !matches!(association.kind, RelationshipKind::Association | RelationshipKind::Composition)
+            || association.association_ends.len() != 2
+        {
+            return Err(invalid("select an Association with two explicit ordered ends".into()));
+        }
+        for (index, end) in [&connector.source, &connector.target].iter().enumerate() {
+            let role = self.element(end.port_id.unwrap_or(end.role_id))?;
+            let actual = role.type_id.ok_or(ModelError::TypeRequired(role.id))?;
+            let defining = &association.association_ends[index];
+            if !self.is_generalization_related(actual, defining.classifier_id) {
+                return Err(invalid(format!(
+                    "{} endpoint '{}' must conform to Association end '{}' ({})",
+                    if index == 0 { "Source" } else { "Target" }, role.name,
+                    defining.role_name, defining.classifier_id
+                )));
+            }
+            let multiplicity = connector.end_multiplicities[index];
+            let allowed = defining.multiplicity;
+            if multiplicity.lower < allowed.lower
+                || allowed.upper.is_some_and(|upper| multiplicity.upper.is_none_or(|value| value > upper))
+            {
+                return Err(invalid(format!(
+                    "{} connector-end multiplicity [{}] must be within Association end [{}]",
+                    if index == 0 { "Source" } else { "Target" },
+                    multiplicity.notation(), allowed.notation()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Port compatibility foundation. The current SysML slice requires port

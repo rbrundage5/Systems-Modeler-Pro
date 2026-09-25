@@ -211,6 +211,8 @@ fn vehicle_fixture() -> VehicleFixture {
     let target = ConnectorEnd::nested_port(vec![guidance_part], guidance_port);
     let sensor_connector = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: vehicle,
             kind: ConnectorKind::Assembly,
             source: source.clone(),
@@ -228,6 +230,8 @@ fn vehicle_fixture() -> VehicleFixture {
 
     project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: vehicle,
             kind: ConnectorKind::Assembly,
             source: ConnectorEnd::nested_port(
@@ -239,6 +243,8 @@ fn vehicle_fixture() -> VehicleFixture {
         .unwrap();
     project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: vehicle,
             kind: ConnectorKind::Delegation,
             source: ConnectorEnd::boundary(boundary_port),
@@ -1096,6 +1102,8 @@ fn flow_contract_type_compatibility_is_not_bidirectional() {
     let target_end = ConnectorEnd::nested_port(vec![target_part], target_port);
     let connector = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: system,
             kind: ConnectorKind::Assembly,
             source: source_end.clone(),
@@ -1195,6 +1203,8 @@ fn reception_does_not_accept_a_more_general_signal_than_it_declares() {
         .unwrap();
     project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: system,
             kind: ConnectorKind::Assembly,
             source: ConnectorEnd::nested_port(vec![source_part], source_port),

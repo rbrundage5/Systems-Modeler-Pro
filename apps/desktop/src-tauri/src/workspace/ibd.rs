@@ -620,6 +620,8 @@ pub fn create_ibd_connector(
     };
     let semantic_id = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: parse_element_id(&diagram.context_block_id)?,
             kind: connector_kind,
             source,

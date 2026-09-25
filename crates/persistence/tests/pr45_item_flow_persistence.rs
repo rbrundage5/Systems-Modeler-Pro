@@ -50,6 +50,8 @@ fn pr45_database_round_trip_preserves_complete_item_flow_payload() {
     let target = ConnectorEnd::nested_port(vec![right], port);
     let connector = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: context,
             kind: ConnectorKind::Assembly,
             source: source.clone(),

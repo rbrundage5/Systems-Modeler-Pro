@@ -113,6 +113,8 @@ mod tests {
             .unwrap();
         let connector_id = project
             .create_connector(Connector {
+                association_type_id: None,
+                end_multiplicities: Default::default(),
                 context_id: component,
                 kind: ConnectorKind::Delegation,
                 source: ConnectorEnd::boundary(port),

@@ -402,6 +402,8 @@ pub(super) mod tests {
             .unwrap();
         let relationship = project
             .create_connector(Connector {
+                association_type_id: None,
+                end_multiplicities: Default::default(),
                 context_id: system,
                 kind: ConnectorKind::Delegation,
                 source: ConnectorEnd::boundary(external),

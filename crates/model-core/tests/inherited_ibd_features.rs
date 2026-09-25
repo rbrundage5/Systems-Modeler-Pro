@@ -70,6 +70,8 @@ fn inherited_parts_and_ports_form_valid_delegation_without_copying_features() {
         component
     );
     let connector = Connector {
+        association_type_id: None,
+        end_multiplicities: Default::default(),
         context_id: child,
         kind: ConnectorKind::Delegation,
         source: ConnectorEnd::boundary(boundary),
@@ -132,6 +134,8 @@ fn private_and_unrelated_features_reject_without_mutating_relationships() {
         assert!(
             project
                 .create_connector(Connector {
+                    association_type_id: None,
+                    end_multiplicities: Default::default(),
                     context_id: context,
                     kind: ConnectorKind::Assembly,
                     source: ConnectorEnd::role(part),

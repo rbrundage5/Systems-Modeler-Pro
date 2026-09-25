@@ -74,6 +74,8 @@ fn deleting_usage_removes_relationships_and_flows_but_keeps_type_and_other_usage
     let target = ConnectorEnd::role(sibling);
     let connector = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: system,
             kind: ConnectorKind::Assembly,
             source: source.clone(),

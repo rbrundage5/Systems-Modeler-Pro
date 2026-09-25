@@ -62,6 +62,8 @@ fn pr44_portable_json_round_trip_preserves_full_connector_topology() {
         .unwrap();
     let id = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: context,
             kind: ConnectorKind::Assembly,
             source: ConnectorEnd::nested_port(vec![subsystem, controller], port),

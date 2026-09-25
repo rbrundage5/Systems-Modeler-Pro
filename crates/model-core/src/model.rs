@@ -548,6 +548,11 @@ pub enum ModelError {
     ConnectorEndpointMustBePortOrProperty(ElementId),
     #[error("connector cannot connect an endpoint to itself; select a different second endpoint")]
     ConnectorSelfConnection,
+    #[error("invalid Connector Association type {association_id}: {details}")]
+    InvalidConnectorAssociationType {
+        association_id: RelationshipId,
+        details: String,
+    },
     #[error(
         "assembly connector requires two internal endpoints; select an internal Part/Reference Property or one of its nested ports for endpoint 1, then a second internal property/port. Do not use an outer Block boundary port"
     )]
