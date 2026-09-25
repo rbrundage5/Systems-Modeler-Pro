@@ -107,15 +107,15 @@ and [implementation disposition](TOOL_COMPLETION_IMPLEMENTATION_2026_09_24.md).
 ## Verification and integration
 
 Baseline: **168 frontend tests passed**, plus **21 distinct Python contract
-validators**. The combined candidate: **182 frontend tests passed**, zero failures
+validators**. The combined candidate: **184 frontend tests passed**, zero failures
 or skips, plus all **21 validators** and `git diff --check` passed. These run
 production handlers with mocked IPC and source/architecture guards; they do not
 replace native behavior tests or prove rendered interaction.
 
 The review/testing assembly is
 [codex/sysml-candidate-2026-09-25](https://github.com/rbrundage5/Systems-Modeler-Pro/tree/codex/sysml-candidate-2026-09-25),
-commit `cd2d3caab25d183d105b2ebb2cfc6c18f9852771`, tree
-`8d271510fc646d2797bd38e4cc4a0fdcf3826533`. It contains exactly the six candidate
+commit `1e325138121ac7e2fc9d2ccab4c48bd31a447f26`, tree
+`661cbb7385e245d6e24cd70cd899551d3a1e82ef`. It contains exactly the six candidate
 heads and conflict resolution retaining all native history labels. It has no
 additional feature changes. It is not a merge to main. Leaf PRs remain the review
 units; the final integrated tree still needs native CI and connected desktop
@@ -125,7 +125,12 @@ Native Rust build/tests/lint and packaging are checked using existing GitHub
 workflows because this hosted workspace has no Rust toolchain or installed native
 desktop session. CI found and prompted correction of formatting, a missing command
 import and the association-end IPC lint annotation. These were fixed in the
-candidate branches; an initial failing run is not reported as a pass.
+candidate branches; an initial failing run is not reported as a pass. The new BDD
+reuse rollback fixture also caught acceptance of negative-width source geometry.
+The candidate now calls the existing geometry validator; its native rerun is
+recorded below. A late-edit frontend regression failed before the correction and
+now passes: a Properties draft edited during presentation IPC survives, and a
+concurrent Apply is blocked.
 
 CI status and exact heads are recorded below at publication and must be refreshed
 before merge. Native success is not independent review or production release.
@@ -134,10 +139,10 @@ before merge. Native success is not independent review or production release.
 | --- | --- | --- | --- |
 | #176 | `9f1625f76b746da250a91185bc4b042b151405be` | [36124154586](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36124154586): success | windows-installer: success; windows-release: success |
 | #177 | `2a6d8b65e3a7cf5c1b62bd1d94c8d180e7a41f11` | [36124297982](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36124297982): success | windows-installer: success; windows-release: success |
-| #178 | `dd9860cabefa6c7c42f817ec64ac6f405c0f933b` | [36125892348](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36125892348): in_progress | windows-installer: pending; windows-release: in_progress |
-| #179 | `de070fddce31182b7225e219aebb4929b31f43ff` | [36125885020](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36125885020): in_progress | windows-installer: pending; windows-release: in_progress |
+| #178 | `dd9860cabefa6c7c42f817ec64ac6f405c0f933b` | [36125892348](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36125892348): success | windows-installer: in_progress; windows-release: success |
+| #179 | `24054938bddcd54fd95d69470d94bbf276951d07` | [36126929077](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36126929077): in_progress | windows-installer: pending; windows-release: in_progress |
 | #180 | `ef958e6185cf98ff00327c65fee493b0b3553c3a` | [36125261806](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36125261806): success | windows-installer: success; windows-release: success |
-| #181 | `7fb4e943be0ecf76bd6c3c42c4b2865697649f9d` | [36125886632](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36125886632): in_progress | windows-installer: pending; windows-release: in_progress |
+| #181 | `7fb4e943be0ecf76bd6c3c42c4b2865697649f9d` | [36125886632](https://github.com/rbrundage5/Systems-Modeler-Pro/actions/runs/36125886632): success | windows-release: in_progress; windows-installer: in_progress |
 
 ## Dependency-ordered continuation
 
