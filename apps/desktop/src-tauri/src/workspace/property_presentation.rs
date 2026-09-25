@@ -71,20 +71,18 @@ fn stage_part_composition(
         })
         .map(|relationship| relationship.id)
         .collect();
-    let relationship_id =
-        match matches.as_slice() {
-            [] => project
-                .create_property_association(
-                    property_id,
-                    Some(parse_element_id(&diagram.owner_id)?),
-                )
-                .map_err(|error| error.to_string())?,
-            [id] => *id,
-            _ => return Err(
+    let relationship_id = match matches.as_slice() {
+        [] => project
+            .create_property_association(property_id, Some(parse_element_id(&diagram.owner_id)?))
+            .map_err(|error| error.to_string())?,
+        [id] => *id,
+        _ => {
+            return Err(
                 "Part is linked to multiple associations; resolve the duplicate links first."
                     .into(),
-            ),
-        };
+            );
+        }
+    };
     if diagram
         .edges
         .iter()
@@ -194,25 +192,49 @@ fn author_in_state(
         let project = candidate.project.as_mut().ok_or("no project open")?;
         for id in [owner_id, type_id] {
             let element = project.element(id).map_err(|error| error.to_string())?;
-            if !matches!(element.kind, ElementKind::Block | ElementKind::AssociationBlock) {
+            if !matches!(
+                element.kind,
+                ElementKind::Block | ElementKind::AssociationBlock
+            ) {
                 return Err("Composition endpoints must be reusable Block definitions".into());
             }
         }
         let (property_id, created) = if let Some(id) = &request.property_id {
             let id = parse_element_id(id)?;
             let property = project.element(id).map_err(|error| error.to_string())?;
-            if property.kind != ElementKind::PartProperty || property.owner_id != Some(owner_id) || property.type_id != Some(type_id) {
+            if property.kind != ElementKind::PartProperty
+                || property.owner_id != Some(owner_id)
+                || property.type_id != Some(type_id)
+            {
                 return Err("The selected part must belong to the whole and reference the selected Block type".into());
             }
             (id, false)
         } else {
             let name = request.name.as_deref().unwrap_or("").trim();
-            if name.is_empty() { return Err("Enter an explicit part property name".into()); }
-            if project.owned_features(owner_id).any(|property| property.name == name) {
+            if name.is_empty() {
+                return Err("Enter an explicit part property name".into());
+            }
+            if project
+                .owned_features(owner_id)
+                .any(|property| property.name == name)
+            {
                 return Err("A property with that name already exists. Select the existing usage or enter a distinct name.".into());
             }
-            let multiplicity = super::parametrics::parse_multiplicity(request.multiplicity.as_deref().unwrap_or("1"))?;
-            (project.create_typed_feature(ElementKind::PartProperty, name, owner_id, type_id, multiplicity).map_err(|error| error.to_string())?, true)
+            let multiplicity = super::parametrics::parse_multiplicity(
+                request.multiplicity.as_deref().unwrap_or("1"),
+            )?;
+            (
+                project
+                    .create_typed_feature(
+                        ElementKind::PartProperty,
+                        name,
+                        owner_id,
+                        type_id,
+                        multiplicity,
+                    )
+                    .map_err(|error| error.to_string())?,
+                true,
+            )
         };
         let (id, changed) = stage_part_composition(candidate, diagram_id, property_id)?;
         result = Some(id);
@@ -432,14 +454,30 @@ mod tests {
     #[test]
     fn explicit_authoring_reuses_or_creates_once_and_rejects_duplicate_names() {
         let f = fixture();
-        let owner = f.state.project.lock().unwrap().as_ref().unwrap().element(f.parts[0]).unwrap().owner_id.unwrap();
+        let owner = f
+            .state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .element(f.parts[0])
+            .unwrap()
+            .owner_id
+            .unwrap();
         let mut request = PartCompositionRequest {
-            owner_id: owner.to_string(), type_id: f.block.to_string(),
-            property_id: Some(f.parts[0].to_string()), name: None, multiplicity: None,
+            owner_id: owner.to_string(),
+            type_id: f.block.to_string(),
+            property_id: Some(f.parts[0].to_string()),
+            name: None,
+            multiplicity: None,
         };
         let first = author_in_state(&f.view, &request, &f.state, &f.activity, &f.history).unwrap();
         let before = snapshot(&f);
-        assert_eq!(author_in_state(&f.view, &request, &f.state, &f.activity, &f.history).unwrap(), first);
+        assert_eq!(
+            author_in_state(&f.view, &request, &f.state, &f.activity, &f.history).unwrap(),
+            first
+        );
         assert_eq!(snapshot(&f), before);
         request.property_id = None;
         request.name = Some("primary".into());
@@ -453,10 +491,16 @@ mod tests {
         let added = {
             let guard = f.state.project.lock().unwrap();
             let project = guard.as_ref().unwrap();
-            let part = project.owned_features(owner).find(|p| p.name == "additional").unwrap();
+            let part = project
+                .owned_features(owner)
+                .find(|p| p.name == "additional")
+                .unwrap();
             assert_eq!(part.type_id, Some(f.block));
             assert_eq!(part.multiplicity.unwrap().notation(), "4");
-            assert_eq!(project.element(f.block).unwrap().owner_id, Some(project.root_id));
+            assert_eq!(
+                project.element(f.block).unwrap().owner_id,
+                Some(project.root_id)
+            );
             part.id
         };
         assert!(history::undo_states(&f.state, &f.activity, &f.history).unwrap());
@@ -465,22 +509,43 @@ mod tests {
         request.multiplicity = Some("4..1".into());
         assert!(author_in_state(&f.view, &request, &f.state, &f.activity, &f.history).is_err());
         assert!(history::redo_states(&f.state, &f.activity, &f.history).unwrap());
-        assert!(f.state.project.lock().unwrap().as_ref().unwrap().element(added).is_ok());
+        assert!(
+            f.state
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .element(added)
+                .is_ok()
+        );
     }
 
     #[test]
     fn self_typed_part_definition_uses_shared_self_route() {
         let f = fixture();
         let request = PartCompositionRequest {
-            owner_id: f.block.to_string(), type_id: f.block.to_string(),
-            property_id: None, name: Some("children".into()), multiplicity: Some("0..*".into()),
+            owner_id: f.block.to_string(),
+            type_id: f.block.to_string(),
+            property_id: None,
+            name: Some("children".into()),
+            multiplicity: Some("0..*".into()),
         };
         author_in_state(&f.view, &request, &f.state, &f.activity, &f.history).unwrap();
         let diagrams = f.state.diagrams.lock().unwrap();
         assert_eq!(diagrams[0].nodes.len(), 1);
-        assert_eq!(diagrams[0].edges[0].source_node_id, diagrams[0].edges[0].target_node_id);
+        assert_eq!(
+            diagrams[0].edges[0].source_node_id,
+            diagrams[0].edges[0].target_node_id
+        );
         assert!(diagrams[0].edges[0].points.len() >= 4);
-        f.state.project.lock().unwrap().as_ref().unwrap().validate().unwrap();
+        f.state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .validate()
+            .unwrap();
     }
-
 }
