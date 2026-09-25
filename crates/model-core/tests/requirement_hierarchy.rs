@@ -80,7 +80,10 @@ fn deleting_a_compound_requirement_retires_descendants_and_incident_traceability
     let link = project
         .create_relationship(RelationshipKind::Satisfy, block, leaf, Some(root))
         .unwrap();
-    project = project.stage_connected_element_deletion(parent).unwrap().project;
+    project = project
+        .stage_connected_element_deletion(parent)
+        .unwrap()
+        .project;
     for id in [parent, child, leaf] {
         assert!(project.element(id).is_err());
     }
