@@ -755,8 +755,16 @@ mod tests {
         ));
         request.name = "replacement".into();
         let id = append_group(&project, &mut diagram, &request).unwrap();
-        let replacement = diagram.properties.iter().find(|property| property.id == id).unwrap();
-        let west = diagram.properties.iter().find(|property| property.id == ids[3]).unwrap();
+        let replacement = diagram
+            .properties
+            .iter()
+            .find(|property| property.id == id)
+            .unwrap();
+        let west = diagram
+            .properties
+            .iter()
+            .find(|property| property.id == ids[3])
+            .unwrap();
         assert!(replacement.y >= west.y + west.height + 32.0);
         assert_eq!(
             range_at(
