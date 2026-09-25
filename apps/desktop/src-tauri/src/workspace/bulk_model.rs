@@ -1054,7 +1054,11 @@ fn build_candidate(
                     let target =
                         resolve_connector_end(&project, namespace, context_id, target, index)?;
                     let next_connector = Connector {
-                        association_type_id: current.connector.as_ref().unwrap().association_type_id,
+                        association_type_id: current
+                            .connector
+                            .as_ref()
+                            .unwrap()
+                            .association_type_id,
                         end_multiplicities: current.connector.as_ref().unwrap().end_multiplicities,
                         context_id,
                         kind: *kind,

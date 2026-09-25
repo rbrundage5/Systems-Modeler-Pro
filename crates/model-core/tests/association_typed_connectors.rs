@@ -1,22 +1,70 @@
 use systems_modeler_core::{
-    AggregationKind, Connector, ConnectorEnd, ConnectorKind, ElementKind, Multiplicity,
-    Project, RelationshipId, RelationshipKind,
+    AggregationKind, Connector, ConnectorEnd, ConnectorKind, ElementKind, Multiplicity, Project,
+    RelationshipId, RelationshipKind,
 };
 
 fn fixture() -> (Project, Connector) {
     let mut project = Project::new("Generic typed connections");
     let root = project.root_id;
-    let context = project.create_element(ElementKind::Block, "Installation", root).unwrap();
-    let source_type = project.create_element(ElementKind::Block, "Producer", root).unwrap();
-    let specific = project.create_element(ElementKind::Block, "SpecializedProducer", root).unwrap();
-    let target_type = project.create_element(ElementKind::Block, "Consumer", root).unwrap();
-    project.create_relationship(RelationshipKind::Generalization, specific, source_type, Some(root)).unwrap();
-    let source = project.create_typed_feature(ElementKind::PartProperty, "supply", context, specific, Multiplicity::new(4, Some(4)).unwrap()).unwrap();
-    let target = project.create_typed_feature(ElementKind::PartProperty, "load", context, target_type, Multiplicity::ONE).unwrap();
-    let type_id = project.create_association(Some(root), vec![
-        Project::association_end(source_type, "provider", Multiplicity::new(0, None).unwrap(), true, AggregationKind::None),
-        Project::association_end(target_type, "client", Multiplicity::new(1, Some(3)).unwrap(), true, AggregationKind::None),
-    ]).unwrap();
+    let context = project
+        .create_element(ElementKind::Block, "Installation", root)
+        .unwrap();
+    let source_type = project
+        .create_element(ElementKind::Block, "Producer", root)
+        .unwrap();
+    let specific = project
+        .create_element(ElementKind::Block, "SpecializedProducer", root)
+        .unwrap();
+    let target_type = project
+        .create_element(ElementKind::Block, "Consumer", root)
+        .unwrap();
+    project
+        .create_relationship(
+            RelationshipKind::Generalization,
+            specific,
+            source_type,
+            Some(root),
+        )
+        .unwrap();
+    let source = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "supply",
+            context,
+            specific,
+            Multiplicity::new(4, Some(4)).unwrap(),
+        )
+        .unwrap();
+    let target = project
+        .create_typed_feature(
+            ElementKind::PartProperty,
+            "load",
+            context,
+            target_type,
+            Multiplicity::ONE,
+        )
+        .unwrap();
+    let type_id = project
+        .create_association(
+            Some(root),
+            vec![
+                Project::association_end(
+                    source_type,
+                    "provider",
+                    Multiplicity::new(0, None).unwrap(),
+                    true,
+                    AggregationKind::None,
+                ),
+                Project::association_end(
+                    target_type,
+                    "client",
+                    Multiplicity::new(1, Some(3)).unwrap(),
+                    true,
+                    AggregationKind::None,
+                ),
+            ],
+        )
+        .unwrap();
     let connector = Connector {
         context_id: context,
         kind: ConnectorKind::Assembly,
@@ -33,11 +81,26 @@ fn association_types_accept_distinct_subtyped_roles_and_independent_multipliciti
     let (mut project, connector) = fixture();
     let id = project.create_connector(connector.clone()).unwrap();
     project.validate().unwrap();
-    assert_eq!(project.relationship(id).unwrap().connector.as_ref(), Some(&connector));
-    assert_eq!(project.element(connector.source.role_id).unwrap().multiplicity.unwrap().lower, 4);
-    let restored: Project = serde_json::from_str(&serde_json::to_string(&project).unwrap()).unwrap();
+    assert_eq!(
+        project.relationship(id).unwrap().connector.as_ref(),
+        Some(&connector)
+    );
+    assert_eq!(
+        project
+            .element(connector.source.role_id)
+            .unwrap()
+            .multiplicity
+            .unwrap()
+            .lower,
+        4
+    );
+    let restored: Project =
+        serde_json::from_str(&serde_json::to_string(&project).unwrap()).unwrap();
     restored.validate().unwrap();
-    assert_eq!(restored.relationship(id).unwrap().connector.as_ref(), Some(&connector));
+    assert_eq!(
+        restored.relationship(id).unwrap().connector.as_ref(),
+        Some(&connector)
+    );
 }
 
 #[test]
@@ -52,7 +115,11 @@ fn typed_connector_rejects_order_type_arity_and_multiplicity_without_mutation() 
     let mut missing = connector.clone();
     missing.association_type_id = Some(RelationshipId::new());
     cases.push(missing);
-    for multiplicity in [Multiplicity::new(0, Some(3)).unwrap(), Multiplicity::new(1, None).unwrap(), Multiplicity::new(1, Some(4)).unwrap()] {
+    for multiplicity in [
+        Multiplicity::new(0, Some(3)).unwrap(),
+        Multiplicity::new(1, None).unwrap(),
+        Multiplicity::new(1, Some(4)).unwrap(),
+    ] {
         let mut broad = connector.clone();
         broad.end_multiplicities[1] = multiplicity;
         cases.push(broad);
@@ -66,7 +133,12 @@ fn typed_connector_rejects_order_type_arity_and_multiplicity_without_mutation() 
     wrong_kind.relationships.get_mut(&type_id).unwrap().kind = RelationshipKind::Dependency;
     assert!(wrong_kind.validate_connector(&connector).is_err());
     let mut no_ends = project.clone();
-    no_ends.relationships.get_mut(&type_id).unwrap().association_ends.clear();
+    no_ends
+        .relationships
+        .get_mut(&type_id)
+        .unwrap()
+        .association_ends
+        .clear();
     assert!(no_ends.validate_connector(&connector).is_err());
 }
 
@@ -92,9 +164,20 @@ fn association_changes_and_deletion_are_validated_through_all_dependents() {
     let before = serde_json::to_value(&project).unwrap();
     let mut deleted = project.clone();
     deleted.relationships.remove(&type_id);
-    assert!(deleted.validate().unwrap_err().to_string().contains("retype"));
+    assert!(
+        deleted
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("retype")
+    );
     let mut narrowed = project.clone();
-    narrowed.relationships.get_mut(&type_id).unwrap().association_ends[1].multiplicity = Multiplicity::ONE;
+    narrowed
+        .relationships
+        .get_mut(&type_id)
+        .unwrap()
+        .association_ends[1]
+        .multiplicity = Multiplicity::ONE;
     assert!(narrowed.validate().is_err());
     assert_eq!(serde_json::to_value(project).unwrap(), before);
 }
