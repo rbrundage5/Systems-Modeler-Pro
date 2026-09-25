@@ -313,7 +313,9 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
 
             for port in &property.ports {
                 if port.property_path != property.property_path {
-                    return Err("IBD port must be attached to its contextual owning property".into());
+                    return Err(
+                        "IBD port must be attached to its contextual owning property".into(),
+                    );
                 }
                 if !presentation_ids.insert(&port.id) {
                     return Err(format!("duplicate IBD port presentation id: {}", port.id));
@@ -368,12 +370,15 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 .as_ref()
                 .ok_or("Connector semantics missing")?;
             let prefix = parse_path(&edge.context_path)?;
-            let reached = project.resolve_structural_path(context_id, &prefix).map_err(|error| error.to_string())?;
+            let reached = project
+                .resolve_structural_path(context_id, &prefix)
+                .map_err(|error| error.to_string())?;
             if reached != semantic.context_id {
                 return Err("IBD connector occurrence has the wrong contextual type".into());
             }
             if super::ibd_projection::project_end(&prefix, &semantic.source) != source
-                || super::ibd_projection::project_end(&prefix, &semantic.target) != target {
+                || super::ibd_projection::project_end(&prefix, &semantic.target) != target
+            {
                 return Err(format!(
                     "IBD presentation endpoints do not match semantic Connector: {}",
                     edge.relationship_id

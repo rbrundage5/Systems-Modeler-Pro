@@ -230,6 +230,7 @@ pub(super) fn apply_property_geometry(
         .iter()
         .position(|p| p.id == id)
         .ok_or("IBD property occurrence not found")?;
+    let before = diagram.clone();
     let property = &diagram.properties[index];
     let old = super::ibd_geometry::property_rect(property);
     let path = property.property_path.clone();
@@ -258,7 +259,23 @@ pub(super) fn apply_property_geometry(
     diagram.properties[index].width = rect.width;
     diagram.properties[index].height = rect.height;
     fit_ancestors(diagram)?;
-    diagram.connectors = ibd::routed_ibd_connectors(diagram, None)?;
+    let mut affected = Vec::new();
+    for property in &diagram.properties {
+        let previous = before.properties.iter().find(|p| p.id == property.id);
+        if previous.is_none_or(|p| {
+            super::ibd_geometry::property_rect(p) != super::ibd_geometry::property_rect(property)
+                || p.ports.iter().zip(&property.ports).any(|(a, b)| {
+                    a.x != b.x || a.y != b.y || a.size != b.size
+                })
+        }) {
+            affected.push(property.id.clone());
+            affected.extend(property.ports.iter().map(|p| p.id.clone()));
+        }
+    }
+    if before.context_frame != diagram.context_frame {
+        affected.extend(diagram.boundary_ports.iter().map(|p| p.id.clone()));
+    }
+    super::ibd_geometry::reroute_connected(diagram, &affected)?;
     Ok(())
 }
 
