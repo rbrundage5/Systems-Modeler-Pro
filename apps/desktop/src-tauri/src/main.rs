@@ -34,6 +34,7 @@ mod workspace {
     mod presentation_theme;
     mod profile_editing;
     mod relationship_editing;
+    mod property_presentation;
     mod repository_editing;
     mod reqif_interchange;
     mod reqif_runtime;
@@ -146,6 +147,7 @@ mod workspace {
         composition_property_choices, delete_bdd_relationship, link_composition_property,
         reconnect_bdd_relationship, update_association_end,
     };
+    pub use property_presentation::present_part_composition;
     pub use repository_editing::{
         delete_model_element, delete_repository_diagram, move_repository_diagram,
         move_repository_element,
@@ -900,6 +902,7 @@ fn main() {
             update_association_end,
             composition_property_choices,
             link_composition_property,
+            present_part_composition,
             reconnect_bdd_relationship,
             delete_bdd_relationship
         ]))
