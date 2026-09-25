@@ -33,8 +33,8 @@ mod workspace {
     mod presentation_interaction;
     mod presentation_theme;
     mod profile_editing;
-    mod relationship_editing;
     mod property_presentation;
+    mod relationship_editing;
     mod repository_editing;
     mod reqif_interchange;
     mod reqif_runtime;
@@ -143,11 +143,11 @@ mod workspace {
         create_stereotype_definition, create_tag_definition, remove_stereotype_application,
         set_stereotype_tag_values,
     };
+    pub use property_presentation::present_part_composition;
     pub use relationship_editing::{
         composition_property_choices, delete_bdd_relationship, link_composition_property,
         reconnect_bdd_relationship, update_association_end,
     };
-    pub use property_presentation::present_part_composition;
     pub use repository_editing::{
         delete_model_element, delete_repository_diagram, move_repository_diagram,
         move_repository_element,
@@ -251,6 +251,7 @@ use workspace::{
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
     new_project, open_project_file, open_project_file_complete, paste_selection,
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
+    present_part_composition,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
     preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script,
