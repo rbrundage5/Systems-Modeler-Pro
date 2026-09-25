@@ -88,18 +88,34 @@ pub fn create_requirement(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<String, String> {
-    let owner_id = parse_element_id(&owner_id)?;
-    checkpoint(&workspace, &activity, &history)?;
-    let mut project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?;
-    project
-        .as_mut()
-        .ok_or("no project open")?
-        .create_requirement(name, requirement_id, text, owner_id)
-        .map(|id| id.to_string())
-        .map_err(|error| error.to_string())
+    create_requirement_in_state(
+        parse_element_id(&owner_id)?,
+        &name,
+        &requirement_id,
+        &text,
+        &workspace,
+        &activity,
+        &history,
+    )
+}
+
+fn create_requirement_in_state(
+    owner_id: ElementId,
+    name: &str,
+    requirement_id: &str,
+    text: &str,
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<String, String> {
+    let mut created = None;
+    history::apply_structural_specification(workspace, activity, history, |project, diagrams| {
+        let mut candidate = project.clone();
+        created = Some(candidate.create_requirement(name, requirement_id, text, owner_id)
+            .map_err(|error| error.to_string())?);
+        Ok((candidate, diagrams.to_vec()))
+    })?;
+    created.map(|id| id.to_string()).ok_or_else(|| "Requirement creation produced no element".into())
 }
 
 #[tauri::command]
@@ -487,5 +503,36 @@ mod tests {
         assert!(apply_requirement_update(&workspace, &activity, &history, &details).is_err());
         assert_eq!(history::undo_len(&history), 0);
         assert!(workspace.project.lock().unwrap().is_none());
+    }
+}
+
+#[cfg(test)]
+mod creation_tests {
+    use super::*;
+
+    #[test]
+    fn nested_creation_is_atomic_and_failed_creation_preserves_redo() {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        let mut project = Project::new("Hierarchy");
+        let root = project.root_id;
+        let parent = project.create_requirement("Parent", "R-1", "Parent text", root).unwrap();
+        *workspace.project.lock().unwrap() = Some(project.clone());
+        let before = serde_json::to_value(&project).unwrap();
+        let child = create_requirement_in_state(parent, "Child", "R-2", "Child text", &workspace, &activity, &history).unwrap();
+        let child = parse_element_id(&child).unwrap();
+        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().element(child).unwrap().owner_id, Some(parent));
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert!(create_requirement_in_state(parent, "Duplicate", "R-1", "Text", &workspace, &activity, &history).is_err());
+        assert!(create_requirement_in_state(ElementId::new(), "Missing", "R-2", "Text", &workspace, &activity, &history).is_err());
+        assert_eq!(serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(), before);
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().element(child).unwrap().owner_id, Some(parent));
+        let _busy = activity.repository.lock().unwrap();
+        assert!(create_requirement_in_state(parent, "Busy", "R-3", "Text", &workspace, &activity, &history).is_err());
+        assert_eq!(history::undo_len(&history), 1);
     }
 }
