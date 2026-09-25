@@ -9,17 +9,17 @@ const start = app.indexOf('  const reconnect = async (side) => {');
 const end = app.indexOf('  (relationship.association_ends || [])', start);
 assert.ok(start > 0 && end > start);
 
-function fixture(reject = false) {
+function fixture(reject = false, kind = 'Association') {
   const calls = [];
   const fields = new Map(['apply-source', 'apply-target', 'relationship-source', 'relationship-target'].map(id => [id, { value: 'replacement' }]));
   let refreshes = 0;
   const invoke = async (command, args) => {
     calls.push({ command, args });
-    if (reject && command === 'reconnect_bdd_relationship') throw new Error('invalid endpoint');
+    if (reject && command.startsWith('reconnect_')) throw new Error('invalid endpoint');
   };
   const context = {
     console, window: {}, document: { addEventListener() {} },
-    state: { selectedDiagramId: 'view' }, relationship: { id: 'association', kind: 'Association' },
+    state: { selectedDiagramId: 'view' }, relationship: { id: 'association', kind },
     TRACEABILITY_KINDS: new Set(['Copy']), $: id => fields.get(id),
     requireInvoke: () => invoke, runCommand: async (_, operation) => operation(),
     refresh: async () => { refreshes++; }, renderStatus() {},
@@ -44,4 +44,14 @@ test('rejected BDD reconnect never checkpoints or refreshes', async () => {
   await assert.rejects(ui.fields.get('apply-source').onclick(), /invalid endpoint/);
   assert.deepEqual(ui.calls.map(call => call.command), ['reconnect_bdd_relationship']);
   assert.equal(ui.refreshes, 0);
+});
+
+test('Requirement reconnect relies on the native transaction on success and rejection', async () => {
+  for (const reject of [false, true]) {
+    const ui = fixture(reject, 'Copy');
+    if (reject) await assert.rejects(ui.fields.get('apply-target').onclick(), /invalid endpoint/);
+    else await ui.fields.get('apply-target').onclick();
+    assert.deepEqual(ui.calls.map(call => call.command), ['reconnect_traceability_relationship']);
+    assert.equal(ui.refreshes, reject ? 0 : 1);
+  }
 });

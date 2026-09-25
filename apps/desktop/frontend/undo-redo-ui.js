@@ -22,6 +22,7 @@
       || text.startsWith('applying element specification')
       || text.startsWith('reconnecting bdd ')
       || text.startsWith('deleting diagram relationship')
+      || text.startsWith('reconnecting traceability ')
       || text.startsWith('linking composition property');
   }
 
