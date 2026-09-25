@@ -109,71 +109,87 @@ pub fn move_repository_element(
     activity: tauri::State<'_, activity_workspace::ActivityWorkspaceState>,
     history: tauri::State<'_, history::HistoryState>,
 ) -> Result<(), String> {
-    let element_id = parse_element_id(&element_id)?;
-    let new_owner_id = parse_element_id(&new_owner_id)?;
-    let mut project = workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")?
-        .clone()
-        .ok_or("no project open")?;
-    if project
-        .element(element_id)
-        .map_err(|error| error.to_string())?
-        .owner_id
-        == Some(new_owner_id)
-    {
-        return Ok(());
-    }
-    project
-        .move_element(element_id, new_owner_id)
-        .map_err(|error| error.to_string())?;
-    project.validate().map_err(|error| error.to_string())?;
-    let mut diagrams = workspace
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")?
-        .clone();
-    let moved_kind = project
-        .element(element_id)
-        .map_err(|error| error.to_string())?
-        .kind
-        .clone();
-    if matches!(
-        moved_kind.clone(),
-        ElementKind::ConstraintProperty | ElementKind::ValueProperty
-    ) {
-        let new_owner = new_owner_id.to_string();
-        for diagram in diagrams.iter_mut().filter(|diagram| {
-            diagram.family == "parametric"
-                && diagram.semantic_context_id.as_deref() != Some(new_owner.as_str())
-        }) {
-            remove_bdd_presentations(std::slice::from_mut(diagram), element_id);
-        }
-    }
-    if moved_kind == ElementKind::ConstraintParameter {
-        for diagram in diagrams
-            .iter_mut()
-            .filter(|diagram| diagram.family == "parametric")
-        {
-            for node in &mut diagram.nodes {
-                super::parametrics::sync_parameter_presentations(node, &project)?;
-            }
-            diagram.edges = super::parametrics::routed_edges(diagram, None)?;
-        }
-    }
-    validate_loaded_diagrams(&project, &diagrams)?;
+    move_repository_element_in_state(
+        parse_element_id(&element_id)?,
+        parse_element_id(&new_owner_id)?,
+        &workspace,
+        &activity,
+        &history,
+    )
+    .map(|_| ())
+}
 
-    history::checkpoint_states(&workspace, &activity, &history)?;
-    *workspace
-        .project
-        .lock()
-        .map_err(|_| "project lock poisoned")? = Some(project);
-    *workspace
-        .diagrams
-        .lock()
-        .map_err(|_| "diagram lock poisoned")? = diagrams;
-    Ok(())
+fn move_repository_element_in_state(
+    element_id: ElementId,
+    new_owner_id: ElementId,
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &history::HistoryState,
+) -> Result<bool, String> {
+    history::edit_authored_if_changed(workspace, activity, history, |candidate| {
+        let current = candidate.project.as_ref().ok_or("no project open")?;
+        if current
+            .element(element_id)
+            .map_err(|error| error.to_string())?
+            .owner_id
+            == Some(new_owner_id)
+        {
+            return Ok(false);
+        }
+        let mut project = current.clone();
+        project
+            .move_element(element_id, new_owner_id)
+            .map_err(|error| error.to_string())?;
+        project.validate().map_err(|error| error.to_string())?;
+        let mut diagrams = super::relationship_editing::stage_relationship_presentations(
+            current,
+            &project,
+            &candidate.diagrams,
+            None,
+        )?;
+        let moved_kind = project
+            .element(element_id)
+            .map_err(|error| error.to_string())?
+            .kind
+            .clone();
+        if matches!(
+            moved_kind,
+            ElementKind::ConstraintProperty | ElementKind::ValueProperty
+        ) {
+            let new_owner = new_owner_id.to_string();
+            for diagram in diagrams.iter_mut().filter(|diagram| {
+                diagram.family == "parametric"
+                    && diagram.semantic_context_id.as_deref() != Some(new_owner.as_str())
+            }) {
+                remove_bdd_presentations(std::slice::from_mut(diagram), element_id);
+            }
+        }
+        if moved_kind == ElementKind::ConstraintParameter {
+            for diagram in diagrams
+                .iter_mut()
+                .filter(|diagram| diagram.family == "parametric")
+            {
+                for node in &mut diagram.nodes {
+                    super::parametrics::sync_parameter_presentations(node, &project)?;
+                }
+                diagram.edges = super::parametrics::routed_edges(diagram, None)?;
+            }
+        }
+        validate_loaded_diagrams(&project, &diagrams)?;
+        ibd::validate_ibd_diagrams(&project, &candidate.ibd_diagrams)?;
+        behavior_workspace::validate_behavior_workspace(
+            &project,
+            &candidate.behavior,
+            &candidate.behavior_diagrams,
+        )?;
+        candidate
+            .activity_repository
+            .validate(&project)
+            .map_err(|error| error.to_string())?;
+        candidate.project = Some(project);
+        candidate.diagrams = diagrams;
+        Ok(true)
+    })
 }
 
 #[tauri::command]
@@ -688,5 +704,59 @@ mod tests {
         assert_eq!(diagrams[0].nodes.len(), 1);
         assert_eq!(diagrams[0].nodes[0].element_id, other_id.to_string());
         assert!(diagrams[0].edges.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod move_transaction_tests {
+    use super::*;
+
+    #[test]
+    fn moving_ownership_is_one_transaction_and_rejection_preserves_redo() {
+        let workspace = WorkspaceState::default();
+        let activity = activity_workspace::ActivityWorkspaceState::default();
+        let history = history::HistoryState::default();
+        let mut project = Project::new("Move");
+        let root = project.root_id;
+        let package = project
+            .create_element(ElementKind::Package, "Destination", root)
+            .unwrap();
+        let block = project
+            .create_element(ElementKind::Block, "Block", root)
+            .unwrap();
+        *workspace.project.lock().unwrap() = Some(project);
+        let apply =
+            |owner| move_repository_element_in_state(block, owner, &workspace, &activity, &history);
+        assert!(apply(package).unwrap());
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(!apply(package).unwrap());
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert!(apply(block).is_err());
+        assert!(apply(ElementId::new()).is_err());
+        assert!(!apply(root).unwrap());
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .element(block)
+                .unwrap()
+                .owner_id,
+            Some(package)
+        );
+        let before =
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap();
+        let _busy = activity.repository.lock().unwrap();
+        assert!(apply(root).is_err());
+        assert_eq!(
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(),
+            before
+        );
+        assert_eq!(history::undo_len(&history), 1);
     }
 }
