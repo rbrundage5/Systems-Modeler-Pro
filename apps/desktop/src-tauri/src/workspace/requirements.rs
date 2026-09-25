@@ -109,13 +109,30 @@ fn create_requirement_in_state(
     history: &history::HistoryState,
 ) -> Result<String, String> {
     let mut created = None;
-    history::apply_structural_specification(workspace, activity, history, |project, diagrams| {
-        let mut candidate = project.clone();
-        created = Some(candidate.create_requirement(name, requirement_id, text, owner_id)
-            .map_err(|error| error.to_string())?);
-        Ok((candidate, diagrams.to_vec()))
+    history::edit_authored(workspace, activity, history, |candidate| {
+        let project = candidate.project.as_mut().ok_or("no project open")?;
+        created = Some(
+            project
+                .create_requirement(name, requirement_id, text, owner_id)
+                .map_err(|error| error.to_string())?,
+        );
+        project.validate().map_err(|error| error.to_string())?;
+        validate_loaded_diagrams(project, &candidate.diagrams)?;
+        ibd::validate_ibd_diagrams(project, &candidate.ibd_diagrams)?;
+        behavior_workspace::validate_behavior_workspace(
+            project,
+            &candidate.behavior,
+            &candidate.behavior_diagrams,
+        )?;
+        candidate
+            .activity_repository
+            .validate(project)
+            .map_err(|error| error.to_string())?;
+        Ok(())
     })?;
-    created.map(|id| id.to_string()).ok_or_else(|| "Requirement creation produced no element".into())
+    created
+        .map(|id| id.to_string())
+        .ok_or_else(|| "Requirement creation produced no element".into())
 }
 
 #[tauri::command]
@@ -517,22 +534,85 @@ mod creation_tests {
         let history = history::HistoryState::default();
         let mut project = Project::new("Hierarchy");
         let root = project.root_id;
-        let parent = project.create_requirement("Parent", "R-1", "Parent text", root).unwrap();
+        let parent = project
+            .create_requirement("Parent", "R-1", "Parent text", root)
+            .unwrap();
         *workspace.project.lock().unwrap() = Some(project.clone());
         let before = serde_json::to_value(&project).unwrap();
-        let child = create_requirement_in_state(parent, "Child", "R-2", "Child text", &workspace, &activity, &history).unwrap();
+        let child = create_requirement_in_state(
+            parent,
+            "Child",
+            "R-2",
+            "Child text",
+            &workspace,
+            &activity,
+            &history,
+        )
+        .unwrap();
         let child = parse_element_id(&child).unwrap();
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().element(child).unwrap().owner_id, Some(parent));
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .element(child)
+                .unwrap()
+                .owner_id,
+            Some(parent)
+        );
         assert_eq!(history::undo_len(&history), 1);
         assert!(history::undo_states(&workspace, &activity, &history).unwrap());
-        assert!(create_requirement_in_state(parent, "Duplicate", "R-1", "Text", &workspace, &activity, &history).is_err());
-        assert!(create_requirement_in_state(ElementId::new(), "Missing", "R-2", "Text", &workspace, &activity, &history).is_err());
-        assert_eq!(serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(), before);
+        assert!(
+            create_requirement_in_state(
+                parent,
+                "Duplicate",
+                "R-1",
+                "Text",
+                &workspace,
+                &activity,
+                &history
+            )
+            .is_err()
+        );
+        assert!(
+            create_requirement_in_state(
+                ElementId::new(),
+                "Missing",
+                "R-2",
+                "Text",
+                &workspace,
+                &activity,
+                &history
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(workspace.project.lock().unwrap().as_ref().unwrap()).unwrap(),
+            before
+        );
         assert_eq!(history::undo_len(&history), 0);
         assert!(history::redo_states(&workspace, &activity, &history).unwrap());
-        assert_eq!(workspace.project.lock().unwrap().as_ref().unwrap().element(child).unwrap().owner_id, Some(parent));
+        assert_eq!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .element(child)
+                .unwrap()
+                .owner_id,
+            Some(parent)
+        );
         let _busy = activity.repository.lock().unwrap();
-        assert!(create_requirement_in_state(parent, "Busy", "R-3", "Text", &workspace, &activity, &history).is_err());
+        assert!(
+            create_requirement_in_state(
+                parent, "Busy", "R-3", "Text", &workspace, &activity, &history
+            )
+            .is_err()
+        );
         assert_eq!(history::undo_len(&history), 1);
     }
 }
