@@ -561,6 +561,8 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(index, id)| ibd::IbdPropertyPresentation {
+                occurrence_path: Vec::new(),
+                occurrence_name: None,
                 collapsed: false,
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: id.to_string(),
@@ -573,6 +575,7 @@ mod tests {
             })
             .collect();
         let ibd_edge = ibd::IbdConnectorPresentation {
+            context_occurrence_path: Vec::new(),
             context_path: Vec::new(),
             id: uuid::Uuid::new_v4().to_string(),
             relationship_id: connector.to_string(),

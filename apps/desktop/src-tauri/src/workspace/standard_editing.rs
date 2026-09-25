@@ -32,6 +32,7 @@ enum EditingFamily {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IbdEndpointLocator {
+    occurrence_path: Vec<Option<super::ibd_occurrences::OccurrenceRange>>,
     element_id: String,
     property_path: Vec<String>,
     port: bool,
@@ -305,6 +306,7 @@ fn ibd_locator(diagram: &ibd::IbdDiagram, presentation_id: &str) -> Option<IbdEn
         .find(|port| port.id == presentation_id)
     {
         return Some(IbdEndpointLocator {
+            occurrence_path: Vec::new(),
             element_id: port.element_id.clone(),
             property_path: port.property_path.clone(),
             port: true,
@@ -314,6 +316,7 @@ fn ibd_locator(diagram: &ibd::IbdDiagram, presentation_id: &str) -> Option<IbdEn
     for property in &diagram.properties {
         if property.id == presentation_id {
             return Some(IbdEndpointLocator {
+                occurrence_path: property.occurrence_path.clone(),
                 element_id: property.element_id.clone(),
                 property_path: property.property_path.clone(),
                 port: false,
@@ -326,6 +329,7 @@ fn ibd_locator(diagram: &ibd::IbdDiagram, presentation_id: &str) -> Option<IbdEn
             .find(|port| port.id == presentation_id)
         {
             return Some(IbdEndpointLocator {
+                occurrence_path: property.occurrence_path.clone(),
                 element_id: port.element_id.clone(),
                 property_path: port.property_path.clone(),
                 port: true,
@@ -347,6 +351,7 @@ fn find_ibd_presentation(diagram: &ibd::IbdDiagram, locator: &IbdEndpointLocator
             .map(|port| port.id.clone());
     }
     for property in &diagram.properties {
+        if !super::ibd_occurrences::ranges_equal(&property.occurrence_path, &locator.occurrence_path, property.property_path.len()) { continue; }
         if !locator.port
             && property.element_id == locator.element_id
             && property.property_path == locator.property_path
@@ -1084,6 +1089,7 @@ fn paste_clipboard(
                     let id = uuid::Uuid::new_v4().to_string();
                     let points = ibd::route_ibd_edge(diagram, &source_id, &target_id)?;
                     diagram.connectors.push(ibd::IbdConnectorPresentation {
+                        context_occurrence_path: connector.context_occurrence_path.clone(),
                         context_path: connector.context_path.clone(),
                         id: id.clone(),
                         relationship_id: connector.relationship_id.clone(),
@@ -2132,6 +2138,7 @@ fn duplicate_selection_items(
                 snapshot.ibd_diagrams[diagram_index]
                     .connectors
                     .push(ibd::IbdConnectorPresentation {
+                        context_occurrence_path: connector.context_occurrence_path.clone(),
                         context_path: connector.context_path.clone(),
                         id: id.clone(),
                         relationship_id: new.to_string(),
@@ -2189,12 +2196,12 @@ fn move_ibd_selection(
         selected(&property.id, &property.element_id)
             && !diagram.properties.iter().any(|parent| {
                 selected(&parent.id, &parent.element_id)
-                    && super::ibd_structure::is_descendant(&property.property_path, &parent.property_path)
+                    && super::ibd_structure::is_descendant(property, parent)
             })
     }).cloned().collect();
     for property in roots {
         for child in &diagram.properties {
-            if child.id == property.id || super::ibd_structure::is_descendant(&child.property_path, &property.property_path) {
+            if child.id == property.id || super::ibd_structure::is_descendant(child, &property) {
                 attached.extend(child.ports.iter().map(|port| port.id.clone()));
             }
         }

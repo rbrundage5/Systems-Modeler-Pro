@@ -1198,6 +1198,8 @@ mod specification_tests {
             "context_block_id": property.owner_id.unwrap().to_string(),
             "owner_id": model.root_id.to_string(),
             "properties": vec![ibd::IbdPropertyPresentation {
+                occurrence_path: Vec::new(),
+                occurrence_name: None,
                 collapsed: false,
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: feature.to_string(),

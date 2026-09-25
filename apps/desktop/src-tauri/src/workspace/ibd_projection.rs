@@ -20,7 +20,7 @@ pub(super) fn project_end(prefix: &[ElementId], end: &ConnectorEnd) -> Connector
     }
 }
 
-fn presented_end(diagram: &IbdDiagram, end: &ConnectorEnd) -> Option<String> {
+fn presented_end(diagram: &IbdDiagram, end: &ConnectorEnd, ranges: &[Option<super::ibd_occurrences::OccurrenceRange>]) -> Option<String> {
     diagram
         .boundary_ports
         .iter()
@@ -29,7 +29,8 @@ fn presented_end(diagram: &IbdDiagram, end: &ConnectorEnd) -> Option<String> {
             std::iter::once(p.id.clone()).chain(p.ports.iter().map(|port| port.id.clone()))
         }))
         .find(|id| {
-            ibd::ibd_end_for_presentation(diagram, id).is_ok_and(|(candidate, _)| candidate == *end)
+            super::ibd_occurrences::endpoint_matches_context(diagram, id, ranges)
+                && ibd::ibd_end_for_presentation(diagram, id).is_ok_and(|(candidate, _)| candidate == *end)
         })
 }
 
@@ -38,15 +39,15 @@ pub(super) fn show_existing_connectors(
     diagram: &mut IbdDiagram,
 ) -> Result<(), String> {
     let root = parse_element_id(&diagram.context_block_id)?;
-    let mut contexts = vec![Vec::new()];
+    let mut contexts = vec![(Vec::new(), Vec::new())];
     contexts.extend(
         diagram
             .properties
             .iter()
             .filter(|p| !p.collapsed && super::ibd_structure::property_visible(diagram, p))
-            .map(|p| p.property_path.clone()),
+            .map(|p| (p.property_path.clone(), p.occurrence_path.clone())),
     );
-    for context_path in contexts {
+    for (context_path, occurrence_path) in contexts {
         let prefix = context_path
             .iter()
             .map(|id| parse_element_id(id))
@@ -62,6 +63,7 @@ pub(super) fn show_existing_connectors(
                 || diagram.connectors.iter().any(|edge| {
                     edge.relationship_id == relationship.id.to_string()
                         && edge.context_path == context_path
+                        && super::ibd_occurrences::ranges_equal(&edge.context_occurrence_path, &occurrence_path, context_path.len())
                 })
             {
                 continue;
@@ -69,13 +71,14 @@ pub(super) fn show_existing_connectors(
             let source = project_end(&prefix, &connector.source);
             let target = project_end(&prefix, &connector.target);
             let (Some(source_id), Some(target_id)) = (
-                presented_end(diagram, &source),
-                presented_end(diagram, &target),
+                presented_end(diagram, &source, &occurrence_path),
+                presented_end(diagram, &target, &occurrence_path),
             ) else {
                 continue;
             };
             let points = ibd::route_ibd_edge(diagram, &source_id, &target_id)?;
             diagram.connectors.push(IbdConnectorPresentation {
+                context_occurrence_path: occurrence_path.clone(),
                 context_path: context_path.clone(),
                 id: uuid::Uuid::new_v4().to_string(),
                 relationship_id: relationship.id.to_string(),

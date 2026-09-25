@@ -2996,6 +2996,8 @@ fn create_script_diagram(
                                 })
                                 .collect();
                             native.properties.push(IbdPropertyPresentation {
+                                occurrence_path: Vec::new(),
+                                occurrence_name: None,
                                 collapsed: false,
                                 id: uuid::Uuid::new_v4().to_string(),
                                 element_id: feature.id.to_string(),
@@ -3080,6 +3082,7 @@ fn create_script_diagram(
                         (endpoint(&connector.source), endpoint(&connector.target))
                     {
                         native.connectors.push(IbdConnectorPresentation {
+                            context_occurrence_path: Vec::new(),
                             context_path: Vec::new(),
                             id: uuid::Uuid::new_v4().to_string(),
                             relationship_id: relationship.id.to_string(),

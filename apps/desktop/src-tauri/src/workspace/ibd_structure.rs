@@ -5,13 +5,15 @@ use super::*;
 const MAX_PATH_DEPTH: usize = 32;
 const MAX_OCCURRENCES: usize = 4096;
 
-pub(super) fn is_descendant(path: &[String], parent: &[String]) -> bool {
-    path.len() > parent.len() && path.starts_with(parent)
+pub(super) fn is_descendant(child: &IbdPropertyPresentation, parent: &IbdPropertyPresentation) -> bool {
+    !parent.property_path.is_empty()
+        && child.property_path.len() > parent.property_path.len()
+        && super::ibd_occurrences::same_prefix(child, parent, parent.property_path.len())
 }
 
 pub(super) fn property_visible(diagram: &IbdDiagram, property: &IbdPropertyPresentation) -> bool {
     !diagram.properties.iter().any(|ancestor| {
-        ancestor.collapsed && is_descendant(&property.property_path, &ancestor.property_path)
+        ancestor.collapsed && is_descendant(property, ancestor)
     })
 }
 
@@ -68,13 +70,13 @@ pub(super) fn fit_ancestors(diagram: &mut IbdDiagram) -> Result<(), String> {
     let mut order: Vec<_> = (0..diagram.properties.len()).collect();
     order.sort_by_key(|index| std::cmp::Reverse(diagram.properties[*index].property_path.len()));
     for index in order {
-        let path = diagram.properties[index].property_path.clone();
+        let path = diagram.properties[index].clone();
         separate_children(diagram, Some(&path));
         let old = super::ibd_geometry::property_rect(&diagram.properties[index]);
         let mut width = old.width;
         let mut height = old.height;
         for child in &diagram.properties {
-            if is_descendant(&child.property_path, &path) {
+            if is_descendant(child, &path) {
                 width = width.max(child.x + child.width + 24.0 - old.x);
                 height = height.max(child.y + child.height + 24.0 - old.y);
             }
@@ -151,7 +153,7 @@ pub(super) fn expand_property(
         .filter(|feature| {
             let mut path = parent.property_path.clone();
             path.push(feature.id.to_string());
-            !diagram.properties.iter().any(|p| p.property_path == path)
+            !diagram.properties.iter().any(|p| p.property_path == path && super::ibd_occurrences::same_prefix(p, &parent, parent.property_path.len()))
         })
         .count();
     if diagram.properties.len() + missing > MAX_OCCURRENCES {
@@ -164,16 +166,18 @@ pub(super) fn expand_property(
     let mut y = diagram
         .properties
         .iter()
-        .filter(|p| is_descendant(&p.property_path, &parent.property_path))
+        .filter(|p| is_descendant(p, &parent))
         .map(|p| p.y + p.height + 24.0)
         .fold(parent.y + 48.0, f64::max);
     for feature in children {
         let mut path = parent.property_path.clone();
         path.push(feature.id.to_string());
-        if diagram.properties.iter().any(|p| p.property_path == path) {
+        if diagram.properties.iter().any(|p| p.property_path == path && super::ibd_occurrences::same_prefix(p, &parent, parent.property_path.len())) {
             continue;
         }
         diagram.properties.push(IbdPropertyPresentation {
+            occurrence_path: { let mut ranges = parent.occurrence_path.clone(); ranges.resize(path.len(), None); ranges },
+            occurrence_name: None,
             collapsed: false,
             id: uuid::Uuid::new_v4().to_string(),
             element_id: feature.id.to_string(),
@@ -200,12 +204,12 @@ fn translate_subtree(diagram: &mut IbdDiagram, id: &str, dx: f64, dy: f64) {
         .properties
         .iter()
         .find(|p| p.id == id)
-        .map(|p| p.property_path.clone())
+        .cloned()
     else {
         return;
     };
     for property in &mut diagram.properties {
-        if property.id == id || is_descendant(&property.property_path, &path) {
+        if property.id == id || is_descendant(property, &path) {
             property.x += dx;
             property.y += dy;
             for port in &mut property.ports {
@@ -237,17 +241,17 @@ pub(super) fn apply_property_geometry(
     let before = diagram.clone();
     let property = &diagram.properties[index];
     let old = super::ibd_geometry::property_rect(property);
-    let path = property.property_path.clone();
+    let path = property.clone();
     let dx = rect.x - old.x;
     let dy = rect.y - old.y;
     for child in &diagram.properties {
-        if is_descendant(&child.property_path, &path)
+        if is_descendant(child, &path)
             && (child.x + child.width + 16.0 > old.x + rect.width
                 || child.y + child.height + 16.0 > old.y + rect.height)
         {
             return Err("Expanded property must remain large enough for its internal parts".into());
         }
-        if is_descendant(&path, &child.property_path)
+        if is_descendant(&path, child)
             && (rect.x < child.x + 16.0 || rect.y < child.y + 40.0)
         {
             return Err(
@@ -289,13 +293,13 @@ pub(super) fn remove_property_presentation(diagram: &mut IbdDiagram, id: &str) -
         .properties
         .iter()
         .find(|p| p.id == id)
-        .map(|p| p.property_path.clone())
+        .cloned()
     else {
         return false;
     };
     let mut removed = HashSet::new();
     diagram.properties.retain(|p| {
-        if p.id == id || is_descendant(&p.property_path, &path) {
+        if p.id == id || is_descendant(p, &path) {
             removed.insert(p.id.clone());
             removed.extend(p.ports.iter().map(|port| port.id.clone()));
             false
@@ -310,13 +314,13 @@ pub(super) fn remove_property_presentation(diagram: &mut IbdDiagram, id: &str) -
     true
 }
 
-fn separate_children(diagram: &mut IbdDiagram, parent: Option<&[String]>) {
+fn separate_children(diagram: &mut IbdDiagram, parent: Option<&IbdPropertyPresentation>) {
     let mut children: Vec<_> = diagram
         .properties
         .iter()
         .filter(|p| {
             if let Some(path) = parent {
-                p.property_path.len() == path.len() + 1 && p.property_path.starts_with(path)
+                p.property_path.len() == path.property_path.len() + 1 && is_descendant(p, path)
             } else {
                 p.property_path.len() == 1
             }
@@ -356,7 +360,7 @@ pub(super) fn clean_groups(diagram: &mut IbdDiagram) -> Result<(), String> {
             !diagram
                 .properties
                 .iter()
-                .any(|parent| is_descendant(&p.property_path, &parent.property_path))
+                .any(|parent| is_descendant(p, parent))
         })
         .cloned()
         .collect();
@@ -367,7 +371,7 @@ pub(super) fn clean_groups(diagram: &mut IbdDiagram) -> Result<(), String> {
             .find(|p| p.id == id || p.ports.iter().any(|port| port.id == id))
             .and_then(|p| {
                 roots.iter().find(|root| {
-                    p.id == root.id || is_descendant(&p.property_path, &root.property_path)
+                    p.id == root.id || is_descendant(p, root)
                 })
             })
             .map(|root| root.id.clone())
