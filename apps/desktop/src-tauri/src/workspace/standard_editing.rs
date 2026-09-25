@@ -1351,6 +1351,9 @@ fn duplicate_relationship(
             .unwrap_or(end.classifier_id);
     }
     if let Some(connector) = &mut duplicate.connector {
+        connector.association_type_id = connector.association_type_id.map(|type_id| {
+            relationship_map.get(&type_id).copied().unwrap_or(type_id)
+        });
         connector.context_id = element_map
             .get(&connector.context_id)
             .copied()
@@ -1916,8 +1919,12 @@ fn duplicate_selection_items(
                 snapshot
                     .project
                     .relationship(parse_relationship_id(&edge.relationship_id).unwrap())
-                    .map(|relationship| matches!(relationship.kind, systems_modeler_core::RelationshipKind::ItemFlow))
-                    .unwrap_or(false)
+                    .map(|relationship| match relationship.kind {
+                        systems_modeler_core::RelationshipKind::ItemFlow => 2,
+                        systems_modeler_core::RelationshipKind::Connector => 1,
+                        _ => 0,
+                    })
+                    .unwrap_or(0)
             });
             for edge in relationship_items {
                 let old = parse_relationship_id(&edge.relationship_id)?;
@@ -2554,6 +2561,27 @@ pub fn move_active_selection(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duplicated_connector_reuses_its_association_unless_the_type_is_also_copied() {
+        use systems_modeler_core::{AggregationKind, Multiplicity};
+        let (mut project, diagram) = super::super::ibd_geometry::tests::fixture();
+        let connector_id = parse_relationship_id(&diagram.connectors[0].relationship_id).unwrap();
+        let connector = project.relationship(connector_id).unwrap().connector.clone().unwrap();
+        let port_type = project.element(connector.source.port_id.unwrap()).unwrap().type_id.unwrap();
+        let association = project.create_association(Some(project.root_id), vec![
+            Project::association_end(port_type, "provided", Multiplicity::ONE, true, AggregationKind::None),
+            Project::association_end(port_type, "required", Multiplicity::ONE, true, AggregationKind::None),
+        ]).unwrap();
+        project.relationships.get_mut(&connector_id).unwrap().connector.as_mut().unwrap().association_type_id = Some(association);
+        let copied = duplicate_relationship(&mut project, connector_id, &HashMap::new(), &HashMap::new()).unwrap();
+        assert_eq!(project.relationship(copied).unwrap().connector.as_ref().unwrap().association_type_id, Some(association));
+        let copied_type = duplicate_relationship(&mut project, association, &HashMap::new(), &HashMap::new()).unwrap();
+        let copied_with_type = duplicate_relationship(&mut project, connector_id, &HashMap::new(), &HashMap::from([(association, copied_type)])).unwrap();
+        assert_eq!(project.relationship(copied_with_type).unwrap().connector.as_ref().unwrap().association_type_id, Some(copied_type));
+        assert_eq!(project.relationship(connector_id).unwrap().connector.as_ref().unwrap().association_type_id, Some(association));
+        project.validate().unwrap();
+    }
+
     #[test]
     fn duplicate_composition_remaps_a_distinct_property_and_keeps_the_type() {
         use systems_modeler_core::Multiplicity;

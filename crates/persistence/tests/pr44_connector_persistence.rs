@@ -64,6 +64,36 @@ fn pr44_native_database_round_trip_preserves_complete_connector_payload() {
     }
     project.validate().unwrap();
 
+    let association = project
+        .create_association(
+            Some(project.root_id),
+            vec![
+                Project::association_end(
+                    interface,
+                    "sender",
+                    Multiplicity::new(0, None).unwrap(),
+                    true,
+                    systems_modeler_core::AggregationKind::None,
+                ),
+                Project::association_end(
+                    interface,
+                    "receiver",
+                    Multiplicity::new(0, None).unwrap(),
+                    true,
+                    systems_modeler_core::AggregationKind::None,
+                ),
+            ],
+        )
+        .unwrap();
+    let semantics = project
+        .relationships
+        .get_mut(&connector)
+        .unwrap()
+        .connector
+        .as_mut()
+        .unwrap();
+    semantics.association_type_id = Some(association);
+    semantics.end_multiplicities = [Multiplicity::ONE, Multiplicity::new(1, Some(4)).unwrap()];
     let mut database = ProjectDatabase::open_in_memory().unwrap();
     database.save_project(&project).unwrap();
     let restored = database.load_project(project.id).unwrap();
@@ -76,6 +106,11 @@ fn pr44_native_database_round_trip_preserves_complete_connector_payload() {
     assert_eq!(relationship.target_id, port);
     assert_eq!(payload.context_id, context);
     assert_eq!(payload.kind, ConnectorKind::Assembly);
+    assert_eq!(payload.association_type_id, Some(association));
+    assert_eq!(
+        payload.end_multiplicities,
+        [Multiplicity::ONE, Multiplicity::new(1, Some(4)).unwrap()]
+    );
     assert_eq!(payload.source.property_path, vec![left]);
     assert_eq!(payload.source.role_id, left);
     assert_eq!(payload.source.port_id, Some(port));
