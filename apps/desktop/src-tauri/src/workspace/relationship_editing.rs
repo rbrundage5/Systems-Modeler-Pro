@@ -531,6 +531,37 @@ mod tests {
         blocks: [ElementId; 3],
     }
 
+    #[test]
+    fn delete_association_used_as_connector_type_preserves_model_views_and_redo() {
+        use systems_modeler_core::{Connector, ConnectorEnd, ConnectorKind};
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let context = fixture.blocks[2];
+            let source = project.create_typed_feature(ElementKind::PartProperty, "producer", context, fixture.blocks[0], Multiplicity::ONE).unwrap();
+            let target = project.create_typed_feature(ElementKind::PartProperty, "consumer", context, fixture.blocks[1], Multiplicity::ONE).unwrap();
+            project.create_connector(Connector {
+                association_type_id: Some(fixture.relationship_id),
+                end_multiplicities: [Multiplicity::ONE; 2],
+                context_id: context,
+                kind: ConnectorKind::Assembly,
+                source: ConnectorEnd::role(source),
+                target: ConnectorEnd::role(target),
+            }).unwrap();
+        }
+        let history = &fixture.history;
+        super::super::history::checkpoint_states(&fixture.state, &fixture.activity, history).unwrap();
+        fixture.state.project.lock().unwrap().as_mut().unwrap().name = "Pending redo".into();
+        assert!(super::super::history::undo_states(&fixture.state, &fixture.activity, history).unwrap());
+        let before = snapshot(&fixture.state);
+        let error = delete_bdd_relationship_in_state(fixture.diagram_id.clone(), fixture.relationship_id.to_string(), &fixture.state, &fixture.activity, history).unwrap_err();
+        assert!(error.contains("retype"));
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(super::super::history::undo_len(history), 0);
+        assert!(super::super::history::redo_states(&fixture.state, &fixture.activity, history).unwrap());
+    }
+
     fn reconnect_fixture(kind: RelationshipKind) -> ReconnectFixture {
         let state = WorkspaceState::default();
         let mut project = Project::new("Reconnect rollback");
