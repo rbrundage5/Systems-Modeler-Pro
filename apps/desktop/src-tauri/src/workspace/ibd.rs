@@ -443,7 +443,11 @@ pub(super) fn populate_ibd_diagram_from_context(
         .classifier_features(context)
         .map_err(|error| error.to_string())?;
     let mut x = 120.0;
-    let mut y = diagram.properties.iter().map(|p| p.y + p.height + 48.0).fold(120.0, f64::max);
+    let mut y = diagram
+        .properties
+        .iter()
+        .map(|p| p.y + p.height + 48.0)
+        .fold(120.0, f64::max);
 
     for feature in features {
         match feature.kind {
