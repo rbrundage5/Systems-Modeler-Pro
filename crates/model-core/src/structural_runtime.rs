@@ -590,6 +590,16 @@ pub enum StructuralRuntimeError {
     )]
     MissingConnectorEndpoint { connector: String, context: String },
     #[error(
+        "Connector {connector} in {context} resolves {count} {end} endpoints, outside connector-end multiplicity [{multiplicity}]. The current all-to-all realization cannot satisfy this configuration; configure compatible part/reference populations or connector ends."
+    )]
+    ConnectorEndCardinality {
+        connector: String,
+        context: String,
+        end: String,
+        count: usize,
+        multiplicity: String,
+    },
+    #[error(
         "{path} does not contain runtime port {port}. Check the semantic nested property path and port owner."
     )]
     RuntimePortNotFound { path: String, port: String },
@@ -1260,7 +1270,24 @@ impl<'a> StructuralRuntimeBuilder<'a> {
                         connector: relationship.name.clone(),
                         details,
                     })?;
-                if sources.is_empty() || targets.is_empty() {
+                let explicit_cardinality = connector.association_type_id.is_some()
+                    || connector.end_multiplicities != [crate::Multiplicity::ONE; 2];
+                if explicit_cardinality {
+                    for (index, count) in [sources.len(), targets.len()].into_iter().enumerate() {
+                        let bounds = connector.end_multiplicities[index];
+                        if count < bounds.lower as usize
+                            || bounds.upper.is_some_and(|upper| count > upper as usize)
+                        {
+                            return Err(StructuralRuntimeError::ConnectorEndCardinality {
+                                connector: relationship.name.clone(),
+                                context: self.runtime.instances[&context_id].qualified_path.clone(),
+                                end: if index == 0 { "source" } else { "target" }.into(),
+                                count,
+                                multiplicity: bounds.notation(),
+                            });
+                        }
+                    }
+                } else if sources.is_empty() || targets.is_empty() {
                     return Err(StructuralRuntimeError::MissingConnectorEndpoint {
                         connector: relationship.name.clone(),
                         context: self.runtime.instances[&context_id].qualified_path.clone(),
