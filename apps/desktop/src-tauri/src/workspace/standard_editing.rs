@@ -706,13 +706,8 @@ fn remove_presentations(
                 if let Some(index) = diagram.properties.iter().position(|property| {
                     property.id == selection.id || property.element_id == selection.id
                 }) {
-                    let property = diagram.properties.remove(index);
-                    let mut removed = vec![property.id];
-                    removed.extend(property.ports.into_iter().map(|port| port.id));
-                    diagram.connectors.retain(|edge| {
-                        !removed.contains(&edge.source_presentation_id)
-                            && !removed.contains(&edge.target_presentation_id)
-                    });
+                    let id = diagram.properties[index].id.clone();
+                    super::ibd_structure::remove_property_presentation(diagram, &id);
                     changed += 1;
                     continue;
                 }
@@ -2181,29 +2176,23 @@ fn move_ibd_selection(
     let mut affected = Vec::new();
     let mut attached = std::collections::BTreeSet::new();
     let mut changed = 0;
-    // Process all parents first so selection order cannot translate a child twice.
-    for property in &mut diagram.properties {
-        if !selected(&property.id, &property.element_id) {
-            continue;
+    let roots: Vec<_> = diagram.properties.iter().filter(|property| {
+        selected(&property.id, &property.element_id)
+            && !diagram.properties.iter().any(|parent| {
+                selected(&parent.id, &parent.element_id)
+                    && super::ibd_structure::is_descendant(&property.property_path, &parent.property_path)
+            })
+    }).cloned().collect();
+    for property in roots {
+        for child in &diagram.properties {
+            if child.id == property.id || super::ibd_structure::is_descendant(&child.property_path, &property.property_path) {
+                attached.extend(child.ports.iter().map(|port| port.id.clone()));
+            }
         }
-        attached.extend(property.ports.iter().map(|port| port.id.clone()));
-        let old = super::ibd_geometry::property_rect(property);
-        let mut next = old;
-        next.x = (old.x + dx).max(0.0);
-        next.y = (old.y + dy).max(42.0);
-        if next.x > 100_000.0 || next.y > 100_000.0 {
-            return Err("IBD property move exceeds the canvas range".into());
-        }
-        if next == old {
-            continue;
-        }
-        for port in &mut property.ports {
-            super::ibd_geometry::reanchor_port(port, old, next)?;
-            affected.push(port.id.clone());
-        }
-        property.x = next.x;
-        property.y = next.y;
-        affected.push(property.id.clone());
+        let mut rect = super::ibd_geometry::property_rect(&property);
+        rect.x = (rect.x + dx).max(0.0);
+        rect.y = (rect.y + dy).max(42.0);
+        super::ibd_structure::apply_property_geometry(diagram, &property.id, rect)?;
         changed += 1;
     }
     let ports = diagram.properties.iter().flat_map(|property| &property.ports)

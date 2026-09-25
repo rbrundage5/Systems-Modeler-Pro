@@ -1,6 +1,6 @@
 use super::activity_workspace::ActivityWorkspaceState;
 use super::history::{self, HistoryState};
-use super::{WorkspaceState, behavior_workspace, ibd, routed_bdd_edges, use_cases};
+use super::{WorkspaceState, behavior_workspace, routed_bdd_edges, use_cases};
 use systems_modeler_core::structural_presentation::geometry::{
     BddGeometryCommand, BddRoutingScope, apply_bdd_geometry,
 };
@@ -60,8 +60,9 @@ fn reroute_connected_bdd_edges(
     Ok(())
 }
 
+#[cfg(test)]
 fn apply_ibd_property_geometry(
-    property: &mut ibd::IbdPropertyPresentation,
+    property: &mut crate::workspace::ibd::IbdPropertyPresentation,
     x: f64,
     y: f64,
     width: f64,
@@ -184,22 +185,16 @@ pub fn update_ibd_property_geometry(
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
     history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
-        let property = diagram
-            .properties
-            .iter_mut()
-            .find(|property| property.id == presentation_id)
-            .ok_or("IBD property presentation not found")?;
-        if property.x == x
-            && property.y == y
-            && property.width == width
-            && property.height == height
-        {
-            return Ok(());
-        }
-        apply_ibd_property_geometry(property, x, y, width, height)?;
-        let mut ids = vec![property.id.clone()];
-        ids.extend(property.ports.iter().map(|port| port.id.clone()));
-        super::ibd_geometry::reroute_connected(diagram, &ids)
+        super::ibd_structure::apply_property_geometry(
+            diagram,
+            &presentation_id,
+            super::routing::RouteRect {
+                x,
+                y,
+                width,
+                height,
+            },
+        )
     })
 }
 
@@ -558,7 +553,7 @@ mod shared_resize_tests {
 
     #[test]
     fn ibd_nested_ports_follow_shared_property_move_and_resize_geometry() {
-        let mut property = ibd::IbdPropertyPresentation {
+        let mut property = crate::workspace::ibd::IbdPropertyPresentation {
             collapsed: false,
             id: "property".into(),
             element_id: "element".into(),
@@ -568,7 +563,7 @@ mod shared_resize_tests {
             width: 200.0,
             height: 100.0,
             ports: vec![
-                ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "left".into(),
                     element_id: "port-left".into(),
                     property_path: Vec::new(),
@@ -576,7 +571,7 @@ mod shared_resize_tests {
                     y: 125.0,
                     size: 16.0,
                 },
-                ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "right".into(),
                     element_id: "port-right".into(),
                     property_path: Vec::new(),
@@ -584,7 +579,7 @@ mod shared_resize_tests {
                     y: 175.0,
                     size: 16.0,
                 },
-                ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "top".into(),
                     element_id: "port-top".into(),
                     property_path: Vec::new(),
@@ -592,7 +587,7 @@ mod shared_resize_tests {
                     y: 100.0,
                     size: 16.0,
                 },
-                ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "bottom".into(),
                     element_id: "port-bottom".into(),
                     property_path: Vec::new(),
