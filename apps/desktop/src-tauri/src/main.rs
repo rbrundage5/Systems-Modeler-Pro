@@ -111,7 +111,9 @@ mod workspace {
         populate_ibd_from_context, route_ibd,
     };
     pub use ibd_navigation::open_or_create_type_ibd;
-    pub use ibd_occurrences::{ibd_occurrence_specification, set_ibd_occurrence_groups};
+    pub use ibd_occurrences::{
+        append_ibd_occurrence, ibd_occurrence_specification, set_ibd_occurrence_groups,
+    };
     pub use ibd_structure::{set_ibd_structure_expanded, show_ibd_existing_parts};
     pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
     pub use item_flow_notation::ibd_item_flow_notation;
@@ -309,12 +311,12 @@ use workspace::{
     preview_parametric_execution_runtime, reset_parametric_execution, run_parametric_execution,
     step_parametric_execution, terminate_parametric_execution,
 };
+use workspace::{append_ibd_occurrence, ibd_occurrence_specification, set_ibd_occurrence_groups};
 use workspace::{composition_property_choices, link_composition_property};
 use workspace::{
     create_ibd_connector_specification, ibd_connector_specification, ibd_connector_type_choices,
     update_ibd_connector_specification,
 };
-use workspace::{ibd_occurrence_specification, set_ibd_occurrence_groups};
 
 #[derive(Serialize)]
 struct EngineStatus {
@@ -860,6 +862,7 @@ fn main() {
             update_bdd_feature_semantics,
             element_type_choices,
             update_element_specification,
+            append_ibd_occurrence,
             ibd_occurrence_specification,
             set_ibd_occurrence_groups,
             create_ibd_connector_specification,

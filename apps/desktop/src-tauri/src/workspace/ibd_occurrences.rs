@@ -140,6 +140,9 @@ pub(super) fn coverage(
         .map_err(|error| error.to_string())?;
     let multiplicity = definition.multiplicity.unwrap_or(Multiplicity::ONE);
     let depth = property.property_path.len();
+    if depth == 0 {
+        return Err("Occurrence coverage requires a resolved property path".into());
+    }
     let mut ranges = HashSet::new();
     let mut compact = false;
     for peer in &diagram.properties {
@@ -222,6 +225,15 @@ pub(super) fn set_groups(
     id: &str,
     text: Option<&str>,
 ) -> Result<(), String> {
+    set_allocations(project, diagram, id, parse_groups(text)?)
+}
+
+fn set_allocations(
+    project: &Project,
+    diagram: &mut IbdDiagram,
+    id: &str,
+    requested: Vec<OccurrenceGroup>,
+) -> Result<(), String> {
     let selected = diagram
         .properties
         .iter()
@@ -232,7 +244,6 @@ pub(super) fn set_groups(
     if depth == 0 {
         return Err("Occurrence view requires a resolved property path".into());
     }
-    let requested = parse_groups(text)?;
     let peers: Vec<_> = diagram
         .properties
         .iter()
@@ -265,20 +276,15 @@ pub(super) fn set_groups(
             property.id == peer.id || super::ibd_structure::is_descendant(property, peer)
         })
     };
-    let removed: HashSet<_> = diagram
+    diagram.properties.retain(|property| !belongs(property));
+    let mut next_y = original
         .properties
         .iter()
-        .filter(|property| belongs(property))
-        .flat_map(|property| {
-            std::iter::once(property.id.clone())
-                .chain(property.ports.iter().map(|port| port.id.clone()))
+        .filter(|property| {
+            property.property_path.len() == depth && same_prefix(property, &selected, depth - 1)
         })
-        .collect();
-    diagram.properties.retain(|property| !belongs(property));
-    diagram.connectors.retain(|edge| {
-        !removed.contains(&edge.source_presentation_id)
-            && !removed.contains(&edge.target_presentation_id)
-    });
+        .map(|property| property.y + property.height + 32.0)
+        .fold(selected.y, f64::max);
     let mut reused = HashSet::new();
     for (index, (name, range)) in requested.into_iter().enumerate() {
         let existing = peers
@@ -290,7 +296,9 @@ pub(super) fn set_groups(
         let dy = if keep_ids {
             0.0
         } else {
-            index as f64 * (selected.height + 32.0)
+            let offset = next_y - template.y;
+            next_y += template.height + 32.0;
+            offset
         };
         for source in original.properties.iter().filter(|property| {
             property.id == template.id || super::ibd_structure::is_descendant(property, template)
@@ -320,6 +328,20 @@ pub(super) fn set_groups(
         }
     }
     validate(diagram, project)?;
+    // Keep connector presentations whose endpoint occurrences survived intact.
+    // Aggregate endpoints replaced by subsets must not be silently redirected.
+    diagram.connectors = original
+        .connectors
+        .into_iter()
+        .filter(|edge| {
+            [&edge.source_presentation_id, &edge.target_presentation_id]
+                .iter()
+                .all(|id| {
+                    super::ibd::ibd_end_for_presentation(diagram, id).is_ok()
+                        && endpoint_matches_context(diagram, id, &edge.context_occurrence_path)
+                })
+        })
+        .collect();
     super::ibd_structure::fit_ancestors(diagram)?;
     super::ibd_projection::show_existing_connectors(project, diagram)?;
     diagram.connectors = super::ibd::routed_ibd_connectors(diagram, None)?;
@@ -355,6 +377,7 @@ pub fn set_ibd_occurrence_groups(
 #[derive(Debug, Serialize)]
 pub struct OccurrenceSpecification {
     pub groups: String,
+    pub suggested_groups: String,
     pub coverage: OccurrenceCoverage,
     pub definition_id: String,
     pub type_id: Option<String>,
@@ -412,12 +435,221 @@ pub fn ibd_occurrence_specification(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let multiplicity = definition.multiplicity.unwrap_or(Multiplicity::ONE);
+    let count = if multiplicity.upper == Some(0) {
+        0
+    } else {
+        multiplicity.lower.max(1)
+    };
+    let suggested_groups = if count <= 128 {
+        (1..=count)
+            .map(|index| format!("{}{} = 1", definition.name, index))
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        format!("{} group = {}", definition.name, count)
+    };
     Ok(OccurrenceSpecification {
         groups,
+        suggested_groups,
         coverage: coverage(project, diagram, property)?,
         definition_id: definition.id.to_string(),
         type_id: definition.type_id.map(|id| id.to_string()),
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OccurrenceDrop {
+    pub element_id: String,
+    pub parent_presentation_id: Option<String>,
+    pub name: String,
+    pub count: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+fn append_group(
+    project: &Project,
+    diagram: &mut IbdDiagram,
+    request: &OccurrenceDrop,
+) -> Result<String, String> {
+    if ![request.x, request.y]
+        .iter()
+        .all(|value| value.is_finite() && *value >= 0.0 && *value <= 100_000.0)
+    {
+        return Err("Occurrence drop coordinates must be within the canvas".into());
+    }
+    let property_id = parse_element_id(&request.element_id)?;
+    let definition = project
+        .element(property_id)
+        .map_err(|error| error.to_string())?;
+    if !matches!(
+        definition.kind,
+        ElementKind::PartProperty | ElementKind::ReferenceProperty
+    ) {
+        return Err("Drag an existing part/reference property. Its Block type remains a reusable definition.".into());
+    }
+    let mut parent = request
+        .parent_presentation_id
+        .as_ref()
+        .map(|id| {
+            diagram
+                .properties
+                .iter()
+                .find(|property| &property.id == id)
+                .cloned()
+                .ok_or("Containing occurrence not found")
+        })
+        .transpose()?;
+    if let Some(target) = parent
+        .as_ref()
+        .filter(|target| target.element_id == request.element_id)
+    {
+        let depth = target.property_path.len();
+        parent = if depth <= 1 {
+            None
+        } else {
+            Some(
+                diagram
+                    .properties
+                    .iter()
+                    .find(|candidate| {
+                        candidate.property_path.len() == depth - 1
+                            && same_prefix(candidate, target, depth - 1)
+                    })
+                    .cloned()
+                    .ok_or("Enclosing occurrence is not presented")?,
+            )
+        };
+    }
+    let mut path = parent
+        .as_ref()
+        .map(|property| property.property_path.clone())
+        .unwrap_or_default();
+    let parsed = path
+        .iter()
+        .map(|id| parse_element_id(id))
+        .collect::<Result<Vec<_>, _>>()?;
+    let context = project
+        .resolve_structural_path(parse_element_id(&diagram.context_block_id)?, &parsed)
+        .map_err(|error| error.to_string())?;
+    if !project
+        .has_classifier_feature(context, property_id)
+        .map_err(|error| error.to_string())?
+    {
+        return Err("This property is not owned or inherited by the drop context. Drop onto an occurrence of its owning type, or open that type's IBD.".into());
+    }
+    path.push(request.element_id.clone());
+    if path.len() > 32 {
+        return Err("Occurrence expansion is limited to 32 levels".into());
+    }
+    let mut ranges = parent
+        .as_ref()
+        .map(|property| property.occurrence_path.clone())
+        .unwrap_or_default();
+    ranges.resize(path.len(), None);
+    let mut peers: Vec<_> = diagram
+        .properties
+        .iter()
+        .filter(|property| {
+            property.property_path == path
+                && ranges_equal(&property.occurrence_path, &ranges, path.len() - 1)
+        })
+        .cloned()
+        .collect();
+    peers.sort_by_key(|property| range_at(property, path.len() - 1).map(|range| range.first));
+    let id = if let Some(property) = peers.first() {
+        property.id.clone()
+    } else {
+        let id = uuid::Uuid::new_v4().to_string();
+        diagram.properties.push(IbdPropertyPresentation {
+            id: id.clone(),
+            element_id: request.element_id.clone(),
+            property_path: path.clone(),
+            occurrence_path: ranges.clone(),
+            occurrence_name: None,
+            collapsed: false,
+            x: request
+                .x
+                .max(parent.as_ref().map_or(0.0, |property| property.x + 24.0)),
+            y: request
+                .y
+                .max(parent.as_ref().map_or(48.0, |property| property.y + 48.0)),
+            width: 220.0,
+            height: 100.0,
+            ports: Vec::new(),
+        });
+        let index = diagram.properties.len() - 1;
+        super::ibd_structure::add_ports(project, diagram, index)?;
+        id
+    };
+    let mut seen = HashSet::new();
+    let mut groups: Vec<_> = peers
+        .iter()
+        .filter_map(|property| {
+            let range = range_at(property, path.len() - 1)?;
+            seen.insert(range)
+                .then(|| (property.occurrence_name.clone(), Some(range)))
+        })
+        .collect();
+    if request.name.contains(['\n', '\r', '=']) || request.count.contains(['\n', '\r', '=']) {
+        return Err("Enter one occurrence name and one count".into());
+    }
+    let parsed_group = parse_groups(Some(&format!("{} = {}", request.name, request.count)))?;
+    let count = parsed_group[0].1.unwrap().count;
+    let mut first = 1u32;
+    for (_, range) in &groups {
+        let range = range.unwrap();
+        if u64::from(first) + u64::from(count) <= u64::from(range.first) {
+            break;
+        }
+        first = range
+            .first
+            .checked_add(range.count)
+            .ok_or("Occurrence allocation exceeds the supported range")?;
+    }
+    groups.push((
+        Some(request.name.trim().into()),
+        Some(OccurrenceRange { first, count }),
+    ));
+    set_allocations(project, diagram, &id, groups)?;
+    diagram
+        .properties
+        .iter()
+        .find(|property| {
+            property.property_path == path
+                && ranges_equal(&property.occurrence_path, &ranges, path.len() - 1)
+                && property.occurrence_name.as_deref() == Some(request.name.trim())
+        })
+        .map(|property| property.id.clone())
+        .ok_or("New occurrence was not presented".into())
+}
+
+#[tauri::command]
+pub fn append_ibd_occurrence(
+    diagram_id: String,
+    request: OccurrenceDrop,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
+) -> Result<String, String> {
+    let mut created = None;
+    super::history::apply_structural_specification(
+        &workspace,
+        &activity,
+        &history,
+        |project, diagrams| {
+            let mut staged = diagrams.to_vec();
+            let diagram = staged
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("IBD not found")?;
+            created = Some(append_group(project, diagram, &request)?);
+            super::ibd::validate_ibd_diagrams(project, &staged)?;
+            Ok((project.clone(), staged))
+        },
+    )?;
+    created.ok_or("Occurrence was not created".into())
 }
 
 #[cfg(test)]
@@ -466,6 +698,170 @@ mod tests {
             .unwrap();
         super::super::ibd_structure::expand_property(&project, &mut diagram, "part", true).unwrap();
         (project, diagram)
+    }
+
+    #[test]
+    fn repeated_drops_reuse_the_property_and_preserve_existing_allocations() {
+        let (project, mut diagram) = fixture();
+        let semantic = serde_json::to_value(&project).unwrap();
+        let element_id = diagram.properties[0].element_id.clone();
+        let mut request = OccurrenceDrop {
+            element_id,
+            parent_presentation_id: Some("part".into()),
+            name: "north".into(),
+            count: "1".into(),
+            x: 140.0,
+            y: 180.0,
+        };
+        let mut ids = Vec::new();
+        let mut first_connector = None;
+        for name in ["north", "south", "east", "west"] {
+            request.name = name.into();
+            ids.push(append_group(&project, &mut diagram, &request).unwrap());
+            super::super::ibd::validate_ibd_diagrams(&project, &[diagram.clone()]).unwrap();
+            if let Some(id) = &first_connector {
+                assert!(diagram.connectors.iter().any(|edge| &edge.id == id));
+            } else {
+                first_connector = Some(diagram.connectors[0].id.clone());
+            }
+        }
+        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), 4);
+        let north = diagram
+            .properties
+            .iter()
+            .find(|property| property.id == ids[0])
+            .unwrap();
+        assert_eq!(
+            coverage(&project, &diagram, north).unwrap().displayed,
+            Some(4)
+        );
+        assert_eq!(
+            range_at(north, 0),
+            Some(OccurrenceRange { first: 1, count: 1 })
+        );
+        let before = serde_json::to_value(&diagram).unwrap();
+        let mut staged = diagram.clone();
+        request.name = "excess".into();
+        assert!(
+            append_group(&project, &mut staged, &request)
+                .unwrap_err()
+                .contains("exceeds")
+        );
+        assert_eq!(serde_json::to_value(&diagram).unwrap(), before);
+        // Removing a view leaves a hole; a later drop fills it without renumbering peers.
+        assert!(super::super::ibd_structure::remove_property_presentation(
+            &mut diagram,
+            &ids[1]
+        ));
+        request.name = "replacement".into();
+        let id = append_group(&project, &mut diagram, &request).unwrap();
+        let replacement = diagram
+            .properties
+            .iter()
+            .find(|property| property.id == id)
+            .unwrap();
+        let west = diagram
+            .properties
+            .iter()
+            .find(|property| property.id == ids[3])
+            .unwrap();
+        assert!(replacement.y >= west.y + west.height + 32.0);
+        assert_eq!(
+            range_at(
+                diagram
+                    .properties
+                    .iter()
+                    .find(|property| property.id == id)
+                    .unwrap(),
+                0
+            ),
+            Some(OccurrenceRange { first: 2, count: 1 })
+        );
+        assert_eq!(
+            range_at(
+                diagram
+                    .properties
+                    .iter()
+                    .find(|property| property.id == ids[2])
+                    .unwrap(),
+                0
+            ),
+            Some(OccurrenceRange { first: 3, count: 1 })
+        );
+        assert_eq!(serde_json::to_value(&project).unwrap(), semantic);
+    }
+
+    #[test]
+    fn nested_repeat_drops_resolve_the_containing_population_and_reject_wrong_context() {
+        let (project, mut diagram) = fixture();
+        set_groups(
+            &project,
+            &mut diagram,
+            "part",
+            Some("first = 1\nsecond = 1"),
+        )
+        .unwrap();
+        let first = diagram
+            .properties
+            .iter()
+            .find(|property| property.occurrence_name.as_deref() == Some("first"))
+            .unwrap()
+            .clone();
+        let second = diagram
+            .properties
+            .iter()
+            .find(|property| property.occurrence_name.as_deref() == Some("second"))
+            .unwrap()
+            .clone();
+        let child_id = diagram
+            .properties
+            .iter()
+            .find(|property| super::super::ibd_structure::is_descendant(property, &first))
+            .unwrap()
+            .element_id
+            .clone();
+        let mut request = OccurrenceDrop {
+            element_id: child_id,
+            parent_presentation_id: Some(first.id),
+            name: "channelA".into(),
+            count: "1".into(),
+            x: 160.0,
+            y: 200.0,
+        };
+        let first_child = append_group(&project, &mut diagram, &request).unwrap();
+        request.parent_presentation_id = Some(second.id);
+        let second_child = append_group(&project, &mut diagram, &request).unwrap();
+        assert_ne!(first_child, second_child);
+        assert_eq!(
+            range_at(
+                diagram
+                    .properties
+                    .iter()
+                    .find(|property| property.id == second_child)
+                    .unwrap(),
+                0
+            ),
+            Some(OccurrenceRange { first: 2, count: 1 })
+        );
+        // Dropping the same property on its child repeats it in that child's enclosing group.
+        request.parent_presentation_id = Some(second_child);
+        request.name = "channelB".into();
+        let sibling = append_group(&project, &mut diagram, &request).unwrap();
+        let sibling = diagram
+            .properties
+            .iter()
+            .find(|property| property.id == sibling)
+            .unwrap();
+        assert_eq!(
+            coverage(&project, &diagram, sibling).unwrap().displayed,
+            Some(2)
+        );
+        request.parent_presentation_id = None;
+        assert!(
+            append_group(&project, &mut diagram, &request)
+                .unwrap_err()
+                .contains("not owned or inherited")
+        );
     }
 
     #[test]

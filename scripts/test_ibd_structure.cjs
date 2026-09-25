@@ -82,3 +82,46 @@ test('failed type navigation does not lose the enclosing diagram', async () => {
   await assert.rejects(ui.context.navigateToTypeIbd('missing'), /No type/);
   assert.equal(ui.state.selectedDiagramId, 'ibd');
 });
+
+test('separate symbols render unique aliases and counts without changing the shared property', async () => {
+  const ui = fixture(); const property = ui.diagram.properties[0];
+  property.occurrence_path = [{ first: 1, count: 1 }]; property.occurrence_name = 'unitNorth';
+  const second = { ...property, id: 'second', occurrence_path: [{ first: 2, count: 1 }], occurrence_name: 'unitSouth' };
+  ui.diagram.properties = [property, second];
+  ui.context.featureNotation = (_, element) => `${element.name}: Unit [${element.multiplicity}]`;
+  const before = JSON.stringify(ui.state.snapshot.project);
+  ui.context.renderIbdCanvas(ui.canvas, ui.diagram, ui.state.snapshot.project);
+  const boxes = ui.canvas.children[0].children.filter(node => node.className?.startsWith('ibd-property'));
+  assert.match(boxes[0].innerHTML, /unitNorth: Unit \[1\]/);
+  assert.match(boxes[1].innerHTML, /unitSouth: Unit \[1\]/);
+  assert.match(boxes[1].innerHTML, /occurrence of engine/);
+  await boxes[1].onclick({ stopPropagation() {} });
+  assert.equal(ui.state.selectedElementId, 'engine'); assert.equal(ui.state.selectedIbdPresentationId, 'second');
+  assert.equal(JSON.stringify(ui.state.snapshot.project), before);
+});
+
+test('collapse distinguishes population ranges even when the entire semantic path is shared', () => {
+  const ui = fixture(); const original = ui.diagram.properties[0];
+  const first = { ...original, collapsed: true, occurrence_path: [{ first: 1, count: 1 }] };
+  const second = { ...original, id: 'second', occurrence_path: [{ first: 2, count: 1 }] };
+  const child = { ...ui.diagram.properties[2], occurrence_path: [first.occurrence_path[0], null] };
+  const otherChild = { ...child, id: 'second-child', occurrence_path: [second.occurrence_path[0], null] };
+  ui.diagram.properties = [first, second, child, otherChild];
+  assert.equal(ui.context.ibdPropertyVisible(ui.diagram, child), false);
+  assert.equal(ui.context.ibdPropertyVisible(ui.diagram, otherChild), true);
+});
+
+test('repository drops use established zoom coordinates and pass the actual target to Rust', async () => {
+  const ui = fixture(); let received;
+  ui.context.diagramCoordinates = (frame, event) => { assert.equal(event.clientX, 900); return { x: 150, y: 120 }; };
+  ui.context.window.smpIbdOccurrences = { append: async (options, request) => { received = { options, request }; return 'new-occurrence'; } };
+  ui.context.renderIbdCanvas(ui.canvas, ui.diagram, ui.state.snapshot.project);
+  const frame = ui.canvas.children[0];
+  await frame.ondrop({ clientX: 900, dataTransfer: { getData: () => 'pistons' }, preventDefault() {}, stopPropagation() {},
+    target: { closest: () => ({ dataset: { presentationId: 'rear' } }) } });
+  assert.equal(received.request.parent_presentation_id, 'rear'); assert.equal(received.request.element_id, 'pistons');
+  assert.equal(received.request.x, 150); assert.equal(received.request.y, 120);
+  assert.equal(ui.state.selectedIbdPresentationId, 'new-occurrence');
+  await received.options.commit('append_ibd_occurrence', { diagramId: 'ibd' });
+  assert.equal(ui.commands.length, 1, 'Rust command owns the only history checkpoint');
+});
