@@ -20,7 +20,11 @@ pub(super) fn project_end(prefix: &[ElementId], end: &ConnectorEnd) -> Connector
     }
 }
 
-fn presented_end(diagram: &IbdDiagram, end: &ConnectorEnd, ranges: &[Option<super::ibd_occurrences::OccurrenceRange>]) -> Option<String> {
+fn presented_end(
+    diagram: &IbdDiagram,
+    end: &ConnectorEnd,
+    ranges: &[Option<super::ibd_occurrences::OccurrenceRange>],
+) -> Option<String> {
     diagram
         .boundary_ports
         .iter()
@@ -30,7 +34,8 @@ fn presented_end(diagram: &IbdDiagram, end: &ConnectorEnd, ranges: &[Option<supe
         }))
         .find(|id| {
             super::ibd_occurrences::endpoint_matches_context(diagram, id, ranges)
-                && ibd::ibd_end_for_presentation(diagram, id).is_ok_and(|(candidate, _)| candidate == *end)
+                && ibd::ibd_end_for_presentation(diagram, id)
+                    .is_ok_and(|(candidate, _)| candidate == *end)
         })
 }
 
@@ -63,7 +68,11 @@ pub(super) fn show_existing_connectors(
                 || diagram.connectors.iter().any(|edge| {
                     edge.relationship_id == relationship.id.to_string()
                         && edge.context_path == context_path
-                        && super::ibd_occurrences::ranges_equal(&edge.context_occurrence_path, &occurrence_path, context_path.len())
+                        && super::ibd_occurrences::ranges_equal(
+                            &edge.context_occurrence_path,
+                            &occurrence_path,
+                            context_path.len(),
+                        )
                 })
             {
                 continue;

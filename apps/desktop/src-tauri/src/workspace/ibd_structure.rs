@@ -5,16 +5,20 @@ use super::*;
 const MAX_PATH_DEPTH: usize = 32;
 const MAX_OCCURRENCES: usize = 4096;
 
-pub(super) fn is_descendant(child: &IbdPropertyPresentation, parent: &IbdPropertyPresentation) -> bool {
+pub(super) fn is_descendant(
+    child: &IbdPropertyPresentation,
+    parent: &IbdPropertyPresentation,
+) -> bool {
     !parent.property_path.is_empty()
         && child.property_path.len() > parent.property_path.len()
         && super::ibd_occurrences::same_prefix(child, parent, parent.property_path.len())
 }
 
 pub(super) fn property_visible(diagram: &IbdDiagram, property: &IbdPropertyPresentation) -> bool {
-    !diagram.properties.iter().any(|ancestor| {
-        ancestor.collapsed && is_descendant(property, ancestor)
-    })
+    !diagram
+        .properties
+        .iter()
+        .any(|ancestor| ancestor.collapsed && is_descendant(property, ancestor))
 }
 
 pub(super) fn endpoint_visible(diagram: &IbdDiagram, id: &str) -> bool {
@@ -153,7 +157,10 @@ pub(super) fn expand_property(
         .filter(|feature| {
             let mut path = parent.property_path.clone();
             path.push(feature.id.to_string());
-            !diagram.properties.iter().any(|p| p.property_path == path && super::ibd_occurrences::same_prefix(p, &parent, parent.property_path.len()))
+            !diagram.properties.iter().any(|p| {
+                p.property_path == path
+                    && super::ibd_occurrences::same_prefix(p, &parent, parent.property_path.len())
+            })
         })
         .count();
     if diagram.properties.len() + missing > MAX_OCCURRENCES {
@@ -172,11 +179,18 @@ pub(super) fn expand_property(
     for feature in children {
         let mut path = parent.property_path.clone();
         path.push(feature.id.to_string());
-        if diagram.properties.iter().any(|p| p.property_path == path && super::ibd_occurrences::same_prefix(p, &parent, parent.property_path.len())) {
+        if diagram.properties.iter().any(|p| {
+            p.property_path == path
+                && super::ibd_occurrences::same_prefix(p, &parent, parent.property_path.len())
+        }) {
             continue;
         }
         diagram.properties.push(IbdPropertyPresentation {
-            occurrence_path: { let mut ranges = parent.occurrence_path.clone(); ranges.resize(path.len(), None); ranges },
+            occurrence_path: {
+                let mut ranges = parent.occurrence_path.clone();
+                ranges.resize(path.len(), None);
+                ranges
+            },
             occurrence_name: None,
             collapsed: false,
             id: uuid::Uuid::new_v4().to_string(),
@@ -200,12 +214,7 @@ pub(super) fn expand_property(
 
 /// Translate a presentation subtree; shared definitions and other usages are untouched.
 fn translate_subtree(diagram: &mut IbdDiagram, id: &str, dx: f64, dy: f64) {
-    let Some(path) = diagram
-        .properties
-        .iter()
-        .find(|p| p.id == id)
-        .cloned()
-    else {
+    let Some(path) = diagram.properties.iter().find(|p| p.id == id).cloned() else {
         return;
     };
     for property in &mut diagram.properties {
@@ -251,9 +260,7 @@ pub(super) fn apply_property_geometry(
         {
             return Err("Expanded property must remain large enough for its internal parts".into());
         }
-        if is_descendant(&path, child)
-            && (rect.x < child.x + 16.0 || rect.y < child.y + 40.0)
-        {
+        if is_descendant(&path, child) && (rect.x < child.x + 16.0 || rect.y < child.y + 40.0) {
             return Err(
                 "Nested parts must stay inside their enclosing property's content area".into(),
             );
@@ -289,12 +296,7 @@ pub(super) fn apply_property_geometry(
 }
 
 pub(super) fn remove_property_presentation(diagram: &mut IbdDiagram, id: &str) -> bool {
-    let Some(path) = diagram
-        .properties
-        .iter()
-        .find(|p| p.id == id)
-        .cloned()
-    else {
+    let Some(path) = diagram.properties.iter().find(|p| p.id == id).cloned() else {
         return false;
     };
     let mut removed = HashSet::new();
@@ -370,9 +372,9 @@ pub(super) fn clean_groups(diagram: &mut IbdDiagram) -> Result<(), String> {
             .iter()
             .find(|p| p.id == id || p.ports.iter().any(|port| port.id == id))
             .and_then(|p| {
-                roots.iter().find(|root| {
-                    p.id == root.id || is_descendant(p, root)
-                })
+                roots
+                    .iter()
+                    .find(|root| p.id == root.id || is_descendant(p, root))
             })
             .map(|root| root.id.clone())
     };

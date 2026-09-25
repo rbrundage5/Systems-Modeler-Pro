@@ -386,8 +386,16 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 ));
             }
             if edge.context_occurrence_path.len() > edge.context_path.len()
-                || !super::ibd_occurrences::endpoint_matches_context(diagram, &edge.source_presentation_id, &edge.context_occurrence_path)
-                || !super::ibd_occurrences::endpoint_matches_context(diagram, &edge.target_presentation_id, &edge.context_occurrence_path)
+                || !super::ibd_occurrences::endpoint_matches_context(
+                    diagram,
+                    &edge.source_presentation_id,
+                    &edge.context_occurrence_path,
+                )
+                || !super::ibd_occurrences::endpoint_matches_context(
+                    diagram,
+                    &edge.target_presentation_id,
+                    &edge.context_occurrence_path,
+                )
             {
                 return Err("Connector occurrence ranges do not match its containing occurrence. Use compact endpoints for aggregate connections, or open the type-level IBD to edit shared internal wiring.".into());
             }

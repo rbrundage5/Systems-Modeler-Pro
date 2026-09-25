@@ -249,7 +249,9 @@ fn presented_endpoint(
     ranges: &[Option<super::ibd_occurrences::OccurrenceRange>],
 ) -> Result<String, String> {
     if super::ibd_occurrences::endpoint_matches_context(diagram, previous, ranges)
-        && ibd::ibd_end_for_presentation(diagram, previous).is_ok_and(|(current, _)| current == *end) {
+        && ibd::ibd_end_for_presentation(diagram, previous)
+            .is_ok_and(|(current, _)| current == *end)
+    {
         return Ok(previous.to_owned());
     }
     endpoint_ids(diagram).into_iter().find(|id| {
@@ -303,8 +305,18 @@ fn stage_specification(
                 .collect::<Result<Vec<_>, _>>()?;
             let source_end = super::ibd_projection::project_end(&prefix, &connector.source);
             let target_end = super::ibd_projection::project_end(&prefix, &connector.target);
-            let source = presented_endpoint(diagram, &edge.source_presentation_id, &source_end, &edge.context_occurrence_path)?;
-            let target = presented_endpoint(diagram, &edge.target_presentation_id, &target_end, &edge.context_occurrence_path)?;
+            let source = presented_endpoint(
+                diagram,
+                &edge.source_presentation_id,
+                &source_end,
+                &edge.context_occurrence_path,
+            )?;
+            let target = presented_endpoint(
+                diagram,
+                &edge.target_presentation_id,
+                &target_end,
+                &edge.context_occurrence_path,
+            )?;
             if source == edge.source_presentation_id && target == edge.target_presentation_id {
                 continue;
             }
