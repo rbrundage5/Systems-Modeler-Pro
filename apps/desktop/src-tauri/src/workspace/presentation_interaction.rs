@@ -5,7 +5,7 @@ use systems_modeler_core::structural_presentation::geometry::{
     BddGeometryCommand, BddRoutingScope, apply_bdd_geometry,
 };
 
-fn validate_geometry(
+pub(super) fn validate_geometry(
     x: f64,
     y: f64,
     width: f64,

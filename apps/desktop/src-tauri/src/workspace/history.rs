@@ -119,9 +119,25 @@ pub(super) fn edit_authored(
     history: &HistoryState,
     edit: impl FnOnce(&mut HistorySnapshot) -> Result<(), String>,
 ) -> Result<(), String> {
+    edit_authored_if_changed(workspace, activity, history, |candidate| {
+        edit(candidate)?;
+        Ok(true)
+    })
+    .map(|_| ())
+}
+
+/// A presentation reuse may already be satisfied; preserve both stacks in that case.
+pub(super) fn edit_authored_if_changed(
+    workspace: &WorkspaceState,
+    activity: &activity_workspace::ActivityWorkspaceState,
+    history: &HistoryState,
+    edit: impl FnOnce(&mut HistorySnapshot) -> Result<bool, String>,
+) -> Result<bool, String> {
     let mut authored = AuthoredStateGuards::lock(workspace, activity)?;
     let mut candidate = authored.capture();
-    edit(&mut candidate)?;
+    if !edit(&mut candidate)? {
+        return Ok(false);
+    }
     let mut undo = history
         .undo
         .lock()
@@ -136,7 +152,7 @@ pub(super) fn edit_authored(
         undo.remove(0);
     }
     redo.clear();
-    Ok(())
+    Ok(true)
 }
 
 /// Stage one IBD presentation edit and publish geometry plus one history entry.

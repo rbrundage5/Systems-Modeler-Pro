@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject = false, legacy = false } = {}) {
+function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, presentationPromise, reject = false, legacy = false, bdd = false } = {}) {
   const fields = new Map();
   const calls = [];
   let refreshed = 0;
@@ -43,9 +43,14 @@ function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject =
     querySelector() { return null; },
   };
   const state = { selectedElementId: element.id, snapshot: { project: { elements: [element], relationships: [] } } };
+  if (bdd) { state.selectedDiagramId = 'bdd-view'; state.snapshot.diagrams = [{ id: 'bdd-view', family: 'bdd' }]; }
   const invoke = async (command, args) => {
     calls.push({ command, args: args && JSON.parse(JSON.stringify(args)) });
     if (command === 'element_type_choices') return choicesPromise || choices;
+    if (command === 'present_part_composition') {
+      if (reject) throw new Error('Invalid composition');
+      return presentationPromise || true;
+    }
     if (command === 'update_element_specification') {
       if (reject) throw new Error('Invalid multiplicity: lower bound exceeds upper bound');
       return applyPromise || true;
@@ -198,4 +203,60 @@ test('Reception keeps its established Signal field and submits the selected stab
   select.value = 'signal';
   await ui.fields.get('apply-element').onclick();
   assert.equal(ui.calls.find(call => call.command === 'update_element_specification').args.edit.typeId, 'signal');
+});
+
+
+test('existing part composition uses its stable ID without creating a property or checkpoint', async () => {
+  const ui = fixture({ bdd: true }); await flush();
+  await ui.fields.get('show-part-composition').onclick();
+  const mutations = ui.calls.filter(call => call.command !== 'element_type_choices');
+  assert.deepEqual(mutations, [{ command: 'present_part_composition', args: { diagramId: 'bdd-view', propertyId: 'part' } }]);
+  assert.equal(ui.refreshed, 1);
+});
+
+test('composition display rejection keeps selection, draft and retry available', async () => {
+  const ui = fixture({ bdd: true, reject: true }); await flush();
+  await ui.fields.get('show-part-composition').onclick();
+  assert.equal(ui.refreshed, 0);
+  assert.equal(ui.state.selectedElementId, 'part');
+  assert.equal(ui.fields.get('show-part-composition').disabled, false);
+  assert.match(ui.fields.get('property-error').textContent, /Invalid composition/);
+  assert.ok(!ui.calls.some(call => call.command === 'history_checkpoint'));
+});
+
+test('unapplied property drafts cannot be discarded by showing a composition', async () => {
+  for (const id of ['property-name', 'property-type', 'property-multiplicity', 'property-read-only']) {
+    const ui = fixture({ bdd: true }); await flush();
+    ui.fields.get(id).oninput();
+    await ui.fields.get('show-part-composition').onclick();
+    assert.equal(ui.fields.get('show-part-composition').disabled, true);
+    assert.ok(!ui.calls.some(call => call.command === 'present_part_composition'));
+    assert.equal(ui.refreshed, 0);
+  }
+});
+
+test('composition display is offered only for a PartProperty with an active BDD', async () => {
+  for (const options of [{}, { bdd: true, kind: 'Block' }, { bdd: true, kind: 'ReferenceProperty' }]) {
+    const ui = fixture(options); await flush();
+    assert.equal(ui.fields.has('show-part-composition'), false);
+  }
+});
+
+
+test('composition completion preserves a draft edited while IPC was pending', async () => {
+  let finish;
+  const presentationPromise = new Promise(resolve => { finish = resolve; });
+  const ui = fixture({ bdd: true, presentationPromise }); await flush();
+  const pending = ui.fields.get('show-part-composition').onclick();
+  await flush();
+  ui.fields.get('property-name').value = 'new draft';
+  ui.fields.get('property-name').oninput();
+  await ui.fields.get('apply-element').onclick();
+  assert.equal(ui.calls.some(call => call.command === 'update_element_specification'), false);
+  finish(true); await pending;
+  assert.equal(ui.refreshed, 0);
+  assert.equal(ui.fields.get('property-name').value, 'new draft');
+  assert.equal(ui.fields.get('show-part-composition').disabled, true);
+  assert.equal(ui.fields.get('apply-element').disabled, false);
+  assert.match(ui.fields.get('property-error').textContent, /Apply.*refresh/);
 });
