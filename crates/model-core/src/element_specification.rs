@@ -183,12 +183,15 @@ impl Project {
             };
             // This form explicitly changes the structural usage category. Keep
             // the low-level set_aggregation invariant strict for other callers.
-            candidate.element_mut(id).map_err(|error| error.to_string())?.kind =
-                if aggregation == crate::AggregationKind::Composite {
-                    ElementKind::PartProperty
-                } else {
-                    ElementKind::ReferenceProperty
-                };
+            let property_kind = if aggregation == crate::AggregationKind::Composite {
+                ElementKind::PartProperty
+            } else {
+                ElementKind::ReferenceProperty
+            };
+            candidate
+                .element_mut(id)
+                .map_err(|error| error.to_string())?
+                .kind = property_kind;
             candidate
                 .set_aggregation(id, aggregation)
                 .map_err(|error| error.to_string())?;
@@ -316,27 +319,61 @@ mod tests {
     #[test]
     fn explicit_part_reference_conversion_preserves_identity_and_linked_ends() {
         let (mut project, id, _, _) = fixture(ElementKind::PartProperty);
-        let relationship = project.create_property_association(id, Some(project.root_id)).unwrap();
+        let relationship = project
+            .create_property_association(id, Some(project.root_id))
+            .unwrap();
         let original = project.element(id).unwrap().clone();
         let before = serde_json::to_value(&project).unwrap();
         for aggregation in ["none", "shared"] {
-            let converted = project.stage_element_specification(id, &ElementSpecificationEdit {
-                aggregation: Some(aggregation.into()), ..edit(&original.name)
-            }).unwrap();
+            let converted = project
+                .stage_element_specification(
+                    id,
+                    &ElementSpecificationEdit {
+                        aggregation: Some(aggregation.into()),
+                        ..edit(&original.name)
+                    },
+                )
+                .unwrap();
             let property = converted.element(id).unwrap();
             assert_eq!(property.kind, ElementKind::ReferenceProperty);
             assert_eq!(property.id, original.id);
             assert_eq!(property.owner_id, original.owner_id);
             assert_eq!(property.type_id, original.type_id);
             assert_eq!(property.multiplicity, original.multiplicity);
-            let end = converted.relationship(relationship).unwrap().association_ends.iter()
-                .find(|end| end.property_id == Some(id)).unwrap();
+            let end = converted
+                .relationship(relationship)
+                .unwrap()
+                .association_ends
+                .iter()
+                .find(|end| end.property_id == Some(id))
+                .unwrap();
             assert_eq!(end.aggregation, property.aggregation);
-            let restored = converted.stage_element_specification(id, &ElementSpecificationEdit {
-                aggregation: Some("composite".into()), ..edit(&original.name)
-            }).unwrap();
+            let restored = converted
+                .stage_element_specification(
+                    id,
+                    &ElementSpecificationEdit {
+                        aggregation: Some("composite".into()),
+                        ..edit(&original.name)
+                    },
+                )
+                .unwrap();
             assert_eq!(serde_json::to_value(&restored).unwrap(), before);
         }
+        assert_eq!(serde_json::to_value(&project).unwrap(), before);
+    }
+
+    #[test]
+    fn reference_conversion_rejects_multiple_composite_owners_without_tightening_ends() {
+        let (mut project, id, _, _) = fixture(ElementKind::ReferenceProperty);
+        project
+            .create_property_association(id, Some(project.root_id))
+            .unwrap();
+        let before = serde_json::to_value(&project).unwrap();
+        let change = ElementSpecificationEdit {
+            aggregation: Some("composite".into()),
+            ..edit("renamed")
+        };
+        assert!(project.stage_element_specification(id, &change).is_err());
         assert_eq!(serde_json::to_value(&project).unwrap(), before);
     }
 
