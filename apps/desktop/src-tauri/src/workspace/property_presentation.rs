@@ -5,6 +5,10 @@ use super::{
 };
 use systems_modeler_core::{ElementId, ElementKind};
 
+#[cfg(test)]
+#[path = "vehicle_workflow_tests.rs"]
+mod vehicle_workflow_tests;
+
 #[tauri::command]
 pub fn present_part_composition(
     diagram_id: String,
