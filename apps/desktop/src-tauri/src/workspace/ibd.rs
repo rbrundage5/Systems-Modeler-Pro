@@ -1,7 +1,7 @@
 use super::routing::{RouteRect, RouteRequest, orthogonal_route};
 use super::*;
 use serde::{Deserialize, Serialize};
-use systems_modeler_core::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
+use systems_modeler_core::{ConnectorEnd, ConnectorKind, ItemFlow};
 
 pub const IBD_METADATA_KEY: &str = "ibd-diagrams";
 
@@ -595,6 +595,7 @@ pub fn add_nested_port_to_ibd(
     Ok(id)
 }
 
+#[allow(clippy::too_many_arguments)] // Preserve legacy named IPC fields.
 #[tauri::command]
 pub fn create_ibd_connector(
     diagram_id: String,
@@ -603,47 +604,27 @@ pub fn create_ibd_connector(
     target_presentation_id: String,
     name: Option<String>,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<String, String> {
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    let mut diagrams = state.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?;
-    let diagram = diagrams
-        .iter_mut()
-        .find(|d| d.id == diagram_id)
-        .ok_or("IBD not found")?;
-    let (source, _) = ibd_end_for_presentation(diagram, &source_presentation_id)?;
-    let (target, _) = ibd_end_for_presentation(diagram, &target_presentation_id)?;
-    let connector_kind = match kind.as_str() {
+    let kind = match kind.as_str() {
         "Assembly" => ConnectorKind::Assembly,
         "Delegation" => ConnectorKind::Delegation,
         _ => return Err("connector kind must be Assembly or Delegation".into()),
     };
-    let semantic_id = project
-        .create_connector(Connector {
-            association_type_id: None,
-            end_multiplicities: Default::default(),
-            context_id: parse_element_id(&diagram.context_block_id)?,
-            kind: connector_kind,
-            source,
-            target,
-        })
-        .map_err(|error| error.to_string())?;
-
-    if let Some(name) = name {
-        project.relationships.get_mut(&semantic_id).unwrap().name = name.trim().to_string();
-    }
-
-    let points = route_ibd_edge(diagram, &source_presentation_id, &target_presentation_id)?;
-    diagram.connectors.push(IbdConnectorPresentation {
-        context_path: Vec::new(),
-        id: uuid::Uuid::new_v4().to_string(),
-        relationship_id: semantic_id.to_string(),
-        source_presentation_id,
-        target_presentation_id,
-        label_anchor: Some(super::routing::route_label_anchor(&points)),
-        points,
-    });
-    Ok(semantic_id.to_string())
+    super::connector_editing::create_in_states(
+        &diagram_id,
+        &super::connector_editing::ConnectorSpecificationEdit {
+            name: name.unwrap_or_default(),
+            kind,
+            source_presentation_id,
+            target_presentation_id,
+            typing: None,
+        },
+        &state,
+        &activity,
+        &history,
+    )
 }
 
 #[tauri::command]

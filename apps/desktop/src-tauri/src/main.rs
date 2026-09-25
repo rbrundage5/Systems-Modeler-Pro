@@ -95,7 +95,10 @@ mod workspace {
         create_state_machine_diagram, move_sequence_lifeline, move_state_vertex,
         resize_sequence_lifeline_timeline, route_behavior_diagram, update_state_behaviors,
     };
-    pub use connector_editing::{create_ibd_connector_specification, ibd_connector_type_choices, ibd_connector_specification, update_ibd_connector_specification};
+    pub use connector_editing::{
+        create_ibd_connector_specification, ibd_connector_specification,
+        ibd_connector_type_choices, update_ibd_connector_specification,
+    };
     pub use feature_editing::{
         element_type_choices, update_bdd_feature_semantics, update_element_specification,
     };
@@ -305,7 +308,10 @@ use workspace::{
     step_parametric_execution, terminate_parametric_execution,
 };
 use workspace::{composition_property_choices, link_composition_property};
-use workspace::{create_ibd_connector_specification, ibd_connector_type_choices, ibd_connector_specification, update_ibd_connector_specification};
+use workspace::{
+    create_ibd_connector_specification, ibd_connector_specification, ibd_connector_type_choices,
+    update_ibd_connector_specification,
+};
 
 #[derive(Serialize)]
 struct EngineStatus {
