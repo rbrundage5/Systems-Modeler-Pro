@@ -113,6 +113,8 @@ fn link_composition_property_in_state(
         .ok_or_else(|| "composition link produced no Property".into())
 }
 
+// Preserve the existing flat IPC arguments; the extra parameters are native state handles.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn update_association_end(
     relationship_id: String,
