@@ -1,10 +1,10 @@
 use crate::{
     Action, ActionKind, Activity, ActivityEdge, ActivityEdgeId, ActivityEdgeKind, ActivityEndpoint,
-    ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository,
-    DiagnosticSeverity, ElementId, ElementKind, EngineStepOutcome, ExecutionEngine, ExecutionError,
-    ExecutionSession, ExecutionSnapshot, ModeledOperationRequest, ObjectNodeKind,
-    ObjectNodeOrdering, ParameterDirection, Pin, PinDirection, Project, RuntimeEvent,
-    RuntimeEventAddress, RuntimeEventKind, RuntimeEventRequest, RuntimeInstanceId, RuntimeValue,
+    ActivityId, ActivityNode, ActivityNodeId, ActivityNodeKind, ActivityRepository, ElementId,
+    ElementKind, EngineStepOutcome, ExecutionEngine, ExecutionError, ExecutionSession,
+    ExecutionSnapshot, ModeledOperationRequest, ObjectNodeKind, ObjectNodeOrdering,
+    ParameterDirection, Pin, PinDirection, Project, RuntimeEvent, RuntimeEventAddress,
+    RuntimeEventKind, RuntimeEventRequest, RuntimeInstanceId, RuntimeValue,
     StructuredActivityNodeKind, evaluate_execution_expression, invoke_modeled_operation,
 };
 use serde::{Deserialize, Serialize};
@@ -191,6 +191,7 @@ impl ActivityExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
+        self.validate_execution(project)?;
         if self.runtime_instance_id.is_none() {
             self.runtime_instance_id = session.root_runtime_instance_id();
         }
@@ -209,6 +210,7 @@ impl ActivityExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
+        self.validate_execution(project)?;
         session.reset(project)?;
         if self.runtime_instance_id.is_none() {
             self.runtime_instance_id = session.root_runtime_instance_id();
@@ -317,11 +319,7 @@ impl ActivityExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
-        self.repository.validate(project).map_err(|error| {
-            engine_error(format!("Cannot initialize Activity execution: {error}"))
-        })?;
         let activity = self.activity(self.root_activity_id)?.clone();
-        self.warn_for_structured_semantics(&activity, session);
         let authored_defaults: Vec<_> = project
             .elements
             .values()
@@ -426,28 +424,50 @@ impl ActivityExecutionEngine {
         Ok(frame)
     }
 
-    fn warn_for_structured_semantics(&self, activity: &Activity, session: &mut ExecutionSession) {
-        for structured in &activity.structured_nodes {
-            let limitation = match structured.kind {
-                StructuredActivityNodeKind::ExpansionRegion => Some(
-                    "ExpansionRegion execution requires expansion-node/mode semantics that are not represented by the current authored metamodel.",
-                ),
-                StructuredActivityNodeKind::Conditional => Some(
-                    "ConditionalNode clauses are not represented by the current authored metamodel; contained control flows execute normally, but clause semantics are not inferred.",
-                ),
-                _ => None,
-            };
-            if let Some(limitation) = limitation {
-                session.add_diagnostic(
-                    DiagnosticSeverity::Warning,
-                    activity.context_id.or(Some(activity.owner_id)),
-                    format!(
-                        "Activity '{}', structured node '{}': {limitation}",
-                        activity.name, structured.name
-                    ),
-                );
+    fn validate_execution(&self, project: &Project) -> Result<(), ExecutionError> {
+        self.repository.validate(project).map_err(|error| {
+            engine_error(format!("Cannot initialize Activity execution: {error}"))
+        })?;
+        let mut pending = vec![self.root_activity_id];
+        let mut visited = HashSet::new();
+        while let Some(activity_id) = pending.pop() {
+            if !visited.insert(activity_id) {
+                continue;
+            }
+            let activity = self.activity(activity_id)?;
+            for structured in &activity.structured_nodes {
+                let limitation = match structured.kind {
+                    StructuredActivityNodeKind::Conditional => {
+                        "ConditionalNode clauses are not represented."
+                    }
+                    StructuredActivityNodeKind::ExpansionRegion => {
+                        "ExpansionRegion expansion nodes and mode are not represented."
+                    }
+                    StructuredActivityNodeKind::Loop => {
+                        "LoopNode setup, test, body and loop-variable semantics are not represented."
+                    }
+                    StructuredActivityNodeKind::Sequence => {
+                        "SequenceNode ordered executable-node semantics are not represented."
+                    }
+                    _ => continue,
+                };
+                return Err(engine_error(format!(
+                    "Cannot execute Activity '{}', structured node '{}': {limitation} \
+                     This construct can be authored but cannot yet be executed.",
+                    activity.name, structured.name
+                )));
+            }
+            for node in &activity.nodes {
+                if let ActivityNodeKind::Action(Action {
+                    kind: ActionKind::CallBehavior { activity_id },
+                    ..
+                }) = &node.kind
+                {
+                    pending.push(*activity_id);
+                }
             }
         }
+        Ok(())
     }
 
     fn activity(&self, id: ActivityId) -> Result<&Activity, ExecutionError> {
@@ -1691,6 +1711,7 @@ impl ExecutionEngine for ActivityExecutionEngine {
         project: &Project,
         session: &mut ExecutionSession,
     ) -> Result<(), ExecutionError> {
+        self.validate_execution(project)?;
         session.initialize(project)?;
         self.initialize_embedded(project, session)
     }
