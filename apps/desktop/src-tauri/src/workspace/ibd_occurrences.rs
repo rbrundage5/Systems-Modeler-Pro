@@ -276,20 +276,7 @@ fn set_allocations(
             property.id == peer.id || super::ibd_structure::is_descendant(property, peer)
         })
     };
-    let removed: HashSet<_> = diagram
-        .properties
-        .iter()
-        .filter(|property| belongs(property))
-        .flat_map(|property| {
-            std::iter::once(property.id.clone())
-                .chain(property.ports.iter().map(|port| port.id.clone()))
-        })
-        .collect();
     diagram.properties.retain(|property| !belongs(property));
-    diagram.connectors.retain(|edge| {
-        !removed.contains(&edge.source_presentation_id)
-            && !removed.contains(&edge.target_presentation_id)
-    });
     let mut reused = HashSet::new();
     for (index, (name, range)) in requested.into_iter().enumerate() {
         let existing = peers
@@ -331,6 +318,20 @@ fn set_allocations(
         }
     }
     validate(diagram, project)?;
+    // Keep connector presentations whose endpoint occurrences survived intact.
+    // Aggregate endpoints replaced by subsets must not be silently redirected.
+    diagram.connectors = original
+        .connectors
+        .into_iter()
+        .filter(|edge| {
+            [&edge.source_presentation_id, &edge.target_presentation_id]
+                .iter()
+                .all(|id| {
+                    super::ibd::ibd_end_for_presentation(diagram, id).is_ok()
+                        && endpoint_matches_context(diagram, id, &edge.context_occurrence_path)
+                })
+        })
+        .collect();
     super::ibd_structure::fit_ancestors(diagram)?;
     super::ibd_projection::show_existing_connectors(project, diagram)?;
     diagram.connectors = super::ibd::routed_ibd_connectors(diagram, None)?;
@@ -703,10 +704,16 @@ mod tests {
             y: 180.0,
         };
         let mut ids = Vec::new();
+        let mut first_connector = None;
         for name in ["north", "south", "east", "west"] {
             request.name = name.into();
             ids.push(append_group(&project, &mut diagram, &request).unwrap());
             super::super::ibd::validate_ibd_diagrams(&project, &[diagram.clone()]).unwrap();
+            if let Some(id) = &first_connector {
+                assert!(diagram.connectors.iter().any(|edge| &edge.id == id));
+            } else {
+                first_connector = Some(diagram.connectors[0].id.clone());
+            }
         }
         assert_eq!(ids.iter().collect::<HashSet<_>>().len(), 4);
         let north = diagram
