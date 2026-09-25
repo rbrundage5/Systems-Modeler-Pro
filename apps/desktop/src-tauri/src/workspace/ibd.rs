@@ -161,9 +161,10 @@ fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> 
                 .ports
                 .iter()
                 .any(|port| port.id == source_id || port.id == target_id);
-        let encloses_end = paths
-            .iter()
-            .any(|path| super::ibd_structure::is_descendant(path, &property.property_path));
+        let encloses_end = paths.iter().any(|path| {
+            !property.property_path.is_empty()
+                && super::ibd_structure::is_descendant(path, &property.property_path)
+        });
         if !owns_end && !encloses_end {
             obstacles.push(property_rect(property));
         } else if encloses_end {
