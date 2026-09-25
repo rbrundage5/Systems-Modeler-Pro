@@ -125,6 +125,7 @@
     }
 
     for (const edge of edges) {
+      if (typeof ibdEndpointVisible === 'function' && (!ibdEndpointVisible(diagram, edge.source_presentation_id) || !ibdEndpointVisible(diagram, edge.target_presentation_id))) continue;
       const flows = flowsByConnector.get(edge.relationship_id) || [];
       if (!flows.length || !edge.points || edge.points.length < 2) continue;
       const overlay = document.createElementNS(SVG_NS, 'g');
@@ -185,6 +186,7 @@
     const svg = $('canvas')?.querySelector('svg.relationship-layer');
     if (!svg) return;
     for (const edge of edges) {
+      if (typeof ibdEndpointVisible === 'function' && (!ibdEndpointVisible(diagram, edge.source_presentation_id) || !ibdEndpointVisible(diagram, edge.target_presentation_id))) continue;
       const id = CSS.escape(String(edge.id));
       svg.querySelector(`.ibd-item-flow-overlay[data-presentation-id="${id}"]`)?.remove();
     }

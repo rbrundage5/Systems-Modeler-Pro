@@ -60,6 +60,7 @@ fn reroute_connected_bdd_edges(
     Ok(())
 }
 
+#[cfg(test)]
 fn apply_ibd_property_geometry(
     property: &mut ibd::IbdPropertyPresentation,
     x: f64,
@@ -184,22 +185,9 @@ pub fn update_ibd_property_geometry(
 ) -> Result<(), String> {
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
     history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
-        let property = diagram
-            .properties
-            .iter_mut()
-            .find(|property| property.id == presentation_id)
-            .ok_or("IBD property presentation not found")?;
-        if property.x == x
-            && property.y == y
-            && property.width == width
-            && property.height == height
-        {
-            return Ok(());
-        }
-        apply_ibd_property_geometry(property, x, y, width, height)?;
-        let mut ids = vec![property.id.clone()];
-        ids.extend(property.ports.iter().map(|port| port.id.clone()));
-        super::ibd_geometry::reroute_connected(diagram, &ids)
+        super::ibd_structure::apply_property_geometry(
+            diagram, &presentation_id, super::routing::RouteRect { x, y, width, height },
+        )
     })
 }
 
