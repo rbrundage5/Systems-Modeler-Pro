@@ -176,9 +176,9 @@ pub(super) fn coverage(
     })
 }
 
-fn parse_groups(
-    text: Option<&str>,
-) -> Result<Vec<(Option<String>, Option<OccurrenceRange>)>, String> {
+type OccurrenceGroup = (Option<String>, Option<OccurrenceRange>);
+
+fn parse_groups(text: Option<&str>) -> Result<Vec<OccurrenceGroup>, String> {
     let Some(text) = text else {
         return Ok(vec![(None, None)]);
     };
