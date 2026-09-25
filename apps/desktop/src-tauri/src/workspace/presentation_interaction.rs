@@ -62,7 +62,7 @@ fn reroute_connected_bdd_edges(
 
 #[cfg(test)]
 fn apply_ibd_property_geometry(
-    property: &mut super::ibd::IbdPropertyPresentation,
+    property: &mut crate::workspace::ibd::IbdPropertyPresentation,
     x: f64,
     y: f64,
     width: f64,
@@ -553,7 +553,7 @@ mod shared_resize_tests {
 
     #[test]
     fn ibd_nested_ports_follow_shared_property_move_and_resize_geometry() {
-        let mut property = super::ibd::IbdPropertyPresentation {
+        let mut property = crate::workspace::ibd::IbdPropertyPresentation {
             collapsed: false,
             id: "property".into(),
             element_id: "element".into(),
@@ -563,7 +563,7 @@ mod shared_resize_tests {
             width: 200.0,
             height: 100.0,
             ports: vec![
-                super::ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "left".into(),
                     element_id: "port-left".into(),
                     property_path: Vec::new(),
@@ -571,7 +571,7 @@ mod shared_resize_tests {
                     y: 125.0,
                     size: 16.0,
                 },
-                super::ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "right".into(),
                     element_id: "port-right".into(),
                     property_path: Vec::new(),
@@ -579,7 +579,7 @@ mod shared_resize_tests {
                     y: 175.0,
                     size: 16.0,
                 },
-                super::ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "top".into(),
                     element_id: "port-top".into(),
                     property_path: Vec::new(),
@@ -587,7 +587,7 @@ mod shared_resize_tests {
                     y: 100.0,
                     size: 16.0,
                 },
-                super::ibd::IbdPortPresentation {
+                crate::workspace::ibd::IbdPortPresentation {
                     id: "bottom".into(),
                     element_id: "port-bottom".into(),
                     property_path: Vec::new(),
