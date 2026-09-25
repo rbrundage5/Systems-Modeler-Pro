@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject = false, legacy = false, bdd = false } = {}) {
+function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, presentationPromise, reject = false, legacy = false, bdd = false } = {}) {
   const fields = new Map();
   const calls = [];
   let refreshed = 0;
@@ -47,7 +47,10 @@ function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, reject =
   const invoke = async (command, args) => {
     calls.push({ command, args: args && JSON.parse(JSON.stringify(args)) });
     if (command === 'element_type_choices') return choicesPromise || choices;
-    if (command === 'present_part_composition' && reject) throw new Error('Invalid composition');
+    if (command === 'present_part_composition') {
+      if (reject) throw new Error('Invalid composition');
+      return presentationPromise || true;
+    }
     if (command === 'update_element_specification') {
       if (reject) throw new Error('Invalid multiplicity: lower bound exceeds upper bound');
       return applyPromise || true;
@@ -237,4 +240,23 @@ test('composition display is offered only for a PartProperty with an active BDD'
     const ui = fixture(options); await flush();
     assert.equal(ui.fields.has('show-part-composition'), false);
   }
+});
+
+
+test('composition completion preserves a draft edited while IPC was pending', async () => {
+  let finish;
+  const presentationPromise = new Promise(resolve => { finish = resolve; });
+  const ui = fixture({ bdd: true, presentationPromise }); await flush();
+  const pending = ui.fields.get('show-part-composition').onclick();
+  await flush();
+  ui.fields.get('property-name').value = 'new draft';
+  ui.fields.get('property-name').oninput();
+  await ui.fields.get('apply-element').onclick();
+  assert.equal(ui.calls.some(call => call.command === 'update_element_specification'), false);
+  finish(true); await pending;
+  assert.equal(ui.refreshed, 0);
+  assert.equal(ui.fields.get('property-name').value, 'new draft');
+  assert.equal(ui.fields.get('show-part-composition').disabled, true);
+  assert.equal(ui.fields.get('apply-element').disabled, false);
+  assert.match(ui.fields.get('property-error').textContent, /Apply.*refresh/);
 });

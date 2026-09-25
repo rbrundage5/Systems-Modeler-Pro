@@ -67,20 +67,31 @@
     const typeSelect = $(typeFieldId);
     const typeSearch = $('property-type-search');
     let applying = false;
+    let presenting = false;
+    let draftChanged = false;
     const showComposition = $('show-part-composition');
     if (showComposition) {
       showComposition.onclick = async () => {
         if (applying || showComposition.disabled) return;
+        presenting = true;
+        apply.disabled = true;
         showComposition.disabled = true;
         errorBox.textContent = '';
         try {
           await runCommand('Presenting part composition…', () => requireInvoke()('present_part_composition', {
             diagramId: selectedBdd.id, propertyId: element.id,
           }));
-          await refresh();
+          if (draftChanged) {
+            errorBox.textContent = 'Composition added. Apply property changes to refresh the diagram.';
+          } else if ($('apply-element') === apply) {
+            await refresh();
+          }
         } catch (error) {
           errorBox.textContent = error?.message || String(error);
-          showComposition.disabled = false;
+          showComposition.disabled = draftChanged;
+        } finally {
+          presenting = false;
+          apply.disabled = supportsType && typeSelect.disabled;
         }
       };
       // A presentation refresh must not discard an uncommitted Properties draft.
@@ -88,6 +99,7 @@
         'property-default', 'property-aggregation', 'property-derived', 'property-read-only']) {
         const field = $(id);
         if (field) field.oninput = field.onchange = () => {
+          draftChanged = true;
           showComposition.disabled = true;
           showComposition.title = 'Apply property changes before showing the composition.';
         };
@@ -110,7 +122,7 @@
         showChoices();
         typeSelect.disabled = false;
         typeSearch.disabled = false;
-        apply.disabled = false;
+        apply.disabled = presenting;
       }).catch((error) => {
         if ($('apply-element') !== apply) return;
         errorBox.textContent = `Could not load compatible types: ${error?.message || String(error)}. Reselect this element to retry.`;
@@ -118,7 +130,7 @@
     }
 
     apply.onclick = async () => {
-      if (applying || apply.disabled) return;
+      if (applying || presenting || apply.disabled) return;
       applying = true;
       apply.disabled = true;
       errorBox.textContent = '';
