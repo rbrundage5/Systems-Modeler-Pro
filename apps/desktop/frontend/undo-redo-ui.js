@@ -22,6 +22,7 @@
       || text.startsWith('applying element specification')
       || text.startsWith('reconnecting bdd ')
       || text.startsWith('presenting part composition')
+      || text.startsWith('creating bdd part composition')
       || text.startsWith('linking composition property');
   }
 

@@ -218,9 +218,10 @@ const renderStructuralCanvas = renderCanvas; renderCanvas = function renderCanva
       if (state.pendingRelationship) {
         if (!BDD_CLASSIFIER_KINDS.has(element.kind)) return;
         if (!state.pendingRelationship.sourceElementId) { state.pendingRelationship.sourceElementId = element.id; state.selectedElementId = element.id; render(); return; }
-        if (state.pendingRelationship.sourceElementId !== element.id) {
+        if (state.pendingRelationship.sourceElementId !== element.id || state.pendingRelationship.kind === 'Composition') {
           const pending = { ...state.pendingRelationship }; state.pendingRelationship = null;
-          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship_complete', { diagramId: state.selectedDiagramId, kind: pending.kind, sourceElementId: pending.sourceElementId, targetElementId: element.id }));
+          if (pending.kind === 'Composition') await window.smpAuthorComposition(state.selectedDiagramId, pending.sourceElementId, element.id);
+          else await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()('create_bdd_relationship_complete', { diagramId: state.selectedDiagramId, kind: pending.kind, sourceElementId: pending.sourceElementId, targetElementId: element.id }));
           state.selectedElementId = element.id; await refresh(); return;
         }
       }

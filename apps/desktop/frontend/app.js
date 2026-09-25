@@ -495,7 +495,7 @@ function renderCanvas() {
           render();
           return;
         }
-        if (state.pendingRelationship.sourceElementId !== element.id) {
+        if (state.pendingRelationship.sourceElementId !== element.id || state.pendingRelationship.kind === 'Composition') {
           const pending = { ...state.pendingRelationship };
           state.pendingRelationship = null;
           const sourceNode = diagram.nodes.find((node) => node.element_id === pending.sourceElementId);
@@ -504,7 +504,8 @@ function renderCanvas() {
           const args = diagram.family === 'requirement'
             ? { diagramId: state.selectedDiagramId, relationshipKind: pending.kind, sourceNodeId: sourceNode?.id, targetNodeId: targetNode?.id }
             : { diagramId: state.selectedDiagramId, kind: pending.kind, sourceElementId: pending.sourceElementId, targetElementId: element.id };
-          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()(command, args));
+          if (pending.kind === 'Composition' && diagram.family !== 'requirement') await window.smpAuthorComposition(state.selectedDiagramId, pending.sourceElementId, element.id);
+          else await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()(command, args));
           state.selectedElementId = element.id;
           await refresh();
           return;
