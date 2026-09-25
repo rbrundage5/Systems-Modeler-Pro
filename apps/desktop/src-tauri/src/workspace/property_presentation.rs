@@ -1,7 +1,7 @@
 //! Present a classifier-owned part without creating another usage or Block.
 use super::{
     DiagramEdge, DiagramNode, WorkspaceState, activity_workspace, history, parse_diagram_id,
-    parse_element_id, route_relationship_at_lane,
+    parse_element_id, presentation_interaction::validate_geometry, route_relationship_at_lane,
 };
 use systems_modeler_core::{ElementId, ElementKind};
 
@@ -50,6 +50,9 @@ fn present_part_composition_in_state(
             .iter_mut()
             .find(|diagram| diagram.id == diagram_id && diagram.family == "bdd")
             .ok_or("Select a Block Definition Diagram to show the composition.")?;
+        for node in &diagram.nodes {
+            validate_geometry(node.x, node.y, node.width, node.height, 48.0, 32.0)?;
+        }
         let matches: Vec<_> = project
             .relationships
             .values()
