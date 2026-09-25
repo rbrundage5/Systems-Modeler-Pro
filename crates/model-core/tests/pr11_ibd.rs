@@ -94,6 +94,8 @@ fn fixture() -> Fixture {
 fn assembly_connector_uses_nested_port_paths_and_validates_types() {
     let mut f = fixture();
     let connector = Connector {
+        association_type_id: None,
+        end_multiplicities: Default::default(),
         context_id: f.system,
         kind: ConnectorKind::Assembly,
         source: ConnectorEnd::nested_port(vec![f.left_part], f.left_port),
@@ -108,6 +110,8 @@ fn assembly_connector_uses_nested_port_paths_and_validates_types() {
 fn delegation_requires_boundary_to_internal_topology() {
     let mut f = fixture();
     let valid = Connector {
+        association_type_id: None,
+        end_multiplicities: Default::default(),
         context_id: f.system,
         kind: ConnectorKind::Delegation,
         source: ConnectorEnd::boundary(f.boundary),
@@ -116,6 +120,8 @@ fn delegation_requires_boundary_to_internal_topology() {
     f.project.create_connector(valid).unwrap();
 
     let invalid = Connector {
+        association_type_id: None,
+        end_multiplicities: Default::default(),
         context_id: f.system,
         kind: ConnectorKind::Delegation,
         source: ConnectorEnd::nested_port(vec![f.left_part], f.left_port),
@@ -135,6 +141,8 @@ fn item_flow_requires_classifier_and_realizes_connector() {
     let connector_id = f
         .project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: f.system,
             kind: ConnectorKind::Assembly,
             source: source.clone(),
@@ -199,6 +207,8 @@ fn nested_port_role_must_match_the_final_property_path_step() {
 fn inconsistent_connector_roles_reject_creation_edit_and_reopened_models() {
     let mut f = fixture();
     let connector = Connector {
+        association_type_id: None,
+        end_multiplicities: Default::default(),
         context_id: f.system,
         kind: ConnectorKind::Assembly,
         source: ConnectorEnd::nested_port(vec![f.left_part], f.left_port),

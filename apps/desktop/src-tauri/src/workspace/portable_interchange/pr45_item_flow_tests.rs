@@ -54,6 +54,8 @@ fn pr45_portable_json_round_trip_preserves_item_flow_semantics() {
     let target = ConnectorEnd::nested_port(vec![right], port);
     let connector = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: context,
             kind: ConnectorKind::Assembly,
             source: source.clone(),

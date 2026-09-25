@@ -987,6 +987,8 @@ fn build_candidate(
                         resolve_connector_end(&project, namespace, context_id, target, index)?;
                     let id = project
                         .create_connector(Connector {
+                            association_type_id: None,
+                            end_multiplicities: Default::default(),
                             context_id,
                             kind: *kind,
                             source,
@@ -1052,6 +1054,8 @@ fn build_candidate(
                     let target =
                         resolve_connector_end(&project, namespace, context_id, target, index)?;
                     let next_connector = Connector {
+                        association_type_id: current.connector.as_ref().unwrap().association_type_id,
+                        end_multiplicities: current.connector.as_ref().unwrap().end_multiplicities,
                         context_id,
                         kind: *kind,
                         source,

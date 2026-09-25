@@ -152,7 +152,11 @@ fn stage_specification(
     specification(project, diagram, relationship_id)?;
     let (source, _) = ibd::ibd_end_for_presentation(diagram, &edit.source_presentation_id)?;
     let (target, _) = ibd::ibd_end_for_presentation(diagram, &edit.target_presentation_id)?;
+    let old = project.relationship(relationship_id).map_err(|error| error.to_string())?
+        .connector.as_ref().ok_or("relationship is not a Connector")?;
     let connector = Connector {
+        association_type_id: old.association_type_id,
+        end_multiplicities: old.end_multiplicities,
         context_id: parse_element_id(&diagram.context_block_id)?,
         kind: edit.kind,
         source,

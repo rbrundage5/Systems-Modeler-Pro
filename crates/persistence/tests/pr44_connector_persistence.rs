@@ -48,6 +48,8 @@ fn pr44_native_database_round_trip_preserves_complete_connector_payload() {
         .unwrap();
     let connector = project
         .create_connector(Connector {
+            association_type_id: None,
+            end_multiplicities: Default::default(),
             context_id: context,
             kind: ConnectorKind::Assembly,
             source: ConnectorEnd::nested_port(vec![left], port),

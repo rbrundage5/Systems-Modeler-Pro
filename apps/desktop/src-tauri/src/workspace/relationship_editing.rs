@@ -1205,6 +1205,8 @@ mod tests {
             let target = ConnectorEnd::role(role("right"));
             let connector = project
                 .create_connector(Connector {
+                    association_type_id: None,
+                    end_multiplicities: Default::default(),
                     context_id: fixture.blocks[0],
                     kind: ConnectorKind::Assembly,
                     source: source.clone(),
