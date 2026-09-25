@@ -11,6 +11,115 @@ pub struct ConnectorSpecificationEdit {
     pub kind: ConnectorKind,
     pub source_presentation_id: String,
     pub target_presentation_id: String,
+    /// None preserves existing typing for older callers; Some with empty ID untypes.
+    #[serde(default)]
+    pub typing: Option<ConnectorTypingEdit>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectorTypingEdit {
+    pub association_type_id: Option<String>,
+    pub source_multiplicity: String,
+    pub target_multiplicity: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConnectorAssociationChoice {
+    pub id: String,
+    pub label: String,
+    pub ends: [String; 2],
+}
+
+fn association_choices(project: &Project) -> Result<Vec<ConnectorAssociationChoice>, String> {
+    let mut choices = Vec::new();
+    for relationship in project.relationships.values().filter(|relationship| {
+        matches!(
+            relationship.kind,
+            RelationshipKind::Association | RelationshipKind::Composition
+        ) && relationship.association_ends.len() == 2
+    }) {
+        let end_label = |index: usize| -> Result<String, String> {
+            let end = &relationship.association_ends[index];
+            let classifier = project
+                .qualified_name(end.classifier_id)
+                .map_err(|error| error.to_string())?;
+            Ok(format!(
+                "{}: {} [{}]",
+                end.role_name,
+                classifier,
+                end.multiplicity.notation()
+            ))
+        };
+        let owner = relationship
+            .owner_id
+            .map(|id| project.qualified_name(id))
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .unwrap_or_default();
+        choices.push(ConnectorAssociationChoice {
+            id: relationship.id.to_string(),
+            label: format!(
+                "{}::{} [{}]",
+                owner,
+                if relationship.name.is_empty() {
+                    "Association"
+                } else {
+                    &relationship.name
+                },
+                relationship.id
+            ),
+            ends: [end_label(0)?, end_label(1)?],
+        });
+    }
+    choices.sort_by(|a, b| a.label.cmp(&b.label));
+    Ok(choices)
+}
+
+pub(super) fn connector_label(
+    project: &Project,
+    relationship: &systems_modeler_core::Relationship,
+) -> Option<String> {
+    let connector = relationship.connector.as_ref()?;
+    let Some(type_id) = connector.association_type_id else {
+        return Some(relationship.name.clone());
+    };
+    let association = project.relationship(type_id).ok()?;
+    let type_name = if association.name.is_empty() {
+        "Association"
+    } else {
+        &association.name
+    };
+    Some(format!("{}: {}", relationship.name, type_name))
+}
+
+#[tauri::command]
+pub fn ibd_connector_type_choices(
+    workspace: tauri::State<'_, WorkspaceState>,
+) -> Result<Vec<ConnectorAssociationChoice>, String> {
+    let guard = workspace
+        .project
+        .lock()
+        .map_err(|_| "project lock poisoned")?;
+    association_choices(guard.as_ref().ok_or("no project open")?)
+}
+
+fn apply_typing(
+    connector: &mut Connector,
+    typing: Option<&ConnectorTypingEdit>,
+) -> Result<(), String> {
+    if let Some(typing) = typing {
+        connector.association_type_id = typing
+            .association_type_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .map(parse_relationship_id)
+            .transpose()?;
+        connector.end_multiplicities = [
+            super::parametrics::parse_multiplicity(&typing.source_multiplicity)?,
+            super::parametrics::parse_multiplicity(&typing.target_multiplicity)?,
+        ];
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -26,6 +135,10 @@ pub struct ConnectorSpecification {
     pub source_presentation_id: String,
     pub target_presentation_id: String,
     pub endpoints: Vec<ConnectorEndpointChoice>,
+    pub association_type_id: Option<String>,
+    pub source_multiplicity: String,
+    pub target_multiplicity: String,
+    pub associations: Vec<ConnectorAssociationChoice>,
 }
 
 fn endpoint_ids(diagram: &IbdDiagram) -> Vec<String> {
@@ -97,6 +210,10 @@ fn specification(
         source_presentation_id: edge.source_presentation_id.clone(),
         target_presentation_id: edge.target_presentation_id.clone(),
         endpoints,
+        association_type_id: connector.association_type_id.map(|id| id.to_string()),
+        source_multiplicity: connector.end_multiplicities[0].notation(),
+        target_multiplicity: connector.end_multiplicities[1].notation(),
+        associations: association_choices(project)?,
     })
 }
 
@@ -158,7 +275,7 @@ fn stage_specification(
         .connector
         .as_ref()
         .ok_or("relationship is not a Connector")?;
-    let connector = Connector {
+    let mut connector = Connector {
         association_type_id: old.association_type_id,
         end_multiplicities: old.end_multiplicities,
         context_id: parse_element_id(&diagram.context_block_id)?,
@@ -166,6 +283,7 @@ fn stage_specification(
         source,
         target,
     };
+    apply_typing(&mut connector, edit.typing.as_ref())?;
     let candidate =
         project.stage_connector_specification(relationship_id, &edit.name, connector.clone())?;
     let mut staged = diagrams.to_vec();
@@ -199,6 +317,81 @@ fn stage_specification(
     Ok((candidate, staged))
 }
 
+fn stage_creation(
+    project: &Project,
+    diagrams: &[IbdDiagram],
+    diagram_id: &str,
+    edit: &ConnectorSpecificationEdit,
+) -> Result<(Project, Vec<IbdDiagram>, RelationshipId), String> {
+    let mut candidate = project.clone();
+    let mut staged = diagrams.to_vec();
+    let diagram = staged
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("IBD not found")?;
+    let (source, _) = ibd::ibd_end_for_presentation(diagram, &edit.source_presentation_id)?;
+    let (target, _) = ibd::ibd_end_for_presentation(diagram, &edit.target_presentation_id)?;
+    let mut connector = Connector {
+        context_id: parse_element_id(&diagram.context_block_id)?,
+        kind: edit.kind,
+        source,
+        target,
+        association_type_id: None,
+        end_multiplicities: Default::default(),
+    };
+    apply_typing(&mut connector, edit.typing.as_ref())?;
+    let id = candidate
+        .create_connector(connector)
+        .map_err(|error| error.to_string())?;
+    candidate.relationships.get_mut(&id).unwrap().name = edit.name.trim().to_owned();
+    let points = ibd::route_ibd_edge(
+        diagram,
+        &edit.source_presentation_id,
+        &edit.target_presentation_id,
+    )?;
+    diagram.connectors.push(ibd::IbdConnectorPresentation {
+        id: uuid::Uuid::new_v4().to_string(),
+        relationship_id: id.to_string(),
+        context_path: Vec::new(),
+        source_presentation_id: edit.source_presentation_id.clone(),
+        target_presentation_id: edit.target_presentation_id.clone(),
+        label_anchor: Some(routing::route_label_anchor(&points)),
+        points,
+    });
+    candidate.validate().map_err(|error| error.to_string())?;
+    ibd::validate_ibd_diagrams(&candidate, &staged)?;
+    Ok((candidate, staged, id))
+}
+
+#[tauri::command]
+pub fn create_ibd_connector_specification(
+    diagram_id: String,
+    edit: ConnectorSpecificationEdit,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<String, String> {
+    create_in_states(&diagram_id, &edit, &workspace, &activity, &history)
+}
+
+pub(super) fn create_in_states(
+    diagram_id: &str,
+    edit: &ConnectorSpecificationEdit,
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    history: &HistoryState,
+) -> Result<String, String> {
+    let mut created = None;
+    history::apply_structural_specification(workspace, activity, history, |project, diagrams| {
+        let (candidate, staged, id) = stage_creation(project, diagrams, diagram_id, edit)?;
+        created = Some(id);
+        Ok((candidate, staged))
+    })?;
+    created
+        .map(|id| id.to_string())
+        .ok_or("Connector was not created".into())
+}
+
 #[tauri::command]
 pub fn update_ibd_connector_specification(
     diagram_id: String,
@@ -218,6 +411,235 @@ pub fn update_ibd_connector_specification(
 mod tests {
     use super::*;
     use systems_modeler_core::{ElementKind, ItemFlow, Multiplicity};
+
+    #[test]
+    fn typed_creation_supports_different_components_and_atomic_history() {
+        let mut project = Project::new("Laboratory");
+        let root = project.root_id;
+        let context = project
+            .create_element(ElementKind::Block, "Installation", root)
+            .unwrap();
+        let producer = project
+            .create_element(ElementKind::Block, "Producer", root)
+            .unwrap();
+        let consumer = project
+            .create_element(ElementKind::Block, "Consumer", root)
+            .unwrap();
+        let source = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "source",
+                context,
+                producer,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let target = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "destination",
+                context,
+                consumer,
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let association = project
+            .create_association(
+                Some(root),
+                vec![
+                    Project::association_end(
+                        producer,
+                        "provider",
+                        Multiplicity::ONE,
+                        true,
+                        AggregationKind::None,
+                    ),
+                    Project::association_end(
+                        consumer,
+                        "client",
+                        Multiplicity::ONE,
+                        true,
+                        AggregationKind::None,
+                    ),
+                ],
+            )
+            .unwrap();
+        project.relationships.get_mut(&association).unwrap().name = "Transfer".into();
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let diagram = IbdDiagram {
+            id: diagram_id.clone(),
+            name: "Installation internals".into(),
+            owner_id: root.to_string(),
+            context_block_id: context.to_string(),
+            context_frame: None,
+            boundary_ports: Vec::new(),
+            connectors: Vec::new(),
+            properties: [source, target]
+                .iter()
+                .enumerate()
+                .map(|(index, id)| ibd::IbdPropertyPresentation {
+                    id: format!("p{index}"),
+                    element_id: id.to_string(),
+                    property_path: vec![id.to_string()],
+                    collapsed: false,
+                    x: 80.0 + index as f64 * 350.0,
+                    y: 80.0,
+                    width: 220.0,
+                    height: 100.0,
+                    ports: Vec::new(),
+                })
+                .collect(),
+        };
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        *workspace.project.lock().unwrap() = Some(project);
+        *workspace.ibd_diagrams.lock().unwrap() = vec![diagram];
+        let edit = ConnectorSpecificationEdit {
+            name: "transfer".into(),
+            kind: ConnectorKind::Assembly,
+            source_presentation_id: "p0".into(),
+            target_presentation_id: "p1".into(),
+            typing: Some(ConnectorTypingEdit {
+                association_type_id: Some(association.to_string()),
+                source_multiplicity: "1".into(),
+                target_multiplicity: "1".into(),
+            }),
+        };
+        let apply = |edit: &ConnectorSpecificationEdit| {
+            let mut id = None;
+            history::apply_structural_specification(
+                &workspace,
+                &activity,
+                &history,
+                |project, diagrams| {
+                    let (candidate, staged, created) =
+                        stage_creation(project, diagrams, &diagram_id, edit)?;
+                    id = Some(created);
+                    Ok((candidate, staged))
+                },
+            )?;
+            Ok::<_, String>(id.unwrap())
+        };
+        let id = apply(&edit).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        {
+            let guard = workspace.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            let relationship = project.relationship(id).unwrap();
+            assert_eq!(relationship.owner_id, Some(context));
+            assert_eq!(
+                connector_label(project, relationship).as_deref(),
+                Some("transfer: Transfer")
+            );
+            let snapshot = super::super::snapshot_project(project);
+            let rendered = snapshot
+                .relationships
+                .iter()
+                .find(|relationship| relationship.id == id.to_string())
+                .unwrap();
+            assert_eq!(
+                rendered.connector.as_ref().unwrap().association_type_id,
+                Some(association)
+            );
+            assert_eq!(
+                rendered.connector_label.as_deref(),
+                Some("transfer: Transfer")
+            );
+            assert_eq!(
+                association_choices(project).unwrap()[0].id,
+                association.to_string()
+            );
+            assert_eq!(project.element(source).unwrap().type_id, Some(producer));
+        }
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        let mut invalid = edit;
+        invalid.typing.as_mut().unwrap().target_multiplicity = "0..*".into();
+        assert!(apply(&invalid).is_err());
+        assert_eq!(
+            serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(),
+            before
+        );
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert!(
+            workspace
+                .project
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .relationship(id)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn typing_edit_preserves_item_flow_direction_and_legacy_edits_retain_type() {
+        let (mut project, diagrams, id) = fixture();
+        let port = project
+            .relationship(id)
+            .unwrap()
+            .connector
+            .as_ref()
+            .unwrap()
+            .source
+            .port_id
+            .unwrap();
+        let port_type = project.element(port).unwrap().type_id.unwrap();
+        let association = project
+            .create_association(
+                Some(project.root_id),
+                vec![
+                    Project::association_end(
+                        port_type,
+                        "source",
+                        Multiplicity::new(0, None).unwrap(),
+                        true,
+                        AggregationKind::None,
+                    ),
+                    Project::association_end(
+                        port_type,
+                        "target",
+                        Multiplicity::new(0, None).unwrap(),
+                        true,
+                        AggregationKind::None,
+                    ),
+                ],
+            )
+            .unwrap();
+        let mut edit = edit();
+        edit.target_presentation_id = "internal".into();
+        edit.typing = Some(ConnectorTypingEdit {
+            association_type_id: Some(association.to_string()),
+            source_multiplicity: "1".into(),
+            target_multiplicity: "1..4".into(),
+        });
+        let (candidate, staged) =
+            stage_specification(&project, &diagrams, &diagrams[0].id, id, &edit).unwrap();
+        for (key, relationship) in &project.relationships {
+            if relationship.item_flow.is_some() {
+                assert_eq!(
+                    relationship.item_flow,
+                    candidate.relationship(*key).unwrap().item_flow
+                );
+            }
+        }
+        edit.typing = None;
+        let (candidate, _) =
+            stage_specification(&candidate, &staged, &diagrams[0].id, id, &edit).unwrap();
+        assert_eq!(
+            candidate
+                .relationship(id)
+                .unwrap()
+                .connector
+                .as_ref()
+                .unwrap()
+                .association_type_id,
+            Some(association)
+        );
+    }
 
     fn fixture() -> (Project, Vec<IbdDiagram>, RelationshipId) {
         let (mut project, mut diagram) = super::super::ibd_geometry::tests::fixture();
@@ -294,6 +716,7 @@ mod tests {
 
     fn edit() -> ConnectorSpecificationEdit {
         ConnectorSpecificationEdit {
+            typing: None,
             name: "Data interface".into(),
             kind: ConnectorKind::Delegation,
             source_presentation_id: "external".into(),

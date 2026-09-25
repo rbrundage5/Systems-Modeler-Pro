@@ -28,6 +28,7 @@
       || text.startsWith('updating association end')
       || text.startsWith('presenting part composition')
       || text.startsWith('creating bdd part composition')
+      || text.startsWith('creating ibd connector specification')
       || text.startsWith('linking composition property')
       || text.startsWith('updating ibd structure');
   }

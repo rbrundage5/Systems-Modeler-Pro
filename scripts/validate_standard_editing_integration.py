@@ -245,7 +245,7 @@ require(
         "open_or_create_type_ibd",
         "set_ibd_structure_expanded",
         "add_nested_port_to_ibd",
-        "create_ibd_connector",
+        "smpConnectorProperties.create",
     ],
     "IBD qualified context/population authoring",
 )
