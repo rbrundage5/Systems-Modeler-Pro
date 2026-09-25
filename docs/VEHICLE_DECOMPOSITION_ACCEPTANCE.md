@@ -77,9 +77,14 @@ resize rejection, cleanup; projected existing connectors and type navigation.
 Frontend tests call production renderer and dispatch functions using a DOM test
 double. They are not browser screenshots or a substitute for a packaged UI test.
 
-Local combined result before the new native fixture: 197 frontend tests passed;
-all 21 repository `validate_*.py` checks passed. Native fixture execution and final
-combined Rust checks are recorded in the qualification PR's exact-head CI.
+Final combined local result: 198 frontend tests passed; all 21 repository
+`validate_*.py` checks passed. Native code candidate
+`c2fda5515807b113ae6399a40bef1e234064f14d` passed core, Linux desktop and Windows
+desktop tests/lint in run `36138760098`. The Windows job passed 318 desktop tests
+plus 3 additional binary tests, including the cross-feature Vehicle fixture,
+dense routing, repeated contextual delegation and bounded recursive expansion.
+The subsequent guide correction changes documentation only. The Windows release
+workflow passed; the installer workflow was still pending at this checkpoint.
 
 ## Gates still requiring direct desktop evidence
 
@@ -95,6 +100,12 @@ defaults; no destructive model rewrite is introduced. Shared property edits are
 resolved by ID when views render. Newly authored child definitions appear on
 Show existing parts/expansion. Recursive types remain legal; expansion is lazy,
 bounded to 32 levels and 4096 property occurrences per diagram.
+
+Older composition lines without a linked property require an explicit property
+link in the relationship editor. Matching names cannot establish identity safely.
+Link the existing usage when available; keep the existing diagram and classifier
+definitions. Presentation corrections apply after reopening in the updated app;
+they do not invent missing semantic ownership records in an older model.
 
 Further limitations: no per-occurrence cloned type overrides; changing types or
 deleting referenced classifiers can require resolving dependencies first. The
