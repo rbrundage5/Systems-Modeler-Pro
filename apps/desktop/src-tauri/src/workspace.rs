@@ -55,6 +55,8 @@ pub struct AssociationEndSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RelationshipSnapshot {
+    pub connector: Option<systems_modeler_core::Connector>,
+    pub connector_label: Option<String>,
     pub id: String,
     pub external_id: String,
     pub kind: String,
@@ -238,6 +240,8 @@ fn snapshot_project(project: &Project) -> ProjectSnapshot {
         .relationships
         .values()
         .map(|relationship| RelationshipSnapshot {
+            connector: relationship.connector.clone(),
+            connector_label: connector_editing::connector_label(project, relationship),
             id: relationship.id.to_string(),
             external_id: relationship.external_id.clone(),
             kind: relationship_display_kind(relationship).to_string(),

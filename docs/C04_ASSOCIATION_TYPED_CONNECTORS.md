@@ -26,6 +26,10 @@ Dependency-ordered leaves:
    shared native notation, retained drafts, and focused UI/native tests. Allowed
    paths: connector_editing.rs, core connector notation, connector-properties.js,
    ibd-ui.js if required for rendering, their tests, and this record.
+   Creation must use the same specification fields; include existing native command
+   registration, shared workspace snapshots, and the history dispatch adapter.
+   The existing snapshot omits the Connector payload required by its Properties
+   renderer; expose it consistently while adding the native type label.
 
 Acceptance uses arbitrary package/classifier names, unequal endpoint types,
 subtypes, repeated properties, same-named Associations distinguished by ID,

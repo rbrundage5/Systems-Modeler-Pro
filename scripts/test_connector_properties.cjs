@@ -52,7 +52,8 @@ test('connector Apply sends one complete Rust transaction and qualified endpoint
   await ui.submit();
   assert.equal(ui.calls.length, 2);
   assert.equal(ui.calls[1].command, 'update_ibd_connector_specification');
-  assert.deepEqual(ui.calls[1].args.edit, { name: 'Renamed', kind: 'Assembly', source_presentation_id: 'internal', target_presentation_id: 'second' });
+  assert.deepEqual(ui.calls[1].args.edit, { name: 'Renamed', kind: 'Assembly', source_presentation_id: 'internal', target_presentation_id: 'second',
+    typing: { association_type_id: null, source_multiplicity: '1', target_multiplicity: '1' } });
   assert.equal(ui.refreshes(), 1);
 });
 
@@ -106,4 +107,58 @@ test('a connector refresh retains an unsaved user draft', async () => {
   ui.field('name').value = 'My draft'; ui.field('name').oninput();
   ui.render('connector', { name: 'Server rename' }); await flush();
   assert.equal(ui.field('name').value, 'My draft');
+});
+
+test('type and independent end multiplicities retain their draft after native rejection', async () => {
+  const ui = fixture({ load: () => ({ ...specification, associations: [
+    { id: 'association-a', label: 'Interfaces::Transfer [association-a]', ends: ['producer: Source [1]', 'consumer: Target [0..*]'] },
+    { id: 'association-b', label: 'Interfaces::Transfer [association-b]', ends: ['producer: Source [1]', 'consumer: Target [1]'] },
+  ] }), apply: () => { throw new Error('Target connector-end multiplicity must be within Association end'); } });
+  await flush();
+  assert.equal(ui.field('type').children.length, 3);
+  ui.field('type').value = 'association-b';
+  ui.field('source-multiplicity').value = '2'; ui.field('target-multiplicity').value = '0..*';
+  await ui.submit(); ui.render(); await flush();
+  assert.equal(ui.field('type').value, 'association-b');
+  assert.equal(ui.field('source-multiplicity').value, '2');
+  assert.equal(ui.field('target-multiplicity').value, '0..*');
+  assert.deepEqual(ui.calls[1].args.edit.typing, { association_type_id: 'association-b', source_multiplicity: '2', target_multiplicity: '0..*' });
+  assert.match(ui.field('defining-ends').textContent, /Source.*producer.*Target.*consumer/);
+});
+
+test('missing legacy snapshot payload loads the authoritative kind without crashing', async () => {
+  const ui = fixture(); await flush();
+  ui.render('connector', { connector: undefined }); await flush();
+  assert.equal(ui.field('kind').value, 'Delegation');
+  assert.equal(ui.field('apply').disabled, false);
+});
+
+test('creation chooses type by ID and retries invalid multiplicity without losing names', async () => {
+  const ui = fixture(); await flush();
+  const drafts = [], edits = [];
+  ui.window.smpDialogs = {
+    choose: async () => ({ selectedId: 'transfer-type' }),
+    edit: async options => {
+      drafts.push(options);
+      return { values: { name: 'link', source_multiplicity: '1', target_multiplicity: drafts.length === 1 ? 'invalid' : '2..3' } };
+    }, notify() {},
+  };
+  const result = await ui.window.smpConnectorProperties.create({ diagramId: 'diagram', kind: 'Assembly',
+    sourcePresentationId: 'producer', targetPresentationId: 'consumer', isCurrent: () => true,
+    invoke: async () => [{ id: 'transfer-type', label: 'Transfer', ends: ['Producer [1]', 'Consumer [1..3]'] }],
+    commit: async (command, args) => { assert.equal(command, 'create_ibd_connector_specification'); edits.push(args.edit); if (edits.length === 1) throw new Error('Invalid multiplicity'); return 'created'; },
+  });
+  assert.equal(result, 'created'); assert.equal(drafts[1].fields[0].value, 'link');
+  assert.equal(edits[1].typing.association_type_id, 'transfer-type');
+  assert.equal(edits[1].typing.target_multiplicity, '2..3');
+});
+
+test('cancelled or stale creation never dispatches a model mutation', async () => {
+  const ui = fixture(); await flush(); let commits = 0;
+  ui.window.smpDialogs = { choose: async () => null };
+  const args = { diagramId: 'diagram', kind: 'Assembly', sourcePresentationId: 'a', targetPresentationId: 'b',
+    invoke: async () => [], commit: async () => { commits++; }, isCurrent: () => true };
+  assert.equal(await ui.window.smpConnectorProperties.create(args), null);
+  assert.equal(await ui.window.smpConnectorProperties.create({ ...args, isCurrent: () => false }), null);
+  assert.equal(commits, 0);
 });

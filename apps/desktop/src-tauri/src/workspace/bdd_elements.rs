@@ -178,6 +178,8 @@ fn snapshot_complete(project: &Project) -> CompleteProjectSnapshot {
         .relationships
         .values()
         .map(|relationship| RelationshipSnapshot {
+            connector: relationship.connector.clone(),
+            connector_label: connector_editing::connector_label(project, relationship),
             id: relationship.id.to_string(),
             external_id: relationship.external_id.clone(),
             kind: relationship_display_kind(relationship).to_string(),

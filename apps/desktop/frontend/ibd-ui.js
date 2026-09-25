@@ -112,13 +112,17 @@ async function commitIbdConnector(diagram, targetPresentationId) {
   }
   state.pendingRelationship = null;
   try {
-    await runCommand(`Creating ${pending.kind} Connector…`, () => requireInvoke()('create_ibd_connector', {
+    const projectId = state.snapshot?.project?.id;
+    const id = await window.smpConnectorProperties.create({
       diagramId: diagram.id,
       kind: pending.kind,
       sourcePresentationId: pending.sourcePresentationId,
       targetPresentationId,
-      name: null,
-    }));
+      invoke: requireInvoke(),
+      commit: (command, args) => runCommand('Creating IBD connector specification…', () => requireInvoke()(command, args)),
+      isCurrent: () => state.snapshot?.project?.id === projectId && selectedIbd()?.id === diagram.id,
+    });
+    if (id) state.selectedRelationshipId = id;
     await refresh();
   } catch (error) {
     alert(friendlyConnectorError(pending.kind, error));
@@ -239,13 +243,13 @@ function renderIbdConnectorLayer(frame, diagram, project) {
     };
     svg.appendChild(polyline);
     const midpoint = edge.label_anchor || points[Math.floor(points.length / 2)];
-    if (relationship.name) {
+    if (relationship.connector_label || relationship.name) {
       const text = document.createElementNS(SVG_NS, 'text');
       text.classList.add('relationship-label');
       text.dataset.presentationId = edge.id;
       text.setAttribute('x', midpoint.x + 5);
       text.setAttribute('y', midpoint.y - 6);
-      text.textContent = relationship.name;
+      text.textContent = relationship.connector_label || relationship.name;
       svg.appendChild(text);
     }
   }
