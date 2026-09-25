@@ -5,7 +5,16 @@ function selectedIbd() {
 function ibdPropertyVisible(diagram, property) {
   return !diagram.properties.some(parent => parent.collapsed
     && parent.property_path.length < property.property_path.length
-    && parent.property_path.every((id, index) => property.property_path[index] === id));
+    && parent.property_path.every((id, index) => property.property_path[index] === id
+      && JSON.stringify(parent.occurrence_path?.[index] || null) === JSON.stringify(property.occurrence_path?.[index] || null)));
+}
+
+function ibdOccurrenceOptions(diagram, presentationId) {
+  const projectId = state.snapshot?.project?.id;
+  return { diagramId: diagram.id, presentationId, invoke: requireInvoke(), refresh,
+    commit: (command, args) => runCommand('Updating IBD structure: occurrences…', () => requireInvoke()(command, args)),
+    isCurrent: () => selectedIbd()?.id === diagram.id && state.snapshot?.project?.id === projectId,
+  };
 }
 
 function ibdEndpointVisible(diagram, id) {
@@ -317,7 +326,9 @@ function renderIbdCanvas(canvas, diagram, project) {
     box.style.top = `${property.y}px`;
     box.style.width = `${property.width}px`;
     box.style.height = `${property.height}px`;
-    box.innerHTML = `<div class="ibd-property-name">${escapeHtml(propertyLabel(project, element))}</div>`;
+    const allocation = property.occurrence_path?.[property.property_path.length - 1];
+    const label = allocation ? propertyLabel(project, { ...element, name: property.occurrence_name, multiplicity: String(allocation.count) }) : propertyLabel(project, element);
+    box.innerHTML = `<div class="ibd-property-name">${escapeHtml(label)}${allocation ? `<div class="property-help">occurrence of ${escapeHtml(element.name)}</div>` : ''}</div>`;
     box.title = `${element.kind}: click to select${state.pendingRelationship ? ' or use as connector endpoint' : ''}`;
     box.onclick = async (event) => {
       event.stopPropagation();
@@ -336,6 +347,24 @@ function renderIbdCanvas(canvas, diagram, project) {
   }
   for (const port of diagram.boundary_ports) renderIbdPort(frame, diagram, port, project, true);
   renderConnectorGuide(frame);
+  frame.ondragover = event => {
+    if (![...event.dataTransfer.types].includes('application/x-smp-repository-element-id')) return;
+    event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+  };
+  frame.ondrop = async event => {
+    const elementId = event.dataTransfer.getData('application/x-smp-repository-element-id');
+    if (!elementId) return;
+    event.preventDefault(); event.stopPropagation();
+    const point = diagramCoordinates(frame, event);
+    const parent = event.target.closest?.('.ibd-property');
+    try {
+      const id = await window.smpIbdOccurrences.append(ibdOccurrenceOptions(diagram), {
+        element_id: elementId, parent_presentation_id: parent?.dataset.presentationId || null,
+        x: point.x, y: point.y,
+      });
+      if (id) { state.selectedElementId = elementId; state.selectedIbdPresentationId = id; state.selectedRelationshipId = null; render(); }
+    } catch (error) { renderStatus(error?.message || String(error)); }
+  };
   frame.onclick = () => {
     state.selectedElementId = null;
     state.selectedRelationshipId = null;
@@ -549,5 +578,24 @@ renderProperties = function renderPropertiesPr11() {
   definition.textContent = 'Select type definition';
   definition.onclick = () => { state.selectedElementId = element.type_id; state.selectedIbdPresentationId = null; state.selectedRelationshipId = null; render(); };
   panel.appendChild(definition);
+  if (window.smpIbdOccurrences) {
+    const options = ibdOccurrenceOptions(ibd, occurrence.id);
+    for (const [label, action] of [['Separate / edit occurrences', 'edit'], ['Show compact population', 'compact']]) {
+      const button = document.createElement('button'); button.textContent = label;
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await window.smpIbdOccurrences[action](options); }
+        catch (error) { renderStatus(error?.message || String(error)); }
+        finally { button.disabled = false; }
+      };
+      panel.appendChild(button);
+    }
+    const coverage = document.createElement('p'); coverage.className = 'property-help';
+    coverage.textContent = 'Checking occurrence coverage…'; panel.appendChild(coverage);
+    void window.smpIbdOccurrences.coverage(coverage, options);
+    const wiring = document.createElement('p'); wiring.className = 'property-help';
+    wiring.textContent = 'Shared internal wiring applies to each occurrence. Connections to a compact population remain in the model when that aggregate endpoint is hidden.';
+    panel.appendChild(wiring);
+  }
   $('properties').prepend(panel);
 };
