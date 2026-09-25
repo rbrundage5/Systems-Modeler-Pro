@@ -277,6 +277,14 @@ fn set_allocations(
         })
     };
     diagram.properties.retain(|property| !belongs(property));
+    let mut next_y = original
+        .properties
+        .iter()
+        .filter(|property| {
+            property.property_path.len() == depth && same_prefix(property, &selected, depth - 1)
+        })
+        .map(|property| property.y + property.height + 32.0)
+        .fold(selected.y, f64::max);
     let mut reused = HashSet::new();
     for (index, (name, range)) in requested.into_iter().enumerate() {
         let existing = peers
@@ -288,7 +296,9 @@ fn set_allocations(
         let dy = if keep_ids {
             0.0
         } else {
-            index as f64 * (selected.height + 32.0)
+            let offset = next_y - template.y;
+            next_y += template.height + 32.0;
+            offset
         };
         for source in original.properties.iter().filter(|property| {
             property.id == template.id || super::ibd_structure::is_descendant(property, template)
@@ -745,6 +755,9 @@ mod tests {
         ));
         request.name = "replacement".into();
         let id = append_group(&project, &mut diagram, &request).unwrap();
+        let replacement = diagram.properties.iter().find(|property| property.id == id).unwrap();
+        let west = diagram.properties.iter().find(|property| property.id == ids[3]).unwrap();
+        assert!(replacement.y >= west.y + west.height + 32.0);
         assert_eq!(
             range_at(
                 diagram
