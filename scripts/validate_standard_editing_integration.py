@@ -241,7 +241,9 @@ require(
 require(
     ibd_ui,
     [
-        "populate_ibd_from_context",
+        "show_ibd_existing_parts",
+        "open_or_create_type_ibd",
+        "set_ibd_structure_expanded",
         "add_nested_port_to_ibd",
         "create_ibd_connector",
     ],

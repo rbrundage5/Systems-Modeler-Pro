@@ -25,6 +25,39 @@ async function updateIbdStructure(diagram, occurrence, expanded) {
   await refresh();
 }
 
+const ibdReturnStack = [];
+let ibdReturnProjectId = null;
+function resetIbdNavigationForProject() {
+  const id = state.snapshot?.project?.root_id;
+  if (id !== ibdReturnProjectId) { ibdReturnStack.length = 0; ibdReturnProjectId = id; }
+}
+async function navigateToTypeIbd(elementId) {
+  resetIbdNavigationForProject();
+  const enclosing = state.selectedDiagramId;
+  const id = await runCommand('Updating IBD structure: open type-level IBD…', () => requireInvoke()('open_or_create_type_ibd', { elementId }));
+  await refresh();
+  if (enclosing && enclosing !== id) ibdReturnStack.push(enclosing);
+  state.selectedIbdPresentationId = null;
+  await selectDiagram(id);
+  renderStatus('Type-level IBD: edits change the reusable definition and all its usages.');
+}
+async function returnFromTypeIbd() {
+  resetIbdNavigationForProject();
+  const id = ibdReturnStack.pop();
+  if (id) { state.selectedIbdPresentationId = null; await selectDiagram(id); }
+}
+function typeNavigationButton(label, id) {
+  const button = document.createElement('button');
+  button.textContent = label;
+  button.onclick = async () => {
+    button.disabled = true;
+    try { await navigateToTypeIbd(id); }
+    catch (error) { renderStatus(error?.message || String(error)); }
+    finally { button.disabled = false; }
+  };
+  return button;
+}
+
 function ibdElement(project, id) { return project.elements.find((e) => e.id === id); }
 
 function propertyLabel(project, element) { return featureNotation(project, element); }
@@ -321,12 +354,8 @@ function bindBddIbdDrilldown() {
     box.ondblclick = async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const child = (state.snapshot.ibd_diagrams || []).find((candidate) => candidate.context_block_id === element.id);
-      if (!child) {
-        alert(`${element.name} does not have an IBD yet. Select the Block and use Home → IBD to create its Internal Block Diagram.`);
-        return;
-      }
-      await selectDiagram(child.id);
+      try { await navigateToTypeIbd(element.id); }
+      catch (error) { renderStatus(error?.message || String(error)); }
     };
   });
 }
@@ -394,6 +423,12 @@ renderPalette = function renderPalettePr11() {
   showParts.textContent = 'Show existing parts';
   showParts.onclick = async () => { showParts.disabled = true; try { await updateIbdStructure(ibd); } catch (error) { renderStatus(error?.message || String(error)); } finally { showParts.disabled = false; } };
   host.appendChild(showParts);
+  resetIbdNavigationForProject();
+  const back = document.createElement('button');
+  back.textContent = 'Back to enclosing diagram';
+  back.disabled = !ibdReturnStack.length;
+  back.onclick = () => returnFromTypeIbd().catch(error => renderStatus(error?.message || String(error)));
+  host.appendChild(back);
   for (const [category, title] of [['feature', 'Internal Structure'], ['relationship', 'Connections']]) {
     const items = state.paletteItems.filter((item) => item.category === category);
     const section = document.createElement('section');
@@ -445,18 +480,7 @@ async function createIbdForSelectedBlock() {
   if (!project) return;
   const block = project.elements.find((e) => e.id === state.selectedElementId && ['Block', 'AssociationBlock'].includes(e.kind));
   if (!block) return alert('Select a Block or AssociationBlock first.');
-  const existing = (state.snapshot.ibd_diagrams || []).find((diagram) => diagram.context_block_id === block.id);
-  if (existing) {
-    await selectDiagram(existing.id);
-    return;
-  }
-  const name = prompt('IBD name', `${block.name} Internal Structure`);
-  if (!name) return;
-  const ownerId = state.selectedPackageId || block.owner_id || project.root_id;
-  const id = await runCommand('Creating IBD…', () => requireInvoke()('create_ibd', { contextBlockId: block.id, ownerId, name }));
-  await requireInvoke()('populate_ibd_from_context', { diagramId: id });
-  state.selectedDiagramId = id;
-  await refresh();
+  await navigateToTypeIbd(block.id);
 }
 
 async function routeSelectedIbd() {
@@ -479,8 +503,10 @@ renderProperties = function renderPropertiesPr11() {
     const occurrence = ibd.connectors.find(edge => edge.id === state.selectedIbdPresentationId && edge.relationship_id === relationship.id);
     if (occurrence?.context_path?.length) {
       window.smpConnectorProperties?.deactivate();
-      const owner = ibdElement(project, relationship.connector?.context_id || relationship.owner_id);
+      const usage = ibdElement(project, occurrence.context_path[occurrence.context_path.length - 1]);
+      const owner = ibdElement(project, usage?.type_id);
       $('properties').innerHTML = `<p class="property-help">This connector is defined by ${escapeHtml(owner?.name || 'the part type')}. Edit it in that type's IBD; changes apply to every usage. This view presents its contextual occurrence.</p>`;
+      if (owner) $('properties').appendChild(typeNavigationButton('Open type-level IBD', owner.id));
       return;
     }
     window.smpConnectorProperties.render({
@@ -514,5 +540,10 @@ renderProperties = function renderPropertiesPr11() {
     };
     panel.appendChild(button);
   }
+  panel.appendChild(typeNavigationButton('Open type-level IBD', element.id));
+  const definition = document.createElement('button');
+  definition.textContent = 'Select type definition';
+  definition.onclick = () => { state.selectedElementId = element.type_id; state.selectedIbdPresentationId = null; state.selectedRelationshipId = null; render(); };
+  panel.appendChild(definition);
   $('properties').prepend(panel);
 };

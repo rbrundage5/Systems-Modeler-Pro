@@ -23,7 +23,11 @@ pub(super) fn endpoint_visible(diagram: &IbdDiagram, id: &str) -> bool {
         })
 }
 
-fn add_ports(project: &Project, diagram: &mut IbdDiagram, index: usize) -> Result<(), String> {
+pub(super) fn add_ports(
+    project: &Project,
+    diagram: &mut IbdDiagram,
+    index: usize,
+) -> Result<(), String> {
     let property = &mut diagram.properties[index];
     let path = property
         .property_path
