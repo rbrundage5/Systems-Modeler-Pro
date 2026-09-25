@@ -2996,6 +2996,7 @@ fn create_script_diagram(
                                 })
                                 .collect();
                             native.properties.push(IbdPropertyPresentation {
+                                collapsed: false,
                                 id: uuid::Uuid::new_v4().to_string(),
                                 element_id: feature.id.to_string(),
                                 property_path: vec![feature.id.to_string()],

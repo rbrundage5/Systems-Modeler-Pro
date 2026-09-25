@@ -18,6 +18,9 @@ pub struct IbdPortPresentation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbdPropertyPresentation {
+    /// Presentation-only state; descendants and semantic definitions are retained.
+    #[serde(default)]
+    pub collapsed: bool,
     pub id: String,
     pub element_id: String,
     #[serde(default)]
@@ -440,7 +443,7 @@ pub(super) fn populate_ibd_diagram_from_context(
         .classifier_features(context)
         .map_err(|error| error.to_string())?;
     let mut x = 120.0;
-    let mut y = 120.0;
+    let mut y = diagram.properties.iter().map(|p| p.y + p.height + 48.0).fold(120.0, f64::max);
 
     for feature in features {
         match feature.kind {
@@ -448,11 +451,12 @@ pub(super) fn populate_ibd_diagram_from_context(
                 if diagram
                     .properties
                     .iter()
-                    .any(|p| p.element_id == feature.id.to_string())
+                    .any(|p| p.property_path == vec![feature.id.to_string()])
                 {
                     continue;
                 }
                 diagram.properties.push(IbdPropertyPresentation {
+                    collapsed: false,
                     id: uuid::Uuid::new_v4().to_string(),
                     element_id: feature.id.to_string(),
                     property_path: vec![feature.id.to_string()],
@@ -655,6 +659,11 @@ pub(super) fn routed_ibd_connectors(
     // metadata and must never become hard obstacles that can trap a later semantic
     // connector at its endpoint. This mirrors the application-wide shared router.
     for (index, edge) in snapshot.connectors.iter().enumerate() {
+        if !super::ibd_structure::endpoint_visible(&snapshot, &edge.source_presentation_id)
+            || !super::ibd_structure::endpoint_visible(&snapshot, &edge.target_presentation_id)
+        {
+            continue;
+        }
         let same_source_count = snapshot.connectors[..index]
             .iter()
             .filter(|candidate| candidate.source_presentation_id == edge.source_presentation_id)
@@ -958,6 +967,7 @@ mod tests {
 
     fn property(id: &str, x: f64, y: f64) -> IbdPropertyPresentation {
         IbdPropertyPresentation {
+            collapsed: false,
             id: id.into(),
             element_id: ElementId::new().to_string(),
             property_path: Vec::new(),

@@ -559,6 +559,7 @@ mod shared_resize_tests {
     #[test]
     fn ibd_nested_ports_follow_shared_property_move_and_resize_geometry() {
         let mut property = ibd::IbdPropertyPresentation {
+            collapsed: false,
             id: "property".into(),
             element_id: "element".into(),
             property_path: Vec::new(),

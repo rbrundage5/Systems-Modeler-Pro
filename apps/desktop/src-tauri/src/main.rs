@@ -22,6 +22,7 @@ mod workspace {
     mod history;
     mod ibd;
     mod ibd_geometry;
+    mod ibd_structure;
     mod item_flow_editing;
     mod item_flow_notation;
     mod layout;
@@ -102,6 +103,7 @@ mod workspace {
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
+    pub use ibd_structure::{set_ibd_structure_expanded, show_ibd_existing_parts};
     pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
     pub use item_flow_notation::ibd_item_flow_notation;
     pub use model_script::{apply_model_script, preview_model_script};
@@ -251,6 +253,7 @@ use workspace::{
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
+    set_ibd_structure_expanded, show_ibd_existing_parts,
     preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script,
     preview_reqif_import, preview_sequence_execution_runtime, preview_spreadsheet_import,
     preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
@@ -850,6 +853,8 @@ fn main() {
             create_bdd,
             create_ibd,
             populate_ibd_from_context,
+            set_ibd_structure_expanded,
+            show_ibd_existing_parts,
             add_nested_port_to_ibd,
             update_ibd_property_geometry,
             preview_ibd_port_geometry,

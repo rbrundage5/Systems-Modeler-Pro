@@ -21,7 +21,8 @@
     return text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
       || text.startsWith('reconnecting bdd ')
-      || text.startsWith('linking composition property');
+      || text.startsWith('linking composition property')
+      || text.startsWith('updating ibd structure');
   }
 
   async function checkpointIfNeeded(label) {
