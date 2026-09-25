@@ -18,7 +18,8 @@
 
   function isRustCheckpointedCommand(label) {
     const text = String(label || '').toLowerCase();
-    return text.startsWith('updating diagram presentation')
+    return text.startsWith('creating requirement element')
+      || text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
       || text.startsWith('reconnecting bdd ')
       || text.startsWith('linking composition property');
