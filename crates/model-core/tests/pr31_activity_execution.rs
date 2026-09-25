@@ -487,21 +487,29 @@ fn unsupported_structured_execution_rejects_before_session_mutation() {
         StructuredActivityNodeKind::Sequence,
     ] {
         let (project, mut repository, activity_id, speed) = control_fixture();
-        repository.activities.get_mut(&activity_id).unwrap().structured_nodes.push(
-            StructuredActivityNode {
+        repository
+            .activities
+            .get_mut(&activity_id)
+            .unwrap()
+            .structured_nodes
+            .push(StructuredActivityNode {
                 id: StructuredNodeId::new(),
                 name: "Unsupported region".into(),
                 kind,
                 parent_id: None,
-            },
-        );
+            });
         repository.validate(&project).unwrap();
         let mut session = ExecutionSession::new(&project);
         session.initialize(&project).unwrap();
-        session.set_value(&project, None, speed, RuntimeValue::Real(42.0)).unwrap();
+        session
+            .set_value(&project, None, speed, RuntimeValue::Real(42.0))
+            .unwrap();
         let before = session.snapshot();
         let mut engine = ActivityExecutionEngine::new(repository, activity_id);
-        let error = engine.initialize(&project, &mut session).unwrap_err().to_string();
+        let error = engine
+            .initialize(&project, &mut session)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("Unsupported region"));
         assert!(error.contains("cannot yet be executed"));
         assert_eq!(session.snapshot(), before);
@@ -516,35 +524,57 @@ fn unsupported_structured_execution_rejects_before_session_mutation() {
 fn preflight_visits_transitive_calls_but_not_unrelated_activities() {
     let (project, mut repository, root, _) = control_fixture();
     let owner = repository.activities[&root].owner_id;
-    let child = repository.create_activity(&project, owner, None, "Child").unwrap();
-    let grandchild = repository.create_activity(&project, owner, None, "Grandchild").unwrap();
-    repository.activities.get_mut(&grandchild).unwrap().structured_nodes.push(
-        StructuredActivityNode {
+    let child = repository
+        .create_activity(&project, owner, None, "Child")
+        .unwrap();
+    let grandchild = repository
+        .create_activity(&project, owner, None, "Grandchild")
+        .unwrap();
+    repository
+        .activities
+        .get_mut(&grandchild)
+        .unwrap()
+        .structured_nodes
+        .push(StructuredActivityNode {
             id: StructuredNodeId::new(),
             name: "Conditional clauses".into(),
             kind: StructuredActivityNodeKind::Conditional,
             parent_id: None,
-        },
-    );
+        });
     let mut session = ExecutionSession::new(&project);
     let mut engine = ActivityExecutionEngine::new(repository.clone(), root);
     engine.initialize(&project, &mut session).unwrap();
     run_to_completion(&project, &mut engine, &mut session);
     for (caller, callee) in [(root, child), (child, grandchild), (grandchild, root)] {
-        repository.activities.get_mut(&caller).unwrap().nodes.push(node(
-            "Call",
-            ActivityNodeKind::Action(Action {
-                kind: ActionKind::CallBehavior { activity_id: callee },
-                pins: Vec::new(),
-            }),
-        ));
+        repository
+            .activities
+            .get_mut(&caller)
+            .unwrap()
+            .nodes
+            .push(node(
+                "Call",
+                ActivityNodeKind::Action(Action {
+                    kind: ActionKind::CallBehavior {
+                        activity_id: callee,
+                    },
+                    pins: Vec::new(),
+                }),
+            ));
     }
     let before = session.snapshot();
     let mut engine = ActivityExecutionEngine::new(repository.clone(), root);
-    let error = engine.initialize(&project, &mut session).unwrap_err().to_string();
+    let error = engine
+        .initialize(&project, &mut session)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("Grandchild"));
     assert_eq!(session.snapshot(), before);
-    repository.activities.get_mut(&grandchild).unwrap().structured_nodes.clear();
+    repository
+        .activities
+        .get_mut(&grandchild)
+        .unwrap()
+        .structured_nodes
+        .clear();
     let mut engine = ActivityExecutionEngine::new(repository, root);
     engine.initialize(&project, &mut session).unwrap(); // recursive call graph preflight terminates
 }
