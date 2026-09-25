@@ -385,6 +385,8 @@
 
   function ownerKindAccepted(elementKind, ownerKind) {
     switch (elementKind) {
+      case 'Requirement':
+        return NAMESPACE_KINDS.has(ownerKind) || ownerKind === 'Requirement';
       case 'PartProperty':
       case 'ReferenceProperty':
         return ['Block', 'AssociationBlock'].includes(ownerKind);

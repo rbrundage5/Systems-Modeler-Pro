@@ -2,6 +2,31 @@ use systems_modeler_core::{ElementKind, Project, RelationshipKind};
 use systems_modeler_persistence::ProjectDatabase;
 
 #[test]
+fn nested_requirement_ownership_survives_database_and_portable_json_round_trips() {
+    let mut project = Project::new("Nested requirements");
+    let root = project.root_id;
+    let parent = project
+        .create_requirement("Parent", "R-1", "Parent text", root)
+        .unwrap();
+    let child = project
+        .create_requirement("Child", "R-2", "Child text", parent)
+        .unwrap();
+    let leaf = project
+        .create_requirement("Leaf", "R-3", "Leaf text", child)
+        .unwrap();
+    let expected = serde_json::to_value(&project).unwrap();
+    let mut database = ProjectDatabase::open_in_memory().unwrap();
+    database.save_project(&project).unwrap();
+    let restored = database.load_project(project.id).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(restored.element(leaf).unwrap().owner_id, Some(child));
+    assert_eq!(serde_json::to_value(&restored).unwrap(), expected);
+    let portable: Project = serde_json::from_value(expected.clone()).unwrap();
+    portable.validate().unwrap();
+    assert_eq!(serde_json::to_value(portable).unwrap(), expected);
+}
+
+#[test]
 fn requirements_and_traceability_round_trip_without_identity_changes() {
     let mut project = Project::new("Requirements");
     let package = project

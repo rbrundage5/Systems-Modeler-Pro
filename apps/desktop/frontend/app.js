@@ -403,7 +403,7 @@ async function createPaletteElementAt(item, x, y) {
   if (diagram.family === 'requirement' && item.semantic_kind === 'Requirement') {
     const definition = await window.smpDialogs?.edit({ title:'Create Requirement', fields:[{ id:'requirementId', label:'Requirement ID', value:'REQ-001', required:true }, { id:'text', label:'Requirement text', value:'The system shall ...', multiline:true, required:true }], confirmLabel:'Create' });
     if (!definition) return;
-    elementId = await runCommand('Creating Requirement…', () => requireInvoke()('create_requirement', { ownerId: diagram.owner_id, name, requirementId:definition.values.requirementId, text:definition.values.text }));
+    elementId = await runCommand('Creating Requirement element…', () => requireInvoke()('create_requirement', { ownerId: diagram.owner_id, name, requirementId:definition.values.requirementId, text:definition.values.text }));
   } else if (diagram.family === 'requirement' && item.semantic_kind === 'TestCase') {
     elementId = await runCommand('Creating Test Case…', () => requireInvoke()('create_test_case', { ownerId: diagram.owner_id, name }));
   } else if (diagram.family === 'requirement') {
@@ -495,7 +495,7 @@ function renderCanvas() {
           render();
           return;
         }
-        if (state.pendingRelationship.sourceElementId !== element.id) {
+        if (state.pendingRelationship.sourceElementId !== element.id || state.pendingRelationship.kind === 'Composition') {
           const pending = { ...state.pendingRelationship };
           state.pendingRelationship = null;
           const sourceNode = diagram.nodes.find((node) => node.element_id === pending.sourceElementId);
@@ -504,7 +504,8 @@ function renderCanvas() {
           const args = diagram.family === 'requirement'
             ? { diagramId: state.selectedDiagramId, relationshipKind: pending.kind, sourceNodeId: sourceNode?.id, targetNodeId: targetNode?.id }
             : { diagramId: state.selectedDiagramId, kind: pending.kind, sourceElementId: pending.sourceElementId, targetElementId: element.id };
-          await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()(command, args));
+          if (pending.kind === 'Composition' && diagram.family !== 'requirement') await window.smpAuthorComposition(state.selectedDiagramId, pending.sourceElementId, element.id);
+          else await runCommand(`Creating ${pending.kind}…`, () => requireInvoke()(command, args));
           state.selectedElementId = element.id;
           await refresh();
           return;
@@ -646,8 +647,14 @@ function renderProperties() {
     const display=window.smpRequirementDisplay?.(element.id),checked=(label)=>display?.shown(label)!==false?'checked':'';
     const links=(project.relationships||[]).filter((relationship)=>relationship.source_id===element.id||relationship.target_id===element.id);
     const traceability=links.length?links.map((relationship)=>{const other=project.elements.find((candidate)=>candidate.id===(relationship.source_id===element.id?relationship.target_id:relationship.source_id));return `<div><b>«${escapeHtml(traceabilityLabel(relationship.kind)||relationship.kind)}»</b> ${escapeHtml(other?.name||'Unresolved endpoint')}</div>`;}).join(''):'<div class="muted">No traceability relationships.</div>';
-    panel.innerHTML = `<div class="property-heading">Requirement</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Requirement ID<input id="requirement-id" value="${escapeAttr(element.requirement_id || '')}"></label><label>Text<textarea id="requirement-text" rows="7">${escapeHtml(element.requirement_text || '')}</textarea></label><label>Documentation<textarea id="requirement-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><section class="bdd-compartment-controls"><div class="property-heading">Presentation Display</div><div class="muted">Controls this requirement on the active diagram only.</div><label class="compartment-visibility-toggle"><input id="show-requirement-id" type="checkbox" ${checked('id')}>Show ID</label><label class="compartment-visibility-toggle"><input id="show-requirement-text" type="checkbox" ${checked('text')}>Show Text</label><label class="compartment-visibility-toggle"><input id="show-requirement-documentation" type="checkbox" ${checked('documentation')}>Show Documentation</label></section><section class="requirement-traceability"><div class="property-heading">Traceability</div>${traceability}</section><label>Owner<input value="${escapeAttr(project.elements.find((candidate)=>candidate.id===element.owner_id)?.name||'Model')}" disabled></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="update-requirement" class="primary">Apply Requirement</button>`;
+    panel.innerHTML = `<div class="property-heading">Requirement</div><label>Name<input id="property-name" value="${escapeAttr(element.name)}"></label><label>Requirement ID<input id="requirement-id" value="${escapeAttr(element.requirement_id || '')}"></label><label>Text<textarea id="requirement-text" rows="7">${escapeHtml(element.requirement_text || '')}</textarea></label><label>Documentation<textarea id="requirement-documentation" rows="5">${escapeHtml(element.documentation || '')}</textarea></label><section class="bdd-compartment-controls"><div class="property-heading">Presentation Display</div><div class="muted">Controls this requirement on the active diagram only.</div><label class="compartment-visibility-toggle"><input id="show-requirement-id" type="checkbox" ${checked('id')}>Show ID</label><label class="compartment-visibility-toggle"><input id="show-requirement-text" type="checkbox" ${checked('text')}>Show Text</label><label class="compartment-visibility-toggle"><input id="show-requirement-documentation" type="checkbox" ${checked('documentation')}>Show Documentation</label></section><section class="requirement-traceability"><div class="property-heading">Traceability</div>${traceability}</section><label>Owner<input value="${escapeAttr(project.elements.find((candidate)=>candidate.id===element.owner_id)?.name||'Model')}" disabled></label><label>Stable ID<input value="${escapeAttr(element.external_id)}" disabled></label><button id="update-requirement" class="primary">Apply Requirement</button><button id="add-nested-requirement" type="button">Add Nested Requirement</button>`;
     for(const [id,label] of [['show-requirement-id','id'],['show-requirement-text','text'],['show-requirement-documentation','documentation']])$(id).onchange=(event)=>display?.set(label,event.target.checked);
+    const nestedButton = $('add-nested-requirement');
+    nestedButton.onclick = async () => {
+      if (nestedButton.disabled) return;
+      nestedButton.disabled = true;
+      try { await createNestedRequirement(element); } finally { nestedButton.disabled = false; }
+    };
     $('update-requirement').onclick = async () => {
       await runCommand('Updating Requirement…', () => requireInvoke()('update_requirement', { details:{ elementId: element.id, name: $('property-name').value, requirementId: $('requirement-id').value, text: $('requirement-text').value, documentation: $('requirement-documentation').value } })); await refresh();
     };
@@ -789,6 +796,32 @@ async function createPackageDiagram() {
   await selectDiagram(diagramId);
 }
 window.smpCreatePackageDiagram = createPackageDiagram;
+async function createNestedRequirement(parent) {
+  let values = { name: 'New Requirement', requirementId: `${parent.requirement_id || 'REQ'}.1`, text: '' };
+  let description = `Create a Requirement owned by ${parent.name}. Place it on a diagram by dragging it from the repository.`;
+  for (;;) {
+    const definition = await window.smpDialogs?.edit({ title: 'Add Nested Requirement', description,
+      fields: [{ id: 'name', label: 'Name', value: values.name, required: true },
+        { id: 'requirementId', label: 'Requirement ID', value: values.requirementId, required: true },
+        { id: 'text', label: 'Requirement text', value: values.text, multiline: true, required: true }], confirmLabel: 'Create' });
+    if (!definition) return;
+    values = definition.values;
+    let id;
+    try {
+      id = await runCommand('Creating Requirement element…', () => requireInvoke()('create_requirement', {
+        ownerId: parent.id, name: values.name, requirementId: values.requirementId, text: values.text,
+      }));
+    } catch (error) {
+      description = error?.message || String(error);
+      continue;
+    }
+    state.selectedElementId = id;
+    try { await refresh(); } catch (error) {
+      renderStatus(`Requirement created, but the view could not refresh: ${error?.message || String(error)}`);
+    }
+    return;
+  }
+}
 async function createRequirementDiagram() {
   if (!state.snapshot?.project) return window.smpDialogs?.notify('Create a project first.', 'warning');
   const ownerId = state.selectedPackageId || state.snapshot.project.root_id;

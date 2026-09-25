@@ -2,6 +2,62 @@ function selectedIbd() {
   return (state.snapshot?.ibd_diagrams || []).find((d) => d.id === state.selectedDiagramId);
 }
 
+function ibdPropertyVisible(diagram, property) {
+  return !diagram.properties.some(parent => parent.collapsed
+    && parent.property_path.length < property.property_path.length
+    && parent.property_path.every((id, index) => property.property_path[index] === id));
+}
+
+function ibdEndpointVisible(diagram, id) {
+  return diagram.boundary_ports.some(port => port.id === id)
+    || diagram.properties.some(property => (property.id === id || property.ports.some(port => port.id === id))
+      && ibdPropertyVisible(diagram, property));
+}
+
+function selectedIbdOccurrence(diagram = selectedIbd()) {
+  return diagram?.properties.find(property => property.id === state.selectedIbdPresentationId
+    && property.element_id === state.selectedElementId && ibdPropertyVisible(diagram, property));
+}
+
+async function updateIbdStructure(diagram, occurrence, expanded) {
+  await runCommand('Updating IBD structure…', () => requireInvoke()(occurrence ? 'set_ibd_structure_expanded' : 'show_ibd_existing_parts',
+    occurrence ? { diagramId: diagram.id, presentationId: occurrence.id, expanded } : { diagramId: diagram.id }));
+  await refresh();
+}
+
+const ibdReturnStack = [];
+let ibdReturnProjectId = null;
+function resetIbdNavigationForProject() {
+  const id = state.snapshot?.project?.root_id;
+  if (id !== ibdReturnProjectId) { ibdReturnStack.length = 0; ibdReturnProjectId = id; }
+}
+async function navigateToTypeIbd(elementId) {
+  resetIbdNavigationForProject();
+  const enclosing = state.selectedDiagramId;
+  const id = await runCommand('Updating IBD structure: open type-level IBD…', () => requireInvoke()('open_or_create_type_ibd', { elementId }));
+  await refresh();
+  if (enclosing && enclosing !== id) ibdReturnStack.push(enclosing);
+  state.selectedIbdPresentationId = null;
+  await selectDiagram(id);
+  renderStatus('Type-level IBD: edits change the reusable definition and all its usages.');
+}
+async function returnFromTypeIbd() {
+  resetIbdNavigationForProject();
+  const id = ibdReturnStack.pop();
+  if (id) { state.selectedIbdPresentationId = null; await selectDiagram(id); }
+}
+function typeNavigationButton(label, id) {
+  const button = document.createElement('button');
+  button.textContent = label;
+  button.onclick = async () => {
+    button.disabled = true;
+    try { await navigateToTypeIbd(id); }
+    catch (error) { renderStatus(error?.message || String(error)); }
+    finally { button.disabled = false; }
+  };
+  return button;
+}
+
 function ibdElement(project, id) { return project.elements.find((e) => e.id === id); }
 
 function propertyLabel(project, element) { return featureNotation(project, element); }
@@ -161,7 +217,8 @@ function renderIbdConnectorLayer(frame, diagram, project) {
   const relationships = new Map(project.relationships.map((r) => [r.id, r]));
   for (const edge of diagram.connectors) {
     const relationship = relationships.get(edge.relationship_id);
-    if (!relationship || !edge.points?.length) continue;
+    if (!relationship || !edge.points?.length || !ibdEndpointVisible(diagram, edge.source_presentation_id)
+      || !ibdEndpointVisible(diagram, edge.target_presentation_id)) continue;
     const polyline = document.createElementNS(SVG_NS, 'polyline');
     const points = ibdConnectorDisplayPoints(diagram, edge);
     polyline.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
@@ -175,6 +232,7 @@ function renderIbdConnectorLayer(frame, diagram, project) {
     polyline.onclick = (event) => {
       event.stopPropagation();
       state.selectedRelationshipId = relationship.id;
+      state.selectedIbdPresentationId = edge.id;
       state.selectedElementId = null;
       state.pendingRelationship = null;
       render();
@@ -201,7 +259,7 @@ function renderIbdPort(frame, diagram, port, project, boundary = false) {
   node.className = `ibd-port ${element.kind === 'ProxyPort' ? 'proxy-port' : 'full-port'} ${boundary ? 'boundary-port' : 'nested-port'}`;
   node.dataset.semanticKind = element.kind;
   node.dataset.presentationId = port.id;
-  if (state.selectedElementId === element.id) node.classList.add('selected');
+  if (state.selectedIbdPresentationId === port.id) node.classList.add('selected');
   if (state.pendingRelationship?.sourcePresentationId === port.id) node.classList.add('connector-source');
   const point=boundary?outerFramePoint(port,diagram):port; node.style.left = `${point.x - port.size / 2}px`;
   node.style.top = `${point.y - port.size / 2}px`;
@@ -215,6 +273,7 @@ function renderIbdPort(frame, diagram, port, project, boundary = false) {
       return;
     }
     state.selectedElementId = element.id;
+    state.selectedIbdPresentationId = port.id;
     state.selectedRelationshipId = null;
     render();
   };
@@ -237,15 +296,19 @@ function renderIbdCanvas(canvas, diagram, project) {
   frame.innerHTML = `<div class="diagram-header">ibd [${escapeHtml(context?.name || 'block')}] ${escapeHtml(diagram.name)}</div>`;
   canvas.appendChild(frame);
   renderIbdConnectorLayer(frame, diagram, project);
-  for (const property of diagram.properties) {
+  for (const property of [...diagram.properties].sort((a, b) => a.property_path.length - b.property_path.length)) {
+    if (!ibdPropertyVisible(diagram, property)) continue;
     const element = ibdElement(project, property.element_id);
     if (!element) continue;
-    const box = document.createElement('button');
+    const box = document.createElement('div');
+    box.tabIndex = 0;
+    box.setAttribute('role', 'button');
     box.className = `ibd-property ${element.kind === 'ReferenceProperty' ? 'reference-property' : 'part-property'}`;
     box.dataset.semanticKind = element.kind;
     box.dataset.presentationId = property.id;
-    if (state.selectedElementId === element.id) box.classList.add('selected');
+    if (state.selectedIbdPresentationId === property.id) box.classList.add('selected');
     if (state.pendingRelationship?.sourcePresentationId === property.id) box.classList.add('connector-source');
+    box.style.zIndex = String(3 + property.property_path.length);
     box.style.left = `${property.x}px`;
     box.style.top = `${property.y}px`;
     box.style.width = `${property.width}px`;
@@ -259,9 +322,11 @@ function renderIbdCanvas(canvas, diagram, project) {
         return;
       }
       state.selectedElementId = element.id;
+      state.selectedIbdPresentationId = property.id;
       state.selectedRelationshipId = null;
       render();
     };
+    box.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); box.onclick(event); } };
     frame.appendChild(box);
     for (const port of property.ports) renderIbdPort(frame, diagram, port, project, false);
   }
@@ -289,12 +354,8 @@ function bindBddIbdDrilldown() {
     box.ondblclick = async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const child = (state.snapshot.ibd_diagrams || []).find((candidate) => candidate.context_block_id === element.id);
-      if (!child) {
-        alert(`${element.name} does not have an IBD yet. Select the Block and use Home → IBD to create its Internal Block Diagram.`);
-        return;
-      }
-      await selectDiagram(child.id);
+      try { await navigateToTypeIbd(element.id); }
+      catch (error) { renderStatus(error?.message || String(error)); }
     };
   });
 }
@@ -316,7 +377,7 @@ async function addExistingPortToSelectedProperty(item) {
   const diagram = selectedIbd();
   const project = state.snapshot?.project;
   if (!diagram || !project) return;
-  const propertyPresentation = diagram.properties.find((presentation) => presentation.element_id === state.selectedElementId);
+  const propertyPresentation = selectedIbdOccurrence(diagram);
   if (!propertyPresentation) {
     alert(`Select an internal Part Property or Reference Property first, then choose ${item.label}.`);
     return;
@@ -358,6 +419,16 @@ renderPalette = function renderPalettePr11() {
   intro.className = 'palette-hint ibd-palette-hint';
   intro.textContent = 'Connectors: choose Assembly or Delegation, then click endpoint 1 and endpoint 2 directly on the diagram. Selected items are outlined.';
   host.appendChild(intro);
+  const showParts = document.createElement('button');
+  showParts.textContent = 'Show existing parts';
+  showParts.onclick = async () => { showParts.disabled = true; try { await updateIbdStructure(ibd); } catch (error) { renderStatus(error?.message || String(error)); } finally { showParts.disabled = false; } };
+  host.appendChild(showParts);
+  resetIbdNavigationForProject();
+  const back = document.createElement('button');
+  back.textContent = 'Back to enclosing diagram';
+  back.disabled = !ibdReturnStack.length;
+  back.onclick = () => returnFromTypeIbd().catch(error => renderStatus(error?.message || String(error)));
+  host.appendChild(back);
   for (const [category, title] of [['feature', 'Internal Structure'], ['relationship', 'Connections']]) {
     const items = state.paletteItems.filter((item) => item.category === category);
     const section = document.createElement('section');
@@ -409,18 +480,7 @@ async function createIbdForSelectedBlock() {
   if (!project) return;
   const block = project.elements.find((e) => e.id === state.selectedElementId && ['Block', 'AssociationBlock'].includes(e.kind));
   if (!block) return alert('Select a Block or AssociationBlock first.');
-  const existing = (state.snapshot.ibd_diagrams || []).find((diagram) => diagram.context_block_id === block.id);
-  if (existing) {
-    await selectDiagram(existing.id);
-    return;
-  }
-  const name = prompt('IBD name', `${block.name} Internal Structure`);
-  if (!name) return;
-  const ownerId = state.selectedPackageId || block.owner_id || project.root_id;
-  const id = await runCommand('Creating IBD…', () => requireInvoke()('create_ibd', { contextBlockId: block.id, ownerId, name }));
-  await requireInvoke()('populate_ibd_from_context', { diagramId: id });
-  state.selectedDiagramId = id;
-  await refresh();
+  await navigateToTypeIbd(block.id);
 }
 
 async function routeSelectedIbd() {
@@ -440,6 +500,15 @@ renderProperties = function renderPropertiesPr11() {
   const project = state.snapshot.project;
   const relationship = project.relationships.find((r) => r.id === state.selectedRelationshipId);
   if (relationship?.kind === 'Connector') {
+    const occurrence = ibd.connectors.find(edge => edge.id === state.selectedIbdPresentationId && edge.relationship_id === relationship.id);
+    if (occurrence?.context_path?.length) {
+      window.smpConnectorProperties?.deactivate();
+      const usage = ibdElement(project, occurrence.context_path[occurrence.context_path.length - 1]);
+      const owner = ibdElement(project, usage?.type_id);
+      $('properties').innerHTML = `<p class="property-help">This connector is defined by ${escapeHtml(owner?.name || 'the part type')}. Edit it in that type's IBD; changes apply to every usage. This view presents its contextual occurrence.</p>`;
+      if (owner) $('properties').appendChild(typeNavigationButton('Open type-level IBD', owner.id));
+      return;
+    }
     window.smpConnectorProperties.render({
       container: $('properties'), projectId: project.root_id, diagram: ibd, relationship,
       invoke: requireInvoke(), refresh, route: routeSelectedIbd,
@@ -450,4 +519,31 @@ renderProperties = function renderPropertiesPr11() {
   }
   window.smpConnectorProperties?.deactivate();
   baseRenderPropertiesPr11();
+  const occurrence = selectedIbdOccurrence(ibd);
+  if (!occurrence) return;
+  const element = ibdElement(project, occurrence.element_id);
+  const owner = ibdElement(project, element?.owner_id);
+  const panel = document.createElement('section');
+  panel.className = 'ibd-structure-controls';
+  const scope = document.createElement('p');
+  scope.className = 'property-help';
+  scope.textContent = `Definition owned by ${owner?.name || 'its classifier'}. Editing this property changes every usage of that definition. Path: ${occurrence.property_path.map(id => ibdElement(project, id)?.name || id).join(' / ')}. Multiplicity applies per containing instance.`;
+  panel.appendChild(scope);
+  for (const [label, expanded] of [['Show / expand internal parts', true], ['Collapse internal parts', false]]) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.onclick = async () => {
+      button.disabled = true;
+      try { await updateIbdStructure(ibd, occurrence, expanded); }
+      catch (error) { renderStatus(error?.message || String(error)); }
+      finally { button.disabled = false; }
+    };
+    panel.appendChild(button);
+  }
+  panel.appendChild(typeNavigationButton('Open type-level IBD', element.id));
+  const definition = document.createElement('button');
+  definition.textContent = 'Select type definition';
+  definition.onclick = () => { state.selectedElementId = element.type_id; state.selectedIbdPresentationId = null; state.selectedRelationshipId = null; render(); };
+  panel.appendChild(definition);
+  $('properties').prepend(panel);
 };

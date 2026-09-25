@@ -18,6 +18,9 @@ pub struct IbdPortPresentation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbdPropertyPresentation {
+    /// Presentation-only state; descendants and semantic definitions are retained.
+    #[serde(default)]
+    pub collapsed: bool,
     pub id: String,
     pub element_id: String,
     #[serde(default)]
@@ -32,6 +35,9 @@ pub struct IbdPropertyPresentation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbdConnectorPresentation {
+    /// Type usage containing this occurrence; empty for context-level connectors.
+    #[serde(default)]
+    pub context_path: Vec<String>,
     pub id: String,
     pub relationship_id: String,
     pub source_presentation_id: String,
@@ -134,13 +140,38 @@ pub(super) fn ibd_end_for_presentation(
 
 fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> Vec<RouteRect> {
     let mut obstacles = Vec::new();
+    let paths: Vec<_> = [source_id, target_id]
+        .iter()
+        .filter_map(|id| {
+            ibd_end_for_presentation(diagram, id).ok().map(|(end, _)| {
+                end.property_path
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
     for property in &diagram.properties {
-        let owns_source =
-            property.id == source_id || property.ports.iter().any(|port| port.id == source_id);
-        let owns_target =
-            property.id == target_id || property.ports.iter().any(|port| port.id == target_id);
-        if !owns_source && !owns_target {
+        if !super::ibd_structure::property_visible(diagram, property) {
+            continue;
+        }
+        let owns_end = property.id == source_id
+            || property.id == target_id
+            || property
+                .ports
+                .iter()
+                .any(|port| port.id == source_id || port.id == target_id);
+        let encloses_end = paths.iter().any(|path| {
+            !property.property_path.is_empty()
+                && super::ibd_structure::is_descendant(path, &property.property_path)
+        });
+        if !owns_end && !encloses_end {
             obstacles.push(property_rect(property));
+        } else if encloses_end {
+            obstacles.push(RouteRect {
+                height: 32.0,
+                ..property_rect(property)
+            });
         }
         for port in &property.ports {
             if port.id != source_id && port.id != target_id {
@@ -153,16 +184,6 @@ fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> 
             obstacles.push(port_rect(port));
         }
     }
-    obstacles
-}
-
-fn all_routing_obstacles(diagram: &IbdDiagram) -> Vec<RouteRect> {
-    let mut obstacles = Vec::new();
-    for property in &diagram.properties {
-        obstacles.push(property_rect(property));
-        obstacles.extend(property.ports.iter().map(port_rect));
-    }
-    obstacles.extend(diagram.boundary_ports.iter().map(port_rect));
     obstacles
 }
 
@@ -292,6 +313,11 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 .map_err(|error| error.to_string())?;
 
             for port in &property.ports {
+                if port.property_path != property.property_path {
+                    return Err(
+                        "IBD port must be attached to its contextual owning property".into(),
+                    );
+                }
                 if !presentation_ids.insert(&port.id) {
                     return Err(format!("duplicate IBD port presentation id: {}", port.id));
                 }
@@ -344,7 +370,16 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                 .connector
                 .as_ref()
                 .ok_or("Connector semantics missing")?;
-            if semantic.source != source || semantic.target != target {
+            let prefix = parse_path(&edge.context_path)?;
+            let reached = project
+                .resolve_structural_path(context_id, &prefix)
+                .map_err(|error| error.to_string())?;
+            if reached != semantic.context_id {
+                return Err("IBD connector occurrence has the wrong contextual type".into());
+            }
+            if super::ibd_projection::project_end(&prefix, &semantic.source) != source
+                || super::ibd_projection::project_end(&prefix, &semantic.target) != target
+            {
                 return Err(format!(
                     "IBD presentation endpoints do not match semantic Connector: {}",
                     edge.relationship_id
@@ -440,7 +475,11 @@ pub(super) fn populate_ibd_diagram_from_context(
         .classifier_features(context)
         .map_err(|error| error.to_string())?;
     let mut x = 120.0;
-    let mut y = 120.0;
+    let mut y = diagram
+        .properties
+        .iter()
+        .map(|p| p.y + p.height + 48.0)
+        .fold(120.0, f64::max);
 
     for feature in features {
         match feature.kind {
@@ -448,11 +487,12 @@ pub(super) fn populate_ibd_diagram_from_context(
                 if diagram
                     .properties
                     .iter()
-                    .any(|p| p.element_id == feature.id.to_string())
+                    .any(|p| p.property_path == vec![feature.id.to_string()])
                 {
                     continue;
                 }
                 diagram.properties.push(IbdPropertyPresentation {
+                    collapsed: false,
                     id: uuid::Uuid::new_v4().to_string(),
                     element_id: feature.id.to_string(),
                     property_path: vec![feature.id.to_string()],
@@ -593,6 +633,7 @@ pub fn create_ibd_connector(
 
     let points = route_ibd_edge(diagram, &source_presentation_id, &target_presentation_id)?;
     diagram.connectors.push(IbdConnectorPresentation {
+        context_path: Vec::new(),
         id: uuid::Uuid::new_v4().to_string(),
         relationship_id: semantic_id.to_string(),
         source_presentation_id,
@@ -647,7 +688,6 @@ pub(super) fn routed_ibd_connectors(
     bounds: Option<RouteRect>,
 ) -> Result<Vec<IbdConnectorPresentation>, String> {
     let snapshot = diagram.clone();
-    let all_obstacles = all_routing_obstacles(&snapshot);
     let mut reserved_routes = Vec::new();
     let mut routed_geometry = Vec::new();
 
@@ -655,6 +695,13 @@ pub(super) fn routed_ibd_connectors(
     // metadata and must never become hard obstacles that can trap a later semantic
     // connector at its endpoint. This mirrors the application-wide shared router.
     for (index, edge) in snapshot.connectors.iter().enumerate() {
+        ibd_end_for_presentation(&snapshot, &edge.source_presentation_id)?;
+        ibd_end_for_presentation(&snapshot, &edge.target_presentation_id)?;
+        if !super::ibd_structure::endpoint_visible(&snapshot, &edge.source_presentation_id)
+            || !super::ibd_structure::endpoint_visible(&snapshot, &edge.target_presentation_id)
+        {
+            continue;
+        }
         let same_source_count = snapshot.connectors[..index]
             .iter()
             .filter(|candidate| candidate.source_presentation_id == edge.source_presentation_id)
@@ -705,11 +752,19 @@ pub(super) fn routed_ibd_connectors(
     // With every connector route committed, labels can avoid the full relationship
     // geometry and previously placed labels without affecting route feasibility.
     for (edge_id, points) in routed_geometry {
-        let obstacles: Vec<_> = all_obstacles
+        let edge = snapshot
+            .connectors
             .iter()
-            .copied()
-            .chain(label_obstacles.iter().copied())
-            .collect();
+            .find(|edge| edge.id == edge_id)
+            .ok_or("IBD connector not found")?;
+        let obstacles: Vec<_> = routing_obstacles(
+            &snapshot,
+            &edge.source_presentation_id,
+            &edge.target_presentation_id,
+        )
+        .into_iter()
+        .chain(label_obstacles.iter().copied())
+        .collect();
         let label_anchor =
             super::routing::route_label_anchor_avoiding(&points, &obstacles, &all_routes, bounds)?;
         let connector = connectors
@@ -788,47 +843,7 @@ pub(super) fn layout_ibd_with_bounds(
         .ok_or("IBD not found")?;
     let original = diagrams[index].clone();
     let mut candidate = original.clone();
-    let owner = |presentation_id: &str| {
-        candidate.properties.iter().find_map(|property| {
-            (property.id == presentation_id
-                || property.ports.iter().any(|port| port.id == presentation_id))
-            .then(|| property.id.clone())
-        })
-    };
-    let edges: Vec<_> = candidate
-        .connectors
-        .iter()
-        .filter_map(|edge| {
-            Some((
-                owner(&edge.source_presentation_id)?,
-                owner(&edge.target_presentation_id)?,
-            ))
-        })
-        .collect();
-    let positions = super::layout::hierarchical_positions_sized(
-        candidate
-            .properties
-            .iter()
-            .map(|property| super::layout::LayoutNode {
-                id: property.id.clone(),
-                width: property.width,
-                height: property.height,
-            }),
-        &edges,
-        systems_modeler_core::PreferredFlowDirection::LeftToRight,
-    );
-    for property in &mut candidate.properties {
-        if let Some((x, y)) = positions.get(&property.id) {
-            let dx = *x - property.x;
-            let dy = *y - property.y;
-            property.x = *x;
-            property.y = *y;
-            for port in &mut property.ports {
-                port.x += dx;
-                port.y += dy;
-            }
-        }
-    }
+    super::ibd_structure::clean_groups(&mut candidate)?;
     candidate.connectors = routed_ibd_connectors(&candidate, bounds)?;
     let changed = ibd_presentation_changed(&original, &candidate);
     if changed {
@@ -958,6 +973,7 @@ mod tests {
 
     fn property(id: &str, x: f64, y: f64) -> IbdPropertyPresentation {
         IbdPropertyPresentation {
+            collapsed: false,
             id: id.into(),
             element_id: ElementId::new().to_string(),
             property_path: Vec::new(),
@@ -971,6 +987,7 @@ mod tests {
 
     fn connector(id: &str, source: &str, target: &str) -> IbdConnectorPresentation {
         IbdConnectorPresentation {
+            context_path: Vec::new(),
             id: id.into(),
             relationship_id: uuid::Uuid::new_v4().to_string(),
             source_presentation_id: source.into(),

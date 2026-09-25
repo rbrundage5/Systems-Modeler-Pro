@@ -22,6 +22,9 @@ mod workspace {
     mod history;
     mod ibd;
     mod ibd_geometry;
+    mod ibd_navigation;
+    mod ibd_projection;
+    mod ibd_structure;
     mod item_flow_editing;
     mod item_flow_notation;
     mod layout;
@@ -103,6 +106,8 @@ mod workspace {
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
+    pub use ibd_navigation::open_or_create_type_ibd;
+    pub use ibd_structure::{set_ibd_structure_expanded, show_ibd_existing_parts};
     pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
     pub use item_flow_notation::ibd_item_flow_notation;
     pub use model_script::{apply_model_script, preview_model_script};
@@ -143,7 +148,7 @@ mod workspace {
         create_stereotype_definition, create_tag_definition, remove_stereotype_application,
         set_stereotype_tag_values,
     };
-    pub use property_presentation::present_part_composition;
+    pub use property_presentation::{author_part_composition, present_part_composition};
     pub use relationship_editing::{
         composition_property_choices, delete_bdd_relationship, link_composition_property,
         reconnect_bdd_relationship, update_association_end,
@@ -249,19 +254,19 @@ use workspace::{
     import_portable_project_json, initialize_activity_execution, initialize_sequence_execution,
     initialize_state_machine_execution, load_activity_workspace, move_active_selection,
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
-    new_project, open_project_file, open_project_file_complete, paste_selection,
-    pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
-    place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
-    place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
-    present_part_composition, preview_activity_execution_runtime, preview_ibd_port_geometry,
-    preview_model_script, preview_reqif_import, preview_sequence_execution_runtime,
-    preview_spreadsheet_import, preview_spreadsheet_workbook_import,
-    preview_state_machine_execution_runtime, preview_xmi_import, queue_state_machine_signal,
-    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_binding_connector,
-    reconnect_package_relationship, reconnect_sequence_message,
-    reconnect_traceability_relationship, reconnect_use_case_relationship,
-    remove_stereotype_application, rename_active_diagram_header, rename_element,
-    reset_activity_execution, reset_activity_workspace, reset_sequence_execution,
+    author_part_composition, new_project, open_or_create_type_ibd, open_project_file, open_project_file_complete,
+    paste_selection, pause_activity_execution, pause_sequence_execution,
+    pause_state_machine_execution, place_bdd_element, place_element_on_bdd,
+    place_on_package_diagram, place_on_parametric_diagram, place_on_requirement_diagram,
+    place_on_use_case_diagram, populate_ibd_from_context, present_part_composition, preview_activity_execution_runtime,
+    preview_ibd_port_geometry, preview_model_script, preview_reqif_import,
+    preview_sequence_execution_runtime, preview_spreadsheet_import,
+    preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
+    preview_xmi_import, queue_state_machine_signal, reconnect_activity_edge,
+    reconnect_bdd_relationship, reconnect_binding_connector, reconnect_package_relationship,
+    reconnect_sequence_message, reconnect_traceability_relationship,
+    reconnect_use_case_relationship, remove_stereotype_application, rename_active_diagram_header,
+    rename_element, reset_activity_execution, reset_activity_workspace, reset_sequence_execution,
     reset_state_machine_execution, resize_sequence_lifeline_timeline, resume_activity_execution,
     resume_sequence_execution, resume_state_machine_execution, route_activity_diagram,
     route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,
@@ -269,15 +274,16 @@ use workspace::{
     save_current_project, save_current_project_complete, save_project_file,
     save_project_file_complete, semantic_presentation_manifest, semantic_presentation_stylesheet,
     sequence_execution_runtime_selection, sequence_execution_snapshot,
-    set_diagram_frame_preference, set_panel_preferences, set_stereotype_tag_values,
-    set_viewport_preference, set_workspace_interaction, stage_reqif_upload,
-    stage_spreadsheet_upload, stage_xmi_upload, state_machine_execution_runtime_selection,
-    state_machine_execution_snapshot, step_activity_execution, step_sequence_execution,
-    step_state_machine_execution, terminate_activity_execution, terminate_sequence_execution,
-    terminate_state_machine_execution, update_activity_node_semantics,
-    update_activity_presentation_geometry, update_actor_details, update_association_end,
-    update_bdd_element_details, update_bdd_feature_semantics, update_bdd_presentation_geometry,
-    update_combined_fragment_operand, update_constraint_block_details, update_constraint_parameter,
+    set_diagram_frame_preference, set_ibd_structure_expanded, set_panel_preferences,
+    set_stereotype_tag_values, set_viewport_preference, set_workspace_interaction,
+    show_ibd_existing_parts, stage_reqif_upload, stage_spreadsheet_upload, stage_xmi_upload,
+    state_machine_execution_runtime_selection, state_machine_execution_snapshot,
+    step_activity_execution, step_sequence_execution, step_state_machine_execution,
+    terminate_activity_execution, terminate_sequence_execution, terminate_state_machine_execution,
+    update_activity_node_semantics, update_activity_presentation_geometry, update_actor_details,
+    update_association_end, update_bdd_element_details, update_bdd_feature_semantics,
+    update_bdd_presentation_geometry, update_combined_fragment_operand,
+    update_constraint_block_details, update_constraint_parameter,
     update_constraint_parameter_presentation, update_element_specification,
     update_execution_specification, update_extend_specification,
     update_ibd_item_flow_specification, update_ibd_port_geometry, update_ibd_property_geometry,
@@ -853,6 +859,9 @@ fn main() {
             create_bdd,
             create_ibd,
             populate_ibd_from_context,
+            set_ibd_structure_expanded,
+            show_ibd_existing_parts,
+            open_or_create_type_ibd,
             add_nested_port_to_ibd,
             update_ibd_property_geometry,
             preview_ibd_port_geometry,
@@ -904,6 +913,7 @@ fn main() {
             composition_property_choices,
             link_composition_property,
             present_part_composition,
+            author_part_composition,
             reconnect_bdd_relationship,
             delete_bdd_relationship
         ]))
