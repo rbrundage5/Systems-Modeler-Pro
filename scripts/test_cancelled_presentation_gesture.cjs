@@ -89,6 +89,15 @@ function fixture(family = 'bdd', scale = 1, options = {}) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/diagram-interaction.js'), 'utf8'), context);
   if (options.connectors) {
     diagram.connectors = options.connectors;
+    // Connector rendering requires real presented endpoints, even when only one
+    // endpoint participates in this gesture. Keep the fixture structurally valid.
+    for (const edge of options.connectors) {
+      for (const id of [edge.source_presentation_id, edge.target_presentation_id]) {
+        if (!diagram.boundary_ports.some(port => port.id === id)) {
+          diagram.boundary_ports.push({ id, element_id: id, property_path: [], x: 200, y: 128, size: 16 });
+        }
+      }
+    }
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../apps/desktop/frontend/ibd-ui.js'), 'utf8'), context);
     if (options.itemFlows) {
       state.itemFlowNotation = options.itemFlows;
