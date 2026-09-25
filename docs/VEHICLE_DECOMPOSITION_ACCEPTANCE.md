@@ -38,7 +38,7 @@ Retarget the qualification PR only after those dependencies land.
    Block owns its respective PartProperty.
 6. Double-click Vehicle to open/create its type-level IBD. Use **Show existing
    parts** if the diagram already existed before the property was authored.
-7. Select `engine: Engine [1]`; in Properties choose **Expand internal structure**.
+7. Select `engine: Engine [1]`; in Properties choose **Show / expand internal parts**.
    Select its `pistons: Piston [4]` occurrence and expand again to show
    `rings: Ring [3]`. This is a contextual view of shared definitions. It represents
    three rings per piston: one Engine, four Pistons, twelve Rings in one Vehicle.
@@ -52,7 +52,9 @@ Retarget the qualification PR only after those dependencies land.
 10. Edit the shared pistons property's name/multiplicity/type through Properties
     and Apply. Check every diagram and linked association. Changes are validated
     by Rust; invalid dependent connections/views reject the edit atomically.
-11. Collapse, drag, resize, Route and Clean Workspace. Remove from diagram hides
+11. To convert a part, choose **Structural usage and aggregation → Reference
+    (noncomposite)** and Apply. The property ID and Block type stay the same.
+    Collapse, drag, resize, Route and Clean Workspace. Remove from diagram hides
     presentations only; Delete property from model uses native dependency cleanup
     and must retain Engine/Piston/Ring definitions. Exercise Undo and Redo.
 12. Save, close and reopen the native project. Verify IDs, geometry, paths and
@@ -75,8 +77,8 @@ resize rejection, cleanup; projected existing connectors and type navigation.
 Frontend tests call production renderer and dispatch functions using a DOM test
 double. They are not browser screenshots or a substitute for a packaged UI test.
 
-Local combined result before the new native fixture: 196 frontend tests passed;
-all repository `validate_*.py` checks passed. Native fixture execution and final
+Local combined result before the new native fixture: 197 frontend tests passed;
+all 21 repository `validate_*.py` checks passed. Native fixture execution and final
 combined Rust checks are recorded in the qualification PR's exact-head CI.
 
 ## Gates still requiring direct desktop evidence
