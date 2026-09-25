@@ -18,6 +18,10 @@ pub struct IbdPortPresentation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbdPropertyPresentation {
+    #[serde(default)]
+    pub occurrence_path: Vec<Option<super::ibd_occurrences::OccurrenceRange>>,
+    #[serde(default)]
+    pub occurrence_name: Option<String>,
     /// Presentation-only state; descendants and semantic definitions are retained.
     #[serde(default)]
     pub collapsed: bool,
@@ -35,6 +39,8 @@ pub struct IbdPropertyPresentation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbdConnectorPresentation {
+    #[serde(default)]
+    pub context_occurrence_path: Vec<Option<super::ibd_occurrences::OccurrenceRange>>,
     /// Type usage containing this occurrence; empty for context-level connectors.
     #[serde(default)]
     pub context_path: Vec<String>,
@@ -142,14 +148,7 @@ fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> 
     let mut obstacles = Vec::new();
     let paths: Vec<_> = [source_id, target_id]
         .iter()
-        .filter_map(|id| {
-            ibd_end_for_presentation(diagram, id).ok().map(|(end, _)| {
-                end.property_path
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-            })
-        })
+        .filter_map(|id| super::ibd_occurrences::endpoint_property(diagram, id))
         .collect();
     for property in &diagram.properties {
         if !super::ibd_structure::property_visible(diagram, property) {
@@ -163,7 +162,7 @@ fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> 
                 .any(|port| port.id == source_id || port.id == target_id);
         let encloses_end = paths.iter().any(|path| {
             !property.property_path.is_empty()
-                && super::ibd_structure::is_descendant(path, &property.property_path)
+                && super::ibd_structure::is_descendant(path, property)
         });
         if !owns_end && !encloses_end {
             obstacles.push(property_rect(property));
@@ -283,6 +282,7 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
             return Err("IBD repository owner must be Model or Package".into());
         }
 
+        super::ibd_occurrences::validate(diagram, project)?;
         for property in &diagram.properties {
             if !presentation_ids.insert(&property.id) {
                 return Err(format!("duplicate IBD presentation id: {}", property.id));
@@ -384,6 +384,20 @@ pub fn validate_ibd_diagrams(project: &Project, diagrams: &[IbdDiagram]) -> Resu
                     "IBD presentation endpoints do not match semantic Connector: {}",
                     edge.relationship_id
                 ));
+            }
+            if edge.context_occurrence_path.len() > edge.context_path.len()
+                || !super::ibd_occurrences::endpoint_matches_context(
+                    diagram,
+                    &edge.source_presentation_id,
+                    &edge.context_occurrence_path,
+                )
+                || !super::ibd_occurrences::endpoint_matches_context(
+                    diagram,
+                    &edge.target_presentation_id,
+                    &edge.context_occurrence_path,
+                )
+            {
+                return Err("Connector occurrence ranges do not match its containing occurrence. Use compact endpoints for aggregate connections, or open the type-level IBD to edit shared internal wiring.".into());
             }
             if edge.points.len() < 2 {
                 return Err(format!("IBD connector has no usable route: {}", edge.id));
@@ -492,6 +506,8 @@ pub(super) fn populate_ibd_diagram_from_context(
                     continue;
                 }
                 diagram.properties.push(IbdPropertyPresentation {
+                    occurrence_path: Vec::new(),
+                    occurrence_name: None,
                     collapsed: false,
                     id: uuid::Uuid::new_v4().to_string(),
                     element_id: feature.id.to_string(),
@@ -956,6 +972,8 @@ mod tests {
 
     fn property(id: &str, x: f64, y: f64) -> IbdPropertyPresentation {
         IbdPropertyPresentation {
+            occurrence_path: Vec::new(),
+            occurrence_name: None,
             collapsed: false,
             id: id.into(),
             element_id: ElementId::new().to_string(),
@@ -970,6 +988,7 @@ mod tests {
 
     fn connector(id: &str, source: &str, target: &str) -> IbdConnectorPresentation {
         IbdConnectorPresentation {
+            context_occurrence_path: Vec::new(),
             context_path: Vec::new(),
             id: id.into(),
             relationship_id: uuid::Uuid::new_v4().to_string(),

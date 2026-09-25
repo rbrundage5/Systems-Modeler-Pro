@@ -246,12 +246,17 @@ fn presented_endpoint(
     diagram: &IbdDiagram,
     previous: &str,
     end: &ConnectorEnd,
+    ranges: &[Option<super::ibd_occurrences::OccurrenceRange>],
 ) -> Result<String, String> {
-    if ibd::ibd_end_for_presentation(diagram, previous).is_ok_and(|(current, _)| current == *end) {
+    if super::ibd_occurrences::endpoint_matches_context(diagram, previous, ranges)
+        && ibd::ibd_end_for_presentation(diagram, previous)
+            .is_ok_and(|(current, _)| current == *end)
+    {
         return Ok(previous.to_owned());
     }
     endpoint_ids(diagram).into_iter().find(|id| {
-        ibd::ibd_end_for_presentation(diagram, id).is_ok_and(|(current, _)| current == *end)
+        super::ibd_occurrences::endpoint_matches_context(diagram, id, ranges)
+            && ibd::ibd_end_for_presentation(diagram, id).is_ok_and(|(current, _)| current == *end)
     }).ok_or_else(|| format!("IBD '{}' must present the replacement endpoint before applying this connector edit", diagram.name))
 }
 
@@ -300,8 +305,18 @@ fn stage_specification(
                 .collect::<Result<Vec<_>, _>>()?;
             let source_end = super::ibd_projection::project_end(&prefix, &connector.source);
             let target_end = super::ibd_projection::project_end(&prefix, &connector.target);
-            let source = presented_endpoint(diagram, &edge.source_presentation_id, &source_end)?;
-            let target = presented_endpoint(diagram, &edge.target_presentation_id, &target_end)?;
+            let source = presented_endpoint(
+                diagram,
+                &edge.source_presentation_id,
+                &source_end,
+                &edge.context_occurrence_path,
+            )?;
+            let target = presented_endpoint(
+                diagram,
+                &edge.target_presentation_id,
+                &target_end,
+                &edge.context_occurrence_path,
+            )?;
             if source == edge.source_presentation_id && target == edge.target_presentation_id {
                 continue;
             }
@@ -350,6 +365,7 @@ fn stage_creation(
         &edit.target_presentation_id,
     )?;
     diagram.connectors.push(ibd::IbdConnectorPresentation {
+        context_occurrence_path: Vec::new(),
         id: uuid::Uuid::new_v4().to_string(),
         relationship_id: id.to_string(),
         context_path: Vec::new(),
@@ -478,6 +494,8 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(index, id)| ibd::IbdPropertyPresentation {
+                    occurrence_path: Vec::new(),
+                    occurrence_name: None,
                     id: format!("p{index}"),
                     element_id: id.to_string(),
                     property_path: vec![id.to_string()],

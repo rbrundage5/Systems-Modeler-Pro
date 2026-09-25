@@ -417,6 +417,8 @@ pub(super) mod tests {
             owner_id: project.root_id.to_string(),
             context_frame: Some(default_context_frame()),
             properties: vec![IbdPropertyPresentation {
+                occurrence_path: Vec::new(),
+                occurrence_name: None,
                 collapsed: false,
                 id: "part".into(),
                 element_id: part.to_string(),
@@ -443,6 +445,7 @@ pub(super) mod tests {
                 size: 16.0,
             }],
             connectors: vec![ibd::IbdConnectorPresentation {
+                context_occurrence_path: Vec::new(),
                 context_path: Vec::new(),
                 id: "connector".into(),
                 relationship_id: relationship.to_string(),

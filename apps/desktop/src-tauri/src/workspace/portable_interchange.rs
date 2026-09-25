@@ -604,6 +604,8 @@ pub(super) mod tests {
             owner_id: package.to_string(),
             context_frame: None,
             properties: vec![super::super::ibd::IbdPropertyPresentation {
+                occurrence_path: Vec::new(),
+                occurrence_name: None,
                 collapsed: false,
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: part.to_string(),
