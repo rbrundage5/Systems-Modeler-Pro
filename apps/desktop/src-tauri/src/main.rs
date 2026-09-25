@@ -143,7 +143,7 @@ mod workspace {
         create_stereotype_definition, create_tag_definition, remove_stereotype_application,
         set_stereotype_tag_values,
     };
-    pub use property_presentation::present_part_composition;
+    pub use property_presentation::{author_part_composition, present_part_composition};
     pub use relationship_editing::{
         composition_property_choices, delete_bdd_relationship, link_composition_property,
         reconnect_bdd_relationship, update_association_end,
@@ -223,13 +223,13 @@ use workspace::{
     add_submachine_state, apply_model_script, apply_profile_definition, apply_reqif_import,
     apply_spreadsheet_import, apply_spreadsheet_workbook_import, apply_stereotype_definition,
     apply_xmi_import, assign_activity_node_partition, assign_activity_node_structured_parent,
-    behavior_lifeline_candidates, behavior_snapshot, clear_activity_executions,
-    clear_sequence_executions, clear_state_machine_executions, clear_workspace_interaction,
-    configure_activity_execution_runtime, configure_sequence_execution_runtime,
-    configure_state_machine_execution_runtime, copy_selection, create_activity_diagram, create_bdd,
-    create_bdd_element, create_bdd_feature, create_bdd_relationship,
-    create_bdd_relationship_complete, create_binding_connector, create_block,
-    create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
+    author_part_composition, behavior_lifeline_candidates, behavior_snapshot,
+    clear_activity_executions, clear_sequence_executions, clear_state_machine_executions,
+    clear_workspace_interaction, configure_activity_execution_runtime,
+    configure_sequence_execution_runtime, configure_state_machine_execution_runtime,
+    copy_selection, create_activity_diagram, create_bdd, create_bdd_element, create_bdd_feature,
+    create_bdd_relationship, create_bdd_relationship_complete, create_binding_connector,
+    create_block, create_constraint_parameter, create_ibd, create_ibd_connector, create_package,
     create_package_diagram, create_package_element, create_package_relationship,
     create_parametric_constraint_property, create_parametric_diagram,
     create_parametric_value_property, create_profile_definition, create_requirement,
@@ -904,6 +904,7 @@ fn main() {
             composition_property_choices,
             link_composition_property,
             present_part_composition,
+            author_part_composition,
             reconnect_bdd_relationship,
             delete_bdd_relationship
         ]))

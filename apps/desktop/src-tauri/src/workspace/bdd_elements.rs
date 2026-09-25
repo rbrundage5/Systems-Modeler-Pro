@@ -753,6 +753,9 @@ pub fn create_bdd_relationship_complete(
     target_element_id: String,
     state: tauri::State<'_, WorkspaceState>,
 ) -> Result<String, String> {
+    if kind == "Composition" {
+        return Err("Choose an existing part or enter its name and multiplicity in the composition authoring dialog".into());
+    }
     create_bdd_relationship_in_state(
         diagram_id,
         kind,
