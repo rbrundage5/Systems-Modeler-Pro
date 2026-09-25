@@ -559,6 +559,7 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(index, id)| ibd::IbdPropertyPresentation {
+                collapsed: false,
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: id.to_string(),
                 property_path: vec![id.to_string()],

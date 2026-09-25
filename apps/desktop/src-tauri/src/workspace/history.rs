@@ -1198,6 +1198,7 @@ mod specification_tests {
             "context_block_id": property.owner_id.unwrap().to_string(),
             "owner_id": model.root_id.to_string(),
             "properties": vec![ibd::IbdPropertyPresentation {
+                collapsed: false,
                 id: uuid::Uuid::new_v4().to_string(),
                 element_id: feature.to_string(),
                 property_path: vec![feature.to_string()],

@@ -415,6 +415,7 @@ pub(super) mod tests {
             owner_id: project.root_id.to_string(),
             context_frame: Some(default_context_frame()),
             properties: vec![IbdPropertyPresentation {
+                collapsed: false,
                 id: "part".into(),
                 element_id: part.to_string(),
                 property_path: vec![part.to_string()],

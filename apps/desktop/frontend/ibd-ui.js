@@ -2,6 +2,29 @@ function selectedIbd() {
   return (state.snapshot?.ibd_diagrams || []).find((d) => d.id === state.selectedDiagramId);
 }
 
+function ibdPropertyVisible(diagram, property) {
+  return !diagram.properties.some(parent => parent.collapsed
+    && parent.property_path.length < property.property_path.length
+    && parent.property_path.every((id, index) => property.property_path[index] === id));
+}
+
+function ibdEndpointVisible(diagram, id) {
+  return diagram.boundary_ports.some(port => port.id === id)
+    || diagram.properties.some(property => (property.id === id || property.ports.some(port => port.id === id))
+      && ibdPropertyVisible(diagram, property));
+}
+
+function selectedIbdOccurrence(diagram = selectedIbd()) {
+  return diagram?.properties.find(property => property.id === state.selectedIbdPresentationId
+    && property.element_id === state.selectedElementId && ibdPropertyVisible(diagram, property));
+}
+
+async function updateIbdStructure(diagram, occurrence, expanded) {
+  await runCommand('Updating IBD structure…', () => requireInvoke()(occurrence ? 'set_ibd_structure_expanded' : 'show_ibd_existing_parts',
+    occurrence ? { diagramId: diagram.id, presentationId: occurrence.id, expanded } : { diagramId: diagram.id }));
+  await refresh();
+}
+
 function ibdElement(project, id) { return project.elements.find((e) => e.id === id); }
 
 function propertyLabel(project, element) { return featureNotation(project, element); }
@@ -161,7 +184,8 @@ function renderIbdConnectorLayer(frame, diagram, project) {
   const relationships = new Map(project.relationships.map((r) => [r.id, r]));
   for (const edge of diagram.connectors) {
     const relationship = relationships.get(edge.relationship_id);
-    if (!relationship || !edge.points?.length) continue;
+    if (!relationship || !edge.points?.length || !ibdEndpointVisible(diagram, edge.source_presentation_id)
+      || !ibdEndpointVisible(diagram, edge.target_presentation_id)) continue;
     const polyline = document.createElementNS(SVG_NS, 'polyline');
     const points = ibdConnectorDisplayPoints(diagram, edge);
     polyline.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
@@ -201,7 +225,7 @@ function renderIbdPort(frame, diagram, port, project, boundary = false) {
   node.className = `ibd-port ${element.kind === 'ProxyPort' ? 'proxy-port' : 'full-port'} ${boundary ? 'boundary-port' : 'nested-port'}`;
   node.dataset.semanticKind = element.kind;
   node.dataset.presentationId = port.id;
-  if (state.selectedElementId === element.id) node.classList.add('selected');
+  if (state.selectedIbdPresentationId === port.id) node.classList.add('selected');
   if (state.pendingRelationship?.sourcePresentationId === port.id) node.classList.add('connector-source');
   const point=boundary?outerFramePoint(port,diagram):port; node.style.left = `${point.x - port.size / 2}px`;
   node.style.top = `${point.y - port.size / 2}px`;
@@ -215,6 +239,7 @@ function renderIbdPort(frame, diagram, port, project, boundary = false) {
       return;
     }
     state.selectedElementId = element.id;
+    state.selectedIbdPresentationId = port.id;
     state.selectedRelationshipId = null;
     render();
   };
@@ -237,15 +262,19 @@ function renderIbdCanvas(canvas, diagram, project) {
   frame.innerHTML = `<div class="diagram-header">ibd [${escapeHtml(context?.name || 'block')}] ${escapeHtml(diagram.name)}</div>`;
   canvas.appendChild(frame);
   renderIbdConnectorLayer(frame, diagram, project);
-  for (const property of diagram.properties) {
+  for (const property of [...diagram.properties].sort((a, b) => a.property_path.length - b.property_path.length)) {
+    if (!ibdPropertyVisible(diagram, property)) continue;
     const element = ibdElement(project, property.element_id);
     if (!element) continue;
-    const box = document.createElement('button');
+    const box = document.createElement('div');
+    box.tabIndex = 0;
+    box.setAttribute('role', 'button');
     box.className = `ibd-property ${element.kind === 'ReferenceProperty' ? 'reference-property' : 'part-property'}`;
     box.dataset.semanticKind = element.kind;
     box.dataset.presentationId = property.id;
-    if (state.selectedElementId === element.id) box.classList.add('selected');
+    if (state.selectedIbdPresentationId === property.id) box.classList.add('selected');
     if (state.pendingRelationship?.sourcePresentationId === property.id) box.classList.add('connector-source');
+    box.style.zIndex = String(3 + property.property_path.length);
     box.style.left = `${property.x}px`;
     box.style.top = `${property.y}px`;
     box.style.width = `${property.width}px`;
@@ -259,9 +288,11 @@ function renderIbdCanvas(canvas, diagram, project) {
         return;
       }
       state.selectedElementId = element.id;
+      state.selectedIbdPresentationId = property.id;
       state.selectedRelationshipId = null;
       render();
     };
+    box.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); box.onclick(event); } };
     frame.appendChild(box);
     for (const port of property.ports) renderIbdPort(frame, diagram, port, project, false);
   }
@@ -316,7 +347,7 @@ async function addExistingPortToSelectedProperty(item) {
   const diagram = selectedIbd();
   const project = state.snapshot?.project;
   if (!diagram || !project) return;
-  const propertyPresentation = diagram.properties.find((presentation) => presentation.element_id === state.selectedElementId);
+  const propertyPresentation = selectedIbdOccurrence(diagram);
   if (!propertyPresentation) {
     alert(`Select an internal Part Property or Reference Property first, then choose ${item.label}.`);
     return;
@@ -358,6 +389,10 @@ renderPalette = function renderPalettePr11() {
   intro.className = 'palette-hint ibd-palette-hint';
   intro.textContent = 'Connectors: choose Assembly or Delegation, then click endpoint 1 and endpoint 2 directly on the diagram. Selected items are outlined.';
   host.appendChild(intro);
+  const showParts = document.createElement('button');
+  showParts.textContent = 'Show existing parts';
+  showParts.onclick = async () => { showParts.disabled = true; try { await updateIbdStructure(ibd); } catch (error) { renderStatus(error?.message || String(error)); } finally { showParts.disabled = false; } };
+  host.appendChild(showParts);
   for (const [category, title] of [['feature', 'Internal Structure'], ['relationship', 'Connections']]) {
     const items = state.paletteItems.filter((item) => item.category === category);
     const section = document.createElement('section');
@@ -450,4 +485,26 @@ renderProperties = function renderPropertiesPr11() {
   }
   window.smpConnectorProperties?.deactivate();
   baseRenderPropertiesPr11();
+  const occurrence = selectedIbdOccurrence(ibd);
+  if (!occurrence) return;
+  const element = ibdElement(project, occurrence.element_id);
+  const owner = ibdElement(project, element?.owner_id);
+  const panel = document.createElement('section');
+  panel.className = 'ibd-structure-controls';
+  const scope = document.createElement('p');
+  scope.className = 'property-help';
+  scope.textContent = `Definition owned by ${owner?.name || 'its classifier'}. Editing this property changes every usage of that definition. Path: ${occurrence.property_path.map(id => ibdElement(project, id)?.name || id).join(' / ')}. Multiplicity applies per containing instance.`;
+  panel.appendChild(scope);
+  for (const [label, expanded] of [['Show / expand internal parts', true], ['Collapse internal parts', false]]) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.onclick = async () => {
+      button.disabled = true;
+      try { await updateIbdStructure(ibd, occurrence, expanded); }
+      catch (error) { renderStatus(error?.message || String(error)); }
+      finally { button.disabled = false; }
+    };
+    panel.appendChild(button);
+  }
+  $('properties').prepend(panel);
 };
