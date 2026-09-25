@@ -1,0 +1,29 @@
+name: server-qualification
+on:
+  pull_request:
+    paths:
+      - 'apps/server/**'
+      - 'crates/persistence/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/server-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Locked dependency verification
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Server tests
+        run: cargo test --locked -p systems-modeler-server
+      - name: Server lint
+        run: cargo clippy --locked -p systems-modeler-server --all-targets -- -D warnings

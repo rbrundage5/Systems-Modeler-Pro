@@ -1,0 +1,3130 @@
+use super::activity_workspace::{ActivityDiagram, ActivityWorkspaceState};
+use super::behavior_workspace::{BehaviorDiagramKind, BehaviorPresentationCopy};
+use super::history::{self, HistoryState};
+use super::shared_workspace::WorkspaceSelection;
+use super::*;
+use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use systems_modeler_core::behavior::{
+    ExecutionId, FragmentId, InteractionId, InvariantId, LifelineId, MessageId, OccurrenceId,
+    Region, TransitionId, VertexId, VertexKind,
+};
+use systems_modeler_core::{
+    ActivityEdgeId, ActivityEndpoint, ActivityNodeId, ActivityNodeKind, ActivityRepository, ElementId,
+    ElementKind, PinId, Project, RelationshipEndId, RelationshipId,
+};
+
+const PASTE_OFFSET: f64 = 28.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditingFamily {
+    Bdd,
+    Package,
+    Requirement,
+    UseCase,
+    Parametric,
+    Ibd,
+    StateMachine,
+    Sequence,
+    Activity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IbdEndpointLocator {
+    occurrence_path: Vec<Option<super::ibd_occurrences::OccurrenceRange>>,
+    element_id: String,
+    property_path: Vec<String>,
+    port: bool,
+    boundary: bool,
+}
+
+#[derive(Debug, Clone)]
+enum ClipboardItem {
+    BddNode {
+        node: DiagramNode,
+    },
+    BddEdge {
+        edge: DiagramEdge,
+        source_element_id: String,
+        target_element_id: String,
+    },
+    IbdProperty {
+        property: ibd::IbdPropertyPresentation,
+    },
+    IbdPort {
+        port: ibd::IbdPortPresentation,
+        parent: Option<IbdEndpointLocator>,
+    },
+    IbdConnector {
+        connector: ibd::IbdConnectorPresentation,
+        source: IbdEndpointLocator,
+        target: IbdEndpointLocator,
+    },
+    Behavior {
+        kind: String,
+        semantic_id: String,
+    },
+    ActivityNode {
+        node: activity_workspace::ActivityDiagramNode,
+    },
+    ActivityEdge {
+        edge: activity_workspace::ActivityDiagramEdge,
+        source_semantic_id: String,
+        target_semantic_id: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ClipboardPayload {
+    family: EditingFamily,
+    semantic_context_id: Option<String>,
+    items: Vec<ClipboardItem>,
+}
+
+#[derive(Default)]
+pub struct StandardEditingState {
+    clipboard: Mutex<Option<ClipboardPayload>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StandardEditingResult {
+    pub changed: usize,
+    pub selections: Vec<WorkspaceSelection>,
+}
+
+#[derive(Clone)]
+struct EditingSnapshot {
+    project: Project,
+    diagrams: Vec<BddDiagram>,
+    ibd_diagrams: Vec<ibd::IbdDiagram>,
+    behavior: systems_modeler_core::BehaviorRepository,
+    behavior_diagrams: Vec<behavior_workspace::BehaviorDiagram>,
+    activity: ActivityRepository,
+    activity_diagrams: Vec<ActivityDiagram>,
+}
+
+impl EditingSnapshot {
+    fn capture(workspace: &WorkspaceState, activity: &ActivityWorkspaceState) -> Result<Self, String> {
+        Ok(Self {
+            project: workspace
+                .project
+                .lock()
+                .map_err(|_| "project lock poisoned")?
+                .clone()
+                .ok_or("no project open")?,
+            diagrams: workspace
+                .diagrams
+                .lock()
+                .map_err(|_| "diagram lock poisoned")?
+                .clone(),
+            ibd_diagrams: workspace
+                .ibd_diagrams
+                .lock()
+                .map_err(|_| "IBD lock poisoned")?
+                .clone(),
+            behavior: workspace
+                .behavior
+                .lock()
+                .map_err(|_| "behavior lock poisoned")?
+                .clone(),
+            behavior_diagrams: workspace
+                .behavior_diagrams
+                .lock()
+                .map_err(|_| "behavior diagram lock poisoned")?
+                .clone(),
+            activity: activity
+                .repository
+                .lock()
+                .map_err(|_| "Activity repository lock poisoned")?
+                .clone(),
+            activity_diagrams: activity
+                .diagrams
+                .lock()
+                .map_err(|_| "Activity diagram lock poisoned")?
+                .clone(),
+        })
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        self.project.validate().map_err(|error| error.to_string())?;
+        validate_loaded_diagrams(&self.project, &self.diagrams)?;
+        ibd::validate_ibd_diagrams(&self.project, &self.ibd_diagrams)?;
+        behavior_workspace::validate_behavior_workspace(
+            &self.project,
+            &self.behavior,
+            &self.behavior_diagrams,
+        )?;
+        self.activity
+            .validate(&self.project)
+            .map_err(|error| error.to_string())?;
+        validate_activity_presentations(&self.activity, &self.activity_diagrams)
+    }
+
+    fn commit(self, workspace: &WorkspaceState, activity: &ActivityWorkspaceState) -> Result<(), String> {
+        *workspace
+            .project
+            .lock()
+            .map_err(|_| "project lock poisoned")? = Some(self.project);
+        *workspace
+            .diagrams
+            .lock()
+            .map_err(|_| "diagram lock poisoned")? = self.diagrams;
+        *workspace
+            .ibd_diagrams
+            .lock()
+            .map_err(|_| "IBD lock poisoned")? = self.ibd_diagrams;
+        *workspace
+            .behavior
+            .lock()
+            .map_err(|_| "behavior lock poisoned")? = self.behavior;
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .map_err(|_| "behavior diagram lock poisoned")? = self.behavior_diagrams;
+        *activity
+            .repository
+            .lock()
+            .map_err(|_| "Activity repository lock poisoned")? = self.activity;
+        *activity
+            .diagrams
+            .lock()
+            .map_err(|_| "Activity diagram lock poisoned")? = self.activity_diagrams;
+        Ok(())
+    }
+}
+
+fn validate_activity_presentations(
+    repository: &ActivityRepository,
+    diagrams: &[ActivityDiagram],
+) -> Result<(), String> {
+    for diagram in diagrams {
+        let activity_id = activity_workspace::parse_activity_id(&diagram.activity_id)?;
+        let activity = repository
+            .activities
+            .get(&activity_id)
+            .ok_or_else(|| format!("Activity diagram references missing activity: {activity_id}"))?;
+        for node in &diagram.nodes {
+            let semantic_id = activity_workspace::parse_activity_node_id(&node.activity_node_id)?;
+            if !activity.nodes.iter().any(|candidate| candidate.id == semantic_id) {
+                return Err(format!("Activity presentation references missing node: {semantic_id}"));
+            }
+        }
+        for edge in &diagram.edges {
+            let semantic_id = uuid::Uuid::parse_str(&edge.activity_edge_id)
+                .map(ActivityEdgeId)
+                .map_err(|_| format!("invalid Activity edge id: {}", edge.activity_edge_id))?;
+            if !activity.edges.iter().any(|candidate| candidate.id == semantic_id) {
+                return Err(format!("Activity presentation references missing edge: {semantic_id}"));
+            }
+            if !diagram.nodes.iter().any(|node| node.id == edge.source_node_id)
+                || !diagram.nodes.iter().any(|node| node.id == edge.target_node_id)
+            {
+                return Err("Activity edge presentation references a missing node presentation".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn family_for(diagram_id: &str, snapshot: &EditingSnapshot) -> Result<EditingFamily, String> {
+    if let Some(diagram) = snapshot.diagrams.iter().find(|diagram| diagram.id == diagram_id) {
+        return Ok(match diagram.family.as_str() {
+            "package" => EditingFamily::Package,
+            "requirement" => EditingFamily::Requirement,
+            "use-case" => EditingFamily::UseCase,
+            "parametric" => EditingFamily::Parametric,
+            _ => EditingFamily::Bdd,
+        });
+    }
+    if snapshot.ibd_diagrams.iter().any(|diagram| diagram.id == diagram_id) {
+        return Ok(EditingFamily::Ibd);
+    }
+    if let Some(diagram) = snapshot
+        .behavior_diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+    {
+        return Ok(match diagram.kind {
+            BehaviorDiagramKind::StateMachine => EditingFamily::StateMachine,
+            BehaviorDiagramKind::Sequence => EditingFamily::Sequence,
+        });
+    }
+    if snapshot
+        .activity_diagrams
+        .iter()
+        .any(|diagram| diagram.id == diagram_id)
+    {
+        return Ok(EditingFamily::Activity);
+    }
+    Err("active diagram not found".into())
+}
+
+fn require_selections(selections: &[WorkspaceSelection]) -> Result<(), String> {
+    if selections.is_empty() {
+        Err("Select at least one diagram presentation first".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn kind_is(selection: &WorkspaceSelection, values: &[&str]) -> bool {
+    values
+        .iter()
+        .any(|value| selection.kind.eq_ignore_ascii_case(value))
+}
+
+fn bdd_endpoint_node<'a>(diagram: &'a BddDiagram, presentation_id: &str) -> Option<&'a DiagramNode> {
+    diagram.nodes.iter().find(|node| {
+        node.id == presentation_id
+            || node
+                .parameter_presentations
+                .iter()
+                .any(|parameter| parameter.id == presentation_id)
+    })
+}
+
+fn node_owns_presentation(node: &DiagramNode, presentation_id: &str) -> bool {
+    node.id == presentation_id
+        || node
+            .parameter_presentations
+            .iter()
+            .any(|parameter| parameter.id == presentation_id)
+}
+
+fn split_index(value: &str) -> (&str, usize) {
+    let Some((semantic, index)) = value.rsplit_once('#') else {
+        return (value, 0);
+    };
+    index.parse::<usize>().map_or((value, 0), |index| (semantic, index))
+}
+
+fn ibd_locator(diagram: &ibd::IbdDiagram, presentation_id: &str) -> Option<IbdEndpointLocator> {
+    if let Some(port) = diagram
+        .boundary_ports
+        .iter()
+        .find(|port| port.id == presentation_id)
+    {
+        return Some(IbdEndpointLocator {
+            occurrence_path: Vec::new(),
+            element_id: port.element_id.clone(),
+            property_path: port.property_path.clone(),
+            port: true,
+            boundary: true,
+        });
+    }
+    for property in &diagram.properties {
+        if property.id == presentation_id {
+            return Some(IbdEndpointLocator {
+                occurrence_path: property.occurrence_path.clone(),
+                element_id: property.element_id.clone(),
+                property_path: property.property_path.clone(),
+                port: false,
+                boundary: false,
+            });
+        }
+        if let Some(port) = property
+            .ports
+            .iter()
+            .find(|port| port.id == presentation_id)
+        {
+            return Some(IbdEndpointLocator {
+                occurrence_path: property.occurrence_path.clone(),
+                element_id: port.element_id.clone(),
+                property_path: port.property_path.clone(),
+                port: true,
+                boundary: false,
+            });
+        }
+    }
+    None
+}
+
+fn find_ibd_presentation(diagram: &ibd::IbdDiagram, locator: &IbdEndpointLocator) -> Option<String> {
+    if locator.boundary {
+        return diagram
+            .boundary_ports
+            .iter()
+            .find(|port| {
+                port.element_id == locator.element_id && port.property_path == locator.property_path
+            })
+            .map(|port| port.id.clone());
+    }
+    for property in &diagram.properties {
+        if !super::ibd_occurrences::ranges_equal(&property.occurrence_path, &locator.occurrence_path, property.property_path.len()) { continue; }
+        if !locator.port
+            && property.element_id == locator.element_id
+            && property.property_path == locator.property_path
+        {
+            return Some(property.id.clone());
+        }
+        if locator.port
+            && let Some(port) = property.ports.iter().find(|port| {
+                port.element_id == locator.element_id && port.property_path == locator.property_path
+            })
+        {
+            return Some(port.id.clone());
+        }
+    }
+    None
+}
+
+fn behavior_kind(selection: &WorkspaceSelection, family: EditingFamily) -> String {
+    if kind_is(selection, &["BehaviorCopy"]) {
+        return "BehaviorCopy".into();
+    }
+    match family {
+        EditingFamily::StateMachine => {
+            if kind_is(selection, &["Transition", "StateTransition", "TransitionPresentation"]) {
+                "Transition".into()
+            } else {
+                "Vertex".into()
+            }
+        }
+        EditingFamily::Sequence => {
+            for (names, output) in [
+                (&["Message", "MessagePresentation"][..], "Message"),
+                (&["Execution", "ExecutionSpecification"][..], "Execution"),
+                (&["Fragment", "CombinedFragment"][..], "Fragment"),
+                (&["Invariant", "StateInvariant"][..], "Invariant"),
+                (&["Lifeline", "LifelinePresentation"][..], "Lifeline"),
+            ] {
+                if kind_is(selection, names) {
+                    return output.into();
+                }
+            }
+            "Lifeline".into()
+        }
+        _ => selection.kind.clone(),
+    }
+}
+
+fn collect_clipboard(
+    snapshot: &EditingSnapshot,
+    diagram_id: &str,
+    selections: &[WorkspaceSelection],
+) -> Result<ClipboardPayload, String> {
+    require_selections(selections)?;
+    let family = family_for(diagram_id, snapshot)?;
+    let mut items = Vec::new();
+    let semantic_context_id = match family {
+        EditingFamily::Bdd
+        | EditingFamily::Package
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => None,
+        EditingFamily::Ibd => snapshot
+            .ibd_diagrams
+            .iter()
+            .find(|diagram| diagram.id == diagram_id)
+            .map(|diagram| diagram.context_block_id.clone()),
+        EditingFamily::StateMachine | EditingFamily::Sequence => snapshot
+            .behavior_diagrams
+            .iter()
+            .find(|diagram| diagram.id == diagram_id)
+            .map(|diagram| diagram.semantic_id.clone()),
+        EditingFamily::Activity => snapshot
+            .activity_diagrams
+            .iter()
+            .find(|diagram| diagram.id == diagram_id)
+            .map(|diagram| diagram.activity_id.clone()),
+    };
+
+    match family {
+        EditingFamily::Bdd
+        | EditingFamily::Package
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
+            let diagram = snapshot
+                .diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("diagram not found")?;
+            for selection in selections {
+                let relationship_first = kind_is(
+                    selection,
+                    &["BddEdge", "Relationship", "RelationshipPresentation", "Label"],
+                );
+                if relationship_first
+                    && let Some(edge) = diagram.edges.iter().find(|edge| {
+                        edge.id == selection.id || edge.relationship_id == selection.id
+                    })
+                {
+                    let source = bdd_endpoint_node(diagram, &edge.source_node_id)
+                        .ok_or("relationship source presentation not found")?;
+                    let target = bdd_endpoint_node(diagram, &edge.target_node_id)
+                        .ok_or("relationship target presentation not found")?;
+                    items.push(ClipboardItem::BddEdge {
+                        edge: edge.clone(),
+                        source_element_id: source.element_id.clone(),
+                        target_element_id: target.element_id.clone(),
+                    });
+                    continue;
+                }
+                if let Some(node) = diagram.nodes.iter().find(|node| {
+                    node.id == selection.id || node.element_id == selection.id
+                }) {
+                    items.push(ClipboardItem::BddNode { node: node.clone() });
+                    continue;
+                }
+                if let Some(edge) = diagram.edges.iter().find(|edge| {
+                    edge.id == selection.id || edge.relationship_id == selection.id
+                }) {
+                    let source = bdd_endpoint_node(diagram, &edge.source_node_id)
+                        .ok_or("relationship source presentation not found")?;
+                    let target = bdd_endpoint_node(diagram, &edge.target_node_id)
+                        .ok_or("relationship target presentation not found")?;
+                    items.push(ClipboardItem::BddEdge {
+                        edge: edge.clone(),
+                        source_element_id: source.element_id.clone(),
+                        target_element_id: target.element_id.clone(),
+                    });
+                    continue;
+                }
+                return Err(format!("selected BDD/REQ presentation was not found: {}", selection.id));
+            }
+        }
+        EditingFamily::Ibd => {
+            let diagram = snapshot
+                .ibd_diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("IBD not found")?;
+            for selection in selections {
+                if kind_is(selection, &["IbdConnector", "Relationship", "Label"])
+                    && let Some(connector) = diagram.connectors.iter().find(|edge| {
+                        edge.id == selection.id || edge.relationship_id == selection.id
+                    })
+                {
+                    items.push(ClipboardItem::IbdConnector {
+                        source: ibd_locator(diagram, &connector.source_presentation_id)
+                            .ok_or("IBD source endpoint presentation not found")?,
+                        target: ibd_locator(diagram, &connector.target_presentation_id)
+                            .ok_or("IBD target endpoint presentation not found")?,
+                        connector: connector.clone(),
+                    });
+                    continue;
+                }
+                if let Some(property) = diagram.properties.iter().find(|property| {
+                    property.id == selection.id || property.element_id == selection.id
+                }) {
+                    items.push(ClipboardItem::IbdProperty {
+                        property: property.clone(),
+                    });
+                    continue;
+                }
+                let mut found_port = None;
+                for property in &diagram.properties {
+                    if let Some(port) = property.ports.iter().find(|port| {
+                        port.id == selection.id || port.element_id == selection.id
+                    }) {
+                        found_port = Some((port.clone(), ibd_locator(diagram, &property.id)));
+                        break;
+                    }
+                }
+                if found_port.is_none()
+                    && let Some(port) = diagram.boundary_ports.iter().find(|port| {
+                        port.id == selection.id || port.element_id == selection.id
+                    })
+                {
+                    found_port = Some((port.clone(), None));
+                }
+                if let Some((port, parent)) = found_port {
+                    items.push(ClipboardItem::IbdPort { port, parent });
+                    continue;
+                }
+                if let Some(connector) = diagram.connectors.iter().find(|edge| {
+                    edge.id == selection.id || edge.relationship_id == selection.id
+                }) {
+                    items.push(ClipboardItem::IbdConnector {
+                        source: ibd_locator(diagram, &connector.source_presentation_id)
+                            .ok_or("IBD source endpoint presentation not found")?,
+                        target: ibd_locator(diagram, &connector.target_presentation_id)
+                            .ok_or("IBD target endpoint presentation not found")?,
+                        connector: connector.clone(),
+                    });
+                    continue;
+                }
+                return Err(format!("selected IBD presentation was not found: {}", selection.id));
+            }
+        }
+        EditingFamily::StateMachine | EditingFamily::Sequence => {
+            let diagram = snapshot
+                .behavior_diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("behavior diagram not found")?;
+            for selection in selections {
+                if kind_is(selection, &["BehaviorCopy"])
+                    && let Some(copy) = diagram
+                        .presentation_copies
+                        .iter()
+                        .find(|copy| copy.id == selection.id)
+                {
+                    items.push(ClipboardItem::Behavior {
+                        kind: copy.kind.clone(),
+                        semantic_id: copy.semantic_id.clone(),
+                    });
+                    continue;
+                }
+                let (semantic_id, _) = split_index(&selection.id);
+                items.push(ClipboardItem::Behavior {
+                    kind: behavior_kind(selection, family),
+                    semantic_id: semantic_id.to_string(),
+                });
+            }
+        }
+        EditingFamily::Activity => {
+            let diagram = snapshot
+                .activity_diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("Activity diagram not found")?;
+            for selection in selections {
+                let edge_first = kind_is(
+                    selection,
+                    &["ActivityEdge", "ActivityEdgePresentation", "Relationship", "Label"],
+                );
+                if edge_first
+                    && let Some(edge) = diagram.edges.iter().find(|edge| {
+                        edge.id == selection.id || edge.activity_edge_id == selection.id
+                    })
+                {
+                    let source = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.source_node_id)
+                        .ok_or("Activity source presentation not found")?;
+                    let target = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.target_node_id)
+                        .ok_or("Activity target presentation not found")?;
+                    items.push(ClipboardItem::ActivityEdge {
+                        edge: edge.clone(),
+                        source_semantic_id: source.activity_node_id.clone(),
+                        target_semantic_id: target.activity_node_id.clone(),
+                    });
+                    continue;
+                }
+                if let Some(node) = diagram.nodes.iter().find(|node| {
+                    node.id == selection.id || node.activity_node_id == selection.id
+                }) {
+                    items.push(ClipboardItem::ActivityNode { node: node.clone() });
+                    continue;
+                }
+                if let Some(edge) = diagram.edges.iter().find(|edge| {
+                    edge.id == selection.id || edge.activity_edge_id == selection.id
+                }) {
+                    let source = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.source_node_id)
+                        .ok_or("Activity source presentation not found")?;
+                    let target = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == edge.target_node_id)
+                        .ok_or("Activity target presentation not found")?;
+                    items.push(ClipboardItem::ActivityEdge {
+                        edge: edge.clone(),
+                        source_semantic_id: source.activity_node_id.clone(),
+                        target_semantic_id: target.activity_node_id.clone(),
+                    });
+                    continue;
+                }
+                return Err(format!("selected Activity presentation was not found: {}", selection.id));
+            }
+        }
+    }
+    Ok(ClipboardPayload {
+        family,
+        semantic_context_id,
+        items,
+    })
+}
+
+fn add_hidden(diagram: &mut behavior_workspace::BehaviorDiagram, semantic_id: &str) {
+    if !diagram
+        .hidden_semantic_ids
+        .iter()
+        .any(|candidate| candidate == semantic_id)
+    {
+        diagram.hidden_semantic_ids.push(semantic_id.to_string());
+    }
+}
+
+fn remove_presentations(
+    snapshot: &mut EditingSnapshot,
+    diagram_id: &str,
+    selections: &[WorkspaceSelection],
+) -> Result<usize, String> {
+    require_selections(selections)?;
+    let family = family_for(diagram_id, snapshot)?;
+    let mut changed = 0;
+    match family {
+        EditingFamily::Bdd
+        | EditingFamily::Package
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
+            let diagram = snapshot
+                .diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("diagram not found")?;
+            for selection in selections {
+                if let Some(index) = diagram.edges.iter().position(|edge| {
+                    edge.id == selection.id || edge.relationship_id == selection.id
+                }) {
+                    diagram.edges.remove(index);
+                    changed += 1;
+                    continue;
+                }
+                if let Some(index) = diagram.nodes.iter().position(|node| {
+                    node.id == selection.id || node.element_id == selection.id
+                }) {
+                    let removed = diagram.nodes.remove(index);
+                    diagram.edges.retain(|edge| {
+                        !node_owns_presentation(&removed, &edge.source_node_id)
+                            && !node_owns_presentation(&removed, &edge.target_node_id)
+                    });
+                    changed += 1;
+                }
+            }
+        }
+        EditingFamily::Ibd => {
+            let diagram = snapshot
+                .ibd_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("IBD not found")?;
+            for selection in selections {
+                if let Some(index) = diagram.connectors.iter().position(|edge| {
+                    edge.id == selection.id || edge.relationship_id == selection.id
+                }) {
+                    diagram.connectors.remove(index);
+                    changed += 1;
+                    continue;
+                }
+                if let Some(index) = diagram.properties.iter().position(|property| {
+                    property.id == selection.id || property.element_id == selection.id
+                }) {
+                    let id = diagram.properties[index].id.clone();
+                    super::ibd_structure::remove_property_presentation(diagram, &id);
+                    changed += 1;
+                    continue;
+                }
+                if let Some(index) = diagram.boundary_ports.iter().position(|port| {
+                    port.id == selection.id || port.element_id == selection.id
+                }) {
+                    let port = diagram.boundary_ports.remove(index);
+                    diagram.connectors.retain(|edge| {
+                        edge.source_presentation_id != port.id
+                            && edge.target_presentation_id != port.id
+                    });
+                    changed += 1;
+                    continue;
+                }
+                let mut removed_port = None;
+                for property in &mut diagram.properties {
+                    if let Some(index) = property.ports.iter().position(|port| {
+                        port.id == selection.id || port.element_id == selection.id
+                    }) {
+                        removed_port = Some(property.ports.remove(index).id);
+                        break;
+                    }
+                }
+                if let Some(port_id) = removed_port {
+                    diagram.connectors.retain(|edge| {
+                        edge.source_presentation_id != port_id
+                            && edge.target_presentation_id != port_id
+                    });
+                    changed += 1;
+                }
+            }
+        }
+        EditingFamily::StateMachine | EditingFamily::Sequence => {
+            let diagram = snapshot
+                .behavior_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("behavior diagram not found")?;
+            for selection in selections {
+                if kind_is(selection, &["BehaviorCopy"])
+                    && let Some(index) = diagram
+                        .presentation_copies
+                        .iter()
+                        .position(|copy| copy.id == selection.id)
+                {
+                    diagram.presentation_copies.remove(index);
+                    changed += 1;
+                    continue;
+                }
+                let (semantic_id, _) = split_index(&selection.id);
+                let kind = behavior_kind(selection, family);
+                match kind.as_str() {
+                    "Vertex" => diagram.state_nodes.retain(|node| node.vertex_id != semantic_id),
+                    "Lifeline" => diagram
+                        .lifelines
+                        .retain(|lifeline| lifeline.lifeline_id != semantic_id),
+                    "Transition" | "Message" => diagram
+                        .edge_routes
+                        .retain(|route| route.semantic_id != semantic_id),
+                    _ => {}
+                }
+                add_hidden(diagram, semantic_id);
+                changed += 1;
+            }
+        }
+        EditingFamily::Activity => {
+            let diagram = snapshot
+                .activity_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("Activity diagram not found")?;
+            for selection in selections {
+                if let Some(index) = diagram.edges.iter().position(|edge| {
+                    edge.id == selection.id || edge.activity_edge_id == selection.id
+                }) {
+                    diagram.edges.remove(index);
+                    changed += 1;
+                    continue;
+                }
+                if let Some(index) = diagram.nodes.iter().position(|node| {
+                    node.id == selection.id || node.activity_node_id == selection.id
+                }) {
+                    let node = diagram.nodes.remove(index);
+                    diagram.edges.retain(|edge| {
+                        edge.source_node_id != node.id && edge.target_node_id != node.id
+                    });
+                    changed += 1;
+                }
+            }
+        }
+    }
+    if changed == 0 {
+        return Err("none of the selected items has a removable presentation on this diagram".into());
+    }
+    Ok(changed)
+}
+
+// Keep a copied group together while preventing its attached endpoints from
+// landing inside existing parts. Geometry and bounds remain Rust-owned.
+fn ibd_copy_offset(diagram: &ibd::IbdDiagram, payload: &ClipboardPayload) -> Result<(f64, f64), String> {
+    let sources: Vec<_> = payload.items.iter().filter_map(|item| match item {
+        ClipboardItem::IbdProperty { property } => Some(property),
+        _ => None,
+    }).collect();
+    if sources.is_empty() { return Ok((PASTE_OFFSET, PASTE_OFFSET)); }
+    let valid = |p: &ibd::IbdPropertyPresentation| {
+        [p.x, p.y, p.width, p.height].iter().all(|v| v.is_finite() && v.abs() <= 100_000.0)
+            && p.width > 0.0 && p.height > 0.0
+    };
+    if !sources.iter().all(|p| valid(p)) || !diagram.properties.iter().all(valid) {
+        return Err("IBD copy requires finite, positive part geometry".into());
+    }
+    let gap = 2.0 * routing::ROUTE_CLEARANCE + PASTE_OFFSET;
+    let min_x = sources.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+    let min_y = sources.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+    let max_x = sources.iter().map(|p| p.x + p.width).fold(f64::NEG_INFINITY, f64::max);
+    let max_y = sources.iter().map(|p| p.y + p.height).fold(f64::NEG_INFINITY, f64::max);
+    let frame = diagram.context_frame.as_ref();
+    if let Some(frame) = frame { frame.validate()?; }
+    let start_x = frame.map_or(PASTE_OFFSET, |f| PASTE_OFFSET.max(f.x + gap - min_x));
+    let start_y = frame.map_or(PASTE_OFFSET, |f| PASTE_OFFSET.max(f.y + gap - min_y));
+    let below = diagram.properties.iter().map(|p| p.y + p.height + gap - min_y).fold(start_y, f64::max);
+    for dy in [start_y, below] {
+        let mut dx = start_x;
+        // Each step clears at least one source/obstacle pair to its right.
+        for _ in 0..=sources.len().saturating_mul(diagram.properties.len()) {
+            if min_x + dx < 0.0 || min_y + dy < 0.0 || max_x + dx > 100_000.0 || max_y + dy > 100_000.0
+                || frame.is_some_and(|f| max_x + dx + gap > f.x + f.width || max_y + dy + gap > f.y + f.height)
+            { break; }
+            let mut next = dx;
+            for source in &sources {
+                for obstacle in &diagram.properties {
+                    if source.x + dx < obstacle.x + obstacle.width + gap
+                        && source.x + source.width + dx + gap > obstacle.x
+                        && source.y + dy < obstacle.y + obstacle.height + gap
+                        && source.y + source.height + dy + gap > obstacle.y
+                    {
+                        next = next.max(obstacle.x + obstacle.width + gap - source.x);
+                    }
+                }
+            }
+            if next == dx { return Ok((dx, dy)); }
+            dx = next;
+        }
+    }
+    Err("no clear IBD copy placement fits; enlarge the context frame or make room for the copied parts".into())
+}
+
+fn paste_clipboard(
+    snapshot: &mut EditingSnapshot,
+    target_diagram_id: &str,
+    payload: &ClipboardPayload,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<Vec<WorkspaceSelection>, String> {
+    let target_family = family_for(target_diagram_id, snapshot)?;
+    let mut selections = Vec::new();
+    match target_family {
+        EditingFamily::Bdd
+        | EditingFamily::Package
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
+            let use_case_compatible = target_family == EditingFamily::UseCase
+                && payload.family == EditingFamily::UseCase;
+            let parametric_compatible = target_family == EditingFamily::Parametric
+                && payload.family == EditingFamily::Parametric;
+            let structural_compatible = !matches!(
+                target_family,
+                EditingFamily::UseCase | EditingFamily::Parametric
+            )
+                && matches!(
+                    payload.family,
+                    EditingFamily::Bdd | EditingFamily::Package | EditingFamily::Requirement
+                );
+            if !use_case_compatible && !parametric_compatible && !structural_compatible {
+                return Err("clipboard selection is not compatible with the active diagram family".into());
+            }
+            let diagram = snapshot
+                .diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == target_diagram_id)
+                .ok_or("diagram not found")?;
+            let mut presentation_map = HashMap::new();
+            for item in &payload.items {
+                if let ClipboardItem::BddNode { node } = item {
+                    snapshot
+                        .project
+                        .element(parse_element_id(&node.element_id)?)
+                        .map_err(|error| error.to_string())?;
+                    let mut copy = node.clone();
+                    let old_id = copy.id.clone();
+                    copy.id = uuid::Uuid::new_v4().to_string();
+                    for parameter in &mut copy.parameter_presentations {
+                        let old_parameter_id = parameter.id.clone();
+                        parameter.id = uuid::Uuid::new_v4().to_string();
+                        presentation_map.insert(old_parameter_id, parameter.id.clone());
+                    }
+                    copy.x += PASTE_OFFSET;
+                    copy.y += PASTE_OFFSET;
+                    presentation_map.insert(old_id, copy.id.clone());
+                    selections.push(WorkspaceSelection {
+                        kind: "BddNode".into(),
+                        id: copy.id.clone(),
+                    });
+                    diagram.nodes.push(copy);
+                }
+            }
+            for item in &payload.items {
+                if let ClipboardItem::BddEdge {
+                    edge,
+                    source_element_id,
+                    target_element_id,
+                } = item
+                {
+                    snapshot
+                        .project
+                        .relationship(parse_relationship_id(&edge.relationship_id)?)
+                        .map_err(|error| error.to_string())?;
+                    let source_id = presentation_map
+                        .get(&edge.source_node_id)
+                        .cloned()
+                        .or_else(|| {
+                            diagram
+                                .nodes
+                                .iter()
+                                .find(|node| node.element_id == *source_element_id)
+                                .map(|node| node.id.clone())
+                        })
+                        .ok_or("paste requires the relationship source element to be presented")?;
+                    let target_id = presentation_map
+                        .get(&edge.target_node_id)
+                        .cloned()
+                        .or_else(|| {
+                            diagram
+                                .nodes
+                                .iter()
+                                .find(|node| node.element_id == *target_element_id)
+                                .map(|node| node.id.clone())
+                        })
+                        .ok_or("paste requires the relationship target element to be presented")?;
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let points = if target_family == EditingFamily::Parametric {
+                        Vec::new()
+                    } else {
+                        let source = bdd_endpoint_node(diagram, &source_id)
+                            .cloned()
+                            .ok_or("source presentation not found")?;
+                        let target = bdd_endpoint_node(diagram, &target_id)
+                            .cloned()
+                            .ok_or("target presentation not found")?;
+                        route_relationship(&source, &target, &diagram.nodes)?
+                    };
+                    diagram.edges.push(DiagramEdge {
+                        id: id.clone(),
+                        relationship_id: edge.relationship_id.clone(),
+                        source_node_id: source_id,
+                        target_node_id: target_id,
+                        label_anchor: (target_family != EditingFamily::Parametric)
+                            .then(|| routing::route_label_anchor(&points)),
+                        points,
+                    });
+                    selections.push(WorkspaceSelection {
+                        kind: "BddEdge".into(),
+                        id,
+                    });
+                }
+            }
+            if target_family == EditingFamily::Parametric {
+                diagram.edges = super::parametrics::routed_edges(diagram, None)?;
+            } else {
+                diagram.edges = routed_bdd_edges(diagram, None)?;
+            }
+        }
+        EditingFamily::Ibd => {
+            if payload.family != EditingFamily::Ibd {
+                return Err("clipboard selection is not compatible with an IBD".into());
+            }
+            let target_context = snapshot
+                .ibd_diagrams
+                .iter()
+                .find(|diagram| diagram.id == target_diagram_id)
+                .map(|diagram| diagram.context_block_id.clone())
+                .ok_or("IBD not found")?;
+            if payload.semantic_context_id.as_deref() != Some(target_context.as_str()) {
+                return Err("IBD paste is only legal when the copied semantic property paths belong to the same Block context".into());
+            }
+            let diagram = snapshot
+                .ibd_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == target_diagram_id)
+                .ok_or("IBD not found")?;
+            if diagram.context_frame.is_none()
+                && payload.items.iter().any(|item| matches!(item, ClipboardItem::IbdPort { parent: None, .. }))
+            {
+                super::ibd_geometry::apply_context_frame(
+                    diagram,
+                    visible_frame.cloned().ok_or("the visible IBD context frame is required to paste a boundary port")?,
+                )?;
+            }
+            let (part_dx, part_dy) = ibd_copy_offset(diagram, payload)?;
+            let mut presentation_map = HashMap::new();
+            for item in &payload.items {
+                if let ClipboardItem::IbdProperty { property } = item {
+                    let mut copy = property.clone();
+                    let old_property = copy.id.clone();
+                    copy.id = uuid::Uuid::new_v4().to_string();
+                    copy.x += part_dx;
+                    copy.y += part_dy;
+                    presentation_map.insert(old_property, copy.id.clone());
+                    for port in &mut copy.ports {
+                        let old_port = port.id.clone();
+                        port.id = uuid::Uuid::new_v4().to_string();
+                        port.x += part_dx;
+                        port.y += part_dy;
+                        presentation_map.insert(old_port, port.id.clone());
+                    }
+                    selections.push(WorkspaceSelection {
+                        kind: "IbdProperty".into(),
+                        id: copy.id.clone(),
+                    });
+                    diagram.properties.push(copy);
+                }
+            }
+            for item in &payload.items {
+                if let ClipboardItem::IbdPort { port, parent } = item {
+                    // A copied property already includes its ports. Preserve that
+                    // mapping for connector endpoints instead of creating a second
+                    // port on the original property presentation.
+                    if presentation_map.contains_key(&port.id) {
+                        continue;
+                    }
+                    let mut copy = port.clone();
+                    let old_id = copy.id.clone();
+                    copy.id = uuid::Uuid::new_v4().to_string();
+                    presentation_map.insert(old_id, copy.id.clone());
+                    if let Some(parent) = parent {
+                        let parent_id = find_ibd_presentation(diagram, parent)
+                            .ok_or("paste requires the nested port's parent property presentation")?;
+                        let property = diagram
+                            .properties
+                            .iter_mut()
+                            .find(|property| property.id == parent_id)
+                            .ok_or("nested port parent presentation not found")?;
+                        property.ports.push(copy.clone());
+                    } else {
+                        diagram.boundary_ports.push(copy.clone());
+                    }
+                    super::ibd_geometry::offset_copied_port(
+                        diagram, &copy.id, PASTE_OFFSET, PASTE_OFFSET,
+                    )?;
+                    selections.push(WorkspaceSelection {
+                        kind: "IbdPort".into(),
+                        id: copy.id,
+                    });
+                }
+            }
+            for item in &payload.items {
+                if let ClipboardItem::IbdConnector {
+                    connector,
+                    source,
+                    target,
+                } = item
+                {
+                    let source_id = presentation_map
+                        .get(&connector.source_presentation_id)
+                        .cloned()
+                        .or_else(|| find_ibd_presentation(diagram, source))
+                        .ok_or("IBD connector source is not presented on the target diagram")?;
+                    let target_id = presentation_map
+                        .get(&connector.target_presentation_id)
+                        .cloned()
+                        .or_else(|| find_ibd_presentation(diagram, target))
+                        .ok_or("IBD connector target is not presented on the target diagram")?;
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let points = ibd::route_ibd_edge(diagram, &source_id, &target_id)?;
+                    diagram.connectors.push(ibd::IbdConnectorPresentation {
+                        context_occurrence_path: connector.context_occurrence_path.clone(),
+                        context_path: connector.context_path.clone(),
+                        id: id.clone(),
+                        relationship_id: connector.relationship_id.clone(),
+                        source_presentation_id: source_id,
+                        target_presentation_id: target_id,
+                        label_anchor: Some(routing::route_label_anchor(&points)),
+                        points,
+                    });
+                    selections.push(WorkspaceSelection {
+                        kind: "IbdConnector".into(),
+                        id,
+                    });
+                }
+            }
+        }
+        EditingFamily::StateMachine | EditingFamily::Sequence => {
+            if payload.family != target_family {
+                return Err("behavior clipboard content must be pasted into the same diagram family".into());
+            }
+            let diagram = snapshot
+                .behavior_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == target_diagram_id)
+                .ok_or("behavior diagram not found")?;
+            if payload.semantic_context_id.as_deref() != Some(diagram.semantic_id.as_str()) {
+                return Err("copy/paste of a behavior presentation requires a diagram of the same StateMachine/Interaction semantic object".into());
+            }
+            for item in &payload.items {
+                let ClipboardItem::Behavior { kind, semantic_id } = item else {
+                    continue;
+                };
+                diagram.hidden_semantic_ids.retain(|id| id != semantic_id);
+                let id = uuid::Uuid::new_v4().to_string();
+                diagram.presentation_copies.push(BehaviorPresentationCopy {
+                    id: id.clone(),
+                    semantic_id: semantic_id.clone(),
+                    kind: kind.clone(),
+                    offset_x: PASTE_OFFSET,
+                    offset_y: if matches!(kind.as_str(), "Transition" | "Message") {
+                        8.0
+                    } else {
+                        PASTE_OFFSET
+                    },
+                });
+                selections.push(WorkspaceSelection {
+                    kind: "BehaviorCopy".into(),
+                    id,
+                });
+            }
+        }
+        EditingFamily::Activity => {
+            if payload.family != EditingFamily::Activity {
+                return Err("clipboard selection is not compatible with an Activity Diagram".into());
+            }
+            let target_activity = snapshot
+                .activity_diagrams
+                .iter()
+                .find(|diagram| diagram.id == target_diagram_id)
+                .map(|diagram| diagram.activity_id.clone())
+                .ok_or("Activity diagram not found")?;
+            if payload.semantic_context_id.as_deref() != Some(target_activity.as_str()) {
+                return Err("Activity paste requires another presentation of the same Activity semantic object".into());
+            }
+            let diagram = snapshot
+                .activity_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == target_diagram_id)
+                .ok_or("Activity diagram not found")?;
+            let mut presentation_map = HashMap::new();
+            for item in &payload.items {
+                if let ClipboardItem::ActivityNode { node } = item {
+                    let mut copy = node.clone();
+                    let old_id = copy.id.clone();
+                    copy.id = uuid::Uuid::new_v4().to_string();
+                    copy.x += PASTE_OFFSET;
+                    copy.y += PASTE_OFFSET;
+                    presentation_map.insert(old_id, copy.id.clone());
+                    selections.push(WorkspaceSelection {
+                        kind: "ActivityNodePresentation".into(),
+                        id: copy.id.clone(),
+                    });
+                    diagram.nodes.push(copy);
+                }
+            }
+            for item in &payload.items {
+                if let ClipboardItem::ActivityEdge {
+                    edge,
+                    source_semantic_id,
+                    target_semantic_id,
+                } = item
+                {
+                    let source_id = presentation_map
+                        .get(&edge.source_node_id)
+                        .cloned()
+                        .or_else(|| {
+                            diagram
+                                .nodes
+                                .iter()
+                                .find(|node| node.activity_node_id == *source_semantic_id)
+                                .map(|node| node.id.clone())
+                        })
+                        .ok_or("Activity source node is not presented")?;
+                    let target_id = presentation_map
+                        .get(&edge.target_node_id)
+                        .cloned()
+                        .or_else(|| {
+                            diagram
+                                .nodes
+                                .iter()
+                                .find(|node| node.activity_node_id == *target_semantic_id)
+                                .map(|node| node.id.clone())
+                        })
+                        .ok_or("Activity target node is not presented")?;
+                    let source = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == source_id)
+                        .ok_or("Activity source presentation not found")?;
+                    let target = diagram
+                        .nodes
+                        .iter()
+                        .find(|node| node.id == target_id)
+                        .ok_or("Activity target presentation not found")?;
+                    let points = routing::orthogonal_route(routing::RouteRequest {
+                        source: routing::RouteRect {
+                            x: source.x,
+                            y: source.y,
+                            width: source.width,
+                            height: source.height,
+                        },
+                        target: routing::RouteRect {
+                            x: target.x,
+                            y: target.y,
+                            width: target.width,
+                            height: target.height,
+                        },
+                        obstacles: &[],
+                        lane_index: 0,
+                        reserved_routes: &[],
+                        allow_shared_departure: false,
+                        bounds: None,
+                    })?;
+                    let id = uuid::Uuid::new_v4().to_string();
+                    diagram.edges.push(activity_workspace::ActivityDiagramEdge {
+                        id: id.clone(),
+                        activity_edge_id: edge.activity_edge_id.clone(),
+                        source_node_id: source_id,
+                        target_node_id: target_id,
+                        label_anchor: Some(routing::route_label_anchor(&points)),
+                        points,
+                    });
+                    selections.push(WorkspaceSelection {
+                        kind: "ActivityEdgePresentation".into(),
+                        id,
+                    });
+                }
+            }
+        }
+    }
+    if selections.is_empty() {
+        return Err("clipboard contains no presentations compatible with the active diagram".into());
+    }
+    Ok(selections)
+}
+
+fn unique_copy_name(project: &Project, source: &systems_modeler_core::Element) -> String {
+    let base = format!("{} Copy", source.name);
+    if !project.elements.values().any(|element| element.name == base) {
+        return base;
+    }
+    for index in 2..10_000 {
+        let candidate = format!("{} Copy {index}", source.name);
+        if !project
+            .elements
+            .values()
+            .any(|element| element.name == candidate)
+        {
+            return candidate;
+        }
+    }
+    format!("{} Copy {}", source.name, uuid::Uuid::new_v4())
+}
+
+fn unique_requirement_id(project: &Project, source: &str) -> String {
+    for index in 1..10_000 {
+        let candidate = if index == 1 {
+            format!("{source}-copy")
+        } else {
+            format!("{source}-copy-{index}")
+        };
+        if !project.elements.values().any(|element| {
+            element.requirement_id.as_deref() == Some(candidate.as_str())
+        }) {
+            return candidate;
+        }
+    }
+    format!("{source}-{}", uuid::Uuid::new_v4())
+}
+
+fn duplicate_element(project: &mut Project, source_id: ElementId) -> Result<ElementId, String> {
+    let source = project
+        .element(source_id)
+        .map_err(|error| error.to_string())?
+        .clone();
+    if source.kind == ElementKind::Model {
+        return Err("the project Model root cannot be duplicated".into());
+    }
+    let id = ElementId::new();
+    let mut duplicate = source.clone();
+    duplicate.id = id;
+    duplicate.external_id = format!("EL-{id}");
+    duplicate.name = unique_copy_name(project, &source);
+    if let Some(requirement_id) = source.requirement_id.as_deref() {
+        duplicate.requirement_id = Some(unique_requirement_id(project, requirement_id));
+    }
+    project.elements.insert(id, duplicate);
+    Ok(id)
+}
+
+fn duplicate_relationship(
+    project: &mut Project,
+    source_id: RelationshipId,
+    element_map: &HashMap<ElementId, ElementId>,
+    relationship_map: &HashMap<RelationshipId, RelationshipId>,
+) -> Result<RelationshipId, String> {
+    let source = project
+        .relationship(source_id)
+        .map_err(|error| error.to_string())?
+        .clone();
+    let id = RelationshipId::new();
+    let mut duplicate = source;
+    duplicate.id = id;
+    duplicate.external_id = format!("REL-{id}");
+    duplicate.source_id = element_map
+        .get(&duplicate.source_id)
+        .copied()
+        .unwrap_or(duplicate.source_id);
+    duplicate.target_id = element_map
+        .get(&duplicate.target_id)
+        .copied()
+        .unwrap_or(duplicate.target_id);
+    duplicate.owner_id = duplicate
+        .owner_id
+        .map(|owner_id| element_map.get(&owner_id).copied().unwrap_or(owner_id));
+    for end in &mut duplicate.association_ends {
+        if let Some(property_id) = end.property_id {
+            let source_property = project.element(property_id).map_err(|error| error.to_string())?.clone();
+            let mapped = if let Some(mapped) = element_map.get(&property_id) {
+                *mapped
+            } else {
+                duplicate_element(project, property_id)?
+            };
+            let property = project.element_mut(mapped).map_err(|error| error.to_string())?;
+            property.owner_id = source_property.owner_id.map(|owner| element_map.get(&owner).copied().unwrap_or(owner));
+            property.type_id = source_property.type_id.map(|kind| element_map.get(&kind).copied().unwrap_or(kind));
+            end.property_id = Some(mapped);
+            end.role_name = property.name.clone();
+            end.multiplicity = property.multiplicity.unwrap_or(systems_modeler_core::Multiplicity::ONE);
+            end.aggregation = property.aggregation;
+        }
+        end.id = RelationshipEndId::new();
+        end.classifier_id = element_map
+            .get(&end.classifier_id)
+            .copied()
+            .unwrap_or(end.classifier_id);
+    }
+    if let Some(connector) = &mut duplicate.connector {
+        connector.association_type_id = connector.association_type_id.map(|type_id| {
+            relationship_map.get(&type_id).copied().unwrap_or(type_id)
+        });
+        connector.context_id = element_map
+            .get(&connector.context_id)
+            .copied()
+            .unwrap_or(connector.context_id);
+        for end in [&mut connector.source, &mut connector.target] {
+            end.property_path = end
+                .property_path
+                .iter()
+                .map(|id| element_map.get(id).copied().unwrap_or(*id))
+                .collect();
+            end.role_id = element_map.get(&end.role_id).copied().unwrap_or(end.role_id);
+            end.port_id = end
+                .port_id
+                .map(|port| element_map.get(&port).copied().unwrap_or(port));
+        }
+    }
+    if let Some(flow) = &mut duplicate.item_flow {
+        flow.connector_id = relationship_map
+            .get(&flow.connector_id)
+            .copied()
+            .unwrap_or(flow.connector_id);
+        for end in [&mut flow.source, &mut flow.target] {
+            end.property_path = end
+                .property_path
+                .iter()
+                .map(|id| element_map.get(id).copied().unwrap_or(*id))
+                .collect();
+            end.role_id = element_map.get(&end.role_id).copied().unwrap_or(end.role_id);
+            end.port_id = end
+                .port_id
+                .map(|port| element_map.get(&port).copied().unwrap_or(port));
+        }
+        flow.conveyed_item_ids = flow
+            .conveyed_item_ids
+            .iter()
+            .map(|id| element_map.get(id).copied().unwrap_or(*id))
+            .collect();
+    }
+    if let Some(binding) = &mut duplicate.binding {
+        for endpoint in [&mut binding.source, &mut binding.target] {
+            endpoint.role_id = element_map
+                .get(&endpoint.role_id)
+                .copied()
+                .unwrap_or(endpoint.role_id);
+            endpoint.parameter_id = endpoint
+                .parameter_id
+                .map(|parameter| element_map.get(&parameter).copied().unwrap_or(parameter));
+        }
+    }
+    project.relationships.insert(id, duplicate);
+    Ok(id)
+}
+
+fn duplicate_vertex_in_regions(regions: &mut [Region], wanted: VertexId) -> Option<VertexId> {
+    for region in regions {
+        if let Some(index) = region.vertices.iter().position(|vertex| vertex.id == wanted) {
+            let mut duplicate = region.vertices[index].clone();
+            duplicate.id = VertexId::new();
+            if let VertexKind::State(state) = &mut duplicate.kind {
+                state.regions.clear();
+                state.submachine = None;
+            }
+            let id = duplicate.id;
+            duplicate.name = format!("{} Copy", duplicate.name);
+            region.vertices.push(duplicate);
+            return Some(id);
+        }
+        for vertex in &mut region.vertices {
+            if let VertexKind::State(state) = &mut vertex.kind
+                && let Some(id) = duplicate_vertex_in_regions(&mut state.regions, wanted)
+            {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn duplicate_transition_in_regions(
+    regions: &mut [Region],
+    wanted: TransitionId,
+    vertex_map: &HashMap<VertexId, VertexId>,
+) -> Option<TransitionId> {
+    for region in regions {
+        if let Some(index) = region
+            .transitions
+            .iter()
+            .position(|transition| transition.id == wanted)
+        {
+            let mut duplicate = region.transitions[index].clone();
+            duplicate.id = TransitionId::new();
+            duplicate.source_id = vertex_map
+                .get(&duplicate.source_id)
+                .copied()
+                .unwrap_or(duplicate.source_id);
+            duplicate.target_id = vertex_map
+                .get(&duplicate.target_id)
+                .copied()
+                .unwrap_or(duplicate.target_id);
+            let id = duplicate.id;
+            region.transitions.push(duplicate);
+            return Some(id);
+        }
+        for vertex in &mut region.vertices {
+            if let VertexKind::State(state) = &mut vertex.kind
+                && let Some(id) =
+                    duplicate_transition_in_regions(&mut state.regions, wanted, vertex_map)
+            {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn duplicate_behavior_items(
+    snapshot: &mut EditingSnapshot,
+    diagram_id: &str,
+    items: &[ClipboardItem],
+    selections: &mut Vec<WorkspaceSelection>,
+) -> Result<(), String> {
+    let diagram_index = snapshot
+        .behavior_diagrams
+        .iter()
+        .position(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let diagram = snapshot.behavior_diagrams[diagram_index].clone();
+    match diagram.kind {
+        BehaviorDiagramKind::StateMachine => {
+            let machine_id = uuid::Uuid::parse_str(&diagram.semantic_id)
+                .map(systems_modeler_core::StateMachineId)
+                .map_err(|_| "invalid State Machine id")?;
+            let machine = snapshot
+                .behavior
+                .state_machines
+                .get_mut(&machine_id)
+                .ok_or("State Machine not found")?;
+            let mut vertex_map = HashMap::new();
+            for item in items {
+                let ClipboardItem::Behavior { kind, semantic_id } = item else {
+                    continue;
+                };
+                if kind != "Vertex" {
+                    continue;
+                }
+                let old = uuid::Uuid::parse_str(semantic_id)
+                    .map(VertexId)
+                    .map_err(|_| "invalid State vertex id")?;
+                let new = duplicate_vertex_in_regions(&mut machine.regions, old)
+                    .ok_or("State vertex not found")?;
+                vertex_map.insert(old, new);
+                let source = diagram
+                    .state_nodes
+                    .iter()
+                    .find(|node| node.vertex_id == *semantic_id);
+                let (x, y, width, height) = source.map_or((80.0, 80.0, 150.0, 80.0), |node| {
+                    (node.x, node.y, node.width, node.height)
+                });
+                snapshot.behavior_diagrams[diagram_index]
+                    .state_nodes
+                    .push(behavior_workspace::StateNodePresentation {
+                        vertex_id: new.to_string(),
+                        x: x + PASTE_OFFSET,
+                        y: y + PASTE_OFFSET,
+                        width,
+                        height,
+                    });
+                selections.push(WorkspaceSelection {
+                    kind: "Vertex".into(),
+                    id: new.to_string(),
+                });
+            }
+            for item in items {
+                let ClipboardItem::Behavior { kind, semantic_id } = item else {
+                    continue;
+                };
+                if kind != "Transition" {
+                    continue;
+                }
+                let old = uuid::Uuid::parse_str(semantic_id)
+                    .map(TransitionId)
+                    .map_err(|_| "invalid State transition id")?;
+                let new = duplicate_transition_in_regions(&mut machine.regions, old, &vertex_map)
+                    .ok_or("State transition not found")?;
+                selections.push(WorkspaceSelection {
+                    kind: "Transition".into(),
+                    id: new.to_string(),
+                });
+            }
+        }
+        BehaviorDiagramKind::Sequence => {
+            let interaction_id = uuid::Uuid::parse_str(&diagram.semantic_id)
+                .map(InteractionId)
+                .map_err(|_| "invalid Interaction id")?;
+            let interaction = snapshot
+                .behavior
+                .interactions
+                .get_mut(&interaction_id)
+                .ok_or("Interaction not found")?;
+            let mut lifeline_map = HashMap::new();
+            for item in items {
+                let ClipboardItem::Behavior { kind, semantic_id } = item else {
+                    continue;
+                };
+                if kind != "Lifeline" {
+                    continue;
+                }
+                let old = uuid::Uuid::parse_str(semantic_id)
+                    .map(LifelineId)
+                    .map_err(|_| "invalid Lifeline id")?;
+                let source = interaction
+                    .lifelines
+                    .iter()
+                    .find(|lifeline| lifeline.id == old)
+                    .cloned()
+                    .ok_or("Lifeline not found")?;
+                let mut duplicate = source;
+                duplicate.id = LifelineId::new();
+                duplicate.name = format!("{} Copy", duplicate.name);
+                let new = duplicate.id;
+                interaction.lifelines.push(duplicate);
+                lifeline_map.insert(old, new);
+                let source_presentation = diagram
+                    .lifelines
+                    .iter()
+                    .find(|presentation| presentation.lifeline_id == *semantic_id);
+                let mut presentation = source_presentation.cloned().unwrap_or(
+                    behavior_workspace::LifelinePresentation {
+                        lifeline_id: semantic_id.clone(),
+                        x: 150.0,
+                        timeline_start_y: 102.0,
+                        timeline_end_y: 840.0,
+                    },
+                );
+                presentation.lifeline_id = new.to_string();
+                presentation.x += PASTE_OFFSET;
+                snapshot.behavior_diagrams[diagram_index]
+                    .lifelines
+                    .push(presentation);
+                selections.push(WorkspaceSelection {
+                    kind: "Lifeline".into(),
+                    id: new.to_string(),
+                });
+            }
+            for item in items {
+                let ClipboardItem::Behavior { kind, semantic_id } = item else {
+                    continue;
+                };
+                match kind.as_str() {
+                    "Message" => {
+                        let old = uuid::Uuid::parse_str(semantic_id)
+                            .map(MessageId)
+                            .map_err(|_| "invalid Message id")?;
+                        let mut duplicate = interaction
+                            .messages
+                            .iter()
+                            .find(|message| message.id == old)
+                            .cloned()
+                            .ok_or("Message not found")?;
+                        duplicate.id = MessageId::new();
+                        if let Some(send) = &mut duplicate.send_event {
+                            send.id = OccurrenceId::new();
+                            send.lifeline_id = lifeline_map
+                                .get(&send.lifeline_id)
+                                .copied()
+                                .unwrap_or(send.lifeline_id);
+                            send.order = send.order.saturating_add(10);
+                        }
+                        if let Some(receive) = &mut duplicate.receive_event {
+                            receive.id = OccurrenceId::new();
+                            receive.lifeline_id = lifeline_map
+                                .get(&receive.lifeline_id)
+                                .copied()
+                                .unwrap_or(receive.lifeline_id);
+                            receive.order = receive.order.saturating_add(10);
+                        }
+                        let id = duplicate.id;
+                        interaction.messages.push(duplicate);
+                        selections.push(WorkspaceSelection {
+                            kind: "Message".into(),
+                            id: id.to_string(),
+                        });
+                    }
+                    "Execution" => {
+                        let old = uuid::Uuid::parse_str(semantic_id)
+                            .map(ExecutionId)
+                            .map_err(|_| "invalid Execution id")?;
+                        let mut duplicate = interaction
+                            .executions
+                            .iter()
+                            .find(|execution| execution.id == old)
+                            .cloned()
+                            .ok_or("Execution Specification not found")?;
+                        duplicate.id = ExecutionId::new();
+                        duplicate.lifeline_id = lifeline_map
+                            .get(&duplicate.lifeline_id)
+                            .copied()
+                            .unwrap_or(duplicate.lifeline_id);
+                        duplicate.start.id = OccurrenceId::new();
+                        duplicate.finish.id = OccurrenceId::new();
+                        duplicate.start.lifeline_id = duplicate.lifeline_id;
+                        duplicate.finish.lifeline_id = duplicate.lifeline_id;
+                        duplicate.start.order = duplicate.start.order.saturating_add(10);
+                        duplicate.finish.order = duplicate.finish.order.saturating_add(10);
+                        let id = duplicate.id;
+                        interaction.executions.push(duplicate);
+                        selections.push(WorkspaceSelection {
+                            kind: "Execution".into(),
+                            id: id.to_string(),
+                        });
+                    }
+                    "Fragment" => {
+                        let old = uuid::Uuid::parse_str(semantic_id)
+                            .map(FragmentId)
+                            .map_err(|_| "invalid Combined Fragment id")?;
+                        let mut duplicate = interaction
+                            .fragments
+                            .iter()
+                            .find(|fragment| fragment.id == old)
+                            .cloned()
+                            .ok_or("Combined Fragment not found")?;
+                        duplicate.id = FragmentId::new();
+                        duplicate.covered_lifelines = duplicate
+                            .covered_lifelines
+                            .iter()
+                            .map(|id| lifeline_map.get(id).copied().unwrap_or(*id))
+                            .collect();
+                        for operand in &mut duplicate.operands {
+                            operand.id = systems_modeler_core::OperandId::new();
+                            operand.start_order = operand.start_order.saturating_add(10);
+                            operand.end_order = operand.end_order.saturating_add(10);
+                        }
+                        let id = duplicate.id;
+                        interaction.fragments.push(duplicate);
+                        selections.push(WorkspaceSelection {
+                            kind: "Fragment".into(),
+                            id: id.to_string(),
+                        });
+                    }
+                    "Invariant" => {
+                        let old = uuid::Uuid::parse_str(semantic_id)
+                            .map(InvariantId)
+                            .map_err(|_| "invalid State Invariant id")?;
+                        let mut duplicate = interaction
+                            .state_invariants
+                            .iter()
+                            .find(|invariant| invariant.id == old)
+                            .cloned()
+                            .ok_or("State Invariant not found")?;
+                        duplicate.id = InvariantId::new();
+                        duplicate.lifeline_id = lifeline_map
+                            .get(&duplicate.lifeline_id)
+                            .copied()
+                            .unwrap_or(duplicate.lifeline_id);
+                        duplicate.order = duplicate.order.saturating_add(10);
+                        let id = duplicate.id;
+                        interaction.state_invariants.push(duplicate);
+                        selections.push(WorkspaceSelection {
+                            kind: "Invariant".into(),
+                            id: id.to_string(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn duplicate_activity_items(
+    snapshot: &mut EditingSnapshot,
+    diagram_id: &str,
+    items: &[ClipboardItem],
+    selections: &mut Vec<WorkspaceSelection>,
+) -> Result<(), String> {
+    let diagram_index = snapshot
+        .activity_diagrams
+        .iter()
+        .position(|diagram| diagram.id == diagram_id)
+        .ok_or("Activity diagram not found")?;
+    let activity_id = activity_workspace::parse_activity_id(
+        &snapshot.activity_diagrams[diagram_index].activity_id,
+    )?;
+    let activity = snapshot
+        .activity
+        .activities
+        .get_mut(&activity_id)
+        .ok_or("Activity not found")?;
+    let source_diagram = snapshot.activity_diagrams[diagram_index].clone();
+    let mut node_map = HashMap::new();
+    let mut pin_map = HashMap::new();
+    let mut presentation_map = HashMap::new();
+    for item in items {
+        let ClipboardItem::ActivityNode { node } = item else {
+            continue;
+        };
+        let old = activity_workspace::parse_activity_node_id(&node.activity_node_id)?;
+        let mut semantic = activity
+            .nodes
+            .iter()
+            .find(|candidate| candidate.id == old)
+            .cloned()
+            .ok_or("Activity node not found")?;
+        semantic.id = ActivityNodeId::new();
+        semantic.name = format!("{} Copy", semantic.name);
+        if let ActivityNodeKind::Action(action) = &mut semantic.kind {
+            for pin in &mut action.pins {
+                let old_pin = pin.id;
+                pin.id = PinId::new();
+                pin_map.insert(old_pin, pin.id);
+            }
+        }
+        let new = semantic.id;
+        activity.nodes.push(semantic);
+        node_map.insert(old, new);
+        let mut presentation = node.clone();
+        let old_presentation = presentation.id.clone();
+        presentation.id = uuid::Uuid::new_v4().to_string();
+        presentation.activity_node_id = new.to_string();
+        presentation.x += PASTE_OFFSET;
+        presentation.y += PASTE_OFFSET;
+        presentation_map.insert(old_presentation, presentation.id.clone());
+        selections.push(WorkspaceSelection {
+            kind: "ActivityNodePresentation".into(),
+            id: presentation.id.clone(),
+        });
+        snapshot.activity_diagrams[diagram_index]
+            .nodes
+            .push(presentation);
+    }
+    for item in items {
+        let ClipboardItem::ActivityEdge { edge, .. } = item else {
+            continue;
+        };
+        let old = uuid::Uuid::parse_str(&edge.activity_edge_id)
+            .map(ActivityEdgeId)
+            .map_err(|_| "invalid Activity edge id")?;
+        let mut semantic = activity
+            .edges
+            .iter()
+            .find(|candidate| candidate.id == old)
+            .cloned()
+            .ok_or("Activity edge not found")?;
+        semantic.id = ActivityEdgeId::new();
+        semantic.source = match semantic.source {
+            ActivityEndpoint::Node(id) => ActivityEndpoint::Node(
+                node_map.get(&id).copied().unwrap_or(id),
+            ),
+            ActivityEndpoint::Pin(id) => {
+                ActivityEndpoint::Pin(pin_map.get(&id).copied().unwrap_or(id))
+            }
+        };
+        semantic.target = match semantic.target {
+            ActivityEndpoint::Node(id) => ActivityEndpoint::Node(
+                node_map.get(&id).copied().unwrap_or(id),
+            ),
+            ActivityEndpoint::Pin(id) => {
+                ActivityEndpoint::Pin(pin_map.get(&id).copied().unwrap_or(id))
+            }
+        };
+        let new = semantic.id;
+        activity.edges.push(semantic);
+        let source_presentation_id = presentation_map
+            .get(&edge.source_node_id)
+            .cloned()
+            .unwrap_or_else(|| edge.source_node_id.clone());
+        let target_presentation_id = presentation_map
+            .get(&edge.target_node_id)
+            .cloned()
+            .unwrap_or_else(|| edge.target_node_id.clone());
+        if !source_diagram
+            .nodes
+            .iter()
+            .any(|node| node.id == edge.source_node_id)
+        {
+            return Err("Activity edge source presentation not found".into());
+        }
+        let mut presentation = edge.clone();
+        presentation.id = uuid::Uuid::new_v4().to_string();
+        presentation.activity_edge_id = new.to_string();
+        presentation.source_node_id = source_presentation_id;
+        presentation.target_node_id = target_presentation_id;
+        for point in &mut presentation.points {
+            point.x += PASTE_OFFSET;
+            point.y += PASTE_OFFSET;
+        }
+        if let Some(anchor) = &mut presentation.label_anchor {
+            anchor.x += PASTE_OFFSET;
+            anchor.y += PASTE_OFFSET;
+        }
+        selections.push(WorkspaceSelection {
+            kind: "ActivityEdgePresentation".into(),
+            id: presentation.id.clone(),
+        });
+        snapshot.activity_diagrams[diagram_index]
+            .edges
+            .push(presentation);
+    }
+    Ok(())
+}
+
+fn duplicate_selection_items(
+    snapshot: &mut EditingSnapshot,
+    diagram_id: &str,
+    payload: &ClipboardPayload,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<Vec<WorkspaceSelection>, String> {
+    let family = family_for(diagram_id, snapshot)?;
+    if family != payload.family {
+        return Err("Duplicate must run in the diagram where the selection was made".into());
+    }
+    let mut selections = Vec::new();
+    match family {
+        EditingFamily::Bdd
+        | EditingFamily::Package
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
+            let diagram_index = snapshot
+                .diagrams
+                .iter()
+                .position(|diagram| diagram.id == diagram_id)
+                .ok_or("diagram not found")?;
+            let source_diagram = snapshot.diagrams[diagram_index].clone();
+            let mut element_map = HashMap::new();
+            let mut presentation_map = HashMap::new();
+            for item in &payload.items {
+                let ClipboardItem::BddNode { node } = item else {
+                    continue;
+                };
+                let old = parse_element_id(&node.element_id)?;
+                let new = duplicate_element(&mut snapshot.project, old)?;
+                element_map.insert(old, new);
+                let mut presentation = node.clone();
+                let old_presentation = presentation.id.clone();
+                presentation.id = uuid::Uuid::new_v4().to_string();
+                presentation.element_id = new.to_string();
+                for parameter in &mut presentation.parameter_presentations {
+                    let old_parameter_id = parameter.id.clone();
+                    parameter.id = uuid::Uuid::new_v4().to_string();
+                    presentation_map.insert(old_parameter_id, parameter.id.clone());
+                }
+                presentation.x += PASTE_OFFSET;
+                presentation.y += PASTE_OFFSET;
+                presentation_map.insert(old_presentation, presentation.id.clone());
+                selections.push(WorkspaceSelection {
+                    kind: "BddNode".into(),
+                    id: presentation.id.clone(),
+                });
+                snapshot.diagrams[diagram_index].nodes.push(presentation);
+            }
+            let mut relationship_map = HashMap::new();
+            let mut relationship_items: Vec<_> = payload
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    ClipboardItem::BddEdge { edge, .. } => Some(edge),
+                    _ => None,
+                })
+                .collect();
+            relationship_items.sort_by_key(|edge| {
+                snapshot
+                    .project
+                    .relationship(parse_relationship_id(&edge.relationship_id).unwrap())
+                    .map(|relationship| match relationship.kind {
+                        systems_modeler_core::RelationshipKind::ItemFlow => 2,
+                        systems_modeler_core::RelationshipKind::Connector => 1,
+                        _ => 0,
+                    })
+                    .unwrap_or(0)
+            });
+            for edge in relationship_items {
+                let old = parse_relationship_id(&edge.relationship_id)?;
+                let new = duplicate_relationship(
+                    &mut snapshot.project,
+                    old,
+                    &element_map,
+                    &relationship_map,
+                )?;
+                relationship_map.insert(old, new);
+                let source_old = bdd_endpoint_node(&source_diagram, &edge.source_node_id)
+                    .ok_or("relationship source presentation not found")?;
+                let target_old = bdd_endpoint_node(&source_diagram, &edge.target_node_id)
+                    .ok_or("relationship target presentation not found")?;
+                let source_element = element_map
+                    .get(&parse_element_id(&source_old.element_id)?)
+                    .copied()
+                    .unwrap_or(parse_element_id(&source_old.element_id)?);
+                let target_element = element_map
+                    .get(&parse_element_id(&target_old.element_id)?)
+                    .copied()
+                    .unwrap_or(parse_element_id(&target_old.element_id)?);
+                let source_id = presentation_map
+                    .get(&edge.source_node_id)
+                    .cloned()
+                    .or_else(|| {
+                        snapshot.diagrams[diagram_index]
+                            .nodes
+                            .iter()
+                            .find(|node| node.element_id == source_element.to_string())
+                            .map(|node| node.id.clone())
+                    })
+                    .ok_or("duplicate relationship source must be presented")?;
+                let target_id = presentation_map
+                    .get(&edge.target_node_id)
+                    .cloned()
+                    .or_else(|| {
+                        snapshot.diagrams[diagram_index]
+                            .nodes
+                            .iter()
+                            .find(|node| node.element_id == target_element.to_string())
+                            .map(|node| node.id.clone())
+                    })
+                    .ok_or("duplicate relationship target must be presented")?;
+                let id = uuid::Uuid::new_v4().to_string();
+                let points = if family == EditingFamily::Parametric {
+                    Vec::new()
+                } else {
+                    let source = bdd_endpoint_node(
+                        &snapshot.diagrams[diagram_index],
+                        &source_id,
+                    )
+                    .cloned()
+                    .ok_or("source presentation missing")?;
+                    let target = bdd_endpoint_node(
+                        &snapshot.diagrams[diagram_index],
+                        &target_id,
+                    )
+                    .cloned()
+                    .ok_or("target presentation missing")?;
+                    route_relationship(
+                        &source,
+                        &target,
+                        &snapshot.diagrams[diagram_index].nodes,
+                    )?
+                };
+                snapshot.diagrams[diagram_index].edges.push(DiagramEdge {
+                    id: id.clone(),
+                    relationship_id: new.to_string(),
+                    source_node_id: source_id,
+                    target_node_id: target_id,
+                    label_anchor: (family != EditingFamily::Parametric)
+                        .then(|| routing::route_label_anchor(&points)),
+                    points,
+                });
+                selections.push(WorkspaceSelection {
+                    kind: "BddEdge".into(),
+                    id,
+                });
+            }
+            if family == EditingFamily::Parametric {
+                let routed = super::parametrics::routed_edges(
+                    &snapshot.diagrams[diagram_index],
+                    None,
+                )?;
+                snapshot.diagrams[diagram_index].edges = routed;
+            } else {
+                let routed = routed_bdd_edges(&snapshot.diagrams[diagram_index], None)?;
+                snapshot.diagrams[diagram_index].edges = routed;
+            }
+        }
+        EditingFamily::Ibd => {
+            let diagram_index = snapshot
+                .ibd_diagrams
+                .iter()
+                .position(|diagram| diagram.id == diagram_id)
+                .ok_or("IBD not found")?;
+            // Adopt legacy boundary geometry before inserting copies, so the
+            // adoption reroute sees only the original, valid presentation set.
+            let diagram = &mut snapshot.ibd_diagrams[diagram_index];
+            if diagram.context_frame.is_none()
+                && payload.items.iter().any(|item| matches!(item, ClipboardItem::IbdPort { parent: None, .. }))
+            {
+                super::ibd_geometry::apply_context_frame(diagram,
+                    visible_frame.cloned().ok_or("the visible IBD context frame is required to duplicate a boundary port")?)?;
+            }
+            let (part_dx, part_dy) = ibd_copy_offset(diagram, payload)?;
+            let mut element_map = HashMap::new();
+            let mut presentation_map = HashMap::new();
+            // Resolve all selected part identities first, independent of selection
+            // order and without eagerly creating unused semantic copies.
+            for item in &payload.items {
+                if let ClipboardItem::IbdProperty { property } = item {
+                    let old = parse_element_id(&property.element_id)?;
+                    if let std::collections::hash_map::Entry::Vacant(entry) = element_map.entry(old) {
+                        entry.insert(duplicate_element(&mut snapshot.project, old)?);
+                    }
+                }
+            }
+            for item in &payload.items {
+                if let ClipboardItem::IbdProperty { property } = item {
+                    let old = parse_element_id(&property.element_id)?;
+                    let mut presentation = property.clone();
+                    presentation.id = uuid::Uuid::new_v4().to_string();
+                    presentation.element_id = element_map[&old].to_string();
+                    for step in &mut presentation.property_path {
+                        if let Some(new) = element_map.get(&parse_element_id(step)?) {
+                            *step = new.to_string();
+                        }
+                    }
+                    presentation.x += part_dx;
+                    presentation.y += part_dy;
+                    for port in &mut presentation.ports {
+                        let old_port_id = port.id.clone();
+                        port.id = uuid::Uuid::new_v4().to_string();
+                        port.property_path = presentation.property_path.clone();
+                        port.x += part_dx;
+                        port.y += part_dy;
+                        presentation_map.insert(old_port_id, port.id.clone());
+                    }
+                    presentation_map.insert(property.id.clone(), presentation.id.clone());
+                    selections.push(WorkspaceSelection { kind: "IbdProperty".into(), id: presentation.id.clone() });
+                    snapshot.ibd_diagrams[diagram_index].properties.push(presentation);
+                }
+            }
+            for item in &payload.items {
+                let ClipboardItem::IbdPort { port, parent } = item else { continue; };
+                // A selected parent's child is an occurrence of its type's port,
+                // not a request to add a new feature to that shared classifier.
+                if presentation_map.contains_key(&port.id) { continue; }
+                let old = parse_element_id(&port.element_id)?;
+                let new = match element_map.entry(old) {
+                    std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                    std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(duplicate_element(&mut snapshot.project, old)?),
+                };
+                let mut presentation = port.clone();
+                presentation.id = uuid::Uuid::new_v4().to_string();
+                presentation.element_id = new.to_string();
+                let diagram = &mut snapshot.ibd_diagrams[diagram_index];
+                if let Some(parent) = parent {
+                    let parent_id = find_ibd_presentation(diagram, parent)
+                        .ok_or("nested port parent presentation not found")?;
+                    diagram.properties.iter_mut().find(|property| property.id == parent_id)
+                        .ok_or("nested port parent presentation not found")?.ports.push(presentation.clone());
+                } else {
+                    diagram.boundary_ports.push(presentation.clone());
+                }
+                super::ibd_geometry::offset_copied_port(diagram, &presentation.id, PASTE_OFFSET, PASTE_OFFSET)?;
+                presentation_map.insert(port.id.clone(), presentation.id.clone());
+                selections.push(WorkspaceSelection { kind: "IbdPort".into(), id: presentation.id });
+            }
+            let mut relationship_map = HashMap::new();
+            for item in &payload.items {
+                let ClipboardItem::IbdConnector {
+                    connector,
+                    source,
+                    target,
+                } = item else {
+                    continue;
+                };
+                let old = parse_relationship_id(&connector.relationship_id)?;
+                let new = duplicate_relationship(
+                    &mut snapshot.project,
+                    old,
+                    &element_map,
+                    &relationship_map,
+                )?;
+                relationship_map.insert(old, new);
+                let source_id = presentation_map
+                    .get(&connector.source_presentation_id)
+                    .cloned()
+                    .or_else(|| find_ibd_presentation(&snapshot.ibd_diagrams[diagram_index], source))
+                    .ok_or("connector source presentation missing")?;
+                let target_id = presentation_map
+                    .get(&connector.target_presentation_id)
+                    .cloned()
+                    .or_else(|| find_ibd_presentation(&snapshot.ibd_diagrams[diagram_index], target))
+                    .ok_or("connector target presentation missing")?;
+                let points = ibd::route_ibd_edge(
+                    &snapshot.ibd_diagrams[diagram_index],
+                    &source_id,
+                    &target_id,
+                )?;
+                let id = uuid::Uuid::new_v4().to_string();
+                snapshot.ibd_diagrams[diagram_index]
+                    .connectors
+                    .push(ibd::IbdConnectorPresentation {
+                        context_occurrence_path: connector.context_occurrence_path.clone(),
+                        context_path: connector.context_path.clone(),
+                        id: id.clone(),
+                        relationship_id: new.to_string(),
+                        source_presentation_id: source_id,
+                        target_presentation_id: target_id,
+                        label_anchor: Some(routing::route_label_anchor(&points)),
+                        points,
+                    });
+                selections.push(WorkspaceSelection {
+                    kind: "IbdConnector".into(),
+                    id,
+                });
+            }
+        }
+        EditingFamily::StateMachine | EditingFamily::Sequence => {
+            duplicate_behavior_items(snapshot, diagram_id, &payload.items, &mut selections)?;
+        }
+        EditingFamily::Activity => {
+            duplicate_activity_items(snapshot, diagram_id, &payload.items, &mut selections)?;
+        }
+    }
+    if selections.is_empty() {
+        return Err("none of the selected presentations can be semantically duplicated".into());
+    }
+    Ok(selections)
+}
+
+fn move_ibd_selection(
+    diagram: &mut ibd::IbdDiagram,
+    selections: &[WorkspaceSelection],
+    dx: f64,
+    dy: f64,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<usize, String> {
+    require_selections(selections)?;
+    if ![dx, dy].iter().all(|value| value.is_finite() && value.abs() <= 100_000.0) {
+        return Err("IBD move delta must be finite and within the canvas range".into());
+    }
+    if dx == 0.0 && dy == 0.0 {
+        return Ok(0);
+    }
+    let selected = |id: &str, semantic_id: &str| {
+        selections.iter().any(|item| item.id == id || item.id == semantic_id)
+    };
+    if diagram.context_frame.is_none()
+        && diagram.boundary_ports.iter().any(|port| selected(&port.id, &port.element_id))
+    {
+        let frame = visible_frame.cloned().ok_or("the visible IBD context frame is required to move legacy boundary ports")?;
+        super::ibd_geometry::apply_context_frame(diagram, frame)?;
+    }
+    let mut affected = Vec::new();
+    let mut attached = std::collections::BTreeSet::new();
+    let mut changed = 0;
+    let roots: Vec<_> = diagram.properties.iter().filter(|property| {
+        selected(&property.id, &property.element_id)
+            && !diagram.properties.iter().any(|parent| {
+                selected(&parent.id, &parent.element_id)
+                    && super::ibd_structure::is_descendant(property, parent)
+            })
+    }).cloned().collect();
+    for property in roots {
+        for child in &diagram.properties {
+            if child.id == property.id || super::ibd_structure::is_descendant(child, &property) {
+                attached.extend(child.ports.iter().map(|port| port.id.clone()));
+            }
+        }
+        let mut rect = super::ibd_geometry::property_rect(&property);
+        rect.x = (rect.x + dx).max(0.0);
+        rect.y = (rect.y + dy).max(42.0);
+        super::ibd_structure::apply_property_geometry(diagram, &property.id, rect)?;
+        changed += 1;
+    }
+    let ports = diagram.properties.iter().flat_map(|property| &property.ports)
+        .chain(&diagram.boundary_ports)
+        .filter(|port| !attached.contains(&port.id) && selected(&port.id, &port.element_id))
+        .cloned().collect::<Vec<_>>();
+    for port in ports {
+        let next = super::ibd_geometry::preview_port(diagram, &port.id, port.x + dx, port.y + dy, port.size, visible_frame)?;
+        if next.x == port.x && next.y == port.y {
+            continue;
+        }
+        let target = diagram.properties.iter_mut().flat_map(|property| &mut property.ports)
+            .chain(&mut diagram.boundary_ports).find(|candidate| candidate.id == port.id)
+            .ok_or("IBD port presentation not found")?;
+        *target = next;
+        affected.push(port.id);
+        changed += 1;
+    }
+    super::ibd_geometry::reroute_connected(diagram, &affected)?;
+    for edge in &mut diagram.connectors {
+        if selected(&edge.id, &edge.relationship_id) {
+            let anchor = edge.label_anchor.get_or_insert_with(|| routing::route_label_anchor(&edge.points));
+            anchor.x += dx;
+            anchor.y += dy;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
+fn move_selection_items(
+    snapshot: &mut EditingSnapshot,
+    diagram_id: &str,
+    selections: &[WorkspaceSelection],
+    dx: f64,
+    dy: f64,
+) -> Result<usize, String> {
+    require_selections(selections)?;
+    if !dx.is_finite() || !dy.is_finite() {
+        return Err("move delta must be finite".into());
+    }
+    let family = family_for(diagram_id, snapshot)?;
+    let mut changed = 0;
+    match family {
+        EditingFamily::Bdd
+        | EditingFamily::Package
+        | EditingFamily::Requirement
+        | EditingFamily::UseCase
+        | EditingFamily::Parametric => {
+            let project = &snapshot.project;
+            let diagram = snapshot
+                .diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("diagram not found")?;
+            let boundary_selected = family == EditingFamily::UseCase
+                && diagram.subject_boundary.as_ref().is_some_and(|boundary| {
+                    selections.iter().any(|selection| {
+                        kind_is(selection, &["UseCaseSubjectBoundary"])
+                            && selection.id == boundary.id
+                    })
+                });
+            let mut node_geometry_changed = false;
+            if boundary_selected {
+                if let Some(boundary) = diagram.subject_boundary.as_mut() {
+                    boundary.x = (boundary.x + dx).max(0.0);
+                    boundary.y = (boundary.y + dy).max(42.0);
+                }
+                for node in &mut diagram.nodes {
+                    let use_case = parse_element_id(&node.element_id)
+                        .ok()
+                        .and_then(|id| project.element(id).ok())
+                        .is_some_and(|element| element.kind == ElementKind::UseCase);
+                    if use_case {
+                        node.x = (node.x + dx).max(0.0);
+                        node.y = (node.y + dy).max(42.0);
+                    }
+                }
+                changed += 1;
+                node_geometry_changed = true;
+            }
+            for selection in selections {
+                if kind_is(selection, &["UseCaseSubjectBoundary"]) {
+                    continue;
+                }
+                if let Some(node) = diagram.nodes.iter_mut().find(|node| {
+                    node.id == selection.id || node.element_id == selection.id
+                }) {
+                    let use_case = parse_element_id(&node.element_id)
+                        .ok()
+                        .and_then(|id| project.element(id).ok())
+                        .is_some_and(|element| element.kind == ElementKind::UseCase);
+                    if boundary_selected && use_case {
+                        continue;
+                    }
+                    node.x = (node.x + dx).max(0.0);
+                    node.y = (node.y + dy).max(42.0);
+                    changed += 1;
+                    node_geometry_changed = true;
+                    continue;
+                }
+                if let Some(edge) = diagram.edges.iter_mut().find(|edge| {
+                    edge.id == selection.id || edge.relationship_id == selection.id
+                }) {
+                    let anchor = edge.label_anchor.get_or_insert_with(|| routing::route_label_anchor(&edge.points));
+                    anchor.x += dx;
+                    anchor.y += dy;
+                    changed += 1;
+                }
+            }
+            super::use_cases::fit_use_case_subject_boundary(diagram, project, false);
+            if family == EditingFamily::Parametric {
+                diagram.edges = super::parametrics::routed_edges(diagram, None)?;
+                return Ok(changed);
+            }
+            if node_geometry_changed {
+                diagram.edges = routed_bdd_edges(diagram, None)?;
+            }
+        }
+        EditingFamily::Ibd => {
+            let diagram = snapshot.ibd_diagrams.iter_mut()
+                .find(|diagram| diagram.id == diagram_id).ok_or("IBD not found")?;
+            changed = move_ibd_selection(diagram, selections, dx, dy, None)?;
+        }
+        EditingFamily::StateMachine | EditingFamily::Sequence => {
+            let diagram = snapshot
+                .behavior_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("behavior diagram not found")?;
+            let mut endpoints_changed = false;
+            for selection in selections {
+                if kind_is(selection, &["BehaviorCopy"])
+                    && let Some(copy) = diagram
+                        .presentation_copies
+                        .iter_mut()
+                        .find(|copy| copy.id == selection.id)
+                {
+                    copy.offset_x += dx;
+                    copy.offset_y += dy;
+                    changed += 1;
+                    continue;
+                }
+                let (semantic_id, _) = split_index(&selection.id);
+                match behavior_kind(selection, family).as_str() {
+                    "Vertex" => {
+                        if let Some(node) = diagram
+                            .state_nodes
+                            .iter_mut()
+                            .find(|node| node.vertex_id == semantic_id)
+                        {
+                            node.x = (node.x + dx).max(0.0);
+                            node.y = (node.y + dy).max(42.0);
+                            changed += 1;
+                            endpoints_changed = true;
+                        }
+                    }
+                    "Lifeline" => {
+                        if let Some(lifeline) = diagram
+                            .lifelines
+                            .iter_mut()
+                            .find(|lifeline| lifeline.lifeline_id == semantic_id)
+                        {
+                            lifeline.x = (lifeline.x + dx).max(40.0);
+                            changed += 1;
+                            endpoints_changed = true;
+                        }
+                    }
+                    "Transition" | "Message" => {
+                        if let Some(route) = diagram
+                            .edge_routes
+                            .iter_mut()
+                            .find(|route| route.semantic_id == semantic_id)
+                        {
+                            if let Some(anchor) = &mut route.label_anchor {
+                                anchor.x += dx;
+                                anchor.y += dy;
+                            }
+                            changed += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if endpoints_changed {
+                behavior_workspace::reroute_behavior_presentation(
+                    diagram,
+                    &snapshot.behavior,
+                    None,
+                )?;
+            }
+        }
+        EditingFamily::Activity => {
+            let diagram = snapshot
+                .activity_diagrams
+                .iter_mut()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("Activity diagram not found")?;
+            for selection in selections {
+                if let Some(node) = diagram.nodes.iter_mut().find(|node| {
+                    node.id == selection.id || node.activity_node_id == selection.id
+                }) {
+                    node.x = (node.x + dx).max(0.0);
+                    node.y = (node.y + dy).max(42.0);
+                    changed += 1;
+                    continue;
+                }
+                if let Some(edge) = diagram.edges.iter_mut().find(|edge| {
+                    edge.id == selection.id || edge.activity_edge_id == selection.id
+                }) {
+                    let anchor = edge.label_anchor.get_or_insert_with(|| routing::route_label_anchor(&edge.points));
+                    anchor.x += dx;
+                    anchor.y += dy;
+                    changed += 1;
+                }
+            }
+        }
+    }
+    if changed == 0 {
+        return Err("none of the selected presentations can be moved".into());
+    }
+    Ok(changed)
+}
+
+pub fn copy_selection(
+    diagram_id: String,
+    selections: Vec<WorkspaceSelection>,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    editing: tauri::State<'_, StandardEditingState>,
+) -> Result<StandardEditingResult, String> {
+    let snapshot = EditingSnapshot::capture(&workspace, &activity)?;
+    let payload = collect_clipboard(&snapshot, &diagram_id, &selections)?;
+    let changed = payload.items.len();
+    *editing
+        .clipboard
+        .lock()
+        .map_err(|_| "editing clipboard lock poisoned")? = Some(payload);
+    Ok(StandardEditingResult { changed, selections })
+}
+
+pub fn paste_selection(
+    diagram_id: String,
+    frame_preference: Option<shared_workspace::DiagramFramePreference>,
+    selections: Vec<WorkspaceSelection>,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+    editing: tauri::State<'_, StandardEditingState>,
+) -> Result<StandardEditingResult, String> {
+    let _ = selections;
+    let payload = editing
+        .clipboard
+        .lock()
+        .map_err(|_| "editing clipboard lock poisoned")?
+        .clone()
+        .ok_or("clipboard is empty")?;
+    paste_clipboard_states(&workspace, &activity, &history, &diagram_id, &payload, frame_preference.as_ref())
+}
+
+fn paste_clipboard_states(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    history: &HistoryState,
+    diagram_id: &str,
+    payload: &ClipboardPayload,
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<StandardEditingResult, String> {
+    let mut snapshot = EditingSnapshot::capture(workspace, activity)?;
+    let new_selections = paste_clipboard(&mut snapshot, diagram_id, payload, visible_frame)?;
+    snapshot.validate()?;
+    history::checkpoint_states(workspace, activity, history)?;
+    snapshot.commit(workspace, activity)?;
+    Ok(StandardEditingResult {
+        changed: new_selections.len(),
+        selections: new_selections,
+    })
+}
+
+pub fn duplicate_selection(
+    diagram_id: String,
+    frame_preference: Option<shared_workspace::DiagramFramePreference>,
+    selections: Vec<WorkspaceSelection>,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<StandardEditingResult, String> {
+    duplicate_selection_states(&workspace, &activity, &history, &diagram_id, &selections, frame_preference.as_ref())
+}
+
+fn duplicate_selection_states(
+    workspace: &WorkspaceState,
+    activity: &ActivityWorkspaceState,
+    history: &HistoryState,
+    diagram_id: &str,
+    selections: &[WorkspaceSelection],
+    visible_frame: Option<&shared_workspace::DiagramFramePreference>,
+) -> Result<StandardEditingResult, String> {
+    let mut snapshot = EditingSnapshot::capture(workspace, activity)?;
+    let payload = collect_clipboard(&snapshot, diagram_id, selections)?;
+    let new_selections = duplicate_selection_items(&mut snapshot, diagram_id, &payload, visible_frame)?;
+    snapshot.validate()?;
+    history::checkpoint_states(workspace, activity, history)?;
+    snapshot.commit(workspace, activity)?;
+    Ok(StandardEditingResult {
+        changed: new_selections.len(),
+        selections: new_selections,
+    })
+}
+
+pub fn delete_active_selection(
+    diagram_id: String,
+    selections: Vec<WorkspaceSelection>,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<StandardEditingResult, String> {
+    let mut snapshot = EditingSnapshot::capture(&workspace, &activity)?;
+    let changed = remove_presentations(&mut snapshot, &diagram_id, &selections)?;
+    snapshot.validate()?;
+    history::checkpoint_states(&workspace, &activity, &history)?;
+    snapshot.commit(&workspace, &activity)?;
+    Ok(StandardEditingResult {
+        changed,
+        selections: Vec::new(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)] // Stable named-field geometry IPC contract.
+pub fn move_active_selection(
+    diagram_id: String,
+    selections: Vec<WorkspaceSelection>,
+    dx: f64,
+    dy: f64,
+    frame_preference: Option<shared_workspace::DiagramFramePreference>,
+    workspace: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<StandardEditingResult, String> {
+    let is_ibd = workspace.ibd_diagrams.lock().map_err(|_| "IBD lock poisoned")?
+        .iter().any(|diagram| diagram.id == diagram_id);
+    if is_ibd {
+        let mut changed = 0;
+        history::edit_ibd_geometry(&workspace, &activity, &history, &diagram_id, |diagram| {
+            changed = move_ibd_selection(diagram, &selections, dx, dy, frame_preference.as_ref())?;
+            Ok(())
+        })?;
+        return Ok(StandardEditingResult { changed, selections });
+    }
+    let mut snapshot = EditingSnapshot::capture(&workspace, &activity)?;
+    let changed = move_selection_items(&mut snapshot, &diagram_id, &selections, dx, dy)?;
+    snapshot.validate()?;
+    history::checkpoint_states(&workspace, &activity, &history)?;
+    snapshot.commit(&workspace, &activity)?;
+    Ok(StandardEditingResult { changed, selections })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn duplicated_connector_reuses_its_association_unless_the_type_is_also_copied() {
+        use systems_modeler_core::{AggregationKind, Multiplicity};
+        let (mut project, diagram) = super::super::ibd_geometry::tests::fixture();
+        let connector_id = parse_relationship_id(&diagram.connectors[0].relationship_id).unwrap();
+        let connector = project.relationship(connector_id).unwrap().connector.clone().unwrap();
+        let port_type = project.element(connector.source.port_id.unwrap()).unwrap().type_id.unwrap();
+        let association = project.create_association(Some(project.root_id), vec![
+            Project::association_end(port_type, "provided", Multiplicity::ONE, true, AggregationKind::None),
+            Project::association_end(port_type, "required", Multiplicity::ONE, true, AggregationKind::None),
+        ]).unwrap();
+        project.relationships.get_mut(&connector_id).unwrap().connector.as_mut().unwrap().association_type_id = Some(association);
+        let copied = duplicate_relationship(&mut project, connector_id, &HashMap::new(), &HashMap::new()).unwrap();
+        assert_eq!(project.relationship(copied).unwrap().connector.as_ref().unwrap().association_type_id, Some(association));
+        let copied_type = duplicate_relationship(&mut project, association, &HashMap::new(), &HashMap::new()).unwrap();
+        let copied_with_type = duplicate_relationship(&mut project, connector_id, &HashMap::new(), &HashMap::from([(association, copied_type)])).unwrap();
+        assert_eq!(project.relationship(copied_with_type).unwrap().connector.as_ref().unwrap().association_type_id, Some(copied_type));
+        assert_eq!(project.relationship(connector_id).unwrap().connector.as_ref().unwrap().association_type_id, Some(association));
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn duplicate_composition_remaps_a_distinct_property_and_keeps_the_type() {
+        use systems_modeler_core::Multiplicity;
+        let mut project = Project::new("Composition duplicate");
+        let whole = project.create_element(ElementKind::Block, "Vehicle", project.root_id).unwrap();
+        let part = project.create_element(ElementKind::Block, "Wheel", project.root_id).unwrap();
+        let (relation, property) = project.create_composition(whole, part, "wheel", Multiplicity::ONE, Some(project.root_id)).unwrap();
+        let new_whole = duplicate_element(&mut project, whole).unwrap();
+        let mapping = HashMap::from([(whole, new_whole)]);
+        let duplicate = duplicate_relationship(&mut project, relation, &mapping, &HashMap::new()).unwrap();
+        let new_property = project.relationship(duplicate).unwrap().association_ends[1].property_id.unwrap();
+        assert_ne!(new_property, property);
+        assert_eq!(project.element(new_property).unwrap().owner_id, Some(new_whole));
+        assert_eq!(project.element(new_property).unwrap().type_id, Some(part));
+        assert_eq!(project.element(property).unwrap().owner_id, Some(whole));
+        project.validate().unwrap();
+    }
+
+    use super::*;
+
+    fn ibd_selection(id: &str) -> WorkspaceSelection {
+        WorkspaceSelection { kind: "Presentation".into(), id: id.into() }
+    }
+
+    fn port_paste_snapshot() -> EditingSnapshot {
+        let (project, mut diagram) = super::super::ibd_geometry::tests::fixture();
+        diagram.properties[0].ports[0].x += diagram.properties[0].width;
+        super::super::ibd_geometry::reroute_connected(&mut diagram, &["internal".into()]).unwrap();
+        EditingSnapshot {
+            project, diagrams: Vec::new(), ibd_diagrams: vec![diagram],
+            behavior: Default::default(), behavior_diagrams: Vec::new(),
+            activity: Default::default(), activity_diagrams: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn ibd_copy_and_duplicate_left_port_parts_find_clear_connected_placements() {
+        for duplicate in [false, true] {
+            let mut snapshot = port_paste_snapshot();
+            let diagram = &mut snapshot.ibd_diagrams[0];
+            diagram.properties[0].ports[0].x = diagram.properties[0].x;
+            super::super::ibd_geometry::reroute_connected(diagram, &["internal".into()]).unwrap();
+            let id = diagram.id.clone();
+            let original = diagram.properties[0].clone();
+            let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part"), ibd_selection("internal"), ibd_selection("connector")]).unwrap();
+            for _ in 0..2 {
+                if duplicate { duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap(); }
+                else { paste_clipboard(&mut snapshot, &id, &payload, None).unwrap(); }
+                snapshot.validate().unwrap();
+                let diagram = &snapshot.ibd_diagrams[0];
+                let copied = diagram.properties.last().unwrap();
+                assert!(copied.x >= original.x + original.width + 2.0 * routing::ROUTE_CLEARANCE);
+                assert_eq!(copied.ports[0].x, copied.x);
+                for other in &diagram.properties[..diagram.properties.len() - 1] {
+                    assert!(copied.x >= other.x + other.width || copied.y >= other.y + other.height
+                        || copied.x + copied.width <= other.x || copied.y + copied.height <= other.y);
+                }
+                let edge = diagram.connectors.last().unwrap();
+                assert_eq!(edge.target_presentation_id, copied.ports[0].id);
+                let rect = super::super::ibd_geometry::property_rect(&original);
+                assert!(edge.points.windows(2).all(|pair| !systems_modeler_core::routing::segment_intersects_rect(pair[0], pair[1], rect)));
+            }
+        }
+    }
+
+    #[test]
+    fn ibd_copy_group_keeps_one_translation_and_rejects_a_crowded_frame_atomically() {
+        let mut snapshot = port_paste_snapshot();
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let mut second = snapshot.ibd_diagrams[0].properties[0].clone();
+        second.id = "second".into();
+        second.y += 180.0;
+        second.ports[0].id = "second-port".into();
+        second.ports[0].y += 180.0;
+        snapshot.ibd_diagrams[0].properties.push(second);
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part"), ibd_selection("second")]).unwrap();
+        paste_clipboard(&mut snapshot, &id, &payload, None).unwrap();
+        let properties = &snapshot.ibd_diagrams[0].properties;
+        assert_eq!(properties[2].x - properties[0].x, properties[3].x - properties[1].x);
+        assert_eq!(properties[2].y - properties[0].y, properties[3].y - properties[1].y);
+        let mut snapshot = port_paste_snapshot();
+        let frame = snapshot.ibd_diagrams[0].context_frame.as_mut().unwrap();
+        frame.width = 400.0;
+        frame.height = 240.0;
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part")]).unwrap();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        snapshot.commit(&workspace, &activity).unwrap();
+        let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        let error = paste_clipboard_states(&workspace, &activity, &history, &id, &payload, None).unwrap_err();
+        assert!(error.contains("enlarge"), "expected a valid but crowded frame: {error}");
+        assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &[ibd_selection("part")], None).is_err());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        assert_eq!(history::undo_len(&history), 0);
+    }
+
+    #[test]
+    fn ibd_duplicate_connected_part_preserves_type_ports_and_remaps_paths() {
+        for reverse in [false, true] {
+            let mut snapshot = port_paste_snapshot();
+            let original = snapshot.ibd_diagrams[0].clone();
+            let id = original.id.clone();
+            let count = snapshot.project.elements.len();
+            let original_port = parse_element_id(&original.properties[0].ports[0].element_id).unwrap();
+            let mut selected = vec![ibd_selection("part"), ibd_selection("internal")];
+            if reverse { selected.reverse(); }
+            selected.push(ibd_selection("connector"));
+            let payload = collect_clipboard(&snapshot, &id, &selected).unwrap();
+            let result = duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap();
+            snapshot.validate().unwrap();
+            assert_eq!(result.len(), 2);
+            assert_eq!(snapshot.project.elements.len(), count + 1, "only the part is a new semantic element");
+            let diagram = &snapshot.ibd_diagrams[0];
+            let copy = &diagram.properties[1];
+            let copy_id = parse_element_id(&copy.element_id).unwrap();
+            assert_ne!(copy.element_id, original.properties[0].element_id);
+            assert_eq!(snapshot.project.element(copy_id).unwrap().type_id,
+                snapshot.project.element(parse_element_id(&original.properties[0].element_id).unwrap()).unwrap().type_id);
+            assert_eq!(copy.ports.len(), 1);
+            assert_ne!(copy.ports[0].id, original.properties[0].ports[0].id);
+            assert_eq!(copy.ports[0].element_id, original_port.to_string());
+            assert_eq!(copy.ports[0].property_path, vec![copy.element_id.clone()]);
+            assert_eq!((copy.ports[0].x, copy.ports[0].y), (copy.x + copy.width, 210.0 + PASTE_OFFSET));
+            let edge = &diagram.connectors[1];
+            assert_eq!(edge.target_presentation_id, copy.ports[0].id);
+            let relation = snapshot.project.relationship(parse_relationship_id(&edge.relationship_id).unwrap()).unwrap();
+            let connector = relation.connector.as_ref().unwrap();
+            assert_eq!(connector.target.property_path, vec![copy_id]);
+            assert_eq!(connector.target.port_id, Some(original_port));
+            assert_eq!(serde_json::to_value(&diagram.properties[0]).unwrap(), serde_json::to_value(&original.properties[0]).unwrap());
+            let decoded: Vec<ibd::IbdDiagram> = serde_json::from_value(serde_json::to_value(&snapshot.ibd_diagrams).unwrap()).unwrap();
+            ibd::validate_ibd_diagrams(&snapshot.project, &decoded).unwrap();
+        }
+    }
+
+    #[test]
+    fn ibd_duplicate_repeated_property_presentations_create_one_semantic_copy() {
+        let mut snapshot = port_paste_snapshot();
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let mut second = snapshot.ibd_diagrams[0].properties[0].clone();
+        second.id = "second-part".into();
+        second.ports[0].id = "second-port".into();
+        snapshot.ibd_diagrams[0].properties.push(second);
+        let count = snapshot.project.elements.len();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("part"), ibd_selection("second-part")]).unwrap();
+        duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap();
+        snapshot.validate().unwrap();
+        assert_eq!(snapshot.project.elements.len(), count + 1);
+        let properties = &snapshot.ibd_diagrams[0].properties;
+        assert_eq!(properties[2].element_id, properties[3].element_id);
+        assert_ne!(properties[2].ports[0].id, properties[3].ports[0].id);
+    }
+
+    #[test]
+    fn ibd_duplicate_individual_port_creates_typed_feature_and_maps_connector() {
+        for boundary in [false, true] {
+            let mut snapshot = port_paste_snapshot();
+            let id = snapshot.ibd_diagrams[0].id.clone();
+            let port_id = if boundary { "external" } else { "internal" };
+            let original = if boundary { snapshot.ibd_diagrams[0].boundary_ports[0].clone() }
+                else { snapshot.ibd_diagrams[0].properties[0].ports[0].clone() };
+            let payload = collect_clipboard(&snapshot, &id, &[ibd_selection(port_id), ibd_selection("connector")]).unwrap();
+            let result = duplicate_selection_items(&mut snapshot, &id, &payload, None).unwrap();
+            snapshot.validate().unwrap();
+            let diagram = &snapshot.ibd_diagrams[0];
+            let port = if boundary { &diagram.boundary_ports[1] } else { &diagram.properties[0].ports[1] };
+            let copied = snapshot.project.element(parse_element_id(&port.element_id).unwrap()).unwrap();
+            let source = snapshot.project.element(parse_element_id(&original.element_id).unwrap()).unwrap();
+            assert_ne!(copied.id, source.id);
+            assert_eq!(copied.type_id, source.type_id);
+            assert_eq!(copied.owner_id, source.owner_id);
+            assert_eq!(port.x, original.x);
+            assert_eq!(result[0].id, port.id);
+            let edge = &diagram.connectors[1];
+            assert_eq!(if boundary { &edge.source_presentation_id } else { &edge.target_presentation_id }, &port.id);
+        }
+    }
+
+    #[test]
+    fn ibd_duplicate_rejection_preserves_semantics_history_and_redo() {
+        let mut snapshot = port_paste_snapshot();
+        snapshot.ibd_diagrams[0].context_frame = None;
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        snapshot.commit(&workspace, &activity).unwrap();
+        let before = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        let selected = vec![ibd_selection("part"), ibd_selection("external"), ibd_selection("connector")];
+        assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &selected, None).is_err());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert_eq!(history::undo_len(&history), 0);
+        let frame = super::super::ibd_geometry::default_context_frame();
+        duplicate_selection_states(&workspace, &activity, &history, &id, &selected, Some(&frame)).unwrap();
+        let after = serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), before);
+        assert!(duplicate_selection_states(&workspace, &activity, &history, &id, &selected, None).is_err());
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.project.lock().unwrap()).unwrap(), after);
+    }
+
+    #[test]
+    fn ibd_paste_individual_ports_remain_attached_on_all_four_sides() {
+        for boundary in [false, true] {
+            for side in 0..4 {
+                let mut snapshot = port_paste_snapshot();
+                let diagram = &mut snapshot.ibd_diagrams[0];
+                let id = diagram.id.clone();
+                let (left, top, width, height) = if boundary {
+                    let frame = diagram.context_frame.as_ref().unwrap();
+                    (frame.x, frame.y, frame.width, frame.height)
+                } else { (200.0, 160.0, 180.0, 100.0) };
+                let port = if boundary { &mut diagram.boundary_ports[0] } else { &mut diagram.properties[0].ports[0] };
+                let (x, y) = match side {
+                    0 => (left, top + height / 2.0),
+                    1 => (left + width, top + height / 2.0),
+                    2 => (left + width / 2.0, top),
+                    _ => (left + width / 2.0, top + height),
+                };
+                port.x = x;
+                port.y = y;
+                let source_id = port.id.clone();
+                let element_id = port.element_id.clone();
+                let payload = collect_clipboard(&snapshot, &id, &[ibd_selection(&source_id)]).unwrap();
+                let result = paste_clipboard(&mut snapshot, &id, &payload, None).unwrap();
+                let diagram = &snapshot.ibd_diagrams[0];
+                let copy = if boundary { &diagram.boundary_ports[1] } else { &diagram.properties[0].ports[1] };
+                assert_ne!(copy.id, source_id);
+                assert_eq!(copy.id, result[0].id);
+                assert_eq!(copy.element_id, element_id);
+                match side {
+                    0 | 1 => assert_eq!(copy.x, x),
+                    _ => assert_eq!(copy.y, y),
+                }
+                snapshot.validate().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn ibd_paste_legacy_frame_is_atomic_and_undoable() {
+        let mut snapshot = port_paste_snapshot();
+        snapshot.ibd_diagrams[0].context_frame = None;
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("external")]).unwrap();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        snapshot.commit(&workspace, &activity).unwrap();
+        let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert!(paste_clipboard_states(&workspace, &activity, &history, &id, &payload, None).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        let mut frame = super::super::ibd_geometry::default_context_frame();
+        frame.x = 80.0;
+        paste_clipboard_states(&workspace, &activity, &history, &id, &payload, Some(&frame)).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        let after = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert_eq!(workspace.ibd_diagrams.lock().unwrap()[0].boundary_ports[1].x, 80.0);
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        frame.width = -1.0;
+        assert!(paste_clipboard_states(&workspace, &activity, &history, &id, &payload, Some(&frame)).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), after);
+    }
+
+    #[test]
+    fn ibd_paste_to_another_diagram_requires_context_and_parent() {
+        let mut snapshot = port_paste_snapshot();
+        let id = snapshot.ibd_diagrams[0].id.clone();
+        let payload = collect_clipboard(&snapshot, &id, &[ibd_selection("internal")]).unwrap();
+        let mut target = snapshot.ibd_diagrams[0].clone();
+        target.id = uuid::Uuid::new_v4().to_string();
+        target.connectors.clear();
+        target.properties[0].x += 500.0;
+        let target_id = target.id.clone();
+        snapshot.ibd_diagrams.push(target);
+        paste_clipboard(&mut snapshot, &target_id, &payload, None).unwrap();
+        assert_eq!(snapshot.ibd_diagrams[1].properties[0].ports[1].x, 700.0);
+        snapshot.ibd_diagrams[1].properties.clear();
+        let before = serde_json::to_value(&snapshot.ibd_diagrams).unwrap();
+        assert!(paste_clipboard(&mut snapshot, &target_id, &payload, None).is_err());
+        assert_eq!(serde_json::to_value(&snapshot.ibd_diagrams).unwrap(), before);
+        snapshot.ibd_diagrams[1].context_block_id = snapshot.project.root_id.to_string();
+        assert!(paste_clipboard(&mut snapshot, &target_id, &payload, None).unwrap_err().contains("same Block context"));
+    }
+
+    #[test]
+    fn ibd_paste_parent_and_port_preserves_one_child_and_connector_mapping() {
+        for reverse in [false, true] {
+            let (project, mut diagram) = super::super::ibd_geometry::tests::fixture();
+            // Use an exposed right port; overlapping placement is qualified separately.
+            diagram.properties[0].ports[0].x += diagram.properties[0].width;
+            super::super::ibd_geometry::reroute_connected(&mut diagram, &["internal".into()]).unwrap();
+            let id = diagram.id.clone();
+            let mut snapshot = EditingSnapshot {
+                project,
+                diagrams: Vec::new(),
+                ibd_diagrams: vec![diagram],
+                behavior: Default::default(),
+                behavior_diagrams: Vec::new(),
+                activity: Default::default(),
+                activity_diagrams: Vec::new(),
+            };
+            let semantics = serde_json::to_value(&snapshot.project).unwrap();
+            let original_port = serde_json::to_value(&snapshot.ibd_diagrams[0].properties[0].ports).unwrap();
+            let mut selected = vec![ibd_selection("part"), ibd_selection("internal")];
+            if reverse {
+                selected.reverse();
+            }
+            selected.push(WorkspaceSelection { kind: "IbdConnector".into(), id: "connector".into() });
+            let payload = collect_clipboard(&snapshot, &id, &selected).unwrap();
+            let pasted = paste_clipboard(&mut snapshot, &id, &payload, None).unwrap();
+            assert_eq!(pasted.len(), 2);
+            let diagram = &snapshot.ibd_diagrams[0];
+            assert_eq!(diagram.properties.len(), 2);
+            assert_eq!(serde_json::to_value(&diagram.properties[0].ports).unwrap(), original_port);
+            let copy = &diagram.properties[1];
+            assert_eq!(copy.ports.len(), 1);
+            assert_ne!(copy.ports[0].id, "internal");
+            assert_eq!(copy.ports[0].element_id, diagram.properties[0].ports[0].element_id);
+            assert_eq!(copy.ports[0].x, copy.x + copy.width);
+            assert_eq!(copy.ports[0].y, 210.0 + PASTE_OFFSET);
+            assert_eq!(diagram.connectors[1].target_presentation_id, copy.ports[0].id);
+            assert_eq!(diagram.connectors[1].source_presentation_id, "external");
+            assert_eq!(serde_json::to_value(&snapshot.project).unwrap(), semantics);
+            snapshot.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn ibd_selected_parent_and_child_move_once_in_either_selection_order() {
+        let (_, original) = super::super::ibd_geometry::tests::fixture();
+        let mut first = original.clone();
+        let mut reversed = original;
+        for (diagram, selections) in [
+            (&mut first, vec![ibd_selection("part"), ibd_selection("internal")]),
+            (&mut reversed, vec![ibd_selection("internal"), ibd_selection("part")]),
+        ] {
+            assert_eq!(move_ibd_selection(diagram, &selections, -300.0, -200.0, None).unwrap(), 1);
+            let property = &diagram.properties[0];
+            assert_eq!((property.x, property.y), (0.0, 42.0));
+            assert_eq!((property.ports[0].x, property.ports[0].y), (0.0, 92.0));
+        }
+        assert_eq!(serde_json::to_value(first).unwrap(), serde_json::to_value(reversed).unwrap());
+    }
+
+    #[test]
+    fn ibd_selection_projects_independent_ports_and_preserves_unrelated_routes() {
+        let (_, mut diagram) = super::super::ibd_geometry::tests::fixture();
+        let mut unrelated = diagram.connectors[0].clone();
+        unrelated.id = "unrelated".into();
+        unrelated.source_presentation_id = "missing-source".into();
+        unrelated.target_presentation_id = "missing-target".into();
+        diagram.connectors.push(unrelated.clone());
+        let label = diagram.connectors[0].label_anchor;
+        assert_eq!(move_ibd_selection(&mut diagram, &[ibd_selection("internal")], 300.0, 10.0, None).unwrap(), 1);
+        assert_eq!((diagram.properties[0].ports[0].x, diagram.properties[0].ports[0].y), (380.0, 220.0));
+        assert_ne!(diagram.connectors[0].label_anchor, label);
+        assert_eq!(serde_json::to_value(&diagram.connectors[1]).unwrap(), serde_json::to_value(unrelated).unwrap());
+        assert_eq!(move_ibd_selection(&mut diagram, &[ibd_selection("external")], 0.0, 40.0, None).unwrap(), 1);
+        assert_eq!((diagram.boundary_ports[0].x, diagram.boundary_ports[0].y), (54.0, 210.0));
+    }
+
+    #[test]
+    fn ibd_selection_history_rejects_invalid_moves_and_preserves_noop_redo() {
+        let (project, diagram) = super::super::ibd_geometry::tests::fixture();
+        let id = diagram.id.clone();
+        let workspace = WorkspaceState::default();
+        let activity = ActivityWorkspaceState::default();
+        let history = HistoryState::default();
+        *workspace.project.lock().unwrap() = Some(project);
+        *workspace.ibd_diagrams.lock().unwrap() = vec![diagram];
+        let selections = vec![ibd_selection("part"), ibd_selection("internal")];
+        let apply = |dx, dy| history::edit_ibd_geometry(&workspace, &activity, &history, &id, |diagram| {
+            move_ibd_selection(diagram, &selections, dx, dy, None).map(|_| ())
+        });
+        apply(30.0, 20.0).unwrap();
+        assert_eq!(history::undo_len(&history), 1);
+        let moved = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert!(history::undo_states(&workspace, &activity, &history).unwrap());
+        apply(0.0, 0.0).unwrap();
+        assert!(apply(f64::NAN, 0.0).is_err());
+        assert_eq!(history::undo_len(&history), 0);
+        assert!(history::redo_states(&workspace, &activity, &history).unwrap());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), moved);
+        // Keep the moved internal port connected; break its opposite endpoint so
+        // this exercises a routing failure rather than an unrelated stale route.
+        workspace.ibd_diagrams.lock().unwrap()[0].connectors[0].source_presentation_id = "missing".into();
+        let before = serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap();
+        assert!(apply(30.0, 20.0).is_err());
+        assert_eq!(serde_json::to_value(&*workspace.ibd_diagrams.lock().unwrap()).unwrap(), before);
+        assert_eq!(history::undo_len(&history), 1);
+    }
+
+    #[test]
+    fn ibd_selection_requires_the_actual_frame_for_legacy_boundary_ports() {
+        let (_, mut diagram) = super::super::ibd_geometry::tests::fixture();
+        diagram.context_frame = None;
+        assert!(move_ibd_selection(&mut diagram, &[ibd_selection("external")], 0.0, 20.0, None).is_err());
+        let frame = shared_workspace::DiagramFramePreference {
+            x: 80.0, y: 70.0, width: 1018.0, height: 662.0, manually_sized: true,
+        };
+        move_ibd_selection(&mut diagram, &[ibd_selection("external")], 0.0, 20.0, Some(&frame)).unwrap();
+        assert_eq!((diagram.boundary_ports[0].x, diagram.boundary_ports[0].y), (80.0, 190.0));
+    }
+
+    #[test]
+    fn requirement_copy_generates_new_stable_and_human_ids() {
+        let mut project = Project::new("P");
+        let package = project
+            .create_element(ElementKind::Package, "Requirements", project.root_id)
+            .expect("package");
+        let requirement = project
+            .create_requirement("Power", "REQ-1", "Provide power", package)
+            .expect("requirement");
+        let duplicate = duplicate_element(&mut project, requirement).expect("duplicate");
+        let source = project.element(requirement).expect("source");
+        let copy = project.element(duplicate).expect("copy");
+        assert_ne!(source.id, copy.id);
+        assert_ne!(source.external_id, copy.external_id);
+        assert_ne!(source.requirement_id, copy.requirement_id);
+        assert_eq!(source.owner_id, copy.owner_id);
+        project.validate().expect("duplicate project validates");
+    }
+
+    #[test]
+    fn copy_name_is_deterministic_without_colliding() {
+        let mut project = Project::new("P");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .expect("block");
+        let first = duplicate_element(&mut project, block).expect("first copy");
+        let second = duplicate_element(&mut project, block).expect("second copy");
+        assert_eq!(project.element(first).unwrap().name, "Controller Copy");
+        assert_eq!(project.element(second).unwrap().name, "Controller Copy 2");
+    }
+
+    #[test]
+    fn moving_use_case_subject_boundary_carries_use_cases_but_not_actors() {
+        let mut project = Project::new("P");
+        let package = project
+            .create_element(ElementKind::Package, "Package", project.root_id)
+            .expect("package");
+        let subject = project
+            .create_element(ElementKind::Block, "System", package)
+            .expect("subject");
+        let actor = project
+            .create_element(ElementKind::Actor, "Operator", package)
+            .expect("actor");
+        let use_case = project
+            .create_element(ElementKind::UseCase, "Operate", package)
+            .expect("use case");
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let boundary_id = uuid::Uuid::new_v4().to_string();
+        let actor_presentation_id = uuid::Uuid::new_v4().to_string();
+        let use_case_presentation_id = uuid::Uuid::new_v4().to_string();
+        let mut snapshot = EditingSnapshot {
+            project,
+            diagrams: vec![BddDiagram {
+                id: diagram_id.clone(),
+                name: "Use Cases".into(),
+                owner_id: package.to_string(),
+                family: "use-case".into(),
+                semantic_context_id: Some(subject.to_string()),
+                subject_boundary: Some(UseCaseSubjectBoundary {
+                    id: boundary_id.clone(),
+                    x: 300.0,
+                    y: 84.0,
+                    width: 580.0,
+                    height: 500.0,
+                }),
+                nodes: vec![
+                    DiagramNode {
+                        id: actor_presentation_id.clone(),
+                        element_id: actor.to_string(),
+                        x: 100.0,
+                        y: 210.0,
+                        width: 110.0,
+                        height: 150.0,
+                        actor_notation: Some("rectangle".into()),
+                        parameter_presentations: Vec::new(),
+                    },
+                    DiagramNode {
+                        id: use_case_presentation_id.clone(),
+                        element_id: use_case.to_string(),
+                        x: 420.0,
+                        y: 220.0,
+                        width: 210.0,
+                        height: 115.0,
+                        actor_notation: None,
+                        parameter_presentations: Vec::new(),
+                    },
+                ],
+                edges: Vec::new(),
+            }],
+            ibd_diagrams: Vec::new(),
+            behavior: systems_modeler_core::BehaviorRepository::default(),
+            behavior_diagrams: Vec::new(),
+            activity: ActivityRepository::default(),
+            activity_diagrams: Vec::new(),
+        };
+
+        let changed = move_selection_items(
+            &mut snapshot,
+            &diagram_id,
+            &[WorkspaceSelection {
+                kind: "UseCaseSubjectBoundary".into(),
+                id: boundary_id,
+            }],
+            75.0,
+            35.0,
+        )
+        .expect("subject boundary moves");
+        assert_eq!(changed, 1);
+        let diagram = &snapshot.diagrams[0];
+        let boundary = diagram.subject_boundary.as_ref().unwrap();
+        assert_eq!((boundary.x, boundary.y), (375.0, 119.0));
+        let actor_node = diagram
+            .nodes
+            .iter()
+            .find(|node| node.id == actor_presentation_id)
+            .unwrap();
+        assert_eq!((actor_node.x, actor_node.y), (100.0, 210.0));
+        let use_case_node = diagram
+            .nodes
+            .iter()
+            .find(|node| node.id == use_case_presentation_id)
+            .unwrap();
+        assert_eq!((use_case_node.x, use_case_node.y), (495.0, 255.0));
+        snapshot.validate().expect("moved boundary persists valid geometry");
+    }
+}

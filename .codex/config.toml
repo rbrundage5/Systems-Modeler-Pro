@@ -1,0 +1,17 @@
+# Candidate project configuration; qualify against the actual Codex client first.
+# Do not enable until the external environment gate is satisfied.
+[agents]
+enabled = false
+max_concurrent_threads_per_session = 3
+
+# Model and reasoning effort are intentionally not pinned here. The coordinator
+# selects them per dispatched leaf task after confirming current availability.
+
+# Block supported delegation calls while qualification is incomplete.
+# This does not intercept hosted tools or enforce filesystem isolation.
+[[hooks.PreToolUse]]
+matcher = "^(spawn_agent|Agent)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'python3 /workspace/Systems-Modeler-Pro/scripts/agent_preflight.py'

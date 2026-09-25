@@ -1,0 +1,2679 @@
+use super::{
+    DiagramPoint, WorkspaceState,
+    activity_workspace::ActivityWorkspaceState,
+    history::{self, HistoryState},
+    parse_element_id,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::MutexGuard;
+use systems_modeler_core::behavior::{
+    BehaviorRepository, CombinedFragment, Event, ExecutionSpecification, InteractionOperand,
+    InteractionOperator, Lifeline, LifelineId, Message, MessageId, MessageSignature, MessageSort,
+    Occurrence, OccurrenceId, PseudostateKind, Region, RegionId, State, StateInvariant,
+    StateMachineId, Transition, TransitionId, TransitionKind, Trigger, Vertex, VertexId,
+    VertexKind,
+};
+use systems_modeler_core::{ElementId, ElementKind, Project};
+use systems_modeler_persistence::ProjectDatabase;
+
+pub const BEHAVIOR_METADATA_KEY: &str = "behavior-repository";
+pub const BEHAVIOR_DIAGRAM_METADATA_KEY: &str = "behavior-diagrams";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BehaviorDiagramKind {
+    StateMachine,
+    Sequence,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateNodePresentation {
+    pub vertex_id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+fn default_lifeline_timeline_start_y() -> f64 {
+    102.0
+}
+
+fn default_lifeline_timeline_end_y() -> f64 {
+    840.0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifelinePresentation {
+    pub lifeline_id: String,
+    pub x: f64,
+    #[serde(default = "default_lifeline_timeline_start_y")]
+    pub timeline_start_y: f64,
+    #[serde(default = "default_lifeline_timeline_end_y")]
+    pub timeline_end_y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorEdgePresentation {
+    pub semantic_id: String,
+    pub points: Vec<DiagramPoint>,
+    #[serde(default)]
+    pub label_anchor: Option<DiagramPoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorPresentationCopy {
+    pub id: String,
+    pub semantic_id: String,
+    pub kind: String,
+    pub offset_x: f64,
+    pub offset_y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehaviorDiagram {
+    pub id: String,
+    pub name: String,
+    pub owner_id: String,
+    pub context_id: String,
+    pub kind: BehaviorDiagramKind,
+    pub semantic_id: String,
+    #[serde(default)]
+    pub state_nodes: Vec<StateNodePresentation>,
+    #[serde(default)]
+    pub lifelines: Vec<LifelinePresentation>,
+    #[serde(default)]
+    pub edge_routes: Vec<BehaviorEdgePresentation>,
+    #[serde(default)]
+    pub hidden_semantic_ids: Vec<String>,
+    #[serde(default)]
+    pub presentation_copies: Vec<BehaviorPresentationCopy>,
+}
+
+// Nested authoring uses the same repository-before-presentation order as Save/Open.
+// Callers that also need the project must acquire it before this pair.
+pub(super) struct BehaviorAuthoredGuards<'a> {
+    pub repository: MutexGuard<'a, BehaviorRepository>,
+    pub diagrams: MutexGuard<'a, Vec<BehaviorDiagram>>,
+}
+
+pub(super) fn lock_behavior_authored(
+    state: &WorkspaceState,
+) -> Result<BehaviorAuthoredGuards<'_>, String> {
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    Ok(BehaviorAuthoredGuards {
+        repository,
+        diagrams,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BehaviorWorkspaceSnapshot {
+    pub repository: BehaviorRepository,
+    pub diagrams: Vec<BehaviorDiagram>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LifelineCandidate {
+    pub label: String,
+    pub property_path: Vec<String>,
+}
+
+fn parse_uuid(value: &str) -> Result<uuid::Uuid, String> {
+    uuid::Uuid::parse_str(value).map_err(|_| format!("invalid behavior id: {value}"))
+}
+
+fn state_machine_id(value: &str) -> Result<StateMachineId, String> {
+    parse_uuid(value).map(StateMachineId)
+}
+fn region_id(value: &str) -> Result<RegionId, String> {
+    parse_uuid(value).map(RegionId)
+}
+fn vertex_id(value: &str) -> Result<VertexId, String> {
+    parse_uuid(value).map(VertexId)
+}
+fn lifeline_id(value: &str) -> Result<LifelineId, String> {
+    parse_uuid(value).map(LifelineId)
+}
+
+fn diagram_owner(project: &Project, context_id: ElementId) -> Result<ElementId, String> {
+    let context = project
+        .element(context_id)
+        .map_err(|error| error.to_string())?;
+    if !matches!(
+        context.kind,
+        ElementKind::Block | ElementKind::AssociationBlock | ElementKind::InterfaceBlock
+    ) {
+        return Err(
+            "State Machine and Sequence diagrams require a Block-like classifier context".into(),
+        );
+    }
+    Ok(context.owner_id.unwrap_or(project.root_id))
+}
+
+fn root_region_id(
+    repository: &BehaviorRepository,
+    machine_id: StateMachineId,
+) -> Result<RegionId, String> {
+    repository
+        .state_machines
+        .get(&machine_id)
+        .and_then(|machine| machine.regions.first())
+        .map(|region| region.id)
+        .ok_or_else(|| "state machine has no root Region".into())
+}
+
+fn find_region_mut(regions: &mut [Region], wanted: RegionId) -> Option<&mut Region> {
+    for region in regions {
+        if region.id == wanted {
+            return Some(region);
+        }
+        for vertex in &mut region.vertices {
+            if let VertexKind::State(state) = &mut vertex.kind
+                && let Some(found) = find_region_mut(&mut state.regions, wanted)
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_vertex_mut(regions: &mut [Region], wanted: VertexId) -> Option<&mut Vertex> {
+    for region in regions {
+        for vertex in &mut region.vertices {
+            if vertex.id == wanted {
+                return Some(vertex);
+            }
+            if let VertexKind::State(state) = &mut vertex.kind
+                && let Some(found) = find_vertex_mut(&mut state.regions, wanted)
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_vertex(regions: &[Region], wanted: VertexId) -> Option<&Vertex> {
+    for region in regions {
+        for vertex in &region.vertices {
+            if vertex.id == wanted {
+                return Some(vertex);
+            }
+            if let VertexKind::State(state) = &vertex.kind
+                && let Some(found) = find_vertex(&state.regions, wanted)
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn collect_transition_endpoints(
+    regions: &[Region],
+    output: &mut Vec<(String, String, String, bool)>,
+) {
+    for region in regions {
+        output.extend(region.transitions.iter().map(|transition| {
+            (
+                transition.id.to_string(),
+                transition.source_id.to_string(),
+                transition.target_id.to_string(),
+                transition.trigger.is_some()
+                    || transition
+                        .guard
+                        .as_deref()
+                        .is_some_and(|guard| !guard.trim().is_empty())
+                    || transition
+                        .effect
+                        .as_deref()
+                        .is_some_and(|effect| !effect.trim().is_empty()),
+            )
+        }));
+        for vertex in &region.vertices {
+            if let VertexKind::State(state) = &vertex.kind {
+                collect_transition_endpoints(&state.regions, output);
+            }
+        }
+    }
+}
+
+fn collect_vertex_ancestors(
+    regions: &[Region],
+    ancestors: &[String],
+    output: &mut BTreeMap<String, Vec<String>>,
+) {
+    for region in regions {
+        for vertex in &region.vertices {
+            output.insert(vertex.id.to_string(), ancestors.to_vec());
+            if let VertexKind::State(state) = &vertex.kind {
+                let mut nested_ancestors = ancestors.to_vec();
+                nested_ancestors.push(vertex.id.to_string());
+                collect_vertex_ancestors(&state.regions, &nested_ancestors, output);
+            }
+        }
+    }
+}
+
+fn vertex_kind(value: &str) -> Result<VertexKind, String> {
+    Ok(match value {
+        "State" => VertexKind::State(State::default()),
+        "FinalState" => VertexKind::FinalState,
+        "Initial" => VertexKind::Pseudostate(PseudostateKind::Initial),
+        "Choice" => VertexKind::Pseudostate(PseudostateKind::Choice),
+        "Junction" => VertexKind::Pseudostate(PseudostateKind::Junction),
+        "Fork" => VertexKind::Pseudostate(PseudostateKind::Fork),
+        "Join" => VertexKind::Pseudostate(PseudostateKind::Join),
+        "ShallowHistory" => VertexKind::Pseudostate(PseudostateKind::ShallowHistory),
+        "DeepHistory" => VertexKind::Pseudostate(PseudostateKind::DeepHistory),
+        "EntryPoint" => VertexKind::Pseudostate(PseudostateKind::EntryPoint),
+        "ExitPoint" => VertexKind::Pseudostate(PseudostateKind::ExitPoint),
+        "Terminate" => VertexKind::Pseudostate(PseudostateKind::Terminate),
+        _ => return Err(format!("unsupported state vertex kind: {value}")),
+    })
+}
+
+fn transition_kind(value: &str) -> Result<TransitionKind, String> {
+    match value {
+        "External" => Ok(TransitionKind::External),
+        "Internal" => Ok(TransitionKind::Internal),
+        "Local" => Ok(TransitionKind::Local),
+        _ => Err(format!("unsupported transition kind: {value}")),
+    }
+}
+
+fn event_from_input(
+    event_kind: Option<String>,
+    event_reference_id: Option<String>,
+    event_expression: Option<String>,
+) -> Result<Option<Trigger>, String> {
+    let Some(kind) = event_kind.filter(|value| value != "None") else {
+        return Ok(None);
+    };
+    let event = match kind.as_str() {
+        "Signal" => Event::Signal {
+            signal_id: parse_element_id(
+                event_reference_id
+                    .as_deref()
+                    .ok_or("Signal trigger requires a Signal")?,
+            )?,
+        },
+        "Call" => Event::Call {
+            operation_id: parse_element_id(
+                event_reference_id
+                    .as_deref()
+                    .ok_or("Call trigger requires an Operation")?,
+            )?,
+        },
+        "Time" => Event::Time {
+            expression: event_expression.unwrap_or_default(),
+            is_relative: true,
+        },
+        "Change" => Event::Change {
+            expression: event_expression.unwrap_or_default(),
+        },
+        "AnyReceive" => Event::AnyReceive,
+        _ => return Err(format!("unsupported trigger event: {kind}")),
+    };
+    Ok(Some(Trigger { event }))
+}
+
+fn message_sort(value: &str) -> Result<MessageSort, String> {
+    match value {
+        "SynchCall" => Ok(MessageSort::SynchCall),
+        "AsynchCall" => Ok(MessageSort::AsynchCall),
+        "AsynchSignal" => Ok(MessageSort::AsynchSignal),
+        "Reply" => Ok(MessageSort::Reply),
+        "Create" => Ok(MessageSort::Create),
+        "Delete" => Ok(MessageSort::Delete),
+        "Lost" => Ok(MessageSort::Lost),
+        "Found" => Ok(MessageSort::Found),
+        _ => Err(format!("unsupported message sort: {value}")),
+    }
+}
+
+fn interaction_operator(value: &str) -> Result<InteractionOperator, String> {
+    match value {
+        "alt" => Ok(InteractionOperator::Alt),
+        "opt" => Ok(InteractionOperator::Opt),
+        "loop" => Ok(InteractionOperator::Loop),
+        "break" => Ok(InteractionOperator::Break),
+        "par" => Ok(InteractionOperator::Par),
+        "critical" => Ok(InteractionOperator::Critical),
+        "neg" => Ok(InteractionOperator::Neg),
+        "assert" => Ok(InteractionOperator::Assert),
+        "strict" => Ok(InteractionOperator::Strict),
+        "seq" => Ok(InteractionOperator::Seq),
+        "ignore" => Ok(InteractionOperator::Ignore),
+        "consider" => Ok(InteractionOperator::Consider),
+        _ => Err(format!("unsupported combined fragment operator: {value}")),
+    }
+}
+
+fn collect_lifeline_candidates(
+    project: &Project,
+    classifier_id: ElementId,
+    path: &mut Vec<ElementId>,
+    labels: &mut Vec<String>,
+    output: &mut Vec<LifelineCandidate>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > 6 {
+        return Ok(());
+    }
+    let mut features: Vec<_> = project
+        .classifier_features(classifier_id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|element| {
+            matches!(
+                element.kind,
+                ElementKind::PartProperty | ElementKind::ReferenceProperty
+            )
+        })
+        .collect();
+    features.sort_by(|a, b| a.name.cmp(&b.name));
+    for feature in features {
+        path.push(feature.id);
+        labels.push(feature.name.clone());
+        output.push(LifelineCandidate {
+            label: labels.join("."),
+            property_path: path.iter().map(ToString::to_string).collect(),
+        });
+        if let Some(type_id) = feature.type_id {
+            collect_lifeline_candidates(project, type_id, path, labels, output, depth + 1)?;
+        }
+        path.pop();
+        labels.pop();
+    }
+    Ok(())
+}
+
+fn next_occurrence_order(messages: &[Message]) -> u32 {
+    messages
+        .iter()
+        .flat_map(|message| [message.send_event.as_ref(), message.receive_event.as_ref()])
+        .flatten()
+        .map(|occurrence| occurrence.order)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(10)
+}
+
+#[tauri::command]
+pub fn behavior_snapshot(
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<BehaviorWorkspaceSnapshot, String> {
+    Ok(BehaviorWorkspaceSnapshot {
+        repository: state
+            .behavior
+            .lock()
+            .map_err(|_| "behavior lock poisoned")?
+            .clone(),
+        diagrams: state
+            .behavior_diagrams
+            .lock()
+            .map_err(|_| "behavior diagram lock poisoned")?
+            .clone(),
+    })
+}
+
+#[tauri::command]
+pub fn create_state_machine_diagram(
+    context_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let context_id = parse_element_id(&context_id)?;
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let owner_id = diagram_owner(project, context_id)?;
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let semantic_id = repository
+        .create_state_machine(project, context_id, name.clone())
+        .map_err(|error| error.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .push(BehaviorDiagram {
+            id: id.clone(),
+            name,
+            owner_id: owner_id.to_string(),
+            context_id: context_id.to_string(),
+            kind: BehaviorDiagramKind::StateMachine,
+            semantic_id: semantic_id.to_string(),
+            state_nodes: Vec::new(),
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        });
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn create_sequence_diagram(
+    context_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let context_id = parse_element_id(&context_id)?;
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let owner_id = diagram_owner(project, context_id)?;
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let semantic_id = repository
+        .create_interaction(project, context_id, name.clone())
+        .map_err(|error| error.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .push(BehaviorDiagram {
+            id: id.clone(),
+            name,
+            owner_id: owner_id.to_string(),
+            context_id: context_id.to_string(),
+            kind: BehaviorDiagramKind::Sequence,
+            semantic_id: semantic_id.to_string(),
+            state_nodes: Vec::new(),
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        });
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn add_state_vertex(
+    diagram_id: String,
+    region_id_value: Option<String>,
+    kind: String,
+    name: String,
+    x: f64,
+    y: f64,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    add_state_vertex_in_state(diagram_id, region_id_value, kind, name, x, y, &state)
+}
+
+fn add_state_vertex_in_state(
+    diagram_id: String,
+    region_id_value: Option<String>,
+    kind: String,
+    name: String,
+    x: f64,
+    y: f64,
+    state: &WorkspaceState,
+) -> Result<String, String> {
+    let BehaviorAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = lock_behavior_authored(state)?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    if diagram.kind != BehaviorDiagramKind::StateMachine {
+        return Err("active behavior diagram is not a State Machine".into());
+    }
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    let target_region = match region_id_value {
+        Some(value) => region_id(&value)?,
+        None => root_region_id(&repository, machine_id)?,
+    };
+    let machine = repository
+        .state_machines
+        .get_mut(&machine_id)
+        .ok_or("State Machine not found")?;
+    let region = find_region_mut(&mut machine.regions, target_region).ok_or("Region not found")?;
+    let parsed_kind = vertex_kind(&kind)?;
+    if matches!(
+        parsed_kind,
+        VertexKind::Pseudostate(PseudostateKind::Initial)
+    ) && region.vertices.iter().any(|vertex| {
+        matches!(
+            vertex.kind,
+            VertexKind::Pseudostate(PseudostateKind::Initial)
+        )
+    }) {
+        return Err("A Region can have only one Initial pseudostate".into());
+    }
+    let id = VertexId::new();
+    region.vertices.push(Vertex {
+        id,
+        name,
+        kind: parsed_kind,
+    });
+    let (width, height) = if kind == "State" {
+        (150.0, 80.0)
+    } else {
+        (24.0, 24.0)
+    };
+    diagram.state_nodes.push(StateNodePresentation {
+        vertex_id: id.to_string(),
+        x,
+        y,
+        width,
+        height,
+    });
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn add_state_region(
+    diagram_id: String,
+    state_vertex_id: String,
+    name: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    drop(diagrams);
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let machine = repository
+        .state_machines
+        .get_mut(&machine_id)
+        .ok_or("State Machine not found")?;
+    let vertex = find_vertex_mut(&mut machine.regions, vertex_id(&state_vertex_id)?)
+        .ok_or("State not found")?;
+    let VertexKind::State(state_semantic) = &mut vertex.kind else {
+        return Err("Regions can only be owned by a State".into());
+    };
+    let id = RegionId::new();
+    state_semantic.regions.push(Region {
+        id,
+        name,
+        vertices: Vec::new(),
+        transitions: Vec::new(),
+    });
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn update_state_behaviors(
+    diagram_id: String,
+    state_vertex_id: String,
+    entry: Option<String>,
+    do_activity: Option<String>,
+    exit: Option<String>,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    drop(diagrams);
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let machine = repository
+        .state_machines
+        .get_mut(&machine_id)
+        .ok_or("State Machine not found")?;
+    let vertex = find_vertex_mut(&mut machine.regions, vertex_id(&state_vertex_id)?)
+        .ok_or("State not found")?;
+    let VertexKind::State(state_semantic) = &mut vertex.kind else {
+        return Err("selected vertex is not a State".into());
+    };
+    state_semantic.entry = entry.filter(|value| !value.trim().is_empty());
+    state_semantic.do_activity = do_activity.filter(|value| !value.trim().is_empty());
+    state_semantic.exit = exit.filter(|value| !value.trim().is_empty());
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
+pub fn add_state_transition(
+    diagram_id: String,
+    region_id_value: Option<String>,
+    source_vertex_id: String,
+    target_vertex_id: String,
+    kind: String,
+    event_kind: Option<String>,
+    event_reference_id: Option<String>,
+    event_expression: Option<String>,
+    guard: Option<String>,
+    effect: Option<String>,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    drop(diagrams);
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let root_region = match region_id_value {
+        Some(value) => region_id(&value)?,
+        None => root_region_id(&repository, machine_id)?,
+    };
+    let machine = repository
+        .state_machines
+        .get_mut(&machine_id)
+        .ok_or("State Machine not found")?;
+    let source_id = vertex_id(&source_vertex_id)?;
+    let target_id = vertex_id(&target_vertex_id)?;
+    let source =
+        find_vertex(&machine.regions, source_id).ok_or("transition source vertex not found")?;
+    find_vertex(&machine.regions, target_id).ok_or("transition target vertex not found")?;
+    let trigger = event_from_input(event_kind, event_reference_id, event_expression)?;
+    let guard = guard.filter(|value| !value.trim().is_empty());
+    if matches!(
+        source.kind,
+        VertexKind::Pseudostate(PseudostateKind::Initial)
+    ) && (trigger.is_some() || guard.is_some())
+    {
+        return Err("Initial transition must be triggerless and guardless. Connect Initial directly to its first State, then place triggers/guards on later Transitions.".into());
+    }
+    if matches!(source.kind, VertexKind::FinalState) {
+        return Err("Final State cannot have outgoing Transitions".into());
+    }
+    let id = TransitionId::new();
+    let transition = Transition {
+        id,
+        source_id,
+        target_id,
+        kind: transition_kind(&kind)?,
+        trigger,
+        guard,
+        effect: effect.filter(|value| !value.trim().is_empty()),
+    };
+    let region = find_region_mut(&mut machine.regions, root_region).ok_or("Region not found")?;
+    region.transitions.push(transition);
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn move_state_vertex(
+    diagram_id: String,
+    state_vertex_id: String,
+    x: f64,
+    y: f64,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let presentation = diagram
+        .state_nodes
+        .iter_mut()
+        .find(|node| node.vertex_id == state_vertex_id)
+        .ok_or("State presentation not found")?;
+    presentation.x = x;
+    presentation.y = y;
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    reroute_incident_state_transitions(diagram, &repository, &state_vertex_id)?;
+    drop(repository);
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn behavior_lifeline_candidates(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<Vec<LifelineCandidate>, String> {
+    behavior_lifeline_candidates_in_state(&diagram_id, &state)
+}
+
+fn behavior_lifeline_candidates_in_state(
+    diagram_id: &str,
+    state: &WorkspaceState,
+) -> Result<Vec<LifelineCandidate>, String> {
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    if diagram.kind != BehaviorDiagramKind::Sequence {
+        return Err("active behavior diagram is not a Sequence Diagram".into());
+    }
+    let context_id = parse_element_id(&diagram.context_id)?;
+    drop(diagrams);
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let mut output = Vec::new();
+    collect_lifeline_candidates(
+        project,
+        context_id,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut output,
+        0,
+    )?;
+    Ok(output)
+}
+
+#[tauri::command]
+pub fn add_sequence_lifeline(
+    diagram_id: String,
+    represented_path: Vec<String>,
+    x: f64,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    add_sequence_lifeline_in_state(diagram_id, represented_path, x, &state)
+}
+
+fn add_sequence_lifeline_in_state(
+    diagram_id: String,
+    represented_path: Vec<String>,
+    x: f64,
+    state: &WorkspaceState,
+) -> Result<String, String> {
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let BehaviorAuthoredGuards {
+        mut repository,
+        mut diagrams,
+    } = lock_behavior_authored(state)?;
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    if diagram.kind != BehaviorDiagramKind::Sequence {
+        return Err("active behavior diagram is not a Sequence Diagram".into());
+    }
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    let context_id = parse_element_id(&diagram.context_id)?;
+    let path: Vec<ElementId> = represented_path
+        .iter()
+        .map(|value| parse_element_id(value))
+        .collect::<Result<_, _>>()?;
+    project
+        .resolve_structural_path(context_id, &path)
+        .map_err(|error| error.to_string())?;
+    let label = path
+        .iter()
+        .map(|id| {
+            project
+                .element(*id)
+                .map(|element| element.name.clone())
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(".");
+    let id = LifelineId::new();
+    repository
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?
+        .lifelines
+        .push(Lifeline {
+            id,
+            name: label,
+            represented_path: path,
+        });
+    diagram.lifelines.push(LifelinePresentation {
+        lifeline_id: id.to_string(),
+        x,
+        timeline_start_y: default_lifeline_timeline_start_y(),
+        timeline_end_y: default_lifeline_timeline_end_y(),
+    });
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn move_sequence_lifeline(
+    diagram_id: String,
+    lifeline_id_value: String,
+    x: f64,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    if !x.is_finite() {
+        return Err("Lifeline x coordinate must be finite".into());
+    }
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let presentation = diagram
+        .lifelines
+        .iter_mut()
+        .find(|item| item.lifeline_id == lifeline_id_value)
+        .ok_or("Lifeline presentation not found")?;
+    presentation.x = x.max(70.0);
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    reroute_incident_sequence_messages(diagram, &repository, &lifeline_id_value)?;
+    drop(repository);
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resize_sequence_lifeline_timeline(
+    diagram_id: String,
+    lifeline_id_value: String,
+    timeline_start_y: f64,
+    timeline_end_y: f64,
+    state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, ActivityWorkspaceState>,
+    history: tauri::State<'_, HistoryState>,
+) -> Result<(), String> {
+    let mut diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .clone();
+    resize_sequence_lifeline_timeline_in(
+        &mut diagrams,
+        &diagram_id,
+        &lifeline_id_value,
+        timeline_start_y,
+        timeline_end_y,
+    )?;
+    history::checkpoint_states(&state, &activity, &history)?;
+    *state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")? = diagrams;
+    Ok(())
+}
+
+fn resize_sequence_lifeline_timeline_in(
+    diagrams: &mut [BehaviorDiagram],
+    diagram_id: &str,
+    lifeline_id_value: &str,
+    timeline_start_y: f64,
+    timeline_end_y: f64,
+) -> Result<(), String> {
+    if !timeline_start_y.is_finite() || !timeline_end_y.is_finite() {
+        return Err("Lifeline timeline coordinates must be finite".into());
+    }
+    if timeline_start_y < 90.0 {
+        return Err("Lifeline timeline must start below its header".into());
+    }
+    if timeline_end_y - timeline_start_y < 80.0 {
+        return Err("Lifeline timeline must be at least 80 diagram units long".into());
+    }
+    let diagram = diagrams
+        .iter_mut()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    if diagram.kind != BehaviorDiagramKind::Sequence {
+        return Err("active behavior diagram is not a Sequence Diagram".into());
+    }
+    let presentation = diagram
+        .lifelines
+        .iter_mut()
+        .find(|item| item.lifeline_id == lifeline_id_value)
+        .ok_or("Lifeline presentation not found")?;
+    presentation.timeline_start_y = timeline_start_y;
+    presentation.timeline_end_y = timeline_end_y;
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Stable named-field Tauri IPC boundary.
+pub fn add_sequence_message(
+    diagram_id: String,
+    source_lifeline_id: Option<String>,
+    target_lifeline_id: Option<String>,
+    sort: String,
+    name: String,
+    signature_id: Option<String>,
+    arguments: Vec<String>,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    add_sequence_message_in_state(
+        diagram_id,
+        source_lifeline_id,
+        target_lifeline_id,
+        sort,
+        name,
+        signature_id,
+        arguments,
+        &state,
+    )
+}
+
+#[allow(clippy::too_many_arguments)] // Mirrors the stable Tauri command parameters.
+fn add_sequence_message_in_state(
+    diagram_id: String,
+    source_lifeline_id: Option<String>,
+    target_lifeline_id: Option<String>,
+    sort: String,
+    name: String,
+    signature_id: Option<String>,
+    arguments: Vec<String>,
+    state: &WorkspaceState,
+) -> Result<String, String> {
+    let project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
+    let project = project_guard.as_ref().ok_or("no project open")?;
+    let BehaviorAuthoredGuards {
+        mut repository,
+        diagrams,
+    } = lock_behavior_authored(state)?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    drop(diagrams);
+    let interaction = repository
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?;
+    let sort = message_sort(&sort)?;
+    let next = next_occurrence_order(&interaction.messages);
+    let send_event = source_lifeline_id
+        .as_deref()
+        .map(lifeline_id)
+        .transpose()?
+        .map(|lifeline_id| Occurrence {
+            id: OccurrenceId::new(),
+            lifeline_id,
+            order: next,
+        });
+    let receive_event = target_lifeline_id
+        .as_deref()
+        .map(lifeline_id)
+        .transpose()?
+        .map(|lifeline_id| Occurrence {
+            id: OccurrenceId::new(),
+            lifeline_id,
+            order: next + 5,
+        });
+    let signature = match sort {
+        MessageSort::SynchCall | MessageSort::AsynchCall => signature_id
+            .as_deref()
+            .map(parse_element_id)
+            .transpose()?
+            .map(MessageSignature::Operation),
+        MessageSort::AsynchSignal => signature_id
+            .as_deref()
+            .map(parse_element_id)
+            .transpose()?
+            .map(MessageSignature::Signal),
+        _ => None,
+    };
+    let id = MessageId::new();
+    interaction.messages.push(Message {
+        id,
+        name,
+        sort,
+        send_event,
+        receive_event,
+        signature,
+        arguments,
+    });
+    systems_modeler_core::behavior::validate_interaction(project, interaction).map_err(
+        |error| {
+            interaction.messages.pop();
+            error.to_string()
+        },
+    )?;
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn add_execution_specification(
+    diagram_id: String,
+    lifeline_id_value: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    drop(diagrams);
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let interaction = repository
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?;
+    let lifeline_id = lifeline_id(&lifeline_id_value)?;
+    if !interaction
+        .lifelines
+        .iter()
+        .any(|item| item.id == lifeline_id)
+    {
+        return Err("Execution must be attached to an existing Lifeline".into());
+    }
+    let start_order = next_occurrence_order(&interaction.messages);
+    let id = systems_modeler_core::behavior::ExecutionId::new();
+    interaction.executions.push(ExecutionSpecification {
+        id,
+        lifeline_id,
+        start: Occurrence {
+            id: OccurrenceId::new(),
+            lifeline_id,
+            order: start_order,
+        },
+        finish: Occurrence {
+            id: OccurrenceId::new(),
+            lifeline_id,
+            order: start_order + 20,
+        },
+        behavior_id: None,
+    });
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn add_combined_fragment(
+    diagram_id: String,
+    operator: String,
+    covered_lifeline_ids: Vec<String>,
+    guard: Option<String>,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    drop(diagrams);
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let interaction = repository
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?;
+    let covered_lifelines = covered_lifeline_ids
+        .iter()
+        .map(|value| lifeline_id(value))
+        .collect::<Result<Vec<_>, _>>()?;
+    let start = next_occurrence_order(&interaction.messages);
+    let operator = interaction_operator(&operator)?;
+    let mut operands = vec![InteractionOperand {
+        id: systems_modeler_core::behavior::OperandId::new(),
+        guard: guard.filter(|value| !value.trim().is_empty()),
+        start_order: start,
+        end_order: start + 30,
+    }];
+    if operator == InteractionOperator::Alt {
+        operands.push(InteractionOperand {
+            id: systems_modeler_core::behavior::OperandId::new(),
+            guard: Some("else".into()),
+            start_order: start + 30,
+            end_order: start + 60,
+        });
+    }
+    let id = systems_modeler_core::behavior::FragmentId::new();
+    interaction.fragments.push(CombinedFragment {
+        id,
+        operator,
+        covered_lifelines,
+        operands,
+    });
+    Ok(id.to_string())
+}
+
+#[tauri::command]
+pub fn add_state_invariant(
+    diagram_id: String,
+    lifeline_id_value: String,
+    constraint: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<String, String> {
+    if constraint.trim().is_empty() {
+        return Err("State Invariant requires a non-empty constraint".into());
+    }
+    let diagrams = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?;
+    let diagram = diagrams
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .ok_or("behavior diagram not found")?;
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    drop(diagrams);
+    let mut repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let interaction = repository
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?;
+    let id = systems_modeler_core::behavior::InvariantId::new();
+    interaction.state_invariants.push(StateInvariant {
+        id,
+        lifeline_id: lifeline_id(&lifeline_id_value)?,
+        order: next_occurrence_order(&interaction.messages),
+        constraint,
+    });
+    Ok(id.to_string())
+}
+
+pub fn validate_behavior_workspace(
+    project: &Project,
+    repository: &BehaviorRepository,
+    diagrams: &[BehaviorDiagram],
+) -> Result<(), String> {
+    repository
+        .validate(project)
+        .map_err(|error| error.to_string())?;
+    for diagram in diagrams {
+        parse_element_id(&diagram.context_id)?;
+        parse_element_id(&diagram.owner_id)?;
+        for route in &diagram.edge_routes {
+            parse_uuid(&route.semantic_id)?;
+            if route.points.len() < 2
+                || route
+                    .points
+                    .iter()
+                    .any(|point| !point.x.is_finite() || !point.y.is_finite())
+            {
+                return Err(format!(
+                    "behavior edge has invalid presentation route: {}",
+                    route.semantic_id
+                ));
+            }
+        }
+        for hidden_id in &diagram.hidden_semantic_ids {
+            parse_uuid(hidden_id)?;
+        }
+        for copy in &diagram.presentation_copies {
+            parse_uuid(&copy.id)?;
+            parse_uuid(&copy.semantic_id)?;
+            if copy.kind.trim().is_empty()
+                || !copy.offset_x.is_finite()
+                || !copy.offset_y.is_finite()
+            {
+                return Err(format!(
+                    "behavior presentation copy is invalid: {}",
+                    copy.id
+                ));
+            }
+        }
+        match diagram.kind {
+            BehaviorDiagramKind::StateMachine => {
+                let id = state_machine_id(&diagram.semantic_id)?;
+                if !repository.state_machines.contains_key(&id) {
+                    return Err(format!(
+                        "State Machine semantic object missing for diagram {}",
+                        diagram.name
+                    ));
+                }
+            }
+            BehaviorDiagramKind::Sequence => {
+                let id = parse_uuid(&diagram.semantic_id)
+                    .map(systems_modeler_core::behavior::InteractionId)?;
+                if !repository.interactions.contains_key(&id) {
+                    return Err(format!(
+                        "Interaction semantic object missing for diagram {}",
+                        diagram.name
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn state_machine_routes(
+    diagram: &BehaviorDiagram,
+    repository: &BehaviorRepository,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<Vec<BehaviorEdgePresentation>, String> {
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    let machine = repository
+        .state_machines
+        .get(&machine_id)
+        .ok_or("State Machine not found")?;
+    let mut transitions = Vec::new();
+    collect_transition_endpoints(&machine.regions, &mut transitions);
+    let mut ancestors = BTreeMap::new();
+    collect_vertex_ancestors(&machine.regions, &[], &mut ancestors);
+    let mut reserved_routes = Vec::new();
+    let mut label_obstacles = Vec::new();
+    let mut routes = Vec::new();
+    for (index, (id, source_id, target_id, has_visible_label)) in transitions.iter().enumerate() {
+        let source = diagram
+            .state_nodes
+            .iter()
+            .find(|node| node.vertex_id == *source_id)
+            .ok_or("State transition source presentation not found")?;
+        let target = diagram
+            .state_nodes
+            .iter()
+            .find(|node| node.vertex_id == *target_id)
+            .ok_or("State transition target presentation not found")?;
+        let mut related = BTreeSet::from([source_id.clone(), target_id.clone()]);
+        if let Some(source_ancestors) = ancestors.get(source_id) {
+            related.extend(source_ancestors.iter().cloned());
+        }
+        if let Some(target_ancestors) = ancestors.get(target_id) {
+            related.extend(target_ancestors.iter().cloned());
+        }
+        let mut obstacles: Vec<_> = diagram
+            .state_nodes
+            .iter()
+            .filter(|node| !related.contains(&node.vertex_id))
+            .map(|node| super::routing::RouteRect {
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+            })
+            .collect();
+        obstacles.extend(label_obstacles.iter().copied());
+        let all_label_obstacles: Vec<_> = diagram
+            .state_nodes
+            .iter()
+            .map(|node| super::routing::RouteRect {
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+            })
+            .chain(label_obstacles.iter().copied())
+            .collect();
+        let same_source_count = transitions[..index]
+            .iter()
+            .filter(|(_, candidate_source, _, _)| candidate_source == source_id)
+            .count();
+        let points = super::routing::orthogonal_route(super::routing::RouteRequest {
+            source: super::routing::RouteRect {
+                x: source.x,
+                y: source.y,
+                width: source.width,
+                height: source.height,
+            },
+            target: super::routing::RouteRect {
+                x: target.x,
+                y: target.y,
+                width: target.width,
+                height: target.height,
+            },
+            obstacles: &obstacles,
+            lane_index: same_source_count,
+            reserved_routes: &reserved_routes,
+            allow_shared_departure: same_source_count > 0,
+            bounds,
+        })?;
+        let label_anchor = if *has_visible_label {
+            let anchor = super::routing::route_label_anchor_avoiding(
+                &points,
+                &all_label_obstacles,
+                &reserved_routes,
+                bounds,
+            )?;
+            label_obstacles.push(super::routing::label_rect(anchor));
+            Some(anchor)
+        } else {
+            None
+        };
+        reserved_routes.push(points.clone());
+        routes.push(BehaviorEdgePresentation {
+            semantic_id: id.clone(),
+            label_anchor,
+            points,
+        });
+    }
+    Ok(routes)
+}
+
+fn lifeline_x(diagram: &BehaviorDiagram, lifeline: LifelineId) -> Option<f64> {
+    diagram
+        .lifelines
+        .iter()
+        .find(|presentation| presentation.lifeline_id == lifeline.to_string())
+        .map(|presentation| presentation.x)
+}
+
+fn sequence_obstacles(
+    diagram: &BehaviorDiagram,
+    interaction: &systems_modeler_core::behavior::Interaction,
+) -> Vec<(Option<LifelineId>, super::routing::RouteRect)> {
+    let mut obstacles = diagram
+        .lifelines
+        .iter()
+        .map(|lifeline| {
+            (
+                None,
+                super::routing::RouteRect {
+                    x: lifeline.x - 65.0,
+                    y: 60.0,
+                    width: 130.0,
+                    height: 42.0,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    obstacles.extend(interaction.executions.iter().filter_map(|execution| {
+        let x = lifeline_x(diagram, execution.lifeline_id)?;
+        let top = 130.0 + f64::from(execution.start.order) * 4.0;
+        let bottom = 130.0 + f64::from(execution.finish.order) * 4.0;
+        Some((
+            Some(execution.lifeline_id),
+            super::routing::RouteRect {
+                x: x - 7.0,
+                y: top.min(bottom),
+                width: 14.0,
+                height: (bottom - top).abs().max(12.0),
+            },
+        ))
+    }));
+    obstacles
+}
+
+fn sequence_routes(
+    diagram: &BehaviorDiagram,
+    repository: &BehaviorRepository,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<Vec<BehaviorEdgePresentation>, String> {
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    let interaction = repository
+        .interactions
+        .get(&interaction_id)
+        .ok_or("Interaction not found")?;
+    let presentation_obstacles = sequence_obstacles(diagram, interaction);
+    let mut reserved_routes = Vec::new();
+    let mut label_obstacles = Vec::new();
+    let mut routes = Vec::new();
+    for (index, message) in interaction.messages.iter().enumerate() {
+        let source_lifeline = message.send_event.as_ref().map(|event| event.lifeline_id);
+        let target_lifeline = message
+            .receive_event
+            .as_ref()
+            .map(|event| event.lifeline_id);
+        let source_x = source_lifeline
+            .and_then(|lifeline| lifeline_x(diagram, lifeline))
+            .unwrap_or(70.0);
+        let target_x = target_lifeline
+            .and_then(|lifeline| lifeline_x(diagram, lifeline))
+            .unwrap_or(1000.0);
+        let order = message
+            .send_event
+            .as_ref()
+            .or(message.receive_event.as_ref())
+            .map_or((index as u32 + 1) * 10, |event| event.order);
+        // Keep the earliest message below the lifeline header plus the shared
+        // routing clearance so Route/Clean Layout cannot generate geometry
+        // that the obstacle-safe router must immediately reject.
+        let y = 130.0 + f64::from(order) * 4.0;
+        let mut obstacles: Vec<_> = presentation_obstacles
+            .iter()
+            .filter(|(owner, _)| {
+                owner.is_none() || (*owner != source_lifeline && *owner != target_lifeline)
+            })
+            .map(|(_, rect)| *rect)
+            .collect();
+        obstacles.extend(label_obstacles.iter().copied());
+        let all_label_obstacles: Vec<_> = presentation_obstacles
+            .iter()
+            .map(|(_, rect)| *rect)
+            .chain(label_obstacles.iter().copied())
+            .collect();
+        let same_source_count = interaction.messages[..index]
+            .iter()
+            .filter(|candidate| {
+                candidate.send_event.as_ref().map(|event| event.lifeline_id) == source_lifeline
+            })
+            .count();
+        let points = if source_x == target_x {
+            let lane_x = source_x + 46.0 + same_source_count as f64 * 12.0;
+            let candidate = vec![
+                DiagramPoint { x: source_x, y },
+                DiagramPoint { x: lane_x, y },
+                DiagramPoint {
+                    x: lane_x,
+                    y: y + 26.0,
+                },
+                DiagramPoint {
+                    x: source_x,
+                    y: y + 26.0,
+                },
+            ];
+            let inside_bounds = bounds.is_none_or(|frame| {
+                candidate.iter().all(|point| {
+                    point.x >= frame.x
+                        && point.x <= frame.x + frame.width
+                        && point.y >= frame.y
+                        && point.y <= frame.y + frame.height
+                })
+            });
+            if !inside_bounds
+                || !super::routing::route_is_clear(&candidate, &obstacles)
+                || !super::routing::route_avoids_reserved(
+                    &candidate,
+                    &reserved_routes,
+                    same_source_count > 0,
+                )
+            {
+                return Err("no validated obstacle-clear self-message route is available inside the diagram frame; existing geometry was preserved".into());
+            }
+            candidate
+        } else {
+            super::routing::orthogonal_route(super::routing::RouteRequest {
+                source: super::routing::RouteRect {
+                    x: source_x,
+                    y,
+                    width: 0.0,
+                    height: 0.0,
+                },
+                target: super::routing::RouteRect {
+                    x: target_x,
+                    y,
+                    width: 0.0,
+                    height: 0.0,
+                },
+                obstacles: &obstacles,
+                lane_index: same_source_count,
+                reserved_routes: &reserved_routes,
+                allow_shared_departure: same_source_count > 0,
+                bounds,
+            })?
+        };
+        let label_anchor = super::routing::route_label_anchor_avoiding(
+            &points,
+            &all_label_obstacles,
+            &reserved_routes,
+            bounds,
+        )?;
+        label_obstacles.push(super::routing::label_rect(label_anchor));
+        reserved_routes.push(points.clone());
+        routes.push(BehaviorEdgePresentation {
+            semantic_id: message.id.to_string(),
+            points,
+            label_anchor: Some(label_anchor),
+        });
+    }
+    Ok(routes)
+}
+
+fn routed_behavior_edges(
+    diagram: &BehaviorDiagram,
+    repository: &BehaviorRepository,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<Vec<BehaviorEdgePresentation>, String> {
+    match diagram.kind {
+        BehaviorDiagramKind::StateMachine => state_machine_routes(diagram, repository, bounds),
+        BehaviorDiagramKind::Sequence => sequence_routes(diagram, repository, bounds),
+    }
+}
+
+pub(super) fn reroute_behavior_presentation(
+    diagram: &mut BehaviorDiagram,
+    repository: &BehaviorRepository,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<(), String> {
+    // Compute the complete route set before replacing any committed geometry.
+    // This is the same transactional behavior used by Route and Clean Layout.
+    diagram.edge_routes = routed_behavior_edges(diagram, repository, bounds)?;
+    Ok(())
+}
+
+fn retain_incident_state_transitions(regions: &mut [Region], vertex_id: &str) {
+    for region in regions {
+        region.transitions.retain(|transition| {
+            transition.source_id.to_string() == vertex_id
+                || transition.target_id.to_string() == vertex_id
+        });
+        for vertex in &mut region.vertices {
+            if let VertexKind::State(state) = &mut vertex.kind {
+                retain_incident_state_transitions(&mut state.regions, vertex_id);
+            }
+        }
+    }
+}
+
+pub(super) fn reroute_incident_state_transitions(
+    diagram: &mut BehaviorDiagram,
+    repository: &BehaviorRepository,
+    vertex_id: &str,
+) -> Result<(), String> {
+    if diagram.kind != BehaviorDiagramKind::StateMachine {
+        return Err("active behavior diagram is not a State Machine".into());
+    }
+    let machine_id = state_machine_id(&diagram.semantic_id)?;
+    let mut filtered = repository.clone();
+    let machine = filtered
+        .state_machines
+        .get_mut(&machine_id)
+        .ok_or("State Machine not found")?;
+    retain_incident_state_transitions(&mut machine.regions, vertex_id);
+    let mut endpoints = Vec::new();
+    collect_transition_endpoints(&machine.regions, &mut endpoints);
+    let wanted: BTreeSet<_> = endpoints.into_iter().map(|(id, _, _, _)| id).collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let routes = state_machine_routes(diagram, &filtered, None)?;
+    for route in routes {
+        if let Some(existing) = diagram
+            .edge_routes
+            .iter_mut()
+            .find(|existing| existing.semantic_id == route.semantic_id)
+        {
+            *existing = route;
+        } else {
+            diagram.edge_routes.push(route);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn reroute_incident_sequence_messages(
+    diagram: &mut BehaviorDiagram,
+    repository: &BehaviorRepository,
+    lifeline_id_value: &str,
+) -> Result<(), String> {
+    if diagram.kind != BehaviorDiagramKind::Sequence {
+        return Err("active behavior diagram is not a Sequence Diagram".into());
+    }
+    let interaction_id =
+        parse_uuid(&diagram.semantic_id).map(systems_modeler_core::behavior::InteractionId)?;
+    let mut filtered = repository.clone();
+    let interaction = filtered
+        .interactions
+        .get_mut(&interaction_id)
+        .ok_or("Interaction not found")?;
+    interaction.messages.retain(|message| {
+        message
+            .send_event
+            .as_ref()
+            .is_some_and(|event| event.lifeline_id.to_string() == lifeline_id_value)
+            || message
+                .receive_event
+                .as_ref()
+                .is_some_and(|event| event.lifeline_id.to_string() == lifeline_id_value)
+    });
+    if interaction.messages.is_empty() {
+        return Ok(());
+    }
+    let routes = sequence_routes(diagram, &filtered, None)?;
+    for route in routes {
+        if let Some(existing) = diagram
+            .edge_routes
+            .iter_mut()
+            .find(|existing| existing.semantic_id == route.semantic_id)
+        {
+            *existing = route;
+        } else {
+            diagram.edge_routes.push(route);
+        }
+    }
+    Ok(())
+}
+
+fn behavior_presentation_changed(left: &BehaviorDiagram, right: &BehaviorDiagram) -> bool {
+    left.state_nodes.len() != right.state_nodes.len()
+        || left.lifelines.len() != right.lifelines.len()
+        || left.edge_routes.len() != right.edge_routes.len()
+        || left
+            .state_nodes
+            .iter()
+            .zip(&right.state_nodes)
+            .any(|(left, right)| {
+                left.vertex_id != right.vertex_id
+                    || left.x != right.x
+                    || left.y != right.y
+                    || left.width != right.width
+                    || left.height != right.height
+            })
+        || left
+            .lifelines
+            .iter()
+            .zip(&right.lifelines)
+            .any(|(left, right)| {
+                left.lifeline_id != right.lifeline_id
+                    || left.x != right.x
+                    || left.timeline_start_y != right.timeline_start_y
+                    || left.timeline_end_y != right.timeline_end_y
+            })
+        || left
+            .edge_routes
+            .iter()
+            .zip(&right.edge_routes)
+            .any(|(left, right)| {
+                left.semantic_id != right.semantic_id
+                    || left.points != right.points
+                    || left.label_anchor != right.label_anchor
+            })
+}
+
+pub(super) fn route_behavior_with_bounds(
+    diagram_id: &str,
+    state: &WorkspaceState,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<bool, String> {
+    let original = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .cloned()
+        .ok_or("behavior diagram not found")?;
+    let routes = {
+        let repository = state
+            .behavior
+            .lock()
+            .map_err(|_| "behavior lock poisoned")?;
+        routed_behavior_edges(&original, &repository, bounds)?
+    };
+    let mut candidate = original.clone();
+    candidate.edge_routes = routes;
+    let changed = behavior_presentation_changed(&original, &candidate);
+    if changed {
+        let mut diagrams = state
+            .behavior_diagrams
+            .lock()
+            .map_err(|_| "behavior diagram lock poisoned")?;
+        let target = diagrams
+            .iter_mut()
+            .find(|diagram| diagram.id == diagram_id)
+            .ok_or("behavior diagram not found")?;
+        *target = candidate;
+    }
+    Ok(changed)
+}
+
+#[tauri::command]
+pub fn route_behavior_diagram(
+    diagram_id: String,
+    state: tauri::State<'_, WorkspaceState>,
+) -> Result<(), String> {
+    route_behavior_with_bounds(&diagram_id, &state, None).map(|_| ())
+}
+
+pub(super) fn layout_behavior_with_bounds(
+    diagram_id: &str,
+    state: &WorkspaceState,
+    bounds: Option<super::routing::RouteRect>,
+) -> Result<bool, String> {
+    let original = state
+        .behavior_diagrams
+        .lock()
+        .map_err(|_| "behavior diagram lock poisoned")?
+        .iter()
+        .find(|diagram| diagram.id == diagram_id)
+        .cloned()
+        .ok_or("behavior diagram not found")?;
+    let repository = state
+        .behavior
+        .lock()
+        .map_err(|_| "behavior lock poisoned")?;
+    let mut candidate = original.clone();
+    match candidate.kind {
+        BehaviorDiagramKind::StateMachine => {
+            let machine_id = state_machine_id(&candidate.semantic_id)?;
+            let machine = repository
+                .state_machines
+                .get(&machine_id)
+                .ok_or("State Machine not found")?;
+            let mut transitions = Vec::new();
+            collect_transition_endpoints(&machine.regions, &mut transitions);
+            let mut ancestors = BTreeMap::new();
+            collect_vertex_ancestors(&machine.regions, &[], &mut ancestors);
+            let root_id = |vertex_id: &str| {
+                ancestors
+                    .get(vertex_id)
+                    .and_then(|items| items.iter().next())
+                    .cloned()
+                    .unwrap_or_else(|| vertex_id.to_string())
+            };
+            let roots: BTreeSet<_> = candidate
+                .state_nodes
+                .iter()
+                .map(|node| root_id(&node.vertex_id))
+                .collect();
+            let edges: Vec<_> = transitions
+                .iter()
+                .map(|(_, source, target, _)| (root_id(source), root_id(target)))
+                .filter(|(source, target)| source != target)
+                .collect();
+            let mut positions = super::layout::hierarchical_positions_sized(
+                candidate
+                    .state_nodes
+                    .iter()
+                    .filter(|node| roots.contains(&node.vertex_id))
+                    .map(|node| super::layout::LayoutNode {
+                        id: node.vertex_id.clone(),
+                        width: node.width,
+                        height: node.height,
+                    }),
+                &edges,
+                systems_modeler_core::PreferredFlowDirection::TopToBottom,
+            );
+            if let Some(frame) = bounds
+                && let (Some(min_x), Some(min_y)) = (
+                    positions.values().map(|(x, _)| *x).reduce(f64::min),
+                    positions.values().map(|(_, y)| *y).reduce(f64::min),
+                )
+            {
+                // Clean Layout receives the current diagram-frame interior. Keep the
+                // generated STM hierarchy inside that coordinate space instead of
+                // relocating it to the global canvas origin, which would make the
+                // mandatory post-layout routing validation reject the transaction.
+                let offset_x = frame.x + super::routing::ROUTE_CLEARANCE - min_x;
+                let offset_y = frame.y + super::routing::ROUTE_CLEARANCE - min_y;
+                for (x, y) in positions.values_mut() {
+                    *x += offset_x;
+                    *y += offset_y;
+                }
+            }
+            let deltas: BTreeMap<_, _> = candidate
+                .state_nodes
+                .iter()
+                .filter_map(|node| {
+                    positions
+                        .get(&node.vertex_id)
+                        .map(|(x, y)| (node.vertex_id.clone(), (*x - node.x, *y - node.y)))
+                })
+                .collect();
+            for node in &mut candidate.state_nodes {
+                if let Some((dx, dy)) = deltas.get(&root_id(&node.vertex_id)) {
+                    node.x += dx;
+                    node.y += dy;
+                }
+            }
+        }
+        BehaviorDiagramKind::Sequence => {
+            let interaction_id = parse_uuid(&candidate.semantic_id)
+                .map(systems_modeler_core::behavior::InteractionId)?;
+            let interaction = repository
+                .interactions
+                .get(&interaction_id)
+                .ok_or("Interaction not found")?;
+            let order: BTreeMap<_, _> = interaction
+                .lifelines
+                .iter()
+                .enumerate()
+                .map(|(index, lifeline)| (lifeline.id.to_string(), index))
+                .collect();
+            for lifeline in &mut candidate.lifelines {
+                if let Some(index) = order.get(&lifeline.lifeline_id) {
+                    lifeline.x = 150.0 + *index as f64 * 210.0;
+                }
+            }
+        }
+    }
+    reroute_behavior_presentation(&mut candidate, &repository, bounds)?;
+    drop(repository);
+    let changed = behavior_presentation_changed(&original, &candidate);
+    if changed {
+        let mut diagrams = state
+            .behavior_diagrams
+            .lock()
+            .map_err(|_| "behavior diagram lock poisoned")?;
+        let target = diagrams
+            .iter_mut()
+            .find(|diagram| diagram.id == diagram_id)
+            .ok_or("behavior diagram not found")?;
+        *target = candidate;
+    }
+    Ok(changed)
+}
+
+pub fn save_behavior_metadata(
+    database: &mut ProjectDatabase,
+    project: &Project,
+    repository: &BehaviorRepository,
+    diagrams: &[BehaviorDiagram],
+) -> Result<(), String> {
+    validate_behavior_workspace(project, repository, diagrams)?;
+    database
+        .save_metadata(
+            project.id,
+            BEHAVIOR_METADATA_KEY,
+            &serde_json::to_string(repository).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+    database
+        .save_metadata(
+            project.id,
+            BEHAVIOR_DIAGRAM_METADATA_KEY,
+            &serde_json::to_string(diagrams).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn load_behavior_metadata(
+    database: &ProjectDatabase,
+    project: &Project,
+) -> Result<(BehaviorRepository, Vec<BehaviorDiagram>), String> {
+    let repository = match database
+        .load_metadata(project.id, BEHAVIOR_METADATA_KEY)
+        .map_err(|error| error.to_string())?
+    {
+        Some(payload) => serde_json::from_str(&payload)
+            .map_err(|error| format!("invalid saved behavior semantics: {error}"))?,
+        None => BehaviorRepository::default(),
+    };
+    let diagrams = match database
+        .load_metadata(project.id, BEHAVIOR_DIAGRAM_METADATA_KEY)
+        .map_err(|error| error.to_string())?
+    {
+        Some(payload) => serde_json::from_str(&payload)
+            .map_err(|error| format!("invalid saved behavior presentation: {error}"))?,
+        None => Vec::new(),
+    };
+    validate_behavior_workspace(project, &repository, &diagrams)?;
+    Ok((repository, diagrams))
+}
+
+#[cfg(test)]
+mod lifeline_presentation_tests {
+    use super::{
+        LifelinePresentation, default_lifeline_timeline_end_y, default_lifeline_timeline_start_y,
+    };
+
+    #[test]
+    fn legacy_lifeline_presentation_receives_timeline_defaults() {
+        let presentation: LifelinePresentation =
+            serde_json::from_str(r#"{"lifeline_id":"legacy","x":240.0}"#)
+                .expect("legacy Lifeline presentation should deserialize");
+        assert_eq!(
+            presentation.timeline_start_y,
+            default_lifeline_timeline_start_y()
+        );
+        assert_eq!(
+            presentation.timeline_end_y,
+            default_lifeline_timeline_end_y()
+        );
+        assert!(presentation.timeline_end_y - presentation.timeline_start_y >= 80.0);
+    }
+}
+
+#[cfg(test)]
+mod behavior_metadata_database_tests {
+    use super::*;
+
+    #[test]
+    fn behavior_metadata_database_round_trip_preserves_stm_and_seq_diagrams() {
+        let mut project = Project::new("Behavior Round Trip");
+        let package = project
+            .create_element(ElementKind::Package, "Behavior", project.root_id)
+            .expect("package");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", package)
+            .expect("block");
+
+        let mut repository = BehaviorRepository::default();
+        let state_machine_id = repository
+            .create_state_machine(&project, block, "Controller States")
+            .expect("state machine");
+        let interaction_id = repository
+            .create_interaction(&project, block, "Controller Sequence")
+            .expect("interaction");
+        let sequence_diagram_id = uuid::Uuid::new_v4().to_string();
+        let lifeline_id = uuid::Uuid::new_v4().to_string();
+        let diagrams = vec![
+            BehaviorDiagram {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "Controller States".into(),
+                owner_id: package.to_string(),
+                context_id: block.to_string(),
+                kind: BehaviorDiagramKind::StateMachine,
+                semantic_id: state_machine_id.to_string(),
+                state_nodes: Vec::new(),
+                lifelines: Vec::new(),
+                edge_routes: Vec::new(),
+                hidden_semantic_ids: Vec::new(),
+                presentation_copies: Vec::new(),
+            },
+            BehaviorDiagram {
+                id: sequence_diagram_id.clone(),
+                name: "Controller Sequence".into(),
+                owner_id: package.to_string(),
+                context_id: block.to_string(),
+                kind: BehaviorDiagramKind::Sequence,
+                semantic_id: interaction_id.to_string(),
+                state_nodes: Vec::new(),
+                lifelines: vec![LifelinePresentation {
+                    lifeline_id: lifeline_id.clone(),
+                    x: 320.0,
+                    timeline_start_y: 102.0,
+                    timeline_end_y: 840.0,
+                }],
+                edge_routes: Vec::new(),
+                hidden_semantic_ids: Vec::new(),
+                presentation_copies: Vec::new(),
+            },
+        ];
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project.clone());
+        *workspace.behavior.lock().expect("behavior lock") = repository.clone();
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = diagrams;
+        let activity = super::super::activity_workspace::ActivityWorkspaceState::default();
+        let history = super::super::history::HistoryState::default();
+        super::super::history::checkpoint_states(&workspace, &activity, &history)
+            .expect("history checkpoint");
+        let mut resized_diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock")
+            .clone();
+        resize_sequence_lifeline_timeline_in(
+            &mut resized_diagrams,
+            &sequence_diagram_id,
+            &lifeline_id,
+            112.0,
+            960.0,
+        )
+        .expect("resize Lifeline timeline");
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = resized_diagrams;
+        let resized = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock")[1]
+            .lifelines[0]
+            .clone();
+        assert_eq!(resized.timeline_start_y, 112.0);
+        assert_eq!(resized.timeline_end_y, 960.0);
+        assert!(
+            super::super::history::undo_states(&workspace, &activity, &history)
+                .expect("undo Lifeline resize")
+        );
+        assert_eq!(
+            workspace
+                .behavior_diagrams
+                .lock()
+                .expect("behavior diagram lock")[1]
+                .lifelines[0]
+                .timeline_end_y,
+            840.0
+        );
+        assert!(
+            super::super::history::redo_states(&workspace, &activity, &history)
+                .expect("redo Lifeline resize")
+        );
+        let diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock")
+            .clone();
+
+        let path = std::env::temp_dir().join(format!(
+            "systems-modeler-behavior-round-trip-{}.smproj",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let mut database = ProjectDatabase::open(&path).expect("open database");
+            database.save_project(&project).expect("save project");
+            save_behavior_metadata(&mut database, &project, &repository, &diagrams)
+                .expect("save behavior metadata");
+        }
+        {
+            let database = ProjectDatabase::open(&path).expect("reopen database");
+            let restored_project = database.load_first_project().expect("load project");
+            let (restored_repository, restored_diagrams) =
+                load_behavior_metadata(&database, &restored_project)
+                    .expect("load behavior metadata");
+            assert_eq!(restored_repository.state_machines.len(), 1);
+            assert_eq!(restored_repository.interactions.len(), 1);
+            assert_eq!(restored_diagrams.len(), 2);
+            assert!(restored_diagrams.iter().any(|diagram| {
+                diagram.kind == BehaviorDiagramKind::StateMachine
+                    && diagram.semantic_id == state_machine_id.to_string()
+            }));
+            assert!(restored_diagrams.iter().any(|diagram| {
+                diagram.kind == BehaviorDiagramKind::Sequence
+                    && diagram.semantic_id == interaction_id.to_string()
+                    && diagram.lifelines.first().is_some_and(|presentation| {
+                        presentation.timeline_start_y == 112.0
+                            && presentation.timeline_end_y == 960.0
+                    })
+            }));
+        }
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod state_machine_layout_tests {
+    use super::*;
+
+    #[test]
+    fn clean_layout_uses_the_current_state_machine_frame_coordinate_space() {
+        let mut project = Project::new("State Layout");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .expect("block");
+        let mut repository = BehaviorRepository::default();
+        let machine_id = repository
+            .create_state_machine(&project, block, "Controller States")
+            .expect("state machine");
+        let source_id = VertexId::new();
+        let target_id = VertexId::new();
+        let transition_id = TransitionId::new();
+        let machine = repository
+            .state_machines
+            .get_mut(&machine_id)
+            .expect("state machine");
+        machine.regions[0].vertices.extend([
+            Vertex {
+                id: source_id,
+                name: "Idle".into(),
+                kind: VertexKind::State(State::default()),
+            },
+            Vertex {
+                id: target_id,
+                name: "Running".into(),
+                kind: VertexKind::State(State::default()),
+            },
+        ]);
+        machine.regions[0].transitions.push(Transition {
+            id: transition_id,
+            source_id,
+            target_id,
+            kind: TransitionKind::External,
+            trigger: None,
+            guard: None,
+            effect: None,
+        });
+
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project);
+        *workspace.behavior.lock().expect("behavior lock") = repository;
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = vec![BehaviorDiagram {
+            id: diagram_id.clone(),
+            name: "Controller States".into(),
+            owner_id: block.to_string(),
+            context_id: block.to_string(),
+            kind: BehaviorDiagramKind::StateMachine,
+            semantic_id: machine_id.to_string(),
+            state_nodes: vec![
+                StateNodePresentation {
+                    vertex_id: source_id.to_string(),
+                    x: 620.0,
+                    y: 520.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+                StateNodePresentation {
+                    vertex_id: target_id.to_string(),
+                    x: 900.0,
+                    y: 720.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+            ],
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        }];
+        let frame = super::super::routing::RouteRect {
+            x: 560.0,
+            y: 480.0,
+            width: 720.0,
+            height: 520.0,
+        };
+
+        assert!(
+            layout_behavior_with_bounds(&diagram_id, &workspace, Some(frame))
+                .expect("State Machine Clean Layout")
+        );
+        let diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock");
+        let diagram = &diagrams[0];
+        assert!(diagram.state_nodes.iter().all(|node| {
+            node.x >= frame.x
+                && node.y >= frame.y
+                && node.x + node.width <= frame.x + frame.width
+                && node.y + node.height <= frame.y + frame.height
+        }));
+        assert_eq!(diagram.edge_routes.len(), 1);
+        assert_eq!(
+            diagram.edge_routes[0].semantic_id,
+            transition_id.to_string()
+        );
+        assert!(diagram.edge_routes[0].label_anchor.is_none());
+        assert!(diagram.edge_routes[0].points.iter().all(|point| {
+            point.x >= frame.x
+                && point.x <= frame.x + frame.width
+                && point.y >= frame.y
+                && point.y <= frame.y + frame.height
+        }));
+    }
+
+    #[test]
+    fn moved_state_reroutes_connected_transitions_and_clean_layout_uses_that_geometry() {
+        let mut project = Project::new("Connected State Movement");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .expect("block");
+        let mut repository = BehaviorRepository::default();
+        let machine_id = repository
+            .create_state_machine(&project, block, "Controller States")
+            .expect("state machine");
+        let source_id = VertexId::new();
+        let target_id = VertexId::new();
+        let transition_id = TransitionId::new();
+        let machine = repository
+            .state_machines
+            .get_mut(&machine_id)
+            .expect("state machine");
+        machine.regions[0].vertices.extend([
+            Vertex {
+                id: source_id,
+                name: "Idle".into(),
+                kind: VertexKind::State(State::default()),
+            },
+            Vertex {
+                id: target_id,
+                name: "Running".into(),
+                kind: VertexKind::State(State::default()),
+            },
+        ]);
+        machine.regions[0].transitions.push(Transition {
+            id: transition_id,
+            source_id,
+            target_id,
+            kind: TransitionKind::External,
+            trigger: None,
+            guard: None,
+            effect: None,
+        });
+
+        let diagram_id = uuid::Uuid::new_v4().to_string();
+        let mut diagram = BehaviorDiagram {
+            id: diagram_id.clone(),
+            name: "Controller States".into(),
+            owner_id: block.to_string(),
+            context_id: block.to_string(),
+            kind: BehaviorDiagramKind::StateMachine,
+            semantic_id: machine_id.to_string(),
+            state_nodes: vec![
+                StateNodePresentation {
+                    vertex_id: source_id.to_string(),
+                    x: 80.0,
+                    y: 90.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+                StateNodePresentation {
+                    vertex_id: target_id.to_string(),
+                    x: 640.0,
+                    y: 520.0,
+                    width: 150.0,
+                    height: 80.0,
+                },
+            ],
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        };
+        reroute_behavior_presentation(&mut diagram, &repository, None)
+            .expect("initial transition route");
+        let initial_route = diagram.edge_routes[0].points.clone();
+
+        diagram.state_nodes[0].x = 430.0;
+        diagram.state_nodes[0].y = 760.0;
+        reroute_behavior_presentation(&mut diagram, &repository, None)
+            .expect("moved transition route");
+        assert_ne!(diagram.edge_routes[0].points, initial_route);
+        let moved_source = &diagram.state_nodes[0];
+        let attachment = diagram.edge_routes[0].points[0];
+        let on_vertical = (attachment.x - moved_source.x).abs() < 0.001
+            || (attachment.x - (moved_source.x + moved_source.width)).abs() < 0.001;
+        let on_horizontal = (attachment.y - moved_source.y).abs() < 0.001
+            || (attachment.y - (moved_source.y + moved_source.height)).abs() < 0.001;
+        assert!(on_vertical || on_horizontal);
+
+        let wild_positions: Vec<_> = diagram
+            .state_nodes
+            .iter()
+            .map(|node| (node.x, node.y))
+            .collect();
+        let workspace = WorkspaceState::default();
+        *workspace.project.lock().expect("project lock") = Some(project);
+        *workspace.behavior.lock().expect("behavior lock") = repository;
+        *workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock") = vec![diagram];
+
+        assert!(
+            layout_behavior_with_bounds(&diagram_id, &workspace, None)
+                .expect("State Machine Clean Layout")
+        );
+        let diagrams = workspace
+            .behavior_diagrams
+            .lock()
+            .expect("behavior diagram lock");
+        let diagram = &diagrams[0];
+        let clean_positions: Vec<_> = diagram
+            .state_nodes
+            .iter()
+            .map(|node| (node.x, node.y))
+            .collect();
+        assert_ne!(clean_positions, wild_positions);
+        assert_eq!(diagram.edge_routes.len(), 1);
+        assert_eq!(
+            diagram.edge_routes[0].semantic_id,
+            transition_id.to_string()
+        );
+    }
+}
+
+#[cfg(test)]
+mod inherited_lifeline_tests {
+    use super::*;
+    use systems_modeler_core::{Multiplicity, RelationshipKind, VisibilityKind};
+
+    fn fixture() -> (WorkspaceState, String, [ElementId; 4]) {
+        let mut project = Project::new("Inherited Sequence roles");
+        let mut blocks = Vec::new();
+        for name in [
+            "Base",
+            "Left",
+            "Right",
+            "Derived",
+            "WheelBase",
+            "Wheel",
+            "Sensor",
+        ] {
+            blocks.push(
+                project
+                    .create_element(ElementKind::Block, name, project.root_id)
+                    .unwrap(),
+            );
+        }
+        for (specific, general) in [(1, 0), (2, 0), (3, 1), (3, 2), (5, 4)] {
+            project
+                .create_relationship(
+                    RelationshipKind::Generalization,
+                    blocks[specific],
+                    blocks[general],
+                    Some(project.root_id),
+                )
+                .unwrap();
+        }
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "wheel",
+                blocks[0],
+                blocks[5],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let nested = project
+            .create_typed_feature(
+                ElementKind::ReferenceProperty,
+                "sensor",
+                blocks[4],
+                blocks[6],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let hidden = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "hidden",
+                blocks[0],
+                blocks[6],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        let local = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "local",
+                blocks[3],
+                blocks[6],
+                Multiplicity::ONE,
+            )
+            .unwrap();
+        for id in [hidden, local] {
+            project.element_mut(id).unwrap().visibility = VisibilityKind::Private;
+        }
+        project.validate().unwrap();
+        let mut repository = BehaviorRepository::default();
+        let interaction = repository
+            .create_interaction(&project, blocks[3], "Sequence")
+            .unwrap();
+        let diagram = BehaviorDiagram {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Sequence".into(),
+            owner_id: project.root_id.to_string(),
+            context_id: blocks[3].to_string(),
+            kind: BehaviorDiagramKind::Sequence,
+            semantic_id: interaction.to_string(),
+            state_nodes: Vec::new(),
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        };
+        let diagram_id = diagram.id.clone();
+        let state = WorkspaceState::default();
+        *state.project.lock().unwrap() = Some(project);
+        *state.behavior.lock().unwrap() = repository;
+        state.behavior_diagrams.lock().unwrap().push(diagram);
+        (state, diagram_id, [part, nested, hidden, local])
+    }
+
+    fn authored_snapshot(state: &WorkspaceState) -> serde_json::Value {
+        let repository = state.behavior.lock().unwrap();
+        let diagrams = state.behavior_diagrams.lock().unwrap();
+        serde_json::to_value((&*repository, &*diagrams)).unwrap()
+    }
+
+    #[test]
+    fn selector_and_authoring_share_inherited_property_identity() {
+        let (state, diagram, [part, nested, hidden, local]) = fixture();
+        let before = serde_json::to_value(&*state.project.lock().unwrap()).unwrap();
+        let candidates = behavior_lifeline_candidates_in_state(&diagram, &state).unwrap();
+        let paths: Vec<_> = candidates
+            .iter()
+            .map(|choice| choice.property_path.clone())
+            .collect();
+        assert_eq!(paths.len(), 3);
+        assert!(paths.contains(&vec![part.to_string()]));
+        assert!(paths.contains(&vec![part.to_string(), nested.to_string()]));
+        assert!(paths.contains(&vec![local.to_string()]));
+        assert!(!paths.iter().flatten().any(|id| id == &hidden.to_string()));
+        let selected = candidates
+            .iter()
+            .find(|choice| choice.label == "wheel.sensor")
+            .unwrap();
+        let id =
+            add_sequence_lifeline_in_state(diagram, selected.property_path.clone(), 200.0, &state)
+                .unwrap();
+        let project_guard = state.project.lock().unwrap();
+        let project = project_guard.as_ref().unwrap();
+        assert_eq!(serde_json::to_value(&*project_guard).unwrap(), before);
+        let repository = state.behavior.lock().unwrap();
+        repository.validate(project).unwrap();
+        let restored: BehaviorRepository =
+            serde_json::from_value(serde_json::to_value(&*repository).unwrap()).unwrap();
+        restored.validate(project).unwrap();
+        let lifeline = restored
+            .interactions
+            .values()
+            .flat_map(|item| &item.lifelines)
+            .find(|item| item.id.to_string() == id)
+            .unwrap();
+        assert_eq!(lifeline.represented_path, vec![part, nested]);
+    }
+
+    #[test]
+    fn private_ancestor_path_rejection_preserves_semantics_and_presentations() {
+        let (state, diagram, [_, _, hidden, _]) = fixture();
+        let before = authored_snapshot(&state);
+        assert!(
+            add_sequence_lifeline_in_state(diagram, vec![hidden.to_string()], 200.0, &state,)
+                .is_err()
+        );
+        assert_eq!(authored_snapshot(&state), before);
+    }
+}
+
+#[cfg(test)]
+mod authored_lock_tests {
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    fn sequence_fixture() -> (WorkspaceState, String, String) {
+        let mut project = Project::new("Sequence locking");
+        let block = project
+            .create_element(ElementKind::Block, "Controller", project.root_id)
+            .unwrap();
+        let part = project
+            .create_typed_feature(
+                ElementKind::PartProperty,
+                "component",
+                block,
+                block,
+                systems_modeler_core::Multiplicity::ONE,
+            )
+            .unwrap();
+        project.validate().unwrap();
+        let mut repository = BehaviorRepository::default();
+        let interaction = repository
+            .create_interaction(&project, block, "Sequence")
+            .unwrap();
+        let diagram = BehaviorDiagram {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Sequence".into(),
+            owner_id: project.root_id.to_string(),
+            context_id: block.to_string(),
+            kind: BehaviorDiagramKind::Sequence,
+            semantic_id: interaction.to_string(),
+            state_nodes: Vec::new(),
+            lifelines: Vec::new(),
+            edge_routes: Vec::new(),
+            hidden_semantic_ids: Vec::new(),
+            presentation_copies: Vec::new(),
+        };
+        let diagram_id = diagram.id.clone();
+        let state = WorkspaceState::default();
+        *state.project.lock().unwrap() = Some(project);
+        *state.behavior.lock().unwrap() = repository;
+        state.behavior_diagrams.lock().unwrap().push(diagram);
+        let lifeline = add_sequence_lifeline_in_state(
+            diagram_id.clone(),
+            vec![part.to_string()],
+            200.0,
+            &state,
+        )
+        .unwrap();
+        (state, diagram_id, lifeline)
+    }
+
+    fn add_found(state: &WorkspaceState, diagram: &str, target: &str) -> Result<String, String> {
+        add_sequence_message_in_state(
+            diagram.into(),
+            None,
+            Some(target.into()),
+            "Found".into(),
+            "receive".into(),
+            None,
+            Vec::new(),
+            state,
+        )
+    }
+
+    fn semantics(state: &WorkspaceState) -> serde_json::Value {
+        serde_json::to_value(&*state.behavior.lock().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn state_vertex_checks_repository_before_waiting_for_presentations() {
+        let state = WorkspaceState::default();
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.behavior.lock().unwrap();
+            panic!("poison repository fixture");
+        }));
+        let presentations = state.behavior_diagrams.lock().unwrap();
+        std::thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            let state_ref = &state;
+            let worker = scope.spawn(move || {
+                tx.send(add_state_vertex_in_state(
+                    "missing".into(),
+                    None,
+                    "State".into(),
+                    "State".into(),
+                    0.0,
+                    0.0,
+                    state_ref,
+                ))
+                .unwrap();
+            });
+            let result = rx.recv_timeout(Duration::from_secs(2));
+            // Release even after timeout so a regression fails instead of hanging CI.
+            drop(presentations);
+            worker.join().unwrap();
+            assert_eq!(result.unwrap().unwrap_err(), "behavior lock poisoned");
+        });
+    }
+
+    #[test]
+    fn sequence_commands_check_project_before_waiting_for_authored_locks() {
+        for message in [false, true] {
+            let state = WorkspaceState::default();
+            let repository = state.behavior.lock().unwrap();
+            let presentations = state.behavior_diagrams.lock().unwrap();
+            std::thread::scope(|scope| {
+                let (tx, rx) = mpsc::channel();
+                let state_ref = &state;
+                let worker = scope.spawn(move || {
+                    let result = if message {
+                        add_found(state_ref, "missing", "missing")
+                    } else {
+                        add_sequence_lifeline_in_state("missing".into(), Vec::new(), 0.0, state_ref)
+                    };
+                    tx.send(result).unwrap();
+                });
+                let result = rx.recv_timeout(Duration::from_secs(2));
+                drop(presentations);
+                drop(repository);
+                worker.join().unwrap();
+                assert_eq!(result.unwrap().unwrap_err(), "no project open");
+            });
+        }
+    }
+
+    #[test]
+    fn sequence_message_project_failure_and_invalid_endpoint_preserve_prior_messages() {
+        let (state, diagram, lifeline) = sequence_fixture();
+        let message_id = add_found(&state, &diagram, &lifeline).unwrap();
+        let before = semantics(&state);
+        assert!(before.to_string().contains(&message_id));
+        let project = state.project.lock().unwrap().take();
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "no project open"
+        );
+        assert_eq!(semantics(&state), before);
+        *state.project.lock().unwrap() = project;
+        assert!(add_found(&state, &diagram, &LifelineId::new().to_string()).is_err());
+        assert_eq!(semantics(&state), before);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.project.lock().unwrap();
+            panic!("poison project fixture");
+        }));
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "project lock poisoned"
+        );
+        assert_eq!(semantics(&state), before);
+    }
+
+    #[test]
+    fn late_behavior_lock_failure_releases_earlier_guards_without_mutation() {
+        let (state, diagram, lifeline) = sequence_fixture();
+        let before = semantics(&state);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = state.behavior_diagrams.lock().unwrap();
+            panic!("poison presentation fixture");
+        }));
+        assert_eq!(
+            add_found(&state, &diagram, &lifeline).unwrap_err(),
+            "behavior diagram lock poisoned"
+        );
+        assert!(state.project.try_lock().is_ok());
+        assert!(state.behavior.try_lock().is_ok());
+        assert_eq!(semantics(&state), before);
+    }
+}

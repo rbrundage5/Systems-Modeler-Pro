@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001"
+         xmlns:uml="http://www.omg.org/spec/UML/20131001"
+         xmlns:safety="https://example.test/profiles/safety/1">
+  <uml:Model xmi:id="model" name="Safety Model">
+    <packagedElement xmi:type="uml:Class" xmi:id="controller" name="Controller" />
+    <packagedElement xmi:type="uml:Profile" xmi:id="safety-profile" name="Safety" URI="https://example.test/profiles/safety/1">
+      <packagedElement xmi:type="uml:Stereotype" xmi:id="critical-stereotype" name="SafetyCritical">
+        <ownedAttribute xmi:type="uml:Property" xmi:id="sil-tag" name="sil" lower="0" upper="1" tagType="Integer" />
+      </packagedElement>
+    </packagedElement>
+  </uml:Model>
+  <safety:SafetyCritical xmi:id="critical-application" base_Class="controller" sil="3" />
+</xmi:XMI>

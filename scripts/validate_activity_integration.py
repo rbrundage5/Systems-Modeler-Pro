@@ -1,0 +1,170 @@
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+main_rs = (root / "apps/desktop/src-tauri/src/main.rs").read_text(encoding="utf-8")
+workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_workspace.rs").read_text(encoding="utf-8")
+complete_workspace_rs = (root / "apps/desktop/src-tauri/src/workspace/bdd_elements.rs").read_text(encoding="utf-8")
+editing_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_editing.rs").read_text(encoding="utf-8")
+mutation_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_mutation.rs").read_text(encoding="utf-8")
+execution_rs = (root / "apps/desktop/src-tauri/src/workspace/activity_execution.rs").read_text(encoding="utf-8")
+frontend = (root / "apps/desktop/frontend/activity-ui.js").read_text(encoding="utf-8")
+rich_frontend = (root / "apps/desktop/frontend/activity-rich-ui.js").read_text(encoding="utf-8")
+navigation_frontend = (root / "apps/desktop/frontend/activity-navigation-ui.js").read_text(encoding="utf-8")
+mutation_frontend = (root / "apps/desktop/frontend/activity-mutation-ui.js").read_text(encoding="utf-8")
+index = (root / "apps/desktop/frontend/index.html").read_text(encoding="utf-8")
+styles = (root / "apps/desktop/frontend/activity.css").read_text(encoding="utf-8")
+
+base_commands = [
+    "activity_snapshot",
+    "create_activity_diagram",
+    "add_activity_node",
+    "add_activity_edge",
+    "save_activity_workspace",
+    "load_activity_workspace",
+    "reset_activity_workspace",
+]
+for command in base_commands:
+    assert command in main_rs, f"Activity Tauri command is not registered: {command}"
+    assert command in workspace_rs, f"Activity command implementation is missing: {command}"
+
+rich_commands = [
+    "add_activity_action",
+    "add_activity_parameter_node",
+    "add_activity_partition",
+    "assign_activity_node_partition",
+    "add_structured_activity_node",
+    "assign_activity_node_structured_parent",
+    "update_activity_node_semantics",
+]
+for command in rich_commands:
+    assert command in main_rs, f"Rich Activity command is not registered: {command}"
+    assert command in editing_rs, f"Rich Activity command implementation is missing: {command}"
+    assert command in rich_frontend, f"Rich Activity command is not forwarded by the frontend: {command}"
+
+mutation_commands = [
+    "delete_activity_item",
+    "reconnect_activity_edge",
+    "route_activity_diagram",
+]
+for command in mutation_commands:
+    assert command in main_rs, f"Activity mutation command is not registered: {command}"
+    assert command in mutation_rs, f"Activity mutation implementation is missing: {command}"
+    assert command in mutation_frontend, f"Activity mutation command is not forwarded by the frontend: {command}"
+
+execution_commands = [
+    "initialize_activity_execution",
+    "activity_execution_snapshot",
+    "run_activity_execution",
+    "step_activity_execution",
+    "pause_activity_execution",
+    "resume_activity_execution",
+    "reset_activity_execution",
+    "terminate_activity_execution",
+]
+for command in execution_commands:
+    assert command in main_rs, f"Activity execution command is not registered: {command}"
+    assert command in execution_rs, f"Activity execution command implementation is missing: {command}"
+    assert command in rich_frontend or command in frontend, f"Activity execution command is not forwarded by the frontend: {command}"
+
+assert "ActivityExecutionEngine" in execution_rs and "ExecutionManager" in execution_rs, "Desktop execution does not use the Rust execution subsystem"
+assert "source_fingerprints" in execution_rs and "source_fingerprint" in execution_rs, "Activity execution does not track the authored source model used to initialize a session"
+assert "ensure_current_execution" in execution_rs, "Activity execution can reuse stale semantic state after authored-model changes"
+assert "registry.source_fingerprints.get(&diagram_id) != Some(&fingerprint)" in execution_rs, "Activity execution snapshot does not invalidate stale sessions after authored-model changes"
+for command in ["run_activity_execution", "step_activity_execution", "resume_activity_execution", "reset_activity_execution"]:
+    section = execution_rs.split(f"pub fn {command}", 1)[1].split("#[tauri::command]", 1)[0]
+    assert "activity_state" in section and "ensure_current_execution" in section, f"{command} can execute a stale Activity repository"
+assert "activityExecutionSnapshot" in rich_frontend, "Activity runtime visualization does not consume an execution snapshot"
+assert "runtime-active" in styles and "runtime-waiting" in styles and "runtime-failed" in styles, "Runtime states are not visually distinct"
+assert ".activity-node.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their active runtime indication"
+assert ".activity-node.runtime-failed:is(.selected,.smp-standard-selected)" in styles, "Selected Activity nodes lose their failed runtime indication"
+assert ".activity-flow.runtime-active:is(.selected,.smp-standard-selected)" in styles, "Selected Activity flows lose their active runtime indication"
+assert "eval(" not in rich_frontend, "Activity frontend must not execute model expressions"
+
+# Runtime snapshots may update overlays, ribbon state, trace and token badges, but
+# must not rebuild the authored workspace on every Initialize/Step/Run tick. A
+# full render remounts the shared surface and can disturb pointer authority/frame
+# geometry across diagram families.
+invoke_execution = rich_frontend.split("async function invokeExecution(command)", 1)[1].split(
+    "async function initializeExecution", 1
+)[0]
+assert "refreshExecutionUi();" in invoke_execution, "Activity execution does not use the targeted runtime overlay refresh"
+assert "render();" not in invoke_execution, "Activity execution still rebuilds the authored workspace on every runtime snapshot"
+assert "document.querySelector('.diagram-workspace')" in rich_frontend, "Activity execution panel is not hosted outside the diagram surface"
+assert "dataset.workspaceOverlay" in rich_frontend, "Activity execution panel is not marked as a non-authoritative workspace overlay"
+
+# Executable action references must remain editable after creation through the
+# Rust semantic mutation boundary, not only through creation-time prompts.
+assert "actionReferenceId" in rich_frontend and "updateActionReference" in rich_frontend, "Activity action reference editing is not forwarded to Rust"
+assert "action_reference_id" in editing_rs and "update_action_reference" in editing_rs, "Rust Activity action reference mutation is missing"
+for action_kind in ["CallBehavior", "CallOperation", "SendSignal", "AcceptEvent"]:
+    assert action_kind in editing_rs and action_kind in rich_frontend, f"Activity Properties cannot edit {action_kind} semantics"
+assert "let original = repository" in editing_rs and "repository.activities.insert(activity_id, original)" in editing_rs, "Activity semantic edits are not transactionally recoverable"
+
+for semantic_kind in [
+    "CallBehaviorAction",
+    "CallOperationAction",
+    "SendSignalAction",
+    "AcceptEventAction",
+    "AcceptTimeEventAction",
+    "ActivityParameterNode",
+    "ActivityPartition",
+    "StructuredActivityNode",
+    "InterruptibleActivityRegion",
+]:
+    assert semantic_kind in main_rs, f"Rust-owned Activity palette is missing {semantic_kind}"
+
+assert '"Activity" => Ok(vec![' in main_rs, "Rust-owned Activity palette is missing"
+assert 'diagramType: \'Activity\'' in frontend, "Activity frontend does not request the Rust palette"
+assert "create_activity_diagram" in frontend, "Activity creation is not forwarded to Rust"
+assert "add_activity_node" in frontend, "Activity node creation is not forwarded to Rust"
+assert "add_activity_edge" in frontend, "Activity flow creation is not forwarded to Rust"
+assert "load_activity_workspace" in frontend, "Activity project Open integration is incomplete"
+assert "ACTIVITY_METADATA_KEY" in complete_workspace_rs, "Complete native Save omits Activity semantics"
+assert "ACTIVITY_DIAGRAM_METADATA_KEY" in complete_workspace_rs, "Complete native Save omits Activity diagrams"
+assert "save_project_with_metadata" in complete_workspace_rs, "Complete native Save does not use the atomic project transaction"
+assert 'strip_prefix("pin:")' in workspace_rs, "Rust Activity edge command does not accept semantic pin endpoint tokens"
+assert "ActivityEndpoint::Pin" in workspace_rs, "Rust Activity edge command does not persist PinId endpoints"
+assert "ObjectFlow pin direction is invalid" in workspace_rs, "Pin direction validation is missing from ObjectFlow creation"
+assert "ObjectFlow pin types are incompatible" in workspace_rs, "Pin type compatibility validation is missing from ObjectFlow creation"
+assert "activity-pin-anchor" in rich_frontend, "Activity pin presentation anchors are missing"
+assert "activity-partition-frame" in rich_frontend, "Activity partition presentation geometry is missing"
+assert "activity-structured-frame" in rich_frontend, "Structured Activity presentation geometry is missing"
+assert "pin:${pin.id}" in rich_frontend, "Activity frontend does not forward stable PinId endpoint tokens"
+assert "CallBehavior" in navigation_frontend and "smpSelectActivityDiagram" in navigation_frontend, "CallBehavior Activity drill-down is missing"
+assert "original_activity" in mutation_rs and "original_diagram" in mutation_rs, "Activity mutations are not transactionally recoverable"
+assert "incident" in mutation_rs and "activity.edges.retain" in mutation_rs, "Activity node deletion does not remove incident flows"
+assert "reroute_diagram" in mutation_rs and "orthogonal_route" in mutation_rs, "Activity mutation routing is not using the shared Rust router"
+assert "selectedActivityEdgeId" in mutation_frontend, "Activity flow selection is missing"
+assert "Delete" in mutation_frontend and "Backspace" in mutation_frontend, "Activity keyboard deletion is missing"
+assert '<script src="activity-ui.js"></script>' in index, "Activity frontend is not loaded"
+assert '<script src="activity-rich-ui.js"></script>' in index, "Rich Activity frontend is not loaded"
+assert '<script src="activity-navigation-ui.js"></script>' in index, "Activity navigation frontend is not loaded"
+assert '<script src="activity-mutation-ui.js"></script>' in index, "Activity mutation frontend is not loaded"
+assert '<link rel="stylesheet" href="activity.css" />' in index, "Activity notation stylesheet is not loaded"
+
+# Activity routing keeps branch/merge/fork/join flows separated, qualifies every
+# unrelated presentation and region as an obstacle, and only commits a complete
+# validated reroute. A local-corridor filter can hide a later obstacle crossing.
+assert "rect_overlaps_corridor" not in mutation_rs, "Activity routing still uses the unchecked local-corridor obstacle shortcut"
+assert ".filter(|node| node.id != source.id && node.id != target.id)" in mutation_rs, "Activity routing does not qualify every unrelated node"
+assert "activity_region_obstacles" in mutation_rs, "Activity routing does not qualify partition and structured-region frames"
+assert "let snapshot = diagram.clone()" in mutation_rs and "let mut routed = Vec::new()" in mutation_rs, "Activity reroute is not transactional"
+assert "candidate.source_node_id == presentation.source_node_id" in mutation_rs, "Activity branch routing does not separate shared-source flows"
+assert "candidate.target_node_id == presentation.target_node_id" in mutation_rs, "Activity merge routing does not separate shared-target flows"
+assert "reserved_routes" in mutation_rs and "allow_shared_departure" in mutation_rs, "Activity routing does not protect unrelated relationship corridors"
+assert "route_semantic_edge(&snapshot, activity, semantic, index)?" not in mutation_rs, "Activity routing regressed to diagram-global monotonically increasing lanes"
+
+# Frontend may maintain selection/presentation state, but semantic Activity objects
+# must only arrive from Rust snapshots and commands.
+for source in [frontend, rich_frontend, navigation_frontend, mutation_frontend]:
+    for forbidden in [
+        "ActivityRepository =",
+        "new ActivityRepository",
+        "activity.edges.push",
+        "activity.nodes.push",
+        "activity.partitions.push",
+        "activity.structured_nodes.push",
+    ]:
+        assert forbidden not in source, f"JavaScript appears to own Activity semantics: {forbidden}"
+
+print("Activity desktop integration contract passed")
