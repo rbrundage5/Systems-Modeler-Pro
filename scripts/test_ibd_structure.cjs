@@ -62,3 +62,23 @@ test('show existing parts dispatches without guessing types or changing the snap
   assert.equal(ui.commands[0].command, 'show_ibd_existing_parts');
   assert.equal(JSON.stringify(ui.state.snapshot), before);
 });
+
+test('type-level navigation sends the stable property ID and returns to enclosing view', async () => {
+  const ui = fixture();
+  ui.context.selectDiagram = async id => { ui.state.selectedDiagramId = id; };
+  ui.context.requireInvoke = () => async (command, args) => { ui.commands.push({command, args}); return 'engine-type-ibd'; };
+  await ui.context.navigateToTypeIbd('rearEngine');
+  assert.equal(ui.commands.length, 1);
+  assert.equal(ui.commands[0].command, 'open_or_create_type_ibd');
+  assert.equal(ui.commands[0].args.elementId, 'rearEngine');
+  assert.equal(ui.state.selectedDiagramId, 'engine-type-ibd');
+  await ui.context.returnFromTypeIbd();
+  assert.equal(ui.state.selectedDiagramId, 'ibd');
+});
+
+test('failed type navigation does not lose the enclosing diagram', async () => {
+  const ui = fixture();
+  ui.context.requireInvoke = () => async () => { throw new Error('No type'); };
+  await assert.rejects(ui.context.navigateToTypeIbd('missing'), /No type/);
+  assert.equal(ui.state.selectedDiagramId, 'ibd');
+});

@@ -22,8 +22,9 @@ mod workspace {
     mod history;
     mod ibd;
     mod ibd_geometry;
-    mod ibd_projection;
     mod ibd_structure;
+    mod ibd_projection;
+    mod ibd_navigation;
     mod item_flow_editing;
     mod item_flow_notation;
     mod layout;
@@ -104,6 +105,7 @@ mod workspace {
         add_item_flow_to_connector, add_nested_port_to_ibd, create_ibd, create_ibd_connector,
         populate_ibd_from_context, route_ibd,
     };
+    pub use ibd_navigation::open_or_create_type_ibd;
     pub use ibd_structure::{set_ibd_structure_expanded, show_ibd_existing_parts};
     pub use item_flow_editing::{ibd_item_flow_specification, update_ibd_item_flow_specification};
     pub use item_flow_notation::ibd_item_flow_notation;
@@ -250,10 +252,11 @@ use workspace::{
     import_portable_project_json, initialize_activity_execution, initialize_sequence_execution,
     initialize_state_machine_execution, load_activity_workspace, move_active_selection,
     move_repository_diagram, move_repository_element, move_sequence_lifeline, move_state_vertex,
-    new_project, open_project_file, open_project_file_complete, paste_selection,
+    open_or_create_type_ibd, new_project, open_project_file, open_project_file_complete, paste_selection,
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
+    set_ibd_structure_expanded, show_ibd_existing_parts,
     preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script,
     preview_reqif_import, preview_sequence_execution_runtime, preview_spreadsheet_import,
     preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
@@ -856,6 +859,7 @@ fn main() {
             populate_ibd_from_context,
             set_ibd_structure_expanded,
             show_ibd_existing_parts,
+            open_or_create_type_ibd,
             add_nested_port_to_ibd,
             update_ibd_property_geometry,
             preview_ibd_port_geometry,
