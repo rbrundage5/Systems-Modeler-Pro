@@ -34,6 +34,7 @@ mod workspace {
     mod presentation_interaction;
     mod presentation_theme;
     mod profile_editing;
+    mod property_presentation;
     mod relationship_editing;
     mod repository_editing;
     mod reqif_interchange;
@@ -144,6 +145,7 @@ mod workspace {
         create_stereotype_definition, create_tag_definition, remove_stereotype_application,
         set_stereotype_tag_values,
     };
+    pub use property_presentation::present_part_composition;
     pub use relationship_editing::{
         composition_property_choices, delete_bdd_relationship, link_composition_property,
         reconnect_bdd_relationship, update_association_end,
@@ -253,14 +255,15 @@ use workspace::{
     pause_activity_execution, pause_sequence_execution, pause_state_machine_execution,
     place_bdd_element, place_element_on_bdd, place_on_package_diagram, place_on_parametric_diagram,
     place_on_requirement_diagram, place_on_use_case_diagram, populate_ibd_from_context,
-    preview_activity_execution_runtime, preview_ibd_port_geometry, preview_model_script,
-    preview_reqif_import, preview_sequence_execution_runtime, preview_spreadsheet_import,
-    preview_spreadsheet_workbook_import, preview_state_machine_execution_runtime,
-    preview_xmi_import, queue_state_machine_signal, reconnect_activity_edge,
-    reconnect_bdd_relationship, reconnect_binding_connector, reconnect_package_relationship,
-    reconnect_sequence_message, reconnect_traceability_relationship,
-    reconnect_use_case_relationship, remove_stereotype_application, rename_active_diagram_header,
-    rename_element, reset_activity_execution, reset_activity_workspace, reset_sequence_execution,
+    present_part_composition, preview_activity_execution_runtime, preview_ibd_port_geometry,
+    preview_model_script, preview_reqif_import, preview_sequence_execution_runtime,
+    preview_spreadsheet_import, preview_spreadsheet_workbook_import,
+    preview_state_machine_execution_runtime, preview_xmi_import, queue_state_machine_signal,
+    reconnect_activity_edge, reconnect_bdd_relationship, reconnect_binding_connector,
+    reconnect_package_relationship, reconnect_sequence_message,
+    reconnect_traceability_relationship, reconnect_use_case_relationship,
+    remove_stereotype_application, rename_active_diagram_header, rename_element,
+    reset_activity_execution, reset_activity_workspace, reset_sequence_execution,
     reset_state_machine_execution, resize_sequence_lifeline_timeline, resume_activity_execution,
     resume_sequence_execution, resume_state_machine_execution, route_activity_diagram,
     route_behavior_diagram, route_diagram_geometry, route_ibd, run_activity_execution,
@@ -905,6 +908,7 @@ fn main() {
             update_association_end,
             composition_property_choices,
             link_composition_property,
+            present_part_composition,
             reconnect_bdd_relationship,
             delete_bdd_relationship
         ]))

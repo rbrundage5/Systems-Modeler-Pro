@@ -1,4 +1,4 @@
-use systems_modeler_core::{ElementId, Project, RelationshipKind};
+use systems_modeler_core::{ElementId, ElementKind, Project, RelationshipKind};
 use systems_modeler_persistence::ProjectDatabase;
 use systems_modeler_persistence::collaboration::{
     CollaborationError, EditRequest, ProjectRole, SharedEdit, SharedRelationshipKind,
@@ -107,7 +107,10 @@ fn shared_requirements_keep_identity_traceability_and_retry_receipts_after_reope
 #[test]
 fn invalid_requirement_changes_preserve_model_revision_and_operation_identity() {
     let mut db = ProjectDatabase::open_in_memory().unwrap();
-    let project = Project::new("Shared requirements");
+    let mut project = Project::new("Shared requirements");
+    let block = project
+        .create_element(ElementKind::Block, "Invalid owner", project.root_id)
+        .unwrap();
     let actor = Uuid::new_v4();
     let viewer = Uuid::new_v4();
     db.save_project(&project).unwrap();
@@ -132,7 +135,7 @@ fn invalid_requirement_changes_preserve_model_revision_and_operation_identity() 
     let invalid = [
         requirement(project.root_id, "REQ-1"),
         requirement(project.root_id, "   "),
-        requirement(first.element, "REQ-3"),
+        requirement(block, "REQ-3"),
         update(first.element, "REQ-2", "Must not replace original text."),
         update(project.root_id, "REQ-3", "Must not change a Model."),
         SharedEdit::UpdateRequirement {
@@ -177,6 +180,36 @@ fn invalid_requirement_changes_preserve_model_revision_and_operation_identity() 
             .revision,
         3
     );
+}
+
+#[test]
+fn nested_shared_creation_preserves_parent_identity_and_retry_receipts() {
+    let mut db = ProjectDatabase::open_in_memory().unwrap();
+    let project = Project::new("Nested shared requirements");
+    let actor = Uuid::new_v4();
+    db.save_project(&project).unwrap();
+    db.provision_shared_member(project.id, actor, ProjectRole::Editor)
+        .unwrap();
+    let parent = db
+        .commit_shared_edit(
+            project.id,
+            actor,
+            &request(0, requirement(project.root_id, "REQ-1")),
+        )
+        .unwrap();
+    let create = request(1, requirement(parent.element, "REQ-1.1"));
+    let child = db.commit_shared_edit(project.id, actor, &create).unwrap();
+    assert_eq!(
+        db.commit_shared_edit(project.id, actor, &create).unwrap(),
+        child
+    );
+    let (model, _, revision) = db.shared_snapshot(project.id, actor).unwrap();
+    assert_eq!(revision, 2);
+    assert_eq!(
+        model.element(child.element).unwrap().owner_id,
+        Some(parent.element)
+    );
+    model.validate().unwrap();
 }
 
 #[test]

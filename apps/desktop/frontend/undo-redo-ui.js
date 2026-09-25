@@ -20,9 +20,15 @@
     const text = String(label || '').toLowerCase();
     return text.startsWith('updating diagram presentation')
       || text.startsWith('applying element specification')
+      || text.startsWith('updating requirement')
       || text.startsWith('reconnecting bdd ')
       || text.startsWith('linking composition property')
       || text.startsWith('updating ibd structure');
+      || text.startsWith('presenting part composition')
+      || text.startsWith('updating association end')
+      || text.startsWith('deleting diagram relationship')
+      || text.startsWith('reconnecting traceability ')
+      || text.startsWith('linking composition property');
   }
 
   async function checkpointIfNeeded(label) {

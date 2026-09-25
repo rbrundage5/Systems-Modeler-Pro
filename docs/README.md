@@ -5,6 +5,7 @@ contract is useful evidence, but is not a current whole-product completeness cla
 
 | Need | Read |
 | --- | --- |
+| Current Block reuse, typing, relationship/history fixes and all-nine capability boundaries | [25 September 2026 workflow review](SYSML_WORKFLOW_REVIEW_2026_09_25.md) |
 | New/Open rejected when launching from a source checkout | [Development command-access correction](PROJECT_COMMAND_ACCESS_FIX_2026_09_24.md) |
 | Current implementation pass, connected deletion and remaining completion work | [24 September 2026 implementation update](TOOL_COMPLETION_IMPLEMENTATION_2026_09_24.md) |
 | Current completion gaps, priorities and release gates | [24 September 2026 completion audit after PR164-166](TOOL_COMPLETION_AUDIT_2026_09_24.md) |
