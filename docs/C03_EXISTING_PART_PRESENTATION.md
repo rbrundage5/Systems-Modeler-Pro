@@ -22,14 +22,19 @@ edit_authored callers retain their original behavior; the new conditional helper
 adds explicit no-op support for this workflow. Rejection preserves model/views,
 identity and redo. The frontend prevents display refresh from discarding a draft.
 
-Scope: property_presentation.rs, command registration in main.rs, history helper,
+Scope: property_presentation.rs, the existing presentation_interaction geometry
+validator's visibility, command registration in main.rs, history helper,
 bdd-feature-editing.js, native history label, focused tests, and this record.
 References: supplied SysML 1.6 section 8.1 and section 8.2.1 (Block definitions and
 association-end property notation), existing core create_property_association.
 
-Four new frontend tests pass (15 in the Properties suite). Native tests cover
+Five new frontend tests pass (16 in the Properties suite), including a draft
+edited during pending IPC and prevention of a concurrent Apply. Native tests cover
 shared typing, two named usages, repeated display, cross-view relationship reuse,
 project database round trip, undo/redo, rejection, invalid geometry and lock failure.
+Native CI exposed that the low-level router accepted a negative-width source.
+This command now reuses the existing presentation geometry validator before
+staging the relationship. The failing rollback test is retained unchanged.
 Native CI is required; the local runtime has no Rust toolchain. Independent review
 and rendered Windows acceptance remain outstanding.
 
