@@ -76,6 +76,21 @@ function fixture({ kind = 'PartProperty', choicesPromise, applyPromise, presenta
   return { fields, calls, state, context, element, panel, document, get refreshed() { return refreshed; }, get delegated() { return delegated; } };
 }
 
+test('structural usage selector dispatches explicit reference conversion once', async () => {
+  const ui = fixture();
+  await flush();
+  assert.match(ui.panel.html, /Composite part/);
+  assert.match(ui.panel.html, /Reference \(noncomposite\)/);
+  assert.match(ui.panel.html, /every usage/);
+  ui.fields.get('property-aggregation').value = 'none';
+  await ui.fields.get('apply-element').onclick();
+  const mutations = ui.calls.filter(call => call.command === 'update_element_specification');
+  assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].args.elementId, 'part');
+  assert.equal(mutations[0].args.edit.aggregation, 'none');
+  assert.equal(ui.element.kind, 'PartProperty', 'only Rust may change semantic state');
+});
+
 test('legacy Apply combines name and metadata into a single Rust transaction', async () => {
   const ui = fixture({ kind: 'ValueType', legacy: true });
   ui.fields.get('property-name').value = 'renamed';
