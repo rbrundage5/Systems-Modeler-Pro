@@ -155,24 +155,19 @@ fn update_association_end_in_state(
     activity: &super::activity_workspace::ActivityWorkspaceState,
     history: &super::history::HistoryState,
 ) -> Result<(), String> {
-    super::history::apply_structural_specification(
-        state,
-        activity,
-        history,
-        |current, diagrams| {
-            let mut candidate = current.clone();
-            edit_association_end(
-                &mut candidate,
-                edit.relationship_id,
-                &edit.end_id,
-                &edit.role_name,
-                edit.multiplicity,
-                edit.navigable,
-                edit.aggregation,
-            )?;
-            Ok((candidate, diagrams.to_vec()))
-        },
-    )
+    super::history::apply_structural_specification(state, activity, history, |current, diagrams| {
+        let mut candidate = current.clone();
+        edit_association_end(
+            &mut candidate,
+            edit.relationship_id,
+            &edit.end_id,
+            &edit.role_name,
+            edit.multiplicity,
+            edit.navigable,
+            edit.aggregation,
+        )?;
+        Ok((candidate, diagrams.to_vec()))
+    })
     .map(|_| ())
 }
 
@@ -1080,8 +1075,18 @@ mod tests {
     }
 
     fn apply_end(fixture: &ReconnectFixture, role: &str, navigable: bool) -> Result<(), String> {
-        let end_id = fixture.state.project.lock().unwrap().as_ref().unwrap()
-            .relationship(fixture.relationship_id).unwrap().association_ends[1].id.to_string();
+        let end_id = fixture
+            .state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationship(fixture.relationship_id)
+            .unwrap()
+            .association_ends[1]
+            .id
+            .to_string();
         update_association_end_in_state(
             AssociationEndEdit {
                 relationship_id: fixture.relationship_id,
@@ -1112,14 +1117,27 @@ mod tests {
             assert_eq!(part.type_id, Some(fixture.blocks[1]));
             assert_eq!(part.owner_id, Some(fixture.blocks[0]));
             assert_eq!(part.multiplicity.unwrap().notation(), "2");
-            let end = &project.relationship(fixture.relationship_id).unwrap().association_ends[1];
+            let end = &project
+                .relationship(fixture.relationship_id)
+                .unwrap()
+                .association_ends[1];
             assert_eq!(end.property_id, Some(property));
             assert_eq!(end.role_name, "primary");
-            super::super::validate_loaded_diagrams(project, &fixture.state.diagrams.lock().unwrap()).unwrap();
+            super::super::validate_loaded_diagrams(
+                project,
+                &fixture.state.diagrams.lock().unwrap(),
+            )
+            .unwrap();
             let directory = tempfile::tempdir().unwrap();
-            let mut database = systems_modeler_persistence::ProjectDatabase::open(directory.path().join("ends.smproj")).unwrap();
+            let mut database = systems_modeler_persistence::ProjectDatabase::open(
+                directory.path().join("ends.smproj"),
+            )
+            .unwrap();
             database.save_project(project).unwrap();
-            assert_eq!(serde_json::to_value(database.load_first_project().unwrap()).unwrap(), serde_json::to_value(project).unwrap());
+            assert_eq!(
+                serde_json::to_value(database.load_first_project().unwrap()).unwrap(),
+                serde_json::to_value(project).unwrap()
+            );
         }
         assert_eq!(history::undo_len(&fixture.history), 1);
         apply_end(&fixture, "primary", true).unwrap();
@@ -1137,7 +1155,8 @@ mod tests {
     #[test]
     fn association_end_transaction_rejects_invalid_dependent_views_before_commit() {
         let (fixture, _) = linked_end_fixture();
-        fixture.state.diagrams.lock().unwrap()[1].nodes[0].element_id = ElementId::new().to_string();
+        fixture.state.diagrams.lock().unwrap()[1].nodes[0].element_id =
+            ElementId::new().to_string();
         let before = snapshot(&fixture.state);
         assert!(apply_end(&fixture, "primary", true).is_err());
         assert_eq!(snapshot(&fixture.state), before);
