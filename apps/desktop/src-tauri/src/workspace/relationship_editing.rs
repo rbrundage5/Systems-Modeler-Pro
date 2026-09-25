@@ -113,6 +113,8 @@ fn link_composition_property_in_state(
         .ok_or_else(|| "composition link produced no Property".into())
 }
 
+// Preserve the existing flat IPC arguments; the extra parameters are native state handles.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn update_association_end(
     relationship_id: String,
@@ -122,22 +124,53 @@ pub fn update_association_end(
     navigable: bool,
     aggregation: String,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<(), String> {
-    let relationship_id = parse_relationship_id(&relationship_id)?;
-    let multiplicity = parse_multiplicity(&multiplicity)?;
-    let aggregation = parse_aggregation(&aggregation)?;
-
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-    edit_association_end(
-        project,
-        relationship_id,
-        &end_id,
-        &role_name,
-        multiplicity,
-        navigable,
-        aggregation,
+    update_association_end_in_state(
+        AssociationEndEdit {
+            relationship_id: parse_relationship_id(&relationship_id)?,
+            end_id,
+            role_name,
+            multiplicity: parse_multiplicity(&multiplicity)?,
+            navigable,
+            aggregation: parse_aggregation(&aggregation)?,
+        },
+        &state,
+        &activity,
+        &history,
     )
+}
+
+struct AssociationEndEdit {
+    relationship_id: systems_modeler_core::RelationshipId,
+    end_id: String,
+    role_name: String,
+    multiplicity: Multiplicity,
+    navigable: bool,
+    aggregation: AggregationKind,
+}
+
+fn update_association_end_in_state(
+    edit: AssociationEndEdit,
+    state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    history: &super::history::HistoryState,
+) -> Result<(), String> {
+    super::history::apply_structural_specification(state, activity, history, |current, diagrams| {
+        let mut candidate = current.clone();
+        edit_association_end(
+            &mut candidate,
+            edit.relationship_id,
+            &edit.end_id,
+            &edit.role_name,
+            edit.multiplicity,
+            edit.navigable,
+            edit.aggregation,
+        )?;
+        Ok((candidate, diagrams.to_vec()))
+    })
+    .map(|_| ())
 }
 
 fn edit_association_end(
@@ -359,8 +392,17 @@ pub(super) fn stage_relationship_presentations(
         })
         .map(|relationship| (relationship.id.to_string(), relationship))
         .collect();
+    let removed: std::collections::HashSet<_> = previous
+        .relationships
+        .keys()
+        .filter(|id| !candidate.relationships.contains_key(id))
+        .map(ToString::to_string)
+        .collect();
     let mut staged = diagrams.to_vec();
     for diagram in &mut staged {
+        diagram
+            .edges
+            .retain(|edge| !removed.contains(&edge.relationship_id));
         for edge_index in 0..diagram.edges.len() {
             let edge = &diagram.edges[edge_index];
             let Some(relationship) = changed.get(&edge.relationship_id) else {
@@ -431,38 +473,47 @@ pub fn delete_bdd_relationship(
     diagram_id: String,
     relationship_id: String,
     state: tauri::State<'_, WorkspaceState>,
+    activity: tauri::State<'_, super::activity_workspace::ActivityWorkspaceState>,
+    history: tauri::State<'_, super::history::HistoryState>,
 ) -> Result<(), String> {
-    delete_bdd_relationship_in_state(diagram_id, relationship_id, &state)
+    delete_bdd_relationship_in_state(diagram_id, relationship_id, &state, &activity, &history)
 }
 
 fn delete_bdd_relationship_in_state(
     diagram_id: String,
     relationship_id: String,
     state: &WorkspaceState,
+    activity: &super::activity_workspace::ActivityWorkspaceState,
+    history: &super::history::HistoryState,
 ) -> Result<(), String> {
-    let diagram_id = parse_diagram_id(&diagram_id)?;
+    let diagram_id = parse_diagram_id(&diagram_id)?.to_string();
     let relationship_id = parse_relationship_id(&relationship_id)?;
-
-    let mut project_guard = state.project.lock().map_err(|_| "project lock poisoned")?;
-    let project = project_guard.as_mut().ok_or("no project open")?;
-
-    let mut diagrams = state.diagrams.lock().map_err(|_| "diagram lock poisoned")?;
-    if !diagrams
-        .iter()
-        .any(|diagram| diagram.id == diagram_id.to_string())
-    {
-        return Err("diagram not found".into());
-    }
-
-    if project.relationships.remove(&relationship_id).is_none() {
-        return Err("relationship not found".into());
-    }
-    for diagram in diagrams.iter_mut() {
-        diagram
-            .edges
-            .retain(|edge| edge.relationship_id != relationship_id.to_string());
-    }
-    Ok(())
+    super::history::apply_structural_specification_with_views(
+        state,
+        activity,
+        history,
+        None,
+        |project, diagrams, ibds| {
+            let selected = diagrams
+                .iter()
+                .find(|diagram| diagram.id == diagram_id)
+                .ok_or("diagram not found")?;
+            if !selected
+                .edges
+                .iter()
+                .any(|edge| edge.relationship_id == relationship_id.to_string())
+            {
+                return Err("relationship is not presented on the selected diagram".into());
+            }
+            let mut candidate = project.clone();
+            if candidate.relationships.remove(&relationship_id).is_none() {
+                return Err("relationship not found".into());
+            }
+            candidate.validate().map_err(|error| error.to_string())?;
+            Ok((candidate, ibds.to_vec()))
+        },
+    )
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -1019,6 +1070,263 @@ mod tests {
         project.validate().unwrap();
     }
 
+    fn linked_end_fixture() -> (ReconnectFixture, ElementId) {
+        let mut fixture = reconnect_fixture(RelationshipKind::Association);
+        let property = {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project.relationships.remove(&fixture.relationship_id);
+            let (relationship, property) = project
+                .create_composition(
+                    fixture.blocks[0],
+                    fixture.blocks[1],
+                    "unit",
+                    Multiplicity::ONE,
+                    Some(project.root_id),
+                )
+                .unwrap();
+            fixture.relationship_id = relationship;
+            property
+        };
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id =
+            fixture.relationship_id.to_string();
+        add_second_view(&fixture, false);
+        (fixture, property)
+    }
+
+    fn apply_end(fixture: &ReconnectFixture, role: &str, navigable: bool) -> Result<(), String> {
+        let end_id = fixture
+            .state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .relationship(fixture.relationship_id)
+            .unwrap()
+            .association_ends[1]
+            .id
+            .to_string();
+        update_association_end_in_state(
+            AssociationEndEdit {
+                relationship_id: fixture.relationship_id,
+                end_id,
+                role_name: role.into(),
+                multiplicity: Multiplicity::new(2, Some(2)).unwrap(),
+                navigable,
+                aggregation: AggregationKind::Composite,
+            },
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+    }
+
+    #[test]
+    fn association_end_transaction_preserves_identity_reopen_and_one_step_history() {
+        use super::super::history;
+        let (fixture, property) = linked_end_fixture();
+        let before = snapshot(&fixture.state);
+        apply_end(&fixture, "primary", true).unwrap();
+        let after = snapshot(&fixture.state);
+        {
+            let guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            let part = project.element(property).unwrap();
+            assert_eq!(part.name, "primary");
+            assert_eq!(part.type_id, Some(fixture.blocks[1]));
+            assert_eq!(part.owner_id, Some(fixture.blocks[0]));
+            assert_eq!(part.multiplicity.unwrap().notation(), "2");
+            let end = &project
+                .relationship(fixture.relationship_id)
+                .unwrap()
+                .association_ends[1];
+            assert_eq!(end.property_id, Some(property));
+            assert_eq!(end.role_name, "primary");
+            super::super::validate_loaded_diagrams(
+                project,
+                &fixture.state.diagrams.lock().unwrap(),
+            )
+            .unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            let mut database = systems_modeler_persistence::ProjectDatabase::open(
+                directory.path().join("ends.smproj"),
+            )
+            .unwrap();
+            database.save_project(project).unwrap();
+            assert_eq!(
+                serde_json::to_value(database.load_first_project().unwrap()).unwrap(),
+                serde_json::to_value(project).unwrap()
+            );
+        }
+        assert_eq!(history::undo_len(&fixture.history), 1);
+        apply_end(&fixture, "primary", true).unwrap();
+        assert_eq!(history::undo_len(&fixture.history), 1);
+        assert!(history::undo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert!(apply_end(&fixture, "", true).is_err());
+        assert!(apply_end(&fixture, "invalid", false).is_err());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(history::undo_len(&fixture.history), 0);
+        assert!(history::redo_states(&fixture.state, &fixture.activity, &fixture.history).unwrap());
+        assert_eq!(snapshot(&fixture.state), after);
+    }
+
+    #[test]
+    fn association_end_transaction_rejects_invalid_dependent_views_before_commit() {
+        let (fixture, _) = linked_end_fixture();
+        fixture.state.diagrams.lock().unwrap()[1].nodes[0].element_id =
+            ElementId::new().to_string();
+        let before = snapshot(&fixture.state);
+        assert!(apply_end(&fixture, "primary", true).is_err());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(super::super::history::undo_len(&fixture.history), 0);
+    }
+
+    #[test]
+    fn delete_rejects_item_flow_dependency_and_preserves_pending_redo() {
+        use systems_modeler_core::{Connector, ConnectorEnd, ConnectorKind, ItemFlow};
+        let fixture = reconnect_fixture(RelationshipKind::Association);
+        let connector = {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            let mut role = |name| {
+                project
+                    .create_typed_feature(
+                        ElementKind::PartProperty,
+                        name,
+                        fixture.blocks[0],
+                        fixture.blocks[1],
+                        Multiplicity::ONE,
+                    )
+                    .unwrap()
+            };
+            let source = ConnectorEnd::role(role("left"));
+            let target = ConnectorEnd::role(role("right"));
+            let connector = project
+                .create_connector(Connector {
+                    context_id: fixture.blocks[0],
+                    kind: ConnectorKind::Assembly,
+                    source: source.clone(),
+                    target: target.clone(),
+                })
+                .unwrap();
+            project
+                .create_item_flow(ItemFlow {
+                    connector_id: connector,
+                    source,
+                    target,
+                    conveyed_item_ids: vec![fixture.blocks[2]],
+                })
+                .unwrap();
+            project.validate().unwrap();
+            connector
+        };
+        let delete = || {
+            delete_bdd_relationship_in_state(
+                fixture.diagram_id.clone(),
+                connector.to_string(),
+                &fixture.state,
+                &fixture.activity,
+                &fixture.history,
+            )
+        };
+        let before = snapshot(&fixture.state);
+        assert!(delete().unwrap_err().contains("not presented"));
+        assert_eq!(snapshot(&fixture.state), before);
+        // Even a forged generic-view presentation must not bypass ItemFlow integrity.
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id = connector.to_string();
+        super::super::history::checkpoint_states(
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+        .unwrap();
+        fixture.state.project.lock().unwrap().as_mut().unwrap().name = "Redo".into();
+        assert!(
+            super::super::history::undo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
+        let before = snapshot(&fixture.state);
+        assert!(delete().is_err());
+        assert_eq!(snapshot(&fixture.state), before);
+        assert_eq!(super::super::history::undo_len(&fixture.history), 0);
+        assert!(
+            super::super::history::redo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
+        assert_eq!(
+            fixture.state.project.lock().unwrap().as_ref().unwrap().name,
+            "Redo"
+        );
+    }
+
+    #[test]
+    fn delete_composition_preserves_usage_and_types_and_undo_restores_every_view() {
+        let mut fixture = reconnect_fixture(RelationshipKind::Association);
+        let (relationship, property) = {
+            let mut guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_mut().unwrap();
+            project.relationships.remove(&fixture.relationship_id);
+            project
+                .create_composition(
+                    fixture.blocks[0],
+                    fixture.blocks[1],
+                    "part",
+                    Multiplicity::ONE,
+                    Some(project.root_id),
+                )
+                .unwrap()
+        };
+        fixture.relationship_id = relationship;
+        fixture.state.diagrams.lock().unwrap()[0].edges[0].relationship_id =
+            relationship.to_string();
+        add_second_view(&fixture, false);
+        let before = snapshot(&fixture.state);
+        delete_bdd_relationship_in_state(
+            fixture.diagram_id.clone(),
+            relationship.to_string(),
+            &fixture.state,
+            &fixture.activity,
+            &fixture.history,
+        )
+        .unwrap();
+        assert_eq!(super::super::history::undo_len(&fixture.history), 1);
+        {
+            let guard = fixture.state.project.lock().unwrap();
+            let project = guard.as_ref().unwrap();
+            project.validate().unwrap();
+            assert!(project.relationship(relationship).is_err());
+            assert_eq!(
+                project.element(property).unwrap().type_id,
+                Some(fixture.blocks[1])
+            );
+            for id in fixture.blocks {
+                assert!(project.element(id).is_ok());
+            }
+            assert!(
+                fixture
+                    .state
+                    .diagrams
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|diagram| diagram.edges.is_empty())
+            );
+        }
+        let after = snapshot(&fixture.state);
+        assert!(
+            super::super::history::undo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
+        assert_eq!(snapshot(&fixture.state), before);
+        assert!(
+            super::super::history::redo_states(&fixture.state, &fixture.activity, &fixture.history)
+                .unwrap()
+        );
+        assert_eq!(snapshot(&fixture.state), after);
+    }
+
     #[test]
     fn delete_checks_project_before_waiting_for_a_diagram_lock() {
         let fixture = reconnect_fixture(RelationshipKind::Association);
@@ -1031,10 +1339,18 @@ mod tests {
             let diagrams = fixture.state.diagrams.lock().unwrap();
             let (sender, receiver) = std::sync::mpsc::channel();
             let state = &fixture.state;
+            let activity = &fixture.activity;
+            let history = &fixture.history;
             let diagram_id = fixture.diagram_id.clone();
             let relationship_id = fixture.relationship_id.to_string();
             scope.spawn(move || {
-                let result = delete_bdd_relationship_in_state(diagram_id, relationship_id, state);
+                let result = delete_bdd_relationship_in_state(
+                    diagram_id,
+                    relationship_id,
+                    state,
+                    activity,
+                    history,
+                );
                 sender.send(result).unwrap();
             });
             let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
@@ -1057,6 +1373,8 @@ mod tests {
                 fixture.diagram_id.clone(),
                 fixture.relationship_id.to_string(),
                 &fixture.state,
+                &fixture.activity,
+                &fixture.history,
             ),
             Err("diagram lock poisoned".into())
         );
