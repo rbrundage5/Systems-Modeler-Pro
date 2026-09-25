@@ -694,6 +694,8 @@ pub(super) fn routed_ibd_connectors(
     // metadata and must never become hard obstacles that can trap a later semantic
     // connector at its endpoint. This mirrors the application-wide shared router.
     for (index, edge) in snapshot.connectors.iter().enumerate() {
+        ibd_end_for_presentation(&snapshot, &edge.source_presentation_id)?;
+        ibd_end_for_presentation(&snapshot, &edge.target_presentation_id)?;
         if !super::ibd_structure::endpoint_visible(&snapshot, &edge.source_presentation_id)
             || !super::ibd_structure::endpoint_visible(&snapshot, &edge.target_presentation_id)
         {

@@ -264,9 +264,10 @@ pub(super) fn apply_property_geometry(
         let previous = before.properties.iter().find(|p| p.id == property.id);
         if previous.is_none_or(|p| {
             super::ibd_geometry::property_rect(p) != super::ibd_geometry::property_rect(property)
-                || p.ports.iter().zip(&property.ports).any(|(a, b)| {
-                    a.x != b.x || a.y != b.y || a.size != b.size
-                })
+                || p.ports
+                    .iter()
+                    .zip(&property.ports)
+                    .any(|(a, b)| a.x != b.x || a.y != b.y || a.size != b.size)
         }) {
             affected.push(property.id.clone());
             affected.extend(property.ports.iter().map(|p| p.id.clone()));
