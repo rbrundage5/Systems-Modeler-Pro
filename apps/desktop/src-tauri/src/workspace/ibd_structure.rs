@@ -89,8 +89,12 @@ pub(super) fn fit_ancestors(diagram: &mut IbdDiagram) -> Result<(), String> {
     separate_children(diagram, None);
     if let Some(mut frame) = diagram.context_frame.clone() {
         for property in &diagram.properties {
-            frame.width = frame.width.max(property.x + property.width + 32.0 - frame.x);
-            frame.height = frame.height.max(property.y + property.height + 32.0 - frame.y);
+            frame.width = frame
+                .width
+                .max(property.x + property.width + 32.0 - frame.x);
+            frame.height = frame
+                .height
+                .max(property.y + property.height + 32.0 - frame.y);
         }
         super::ibd_geometry::apply_context_frame(diagram, frame)?;
     }
@@ -187,12 +191,22 @@ pub(super) fn expand_property(
 
 /// Translate a presentation subtree; shared definitions and other usages are untouched.
 fn translate_subtree(diagram: &mut IbdDiagram, id: &str, dx: f64, dy: f64) {
-    let Some(path) = diagram.properties.iter().find(|p| p.id == id).map(|p| p.property_path.clone()) else { return; };
+    let Some(path) = diagram
+        .properties
+        .iter()
+        .find(|p| p.id == id)
+        .map(|p| p.property_path.clone())
+    else {
+        return;
+    };
     for property in &mut diagram.properties {
         if property.id == id || is_descendant(&property.property_path, &path) {
             property.x += dx;
             property.y += dy;
-            for port in &mut property.ports { port.x += dx; port.y += dy; }
+            for port in &mut property.ports {
+                port.x += dx;
+                port.y += dy;
+            }
         }
     }
 }
@@ -202,11 +216,19 @@ pub(super) fn apply_property_geometry(
     id: &str,
     rect: super::routing::RouteRect,
 ) -> Result<(), String> {
-    if ![rect.x, rect.y, rect.width, rect.height].iter().all(|v| v.is_finite() && v.abs() <= 100_000.0)
-        || rect.width < 60.0 || rect.height < 40.0 {
+    if ![rect.x, rect.y, rect.width, rect.height]
+        .iter()
+        .all(|v| v.is_finite() && v.abs() <= 100_000.0)
+        || rect.width < 60.0
+        || rect.height < 40.0
+    {
         return Err("IBD property geometry must be finite and within the canvas range".into());
     }
-    let index = diagram.properties.iter().position(|p| p.id == id).ok_or("IBD property occurrence not found")?;
+    let index = diagram
+        .properties
+        .iter()
+        .position(|p| p.id == id)
+        .ok_or("IBD property occurrence not found")?;
     let property = &diagram.properties[index];
     let old = super::ibd_geometry::property_rect(property);
     let path = property.property_path.clone();
@@ -215,12 +237,16 @@ pub(super) fn apply_property_geometry(
     for child in &diagram.properties {
         if is_descendant(&child.property_path, &path)
             && (child.x + child.width + 16.0 > old.x + rect.width
-                || child.y + child.height + 16.0 > old.y + rect.height) {
+                || child.y + child.height + 16.0 > old.y + rect.height)
+        {
             return Err("Expanded property must remain large enough for its internal parts".into());
         }
         if is_descendant(&path, &child.property_path)
-            && (rect.x < child.x + 16.0 || rect.y < child.y + 40.0) {
-            return Err("Nested parts must stay inside their enclosing property's content area".into());
+            && (rect.x < child.x + 16.0 || rect.y < child.y + 40.0)
+        {
+            return Err(
+                "Nested parts must stay inside their enclosing property's content area".into(),
+            );
         }
     }
     translate_subtree(diagram, id, dx, dy);
@@ -236,55 +262,110 @@ pub(super) fn apply_property_geometry(
 }
 
 pub(super) fn remove_property_presentation(diagram: &mut IbdDiagram, id: &str) -> bool {
-    let Some(path) = diagram.properties.iter().find(|p| p.id == id).map(|p| p.property_path.clone()) else { return false; };
+    let Some(path) = diagram
+        .properties
+        .iter()
+        .find(|p| p.id == id)
+        .map(|p| p.property_path.clone())
+    else {
+        return false;
+    };
     let mut removed = HashSet::new();
     diagram.properties.retain(|p| {
         if p.id == id || is_descendant(&p.property_path, &path) {
             removed.insert(p.id.clone());
             removed.extend(p.ports.iter().map(|port| port.id.clone()));
             false
-        } else { true }
+        } else {
+            true
+        }
     });
-    diagram.connectors.retain(|edge| !removed.contains(&edge.source_presentation_id) && !removed.contains(&edge.target_presentation_id));
+    diagram.connectors.retain(|edge| {
+        !removed.contains(&edge.source_presentation_id)
+            && !removed.contains(&edge.target_presentation_id)
+    });
     true
 }
 
 fn separate_children(diagram: &mut IbdDiagram, parent: Option<&[String]>) {
-    let mut children: Vec<_> = diagram.properties.iter().filter(|p| {
-        if let Some(path) = parent {
-            p.property_path.len() == path.len() + 1 && p.property_path.starts_with(path)
-        } else { p.property_path.len() == 1 }
-    }).cloned().collect();
-    children.sort_by(|a, b| a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x)).then_with(|| a.id.cmp(&b.id)));
+    let mut children: Vec<_> = diagram
+        .properties
+        .iter()
+        .filter(|p| {
+            if let Some(path) = parent {
+                p.property_path.len() == path.len() + 1 && p.property_path.starts_with(path)
+            } else {
+                p.property_path.len() == 1
+            }
+        })
+        .cloned()
+        .collect();
+    children.sort_by(|a, b| {
+        a.y.total_cmp(&b.y)
+            .then_with(|| a.x.total_cmp(&b.x))
+            .then_with(|| a.id.cmp(&b.id))
+    });
     let mut placed: Vec<super::routing::RouteRect> = Vec::new();
     for child in children {
         let mut y = child.y;
         for previous in &placed {
-            if child.x < previous.x + previous.width + 16.0 && child.x + child.width + 16.0 > previous.x
-                && y < previous.y + previous.height + 16.0 && y + child.height + 16.0 > previous.y {
+            if child.x < previous.x + previous.width + 16.0
+                && child.x + child.width + 16.0 > previous.x
+                && y < previous.y + previous.height + 16.0
+                && y + child.height + 16.0 > previous.y
+            {
                 y = previous.y + previous.height + 24.0;
             }
         }
         translate_subtree(diagram, &child.id, 0.0, y - child.y);
-        placed.push(super::routing::RouteRect { y, ..super::ibd_geometry::property_rect(&child) });
+        placed.push(super::routing::RouteRect {
+            y,
+            ..super::ibd_geometry::property_rect(&child)
+        });
     }
 }
 
 pub(super) fn clean_groups(diagram: &mut IbdDiagram) -> Result<(), String> {
-    let roots: Vec<_> = diagram.properties.iter().filter(|p| {
-        !diagram.properties.iter().any(|parent| is_descendant(&p.property_path, &parent.property_path))
-    }).cloned().collect();
-    let root_for = |id: &str| diagram.properties.iter().find(|p| p.id == id || p.ports.iter().any(|port| port.id == id))
-        .and_then(|p| roots.iter().find(|root| p.id == root.id || is_descendant(&p.property_path, &root.property_path)))
-        .map(|root| root.id.clone());
-    let edges: Vec<_> = diagram.connectors.iter().filter_map(|edge| {
-        let source = root_for(&edge.source_presentation_id)?;
-        let target = root_for(&edge.target_presentation_id)?;
-        (source != target).then_some((source, target))
-    }).collect();
+    let roots: Vec<_> = diagram
+        .properties
+        .iter()
+        .filter(|p| {
+            !diagram
+                .properties
+                .iter()
+                .any(|parent| is_descendant(&p.property_path, &parent.property_path))
+        })
+        .cloned()
+        .collect();
+    let root_for = |id: &str| {
+        diagram
+            .properties
+            .iter()
+            .find(|p| p.id == id || p.ports.iter().any(|port| port.id == id))
+            .and_then(|p| {
+                roots.iter().find(|root| {
+                    p.id == root.id || is_descendant(&p.property_path, &root.property_path)
+                })
+            })
+            .map(|root| root.id.clone())
+    };
+    let edges: Vec<_> = diagram
+        .connectors
+        .iter()
+        .filter_map(|edge| {
+            let source = root_for(&edge.source_presentation_id)?;
+            let target = root_for(&edge.target_presentation_id)?;
+            (source != target).then_some((source, target))
+        })
+        .collect();
     let positions = super::layout::hierarchical_positions_sized(
-        roots.iter().map(|property| super::layout::LayoutNode { id: property.id.clone(), width: property.width, height: property.height }),
-        &edges, systems_modeler_core::PreferredFlowDirection::LeftToRight,
+        roots.iter().map(|property| super::layout::LayoutNode {
+            id: property.id.clone(),
+            width: property.width,
+            height: property.height,
+        }),
+        &edges,
+        systems_modeler_core::PreferredFlowDirection::LeftToRight,
     );
     for property in roots {
         if let Some((x, y)) = positions.get(&property.id) {
@@ -570,14 +651,20 @@ mod tests {
         rect.width = 60.0;
         assert!(apply_property_geometry(&mut diagram, &engine, rect).is_err());
         assert_eq!(serde_json::to_value(&diagram).unwrap(), before);
-        let offsets: Vec<_> = diagram.properties.iter().map(|p| (p.x - diagram.properties[0].x, p.y - diagram.properties[0].y)).collect();
+        let offsets: Vec<_> = diagram
+            .properties
+            .iter()
+            .map(|p| (p.x - diagram.properties[0].x, p.y - diagram.properties[0].y))
+            .collect();
         clean_groups(&mut diagram).unwrap();
         for (p, offset) in diagram.properties.iter().zip(offsets) {
-            assert_eq!((p.x - diagram.properties[0].x, p.y - diagram.properties[0].y), offset);
+            assert_eq!(
+                (p.x - diagram.properties[0].x, p.y - diagram.properties[0].y),
+                offset
+            );
         }
         assert!(remove_property_presentation(&mut diagram, &engine));
         assert!(diagram.properties.is_empty());
         assert_eq!(serde_json::to_value(&project).unwrap(), original);
     }
-
 }

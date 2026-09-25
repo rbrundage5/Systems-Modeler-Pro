@@ -137,21 +137,42 @@ pub(super) fn ibd_end_for_presentation(
 
 fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> Vec<RouteRect> {
     let mut obstacles = Vec::new();
-    let paths: Vec<_> = [source_id, target_id].iter().filter_map(|id| {
-        ibd_end_for_presentation(diagram, id).ok().map(|(end, _)| end.property_path.iter().map(ToString::to_string).collect::<Vec<_>>())
-    }).collect();
+    let paths: Vec<_> = [source_id, target_id]
+        .iter()
+        .filter_map(|id| {
+            ibd_end_for_presentation(diagram, id).ok().map(|(end, _)| {
+                end.property_path
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
     for property in &diagram.properties {
-        if !super::ibd_structure::property_visible(diagram, property) { continue; }
-        let owns_end = property.id == source_id || property.id == target_id
-            || property.ports.iter().any(|port| port.id == source_id || port.id == target_id);
-        let encloses_end = paths.iter().any(|path| super::ibd_structure::is_descendant(path, &property.property_path));
+        if !super::ibd_structure::property_visible(diagram, property) {
+            continue;
+        }
+        let owns_end = property.id == source_id
+            || property.id == target_id
+            || property
+                .ports
+                .iter()
+                .any(|port| port.id == source_id || port.id == target_id);
+        let encloses_end = paths
+            .iter()
+            .any(|path| super::ibd_structure::is_descendant(path, &property.property_path));
         if !owns_end && !encloses_end {
             obstacles.push(property_rect(property));
         } else if encloses_end {
-            obstacles.push(RouteRect { height: 32.0, ..property_rect(property) });
+            obstacles.push(RouteRect {
+                height: 32.0,
+                ..property_rect(property)
+            });
         }
         for port in &property.ports {
-            if port.id != source_id && port.id != target_id { obstacles.push(port_rect(port)); }
+            if port.id != source_id && port.id != target_id {
+                obstacles.push(port_rect(port));
+            }
         }
     }
     for port in &diagram.boundary_ports {
@@ -161,7 +182,6 @@ fn routing_obstacles(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> 
     }
     obstacles
 }
-
 
 fn lane_index(diagram: &IbdDiagram, source_id: &str, target_id: &str) -> usize {
     diagram
@@ -711,11 +731,19 @@ pub(super) fn routed_ibd_connectors(
     // With every connector route committed, labels can avoid the full relationship
     // geometry and previously placed labels without affecting route feasibility.
     for (edge_id, points) in routed_geometry {
-        let edge = snapshot.connectors.iter().find(|edge| edge.id == edge_id).ok_or("IBD connector not found")?;
-        let obstacles: Vec<_> = routing_obstacles(&snapshot, &edge.source_presentation_id, &edge.target_presentation_id)
-            .into_iter()
-            .chain(label_obstacles.iter().copied())
-            .collect();
+        let edge = snapshot
+            .connectors
+            .iter()
+            .find(|edge| edge.id == edge_id)
+            .ok_or("IBD connector not found")?;
+        let obstacles: Vec<_> = routing_obstacles(
+            &snapshot,
+            &edge.source_presentation_id,
+            &edge.target_presentation_id,
+        )
+        .into_iter()
+        .chain(label_obstacles.iter().copied())
+        .collect();
         let label_anchor =
             super::routing::route_label_anchor_avoiding(&points, &obstacles, &all_routes, bounds)?;
         let connector = connectors

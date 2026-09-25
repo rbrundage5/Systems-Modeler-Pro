@@ -186,7 +186,14 @@ pub fn update_ibd_property_geometry(
     validate_geometry(x, y, width, height, 60.0, 40.0)?;
     history::edit_ibd_geometry(&state, &activity, &history, &diagram_id, |diagram| {
         super::ibd_structure::apply_property_geometry(
-            diagram, &presentation_id, super::routing::RouteRect { x, y, width, height },
+            diagram,
+            &presentation_id,
+            super::routing::RouteRect {
+                x,
+                y,
+                width,
+                height,
+            },
         )
     })
 }
